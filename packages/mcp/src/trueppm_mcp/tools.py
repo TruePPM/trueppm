@@ -1017,10 +1017,13 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         Check ``cost_computable`` before quoting a total: when false, one or more
         people in scope have no hourly rate, ``actual`` covers only the priced part,
         and each KPI reports ``available: false`` with a ``reason`` (``no_budget``,
-        ``missing_rates``, or for the forecasts ``no_actual_cost``, ``no_earned_value``,
-        ``budget_exhausted``) instead of a value. ``provenance`` names the inputs behind
-        every figure (rate source, percent-complete basis, EAC method) and marks each
-        as computed or restricted; quote it when asked where a number came from.
+        ``missing_rates``, ``no_planned_duration``, or for the forecasts
+        ``no_actual_cost``, ``no_earned_value``, ``budget_exhausted``) instead of a value.
+        Earned value weights each leaf task's percent complete by its duration; it is
+        not the project list's percent complete (see ``definitions``). ``provenance``
+        names the inputs behind every figure (rate source, percent-complete basis, EAC
+        method) and marks each as computed or restricted; quote it when asked where a
+        number came from.
         ``missing_rate_count`` and ``missing_rate_resources`` say who is unrated.
         ``lines`` holds one row per person (hours, rate, cost).
 

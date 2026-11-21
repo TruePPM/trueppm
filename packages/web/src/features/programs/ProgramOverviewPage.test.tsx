@@ -136,6 +136,23 @@ describe('ProgramOverviewPage (#713)', () => {
     expect(screen.getByText('3 people have no rate')).toBeInTheDocument();
   });
 
+  it('names projects whose earned value has no duration basis (ADR-1447)', async () => {
+    mockApi(
+      rollup({
+        kpis: {
+          cost_variance: {
+            available: false,
+            reason: 'no_planned_duration',
+            projects_without_planned_duration: 2,
+          },
+        },
+      }),
+    );
+    renderPage();
+    expect(await screen.findByText('Cost variance')).toBeInTheDocument();
+    expect(screen.getByText('2 projects have no task durations')).toBeInTheDocument();
+  });
+
   it('names projects without a budget, and hides cost from a non-manager', async () => {
     mockApi(
       rollup({

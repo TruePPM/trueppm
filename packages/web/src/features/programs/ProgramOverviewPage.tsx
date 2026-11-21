@@ -39,6 +39,7 @@ interface AvailableKpi {
   reason?: string;
   projects_without_budget?: number;
   missing_rate_count?: number;
+  projects_without_planned_duration?: number;
   as_of?: string | null;
   driver_project_id?: string | null;
   projects_without_forecast?: number;
@@ -47,14 +48,21 @@ interface AvailableKpi {
 /**
  * A KPI with no value: not built yet (none today; `no_montecarlo_store` is the
  * pre-#4779 server's reason for `p80_completion`), missing per-project cost data
- * (`no_budget` / `missing_rates`), or hidden from a caller below program Admin
- * (`cost_restricted`, ADR-1324 §4).
+ * (`no_budget` / `missing_rates`), a project whose leaf work plans no days so its
+ * earned value has no basis (`no_planned_duration`, cost variance only, ADR-1447), or
+ * hidden from a caller below program Admin (`cost_restricted`, ADR-1324 §4).
  */
 interface UnavailableKpi {
   available: false;
-  reason: 'no_montecarlo_store' | 'no_budget' | 'missing_rates' | 'cost_restricted';
+  reason:
+    | 'no_montecarlo_store'
+    | 'no_budget'
+    | 'missing_rates'
+    | 'no_planned_duration'
+    | 'cost_restricted';
   projects_without_budget?: number;
   missing_rate_count?: number;
+  projects_without_planned_duration?: number;
 }
 
 type RollupKpiEntry = AvailableKpi | UnavailableKpi;
@@ -126,6 +134,7 @@ const DEFERRED_REASON_LABEL: Record<UnavailableKpi['reason'], string> = {
   no_montecarlo_store: 'Needs a saved Monte Carlo run',
   no_budget: 'Needs a budget on every project',
   missing_rates: 'Needs a rate for everyone on the project',
+  no_planned_duration: 'Needs task durations on every project',
   cost_restricted: 'Restricted to managers of every project',
 };
 
@@ -153,6 +162,9 @@ function unavailableSub(entry: UnavailableKpi): string {
   }
   if (entry.reason === 'missing_rates' && entry.missing_rate_count) {
     return `${plural(entry.missing_rate_count, 'person has', 'people have')} no rate`;
+  }
+  if (entry.reason === 'no_planned_duration' && entry.projects_without_planned_duration) {
+    return `${plural(entry.projects_without_planned_duration, 'project has', 'projects have')} no task durations`;
   }
   return DEFERRED_REASON_LABEL[entry.reason] ?? 'Not available';
 }

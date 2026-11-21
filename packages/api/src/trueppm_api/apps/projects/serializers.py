@@ -3477,7 +3477,9 @@ class ProgramRollupKpiEntrySerializer(serializers.Serializer[dict[str, Any]]):
         help_text=(
             "Why the KPI has no value. On an unavailable entry (available false): "
             "no_budget (a contributing project has no budget), missing_rates "
-            "(someone in scope has no rate), or cost_restricted (the caller is not "
+            "(someone in scope has no rate), no_planned_duration (cost_variance only: "
+            "a contributing project's leaf work plans 0 days, so its earned value has "
+            "no basis; ADR-1447), or cost_restricted (the caller is not "
             "program Admin+ and project Admin+ on every contributing project, so "
             "may not see cost; ADR-1324). On an available entry whose value is null "
             "or unknown (rule 119, ADR-1314): no_projects (no contributing project), "
@@ -3492,6 +3494,7 @@ class ProgramRollupKpiEntrySerializer(serializers.Serializer[dict[str, Any]]):
     # whenever the caller may see cost, so a reason names how much is missing.
     projects_without_budget = serializers.IntegerField(read_only=True, required=False)
     missing_rate_count = serializers.IntegerField(read_only=True, required=False)
+    projects_without_planned_duration = serializers.IntegerField(read_only=True, required=False)
     # p80_completion detail (ADR-1314 amendment, #4779).
     as_of = serializers.DateTimeField(
         read_only=True,

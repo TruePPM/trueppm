@@ -62563,7 +62563,7 @@
                             }
                         ],
                         "readOnly": true,
-                        "description": "Why there is no value: no_budget, missing_rates, cost_restricted, no_actual_cost (AC is 0, CPI undefined), no_earned_value (EV is 0, EAC would be infinite) or budget_exhausted (AC has reached BAC, TCPI undefined).\n\n* `no_budget` - no_budget\n* `missing_rates` - missing_rates\n* `cost_restricted` - cost_restricted\n* `no_actual_cost` - no_actual_cost\n* `no_earned_value` - no_earned_value\n* `budget_exhausted` - budget_exhausted"
+                        "description": "Why there is no value: no_budget, missing_rates, no_planned_duration (cost_variance and the forecasts: the leaf work tasks plan 0 days, so earned value has no weighting basis, ADR-1447), cost_restricted, no_actual_cost (AC is 0, CPI undefined), no_earned_value (EV is 0, EAC would be infinite) or budget_exhausted (AC has reached BAC, TCPI undefined).\n\n* `no_budget` - no_budget\n* `missing_rates` - missing_rates\n* `no_planned_duration` - no_planned_duration\n* `cost_restricted` - cost_restricted\n* `no_actual_cost` - no_actual_cost\n* `no_earned_value` - no_earned_value\n* `budget_exhausted` - budget_exhausted"
                     }
                 },
                 "required": [
@@ -62576,13 +62576,14 @@
                 "enum": [
                     "no_budget",
                     "missing_rates",
+                    "no_planned_duration",
                     "cost_restricted",
                     "no_actual_cost",
                     "no_earned_value",
                     "budget_exhausted"
                 ],
                 "type": "string",
-                "description": "* `no_budget` - no_budget\n* `missing_rates` - missing_rates\n* `cost_restricted` - cost_restricted\n* `no_actual_cost` - no_actual_cost\n* `no_earned_value` - no_earned_value\n* `budget_exhausted` - budget_exhausted",
+                "description": "* `no_budget` - no_budget\n* `missing_rates` - missing_rates\n* `no_planned_duration` - no_planned_duration\n* `cost_restricted` - cost_restricted\n* `no_actual_cost` - no_actual_cost\n* `no_earned_value` - no_earned_value\n* `budget_exhausted` - budget_exhausted",
                 "x-trueppm-enum": "open"
             },
             "CostLine": {
@@ -75129,7 +75130,7 @@
                     "cost_variance": {
                         "type": "string",
                         "readOnly": true,
-                        "description": "Earned value minus actual cost, summed across the contributing projects, in the workspace currency; negative means over budget."
+                        "description": "Earned value (budget times the duration-weighted percent complete of the leaf tasks) minus actual cost, summed across the contributing projects, in the workspace currency; negative means over budget."
                     },
                     "budget_utilization": {
                         "type": "string",
@@ -75206,13 +75207,17 @@
                     "reason": {
                         "type": "string",
                         "readOnly": true,
-                        "description": "Why the KPI has no value. On an unavailable entry (available false): no_budget (a contributing project has no budget), missing_rates (someone in scope has no rate), or cost_restricted (the caller is not program Admin+ and project Admin+ on every contributing project, so may not see cost; ADR-1324). On an available entry whose value is null or unknown (rule 119, ADR-1314): no_projects (no contributing project), no_planned_work (schedule_health: no project has work planned by today), no_milestones (milestone_health), no_baseline (the day variances: no project has an active baseline with dates), no_completed_work (schedule_variance: no baselined task is complete yet), or no_forecast (p80_completion: no project has a Monte Carlo forecast with a P80)."
+                        "description": "Why the KPI has no value. On an unavailable entry (available false): no_budget (a contributing project has no budget), missing_rates (someone in scope has no rate), no_planned_duration (cost_variance only: a contributing project's leaf work plans 0 days, so its earned value has no basis; ADR-1447), or cost_restricted (the caller is not program Admin+ and project Admin+ on every contributing project, so may not see cost; ADR-1324). On an available entry whose value is null or unknown (rule 119, ADR-1314): no_projects (no contributing project), no_planned_work (schedule_health: no project has work planned by today), no_milestones (milestone_health), no_baseline (the day variances: no project has an active baseline with dates), no_completed_work (schedule_variance: no baselined task is complete yet), or no_forecast (p80_completion: no project has a Monte Carlo forecast with a P80)."
                     },
                     "projects_without_budget": {
                         "type": "integer",
                         "readOnly": true
                     },
                     "missing_rate_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "projects_without_planned_duration": {
                         "type": "integer",
                         "readOnly": true
                     },
@@ -75243,6 +75248,7 @@
                     "missing_rate_count",
                     "projects_without_budget",
                     "projects_without_forecast",
+                    "projects_without_planned_duration",
                     "reason",
                     "unit",
                     "value"
@@ -76728,7 +76734,9 @@
                         "type": "string",
                         "format": "decimal",
                         "pattern": "^-?\\d{0,3}(?:\\.\\d{0,2})?$",
-                        "readOnly": true
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Duration-weighted percent complete of the leaf work tasks, the basis of earned_value (ADR-1447). Not the project list's unweighted percent complete. Null when the leaf work plans 0 days (no_planned_duration)."
                     },
                     "earned_value": {
                         "type": "string",

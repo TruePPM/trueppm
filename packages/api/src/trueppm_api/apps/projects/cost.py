@@ -15,10 +15,15 @@ Definitions (ADR-1324 §2–§3):
   tasks — PTO and non-project time are therefore excluded by construction (time off is
   a calendar exception, never a time entry; time on another project's task belongs to
   that project). Entries on soft-deleted tasks still count: the money was spent.
-- **Earned value (EV)** = BAC × the project's existing percent complete (the same
-  ``Avg(percent_complete)`` over non-deleted tasks the project list annotates, ADR-0171)
-  / 100. Reused verbatim; not a new progress measure. A project with no live tasks
-  has percent complete 0 (nothing left has been earned), never null.
+- **Earned value (EV)** = BAC × the project's *duration-weighted* percent complete / 100
+  (ADR-1447, amending ADR-1324 §3): Σ(task percent × task ``duration``) / Σ(task
+  ``duration``) over the project's leaf work tasks — committed (``Task.committed``),
+  not a phase, not a subtask, ``duration`` > 0. Phases are rollups of their children
+  and subtasks are part of their parent's duration, so counting either would count
+  the same work twice; a zero-duration task (every milestone) has no planned work and
+  so no share of the budget. When that Σ duration is 0 (no leaf work, or only
+  milestones) EV is not computable (``no_planned_duration``), never 0. This is *not*
+  the project list's percent complete (an unweighted mean, ADR-0171).
 - **CV** = EV − AC; **budget utilization** = AC / BAC (spend as a share of budget; it
   is *not* the cost performance index).
 - **CPI** = EV / AC; **EAC** = BAC / CPI (the "typical variance" forecast: the cost
@@ -26,8 +31,7 @@ Definitions (ADR-1324 §2–§3):
   **VAC** = BAC − EAC; **TCPI** = (BAC − EV) / (BAC − AC) (the efficiency needed on the
   remaining work to finish on BAC). These are the commonly published definitions, taken
   from secondary sources and NOT yet confirmed against the PMBOK / PMI Practice Standard
-  for EVM (ADR-1324 addendum, #4852); EV keeps the unweighted-mean
-  percent-complete basis (the basis decision is #4853, not made here).
+  for EVM (ADR-1324 addendum, #4852).
 
 Performance: a fixed number of queries for any number of projects (no per-project
 loop). The heavy aggregation — summing minutes — is a grouped SQL ``Sum``; the
@@ -42,7 +46,7 @@ from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
-from django.db.models import Avg, Q, Sum
+from django.db.models import F, FloatField, Q, Sum
 from django.utils import timezone
 
 CENT = Decimal("0.01")
@@ -53,6 +57,10 @@ _MINUTES_PER_HOUR = Decimal(60)
 REASON_COST_RESTRICTED = "cost_restricted"
 REASON_NO_BUDGET = "no_budget"
 REASON_MISSING_RATES = "missing_rates"
+# EV's weighting has no denominator: the project's leaf work tasks plan 0 days in total
+# (no leaf work at all, or only milestones / zero-duration tasks). ADR-1447. Distinct
+# from the program rollup's ``no_planned_work`` (schedule health, "nothing due by today").
+REASON_NO_PLANNED_DURATION = "no_planned_duration"
 # Forecast-only reasons: the inputs exist but the ratio's denominator is zero (or the
 # result would be infinite), so no number is the honest answer.
 REASON_NO_ACTUAL_COST = "no_actual_cost"  # AC = 0: CPI = EV / AC is undefined
@@ -62,7 +70,9 @@ REASON_BUDGET_EXHAUSTED = "budget_exhausted"  # AC >= BAC: TCPI's denominator is
 #: The computing function and response contract named in the ``provenance`` block, so a
 #: figure someone quotes can be traced to the code and shape that produced it.
 COST_COMPUTED_BY = "trueppm_api.apps.projects.cost.project_cost_facts"
-COST_CONTRACT_VERSION = "1"
+# "2" (ADR-1447): EV is duration-weighted and percent_complete can be null. A figure
+# quoted under "1" used the unweighted mean.
+COST_CONTRACT_VERSION = "2"
 
 #: One-sentence derivation per published cost field, served on the cost summary so an
 #: agent (or a PM) can say *why* a number is what it is rather than restate it.
@@ -77,14 +87,24 @@ COST_DEFINITIONS: dict[str, str] = {
         "not included. Changing a rate re-costs past hours."
     ),
     "percent_complete": (
-        "The project's percent complete: the mean percent_complete of its non-deleted "
-        "tasks, or 0 when it has none."
+        "The percent complete earned value is computed from: each leaf work task's "
+        "percent complete weighted by its current duration in working days, "
+        "sum(percent x duration) / sum(duration). Phases, subtasks, backlog, epics, "
+        "recurring and zero-duration tasks (milestones) are left out. A 100-day task "
+        "counts 100 times as much as a 1-day task. This is not the project list's "
+        "percent complete, which is an unweighted mean. Null when the leaf work plans "
+        "0 days in total."
     ),
     "earned_value": (
-        "budget x percent_complete / 100. percent_complete is the unweighted mean of "
-        "task percent complete, so every task counts equally regardless of its size."
+        "budget x percent_complete / 100: the share of the budget the completed work is "
+        "worth, if the budget is spread over the work in proportion to duration. It "
+        "uses the percent complete people enter on tasks, not measured output, and it "
+        "does not use a baseline: re-estimating a task's duration re-weights it. "
+        "Unavailable (no_planned_duration) when no leaf work task has a duration."
     ),
-    "cost_variance": "earned_value - actual. Negative means over budget.",
+    "cost_variance": (
+        "earned_value - actual. Negative means over budget. Unavailable when earned_value is."
+    ),
     "budget_utilization": (
         "actual / budget (AC / BAC): the share of the budget spent so far. 1.0 means the "
         "whole budget has been spent. It is not the cost performance index: it ignores "
@@ -157,6 +177,8 @@ class ProjectCost:
 
     project_id: Any
     budget: Decimal | None
+    #: Duration-weighted percent complete of the leaf work (ADR-1447); None when that
+    #: work plans 0 days in total, so EV has no basis (``no_planned_duration``).
     percent_complete: Decimal | None
     lines: list[CostLine] = field(default_factory=list)
     missing: list[MissingRate] = field(default_factory=list)
@@ -188,20 +210,36 @@ class ProjectCost:
         """#4809's fact: every person in scope has a rate. Independent of the budget."""
         return not self.missing
 
+    def earned_value_reason(self) -> str | None:
+        """Why EV has no value, or None. EV needs a budget and a weighting basis, not rates."""
+        if not self.has_budget:
+            return REASON_NO_BUDGET
+        if self.percent_complete is None:
+            return REASON_NO_PLANNED_DURATION
+        return None
+
     @property
     def earned_value(self) -> Decimal | None:
-        if not self.has_budget or self.percent_complete is None:
+        if self.earned_value_reason() is not None:
             return None
-        assert self.budget is not None
+        assert self.budget is not None and self.percent_complete is not None
         return money(self.budget * self.percent_complete / 100)
 
-    def unavailable_reason(self) -> str | None:
-        """First failing precondition for CV / utilization, in ADR-1324 §3 table order."""
+    def utilization_reason(self) -> str | None:
+        """First failing precondition for budget utilization (AC / BAC; needs no EV)."""
         if not self.has_budget:
             return REASON_NO_BUDGET
         if not self.cost_computable:
             return REASON_MISSING_RATES
         return None
+
+    def unavailable_reason(self) -> str | None:
+        """First failing precondition for CV and the forecasts, in ADR-1324 §3 table order.
+
+        Utilization's preconditions plus EV's: AC must be fully priced and EV must have
+        a weighting basis (ADR-1447).
+        """
+        return self.utilization_reason() or self.earned_value_reason()
 
     @property
     def cost_variance(self) -> Decimal | None:
@@ -212,7 +250,7 @@ class ProjectCost:
 
     @property
     def budget_utilization(self) -> float | None:
-        if self.unavailable_reason() is not None:
+        if self.utilization_reason() is not None:
             return None
         assert self.budget is not None
         return round(float(self.actual / self.budget), 4)
@@ -228,8 +266,8 @@ class ProjectCost:
         if reason is not None:
             return None, reason
         ev = self.earned_value
-        if ev is None:  # unreachable once has_budget; keeps the type honest
-            return None, REASON_NO_BUDGET
+        if ev is None:  # unreachable: the gate includes earned_value_reason(); for the type
+            return None, self.earned_value_reason() or REASON_NO_BUDGET
         if self.actual <= 0:
             return None, REASON_NO_ACTUAL_COST
         return round(float(ev / self.actual), 4), None
@@ -274,24 +312,44 @@ def _hours(minutes: int) -> Decimal:
 
 
 def project_percent_complete(project_ids: Collection[Any]) -> dict[Any, float]:
-    """project_id → the project's existing percent complete (0–100).
+    """project_id → the duration-weighted percent complete (0–100) EV is computed from.
 
-    The same aggregate ``ProjectViewSet`` annotates on the project list (ADR-0171):
-    the mean ``percent_complete`` of non-deleted tasks. Projects with no tasks are
-    absent. Reused for EV per the 2026-11-05 decision on #754 — do not substitute a
-    weighted measure here without a new ADR.
+    ADR-1447: Σ(percent_complete × duration) / Σ(duration) over the project's leaf work
+    tasks. "Leaf work" is the committed set the schedule is computed over
+    (``Task.committed``: not deleted, not BACKLOG, not EPIC, not recurring), minus
+    phases (their percent is a rollup of their children, ADR-0293, so counting them
+    would count the children twice) and subtasks (ADR-0060: the parent leaf's span and
+    progress already cover them — the same leaf set ``percent_complete_rollup`` reads).
+    A task with ``duration`` 0 adds nothing to either sum: it plans no work, so it
+    carries no share of the budget — completing a milestone earns nothing beyond the
+    work that led to it.
+
+    A project whose leaf work plans 0 days in total is **absent**, which the caller
+    reports as ``no_planned_duration``. One grouped query for any number of projects.
+
+    This is deliberately NOT the project list's percent complete (an unweighted mean
+    over every non-deleted task, ADR-0171); the two may differ.
     """
     from trueppm_api.apps.projects.models import Task
+    from trueppm_api.apps.projects.program_rollup import task_is_phase_expr
 
     if not project_ids:
         return {}
-    return {
-        r["project_id"]: r["pc"]
-        for r in Task.objects.filter(project_id__in=list(project_ids), is_deleted=False)
+    rows = (
+        Task.committed.filter(project_id__in=list(project_ids), is_subtask=False, duration__gt=0)
+        .annotate(_ev_is_phase=task_is_phase_expr())
+        .filter(_ev_is_phase=False)
         .order_by()
         .values("project_id")
-        .annotate(pc=Avg("percent_complete"))
-        if r["pc"] is not None
+        .annotate(
+            earned_days=Sum(F("percent_complete") * F("duration"), output_field=FloatField()),
+            planned_days=Sum("duration"),
+        )
+    )
+    return {
+        r["project_id"]: float(r["earned_days"] or 0.0) / r["planned_days"]
+        for r in rows
+        if r["planned_days"]
     }
 
 
@@ -513,15 +571,13 @@ def project_cost_facts(
         pid: ProjectCost(
             project_id=pid,
             budget=inputs.budgets.get(pid),
-            # A project with no live tasks has earned nothing: 0, not "unknown".
-            # Otherwise EV is None, CV reads {available, value: null} while AC > 0,
-            # and the program total silently drops the overrun (ADR-1324 §2: spent-
-            # but-abandoned work must show as negative CV). Where the project list's
-            # Avg annotation is defined (≥1 live task) the two still agree.
+            # Absent from pct = the leaf work plans 0 days: no basis for EV, so None
+            # (reported as no_planned_duration), never a 0 that would read as "nothing
+            # earned" (ADR-1447). CV and the forecasts then carry that reason too.
             percent_complete=(
                 Decimal(str(inputs.pct[pid])).quantize(CENT, rounding=ROUND_HALF_UP)
                 if pid in inputs.pct
-                else Decimal("0.00")
+                else None
             ),
             as_of=now,
         )
@@ -576,6 +632,7 @@ def cost_provenance(cost: ProjectCost) -> dict[str, Any]:
     datum saying when a figure was true, and a rate change re-costs past hours.
     """
     reason = cost.unavailable_reason()
+    util_reason = cost.utilization_reason()
 
     def status(figure_reason: str | None) -> dict[str, Any]:
         return (
@@ -595,18 +652,19 @@ def cost_provenance(cost: ProjectCost) -> dict[str, Any]:
                 "Each person's hours are priced at the resource's current rate, so a "
                 "rate change re-costs past hours; as_of is when this figure was true."
             ),
-            "percent_complete_source": "unweighted_mean_task_percent_complete",
+            "percent_complete_source": "duration_weighted_leaf_task_percent_complete",
             "percent_complete_note": (
-                "Earned value uses the unweighted mean of non-deleted task percent "
-                "complete, not duration- or cost-weighted."
+                "Earned value weights each leaf work task's percent complete by its "
+                "current duration (ADR-1447). Phases, subtasks and zero-duration tasks "
+                "are excluded; no baseline is used, so re-estimating a task re-weights it."
             ),
             "eac_method": "typical_variance",
             "eac_formula": "budget / cpi",
         },
         "figures": {
-            "earned_value": status(None if cost.earned_value is not None else REASON_NO_BUDGET),
+            "earned_value": status(cost.earned_value_reason()),
             "cost_variance": status(reason),
-            "budget_utilization": status(reason),
+            "budget_utilization": status(util_reason),
             "cpi": status(cost.cpi_result()[1]),
             "eac": status(cost.eac_result()[1]),
             "etc": status(cost.etc_result()[1]),
@@ -629,7 +687,7 @@ def project_cost_payload(cost: ProjectCost, currency: str) -> dict[str, Any]:
         "percent_complete": cost.percent_complete,
         "earned_value": cost.earned_value,
         "cost_variance": kpi_entry(str(cv) if cv is not None else None, reason),
-        "budget_utilization": kpi_entry(cost.budget_utilization, reason),
+        "budget_utilization": kpi_entry(cost.budget_utilization, cost.utilization_reason()),
         "cpi": _forecast_entry(*cost.cpi_result()),
         "eac": _forecast_entry(*_money_result(cost.eac_result())),
         "etc": _forecast_entry(*_money_result(cost.etc_result())),
@@ -668,33 +726,44 @@ def program_cost_kpis(costs: Collection[ProjectCost], currency: str) -> dict[str
 
     Both are policy-independent totals: Σ CV, and ΣAC / ΣBAC (a ratio of sums — a mean
     of per-project ratios would overweight a tiny project). Unavailable if ANY
-    contributing project is: a partial sum would be a confident wrong number. The
-    detail counts (``projects_without_budget``, program-distinct ``missing_rate_count``)
-    ride along either way so the reason is actionable.
+    contributing project is: a partial sum would be a confident wrong number. CV also
+    needs every project's EV, so a project whose leaf work plans 0 days makes CV (not
+    utilization) unavailable with ``no_planned_duration`` (ADR-1447). The detail counts
+    (``projects_without_budget``, program-distinct ``missing_rate_count``,
+    ``projects_without_planned_duration``) ride along either way so the reason is
+    actionable.
     """
     costs = list(costs)
     no_budget = sum(1 for c in costs if not c.has_budget)
     missing_people = {(m.user_id, m.resource_id) for c in costs for m in c.missing}
-    detail = {"projects_without_budget": no_budget, "missing_rate_count": len(missing_people)}
+    no_duration = sum(
+        1 for c in costs if c.has_budget and c.earned_value_reason() == REASON_NO_PLANNED_DURATION
+    )
+    detail = {
+        "projects_without_budget": no_budget,
+        "missing_rate_count": len(missing_people),
+        "projects_without_planned_duration": no_duration,
+    }
     if not costs:
         return {
             "cost_variance": {"available": True, "value": None, "unit": currency, **detail},
             "budget_utilization": {"available": True, "value": None, "unit": "ratio", **detail},
         }
-    reason = REASON_NO_BUDGET if no_budget else REASON_MISSING_RATES if missing_people else None
-    if reason is not None:
-        return {
-            "cost_variance": kpi_entry(None, reason, **detail),
-            "budget_utilization": kpi_entry(None, reason, **detail),
-        }
-    # Every cost here has a value: unavailable_reason() is None for all of them, and
-    # a project with no live tasks earns 0 (see project_cost_facts), never None.
-    total_cv = sum((c.cost_variance or Decimal("0") for c in costs), Decimal("0"))
-    total_ac = sum((c.actual for c in costs), Decimal("0"))
-    total_bac = sum((c.budget or Decimal("0") for c in costs), Decimal("0"))
-    return {
-        "cost_variance": kpi_entry(str(money(total_cv)), None, unit=currency, **detail),
-        "budget_utilization": kpi_entry(
-            round(float(total_ac / total_bac), 4), None, unit="ratio", **detail
-        ),
-    }
+    util_reason = (
+        REASON_NO_BUDGET if no_budget else REASON_MISSING_RATES if missing_people else None
+    )
+    # CV also needs EV on every project; utilization (ΣAC / ΣBAC) does not (ADR-1447).
+    cv_reason = util_reason or (REASON_NO_PLANNED_DURATION if no_duration else None)
+    if cv_reason is None:
+        # Every cost here has a value: unavailable_reason() is None for all of them.
+        total_cv = sum((c.cost_variance or Decimal("0") for c in costs), Decimal("0"))
+        cv_entry = kpi_entry(str(money(total_cv)), None, unit=currency, **detail)
+    else:
+        cv_entry = kpi_entry(None, cv_reason, **detail)
+    if util_reason is None:
+        total_ac = sum((c.actual for c in costs), Decimal("0"))
+        total_bac = sum((c.budget or Decimal("0") for c in costs), Decimal("0"))
+        util_entry = kpi_entry(round(float(total_ac / total_bac), 4), None, unit="ratio", **detail)
+    else:
+        util_entry = kpi_entry(None, util_reason, **detail)
+    return {"cost_variance": cv_entry, "budget_utilization": util_entry}

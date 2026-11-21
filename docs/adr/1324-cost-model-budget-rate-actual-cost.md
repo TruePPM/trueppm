@@ -106,6 +106,13 @@ any number of projects, with no per-project loop (§8).
 
 ### 3. Earned value and the two KPIs
 
+> **Amended by [ADR-1447](1447-earned-value-basis-duration-weighted-percent-complete.md)
+> (#4853).** EV now uses the duration-weighted percent complete of leaf work:
+> Σ(percent × duration) / Σ(duration) over committed, non-phase, non-subtask tasks with
+> a duration. A project whose leaf work plans 0 days has no EV (`no_planned_duration`),
+> not 0. The formula block and the "reused verbatim" paragraph below record the original
+> 0.5 decision and no longer describe the code.
+
 The EV basis was settled by the user on 2026-11-05 and is not reopened here:
 
 ```
@@ -401,7 +408,7 @@ unweighted task mean, and whether per-role default rates are needed in 0.5.
 - VAC = BAC − EAC
 - TCPI = (BAC − EV) / (BAC − AC)
 
-The typical-variance EAC was chosen because it needs no input beyond BAC, EV and AC, and it is the most commonly published default. The sources consulted were secondary only (PMI library articles and practitioner sites, per #4852); the standard itself was not retrieved. EV is unchanged: unweighted mean percent complete (the basis decision is #4853).
+The typical-variance EAC was chosen because it needs no input beyond BAC, EV and AC, and it is the most commonly published default. The sources consulted were secondary only (PMI library articles and practitioner sites, per #4852); the standard itself was not retrieved. EV was unchanged by that addendum. Its basis was later decided by ADR-1447 (duration-weighted, #4853).
 
 Undefined denominators return no value with a reason (`no_actual_cost`, `no_earned_value`, `budget_exhausted`), never 0 or infinity. Rate-change history is not recorded because rates have no history (this ADR, §2), a deliberate limit. A `provenance` block (#4848) names the inputs and marks each figure computed or restricted. The program rollup cost KPIs do not carry it: they already report `available`/`reason` and the missing-budget and missing-rate counts per KPI, and their inputs are the per-project figures.
 
