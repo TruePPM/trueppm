@@ -261,16 +261,16 @@ class Task:
         live_day_end_on: Input only, read on a **completed milestone** with
             recorded actuals (#4525). The day the caller's previous run showed
             this milestone on with ``milestone_at_day_end`` True — that run's
-            ``early_finish`` — or ``None``. While any of the milestone's
-            predecessors is still open and this names its recorded day
-            (``actual_finish``, else ``actual_start``), the milestone stays at the
-            end of that day: closing a milestone ahead of its work keeps the edge
-            it had live. Once every predecessor is complete (or there are none),
-            or it names another day, the edge is read from completed
-            predecessors, so a correction to them is honored. No path reads an
-            open task's forecast. A caller that persists schedule output (as the
-            TruePPM API does) passes it back; ``None`` (the default) is always
-            safe. Ignored on any other task.
+            ``early_finish`` — or ``None``. It is the whole of the sign-off pin's
+            edge (ADR-0136, #5017): when it names the recorded day
+            (``actual_finish``, else ``actual_start``) the milestone sits at the
+            end of that day, and otherwise at the start of it. No predecessor is
+            read, open or complete, so closing a milestone on its forecast day
+            keeps the edge it had live, and nothing about its predecessors moves
+            its successors afterward. A caller that persists schedule output (as
+            the TruePPM API does) passes it back; with ``None`` (the default) a
+            closed milestone sits at the start of its recorded day. Ignored on any
+            other task.
         scheduled_start: Computed. Start of the task's whole span (ADR-0752): for
             an in-progress task this is where the work began, whereas
             ``early_start`` is where the remaining work begins. An input value is
@@ -373,10 +373,9 @@ class Task:
     # the start of the next working day (#4173) — and for every task that is not a
     # milestone. A completed milestone with recorded actuals keeps the edge it had
     # live (#4433, #4525), and its instant is on its recorded day (``actual_finish``,
-    # else ``actual_start``): ``True`` when completed work finishing on that day
-    # placed it, or, while any predecessor is still open, when ``live_day_end_on``
-    # names that day (the previous run's end-of-day reading, frozen). Open work's
-    # current forecast never decides it. The
+    # else ``actual_start``): ``True`` exactly when ``live_day_end_on`` names that
+    # day (the previous run's end-of-day reading), since the sign-off pin alone
+    # decides it (#5017); no predecessor is read. The
     # end of a Friday and the start of the next Monday are the same point in
     # working time, so the shown day can hop a weekend with no working-time move:
     # never diff two shown days as a slip (#4178, see ``ScheduleResult``).

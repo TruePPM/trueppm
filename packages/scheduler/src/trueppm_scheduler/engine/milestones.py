@@ -957,7 +957,6 @@ def _place_milestone(
     cal_for: Callable[[str], Calendar],
     start_floor: date | None = None,
     completed_only: bool = False,
-    last_day: date | None = None,
 ) -> tuple[_Instant, date, _Instant]:
     """Place a zero-duration task as an instant: ``(shown, day, link)``.
 
@@ -1023,12 +1022,9 @@ def _place_milestone(
     one instant that agrees with every tie and never decreases.
 
     ``completed_only`` limits the links to completed predecessors — the reading a
-    closed milestone's day edge is taken from (:func:`_live_milestone_edge`, #4525),
-    and the instant it links from (:func:`_closed_milestone_link`, #4690).
-
-    ``last_day`` drops every link proposal shown on a later day, so only work that
-    places the milestone on or before that day is read — the cap a closed
-    milestone's edge is read under (:func:`_live_milestone_edge`, #4703).
+    closed milestone's link instant is taken from (:func:`_closed_milestone_link`,
+    #4690). A closed milestone's day *edge* reads no predecessor at all: the
+    sign-off pin decides it (ADR-0136, #5017).
     """
     best: tuple[date, bool, date] | None = None
     pred_best: tuple[date, bool, date] | None = None
@@ -1046,8 +1042,6 @@ def _place_milestone(
         if completed_only and not _is_complete(pred):
             continue
         proposal = _link_proposal(pred_id, node_id, task_map, g, cal, links, cal_for)
-        if last_day is not None and proposal[2] > last_day:
-            continue
         offer(proposal)
         if pred_best is None or proposal[:2] > pred_best[:2]:
             pred_best = proposal
@@ -1187,9 +1181,8 @@ def _closed_milestone_link(
     lag out of ``M`` from a day later, so marking ``M`` done on the day it was
     shown moved its successors, and the project finish with them.
 
-    The instant is re-read from the facts, the same way the edge is
-    (:func:`_live_milestone_edge`): the completed predecessors placed with the
-    recorded day as a start-of-day floor. When one of them proposes an earlier
+    The instant is re-read from the facts: the completed predecessors placed with
+    the recorded day as a start-of-day floor. When one of them proposes an earlier
     midnight shown on the recorded day (:func:`_equivalent_link`), that is the
     instant the live milestone linked from, and the closed one keeps it. A
     milestone held by a floor, or with nothing before it, links from the recorded
@@ -1204,12 +1197,14 @@ def _closed_milestone_link(
     ``start_floor`` is the project-start floor, ``None`` for an SF-linked milestone
     (#4218), as :func:`_place_milestone` takes it.
 
-    Unlike the edge, the reading here is not capped at the recorded day
-    (``last_day``, #4703), on purpose: a proposal shown after it can only lose
-    the earlier-midnight test below, so it leaves the start of the recorded day,
-    which is where the milestone links from while that work is open. Capping it
-    would drop that work and let an earlier predecessor's midnight through,
-    pulling a lagged successor a day *earlier* when out-of-sequence work closes.
+    This does not reopen the sign-off pin (ADR-0136, #5017): the pin decides the
+    working-time point — the start of the recorded day — and this only chooses
+    which of the midnights that *are* that point (the recorded day's start and the
+    non-working run before it, :func:`_earliest_equivalent_midnight`) a calendar-day
+    lag counts from. The choice is non-decreasing in every proposal, and a proposal
+    shown on a later day than the recorded one can only lose the earlier-midnight
+    test below, so it leaves the start of the recorded day: a later actual finish
+    on a predecessor never moves a successor earlier.
     """
     if any(not _is_complete(task_map[p]) for p in g.predecessors(node_id)):
         return recorded, True

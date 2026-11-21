@@ -637,6 +637,23 @@ def _build_task_object(
     # by `<Start>`, which is the inverse of the invariant this clamp exists for.
     effective_percent = td.percent_complete if (_task_anchor(td) or _terminal) else 0
     actual_start, actual_finish = _sanitize_actual_dates(td, task_status, project, summary)
+    # Seed the closed-milestone hand-back (ADR-0136, #5017). The engine keeps a
+    # milestone closed with actuals at the end of its recorded day only when the
+    # previous run showed it there — the API hands back ``early_finish`` when
+    # ``milestone_at_day_end`` is set (scheduling/services.py, ``live_day_end_on``).
+    # An import has no previous run, so a milestone MS Project closed at the end of
+    # the day its completed work finished would recompute at the start of it and
+    # pull its FS successors a working day earlier than the file. The file's own
+    # finish time is that previous run: write the edge it states, on the day kept.
+    # Only ``early_finish`` is the hand-back; ``early_start`` is left to the
+    # post-import recalc, because the ``has_cpm`` checks read a non-null
+    # ``early_start`` as "a CPM run has happened" and none has yet.
+    seed_day_end = bool(
+        td.is_milestone
+        and td.actual_finish_at_day_end
+        and actual_finish is not None
+        and task_status == TaskStatus.COMPLETE.value
+    )
     return Task(
         project_id=project_id,
         name=td.name,
@@ -656,6 +673,8 @@ def _build_task_object(
         planned_start=_resolve_planned_start(td),
         actual_start=actual_start,
         actual_finish=actual_finish,
+        early_finish=actual_finish if seed_day_end else None,
+        milestone_at_day_end=seed_day_end,
         # Soft deadline (#690): annotation only, so it carries across verbatim.
         deadline=date.fromisoformat(td.deadline) if td.deadline else None,
         optimistic_duration=opt,

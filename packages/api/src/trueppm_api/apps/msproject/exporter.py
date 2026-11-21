@@ -98,6 +98,12 @@ def export_project_xml(project_id: str) -> bytes:
         # CalendarUID sits among the project properties, before
         # ExtendedAttributes and Calendars.
         _sub_text(root, "CalendarUID", "1")
+    # The end of the working day an end-of-day milestone is written at, which
+    # follows CalendarUID in the MSPDI header. The importer reads the day end from
+    # the calendar's shift first, but a reader that takes it from this element (or
+    # a file whose calendar block is dropped) must see the same instant (#5017).
+    day_end_time = _milestone_day_end_time(applied_calendars)
+    _sub_text(root, "DefaultFinishTime", day_end_time)
 
     # --- Project-level ExtendedAttribute definitions (#798, ADR-0093) ---
     # Emit the four PERT slots only when at least one non-summary, non-milestone
@@ -122,7 +128,6 @@ def export_project_xml(project_id: str) -> bytes:
     _add_summary_task(tasks_el, project)
 
     pert_task_pks = {str(t.pk) for t in pert_tasks}
-    day_end_time = _milestone_day_end_time(applied_calendars)
     for task in tasks:
         _add_task_element(
             tasks_el,

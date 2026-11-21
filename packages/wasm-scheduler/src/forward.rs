@@ -246,12 +246,9 @@ pub(crate) fn start_reading(
 /// predecessor never moves the milestone's successors earlier.
 ///
 /// `completed_only` limits the links to completed predecessors — the reading a
-/// closed milestone's day edge is taken from (`live_milestone_edge`, #4525), and
-/// the instant it links from (`closed_milestone_link`, #4690).
-///
-/// `last_day` drops every link proposal shown on a later day, so only work that
-/// places the milestone on or before that day is read — the cap a closed
-/// milestone's edge is read under (`live_milestone_edge`, #4703).
+/// closed milestone's link instant is taken from (`closed_milestone_link`,
+/// #4690). A closed milestone's day *edge* reads no predecessor at all: the
+/// sign-off pin decides it (ADR-0136, #5017).
 #[allow(clippy::too_many_arguments)]
 fn place_milestone(
     idx: NodeIndex,
@@ -263,7 +260,6 @@ fn place_milestone(
     start_floor: Option<NaiveDate>,
     links: &[Option<Instant>],
     completed_only: bool,
-    last_day: Option<NaiveDate>,
 ) -> Result<(Instant, NaiveDate, Instant), String> {
     let cal = cals.for_node(idx.index());
     type Proposal = (NaiveDate, bool, NaiveDate);
@@ -283,9 +279,6 @@ fn place_milestone(
             continue;
         }
         let proposal = link_proposal(edge, tasks, deps, cals, links, cal)?;
-        if last_day.is_some_and(|d| proposal.2 > d) {
-            continue;
-        }
         offer(&mut best, proposal);
         offer(&mut pred_best, proposal);
     }
@@ -531,25 +524,15 @@ pub fn forward_pass(
         tasks[i].milestone_at_day_end = false;
 
         if let Some((es, ef)) = pinned_placement(&tasks[i], node_cal, start_base, status_date)? {
-            // A completed milestone stays an instant (#4343, #4433), on the edge of
-            // its day it had live (#4525): read from completed predecessors,
-            // except that while one is still open the edge the caller's previous
-            // run recorded on the recorded day stands in for the facts that work
-            // has not yet supplied. Work completed after the recorded day (out of
-            // sequence) is treated the same way: its facts arrived after the
-            // sign-off, so they cannot unset the edge the gate was closed with
-            // (#4703).
+            // A completed milestone stays an instant (#4343, #4433). With actuals
+            // recorded, the sign-off pin is authoritative (ADR-0136, #5017): its
+            // edge is read from the milestone alone — the end of the recorded day
+            // only when the caller's previous run showed it at the end of that
+            // very day (`live_day_end_on`), the start of it otherwise. No
+            // predecessor is read, so nothing about them moves a signed-off gate.
             let recorded = tasks[i].actual_finish.or(tasks[i].actual_start);
             let live_start = match recorded {
-                Some(day) if tasks[i].duration_days() == 0 => {
-                    let frozen = tasks[i].live_day_end_on == Some(day)
-                        && (pg
-                            .graph
-                            .edges_directed(idx, Direction::Incoming)
-                            .any(|e| !tasks[e.source().index()].is_complete())
-                            || completed_after_recorded(idx, tasks, pg, deps, cals, &links, day)?);
-                    !frozen && live_milestone_edge(idx, tasks, pg, deps, cals, &links, day)?
-                }
+                Some(day) if tasks[i].duration_days() == 0 => live_milestone_edge(&tasks[i], day),
                 _ => true,
             };
             // The midnight it linked from live, not the recorded day's (#4690).
@@ -643,7 +626,6 @@ pub fn forward_pass(
                 start_floor,
                 &links,
                 false,
-                None,
             )?;
             instants[i] = Some(instant);
             links[i] = Some(link);
@@ -816,82 +798,22 @@ fn pinned_placement(
     Ok(Some((es, ef)))
 }
 
-/// Whether a closed milestone sits at the *start* of its recorded day (#4433).
+/// Whether a closed milestone sits at the *start* of its recorded day (#4433, #5017).
 ///
-/// A floor (project start, data date, SNET) proposes a day start, an FS link from
-/// work the end of the work's finish day (`place_milestone`); closing the
-/// milestone keeps that edge ("preserve the live edge"). The recorded day is
-/// offered as a start-of-day floor alongside the links — what a data-date or
-/// SNET floor that placed it live amounts to once the actuals supply the date —
-/// so the end of the day wins only when an FS proposal from work is shown at the
-/// end of the recorded day. With no predecessor, the start of its day.
-///
-/// A proposal shown on a later day than the recorded one is dropped (`last_day`,
-/// #4703): work recorded as finishing after the sign-off did not place the
-/// milestone on that day. Read as the latest proposal it always read as
-/// end-of-day, so closing out-of-sequence work moved an already-closed gate's
-/// successors a working day later; dropping it keeps the start-of-day edge the
-/// gate had while that work was open.
-///
-/// Only completed predecessors are read (#4525): a closed milestone is pinned out
-/// of network logic (ADR-0136), so its edge must not follow a live predecessor's
-/// forecast — that let an open task's slip flip the edge and move the closed
-/// milestone's successors a working day either way. Completed predecessors are
-/// pinned themselves, so nothing live can move a closed milestone. The caller
-/// checks `Task::live_day_end_on` first, which keeps a recorded end-of-day edge
-/// while a predecessor is still open or completed after the recorded day
-/// ([`completed_after_recorded`]). Mirrors the Python `_live_milestone_edge`.
-fn live_milestone_edge(
-    idx: NodeIndex,
-    tasks: &[Task],
-    pg: &ProjectGraph,
-    deps: &[Dependency],
-    cals: &PassCalendars,
-    links: &[Option<Instant>],
-    recorded: NaiveDate,
-) -> Result<bool, String> {
-    let (shown, _, _) = place_milestone(
-        idx,
-        tasks,
-        pg,
-        deps,
-        cals,
-        &[recorded],
-        None,
-        links,
-        true,
-        Some(recorded),
-    )?;
-    Ok(shown.1)
-}
-
-/// Whether completed work places a closed milestone after `recorded` (#4703).
-///
-/// True when [`live_milestone_edge`] drops a completed predecessor's proposal
-/// under its `last_day` cap: the work was recorded as finishing after the
-/// sign-off, out of sequence. For the hand-back (`Task::live_day_end_on`) it
-/// counts as open work, so the end-of-day edge the previous run showed stands;
-/// otherwise closing that work fell back to the start of the day and pulled the
-/// milestone's successors a working day earlier than with the work open.
-/// Mirrors the Python `_completed_after_recorded`.
-fn completed_after_recorded(
-    idx: NodeIndex,
-    tasks: &[Task],
-    pg: &ProjectGraph,
-    deps: &[Dependency],
-    cals: &PassCalendars,
-    links: &[Option<Instant>],
-    recorded: NaiveDate,
-) -> Result<bool, String> {
-    let cal = cals.for_node(idx.index());
-    for edge in pg.graph.edges_directed(idx, Direction::Incoming) {
-        if tasks[edge.source().index()].is_complete()
-            && link_proposal(edge, tasks, deps, cals, links, cal)?.2 > recorded
-        {
-            return Ok(true);
-        }
-    }
-    Ok(false)
+/// The sign-off pin is authoritative (ADR-0136): a milestone closed with actuals
+/// on `recorded` sits at the start of that day unless the caller's previous run
+/// showed it at the end of that very day (`Task::live_day_end_on` equal to
+/// `recorded`) — the hand-back that keeps a milestone placed live by work
+/// finishing that day, and closed on it, at the end of it (#4433, #4525). No
+/// predecessor is read, completed or open: reading where a completed
+/// predecessor's link placed the milestone (#4525, capped at the recorded day by
+/// #4703) was not monotone — a predecessor finishing *on* the recorded day put
+/// the milestone at the end of it, one finishing a day later was dropped, so a
+/// later actual finish moved the successors a working day earlier, and a lag
+/// edit on an unrelated completed link flipped the edge with no date change
+/// (#5017). Mirrors the Python `_live_milestone_edge`.
+fn live_milestone_edge(task: &Task, recorded: NaiveDate) -> bool {
+    task.live_day_end_on != Some(recorded)
 }
 
 /// The instant a milestone closed at the start of `recorded` links from (#4690).
@@ -904,12 +826,12 @@ fn completed_after_recorded(
 /// recorded day as a start-of-day floor ([`equivalent_link`]); a milestone a floor
 /// held, or with nothing before it, links from the recorded day. While any
 /// predecessor is still open (#4525: not a fact) it links from the start of the
-/// recorded day, as before #4690 — the open residual (#4740). The reading is not
-/// capped at the recorded day (`last_day`, #4703), on purpose: a proposal shown
-/// after it can only lose the earlier-midnight test, leaving the start of the
-/// recorded day it links from while that work is open; capping it would let an
-/// earlier predecessor's midnight through and pull a lagged successor a day
-/// earlier when out-of-sequence work closes. Mirrors the Python
+/// recorded day, as before #4690 — the open residual (#4740). This does not
+/// reopen the sign-off pin (ADR-0136, #5017): the pin fixes the working-time
+/// point, and this only picks which midnight equivalent to it a calendar-day lag
+/// counts from. The pick is non-decreasing in every proposal, and a proposal shown
+/// after the recorded day can only lose the earlier-midnight test, so a later
+/// actual finish never moves a successor earlier. Mirrors the Python
 /// `_closed_milestone_link`.
 #[allow(clippy::too_many_arguments)]
 fn closed_milestone_link(
@@ -939,7 +861,6 @@ fn closed_milestone_link(
         start_floor,
         links,
         true,
-        None,
     )?;
     Ok(if link.0 < recorded {
         link
@@ -958,12 +879,10 @@ fn closed_milestone_link(
 /// else `actual_start`), shown on and — at the end of the day — linked from alike
 /// (at the start of the day the caller replaces `link` with the live instant,
 /// `closed_milestone_link`, #4690), on the edge of that day the
-/// milestone had live (`live_start`, `live_milestone_edge`): the start when
-/// nothing precedes it, a floor held it, or open work behind it was never
-/// recorded as placing it; the end — the next midnight, read like an FS proposal
-/// from work — when completed work finishing that day placed it, or, while a
-/// predecessor is still open, when `Task::live_day_end_on` names that day
-/// (#4433, #4525).
+/// milestone had live (`live_start`, `live_milestone_edge`), which the sign-off
+/// pin alone decides (#5017): the end — the next midnight, read like an FS
+/// proposal from work — exactly when `Task::live_day_end_on` names that day
+/// (#4525), the start otherwise; no predecessor is read for the edge.
 /// Mirrors the Python
 /// `_pinned_milestone_instant`.
 fn pinned_milestone_instant(

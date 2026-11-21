@@ -73,6 +73,12 @@ class TaskData:
     # constraint family they are carried across exactly.
     actual_start: str | None = None
     actual_finish: str | None = None
+    # A milestone whose <ActualFinish> time of day is at or after the file's day
+    # end (<DefaultFinishTime>): MS Project closed it at the END of that day, after
+    # work finishing that day. The engine keeps a closed milestone at the end of its
+    # day only when the previous run handed that edge back (ADR-0136, #5017), and an
+    # import has no previous run, so the importer seeds the hand-back from this.
+    actual_finish_at_day_end: bool = False
     # <Deadline> as an ISO date string (#690) — MS Project's soft deadline, which
     # maps one-to-one onto the annotation-only Task.deadline (ADR-1049 §4).
     deadline: str | None = None

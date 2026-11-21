@@ -316,10 +316,20 @@
       "issue": "#1505",
       "evidence": "b81b09a5c: commit message states snapshot regenerated"
     },
+    "expected/progress_closed_milestone_edge_is_the_pin.json": {
+      "provenance": "hand-verified",
+      "issue": "#5017",
+      "evidence": "regenerated from the Python engine, then every M/B row checked against the dates hand-computed in the input fixture's name (Mon-Fri calendar, FS+1 calendar-day lag from Wed 00:00 or Thu 00:00)"
+    },
+    "expected/progress_closed_milestone_link_instant_exception.json": {
+      "provenance": "hand-verified",
+      "issue": "#5017",
+      "evidence": "REGEN_EXPECTED from the Python engine, then every M/B row checked against the dates hand-computed in the input fixture's name (Mon-Fri calendar; M at the start of Mon 03-09 on every row; FS+2 calendar-day lag from Sat, Sun or Mon 00:00); the Rust engine reproduces the bytes. Pins the accepted #4690 link-instant exception (a pin-only link instant is #5089)"
+    },
     "expected/progress_closed_milestone_handed_back_edge_after_sign_off.json": {
       "provenance": "regenerated",
-      "issue": "#4703",
-      "evidence": "REGEN_EXPECTED=1 from the Python engine; each M/B row was checked against the edge and successor start stated by hand in the input fixture's task names after regeneration"
+      "issue": "#5017",
+      "evidence": "REGEN_EXPECTED from the Python engine after #5017 (the sign-off pin alone decides a closed milestone's edge: end of the recorded day only when live_day_end_on names it); each changed M/B row was hand-checked against that rule, and the Rust engine reproduces the bytes. The input's task names describe the superseded #4433/#4525/#4703 reading and are kept verbatim because the 0.4.0 stability stamp shares this input"
     },
     "expected/progress_closed_milestone_non_working_day_after_work.json": {
       "provenance": "regenerated",
@@ -327,24 +337,24 @@
       "evidence": "REGEN_EXPECTED=1 from the Python engine after #4703 added A2/M2; M's start-of-Saturday edge and X's unchanged late dates (seeded from M2's end of Saturday) checked by hand"
     },
     "expected/progress_closed_milestone_open_predecessor.json": {
-      "provenance": "unknown",
-      "issue": "#4525",
-      "evidence": "75e5166c8: last change carries no regeneration or hand-derivation statement"
+      "provenance": "regenerated",
+      "issue": "#5017",
+      "evidence": "REGEN_EXPECTED from the Python engine after #5017 (the sign-off pin alone decides a closed milestone's edge: end of the recorded day only when live_day_end_on names it); each changed M/B row was hand-checked against that rule, and the Rust engine reproduces the bytes. The input's task names describe the superseded #4433/#4525/#4703 reading and are kept verbatim because the 0.4.0 stability stamp shares this input"
     },
     "expected/progress_closed_milestone_predecessor_after_sign_off.json": {
       "provenance": "regenerated",
-      "issue": "#4703",
-      "evidence": "REGEN_EXPECTED=1 from the Python engine; each M/B row was checked against the edge and successor start stated by hand in the input fixture's task names before regeneration"
+      "issue": "#5017",
+      "evidence": "REGEN_EXPECTED from the Python engine after #5017 (the sign-off pin alone decides a closed milestone's edge: end of the recorded day only when live_day_end_on names it); each changed M/B row was hand-checked against that rule, and the Rust engine reproduces the bytes. The input's task names describe the superseded #4433/#4525/#4703 reading and are kept verbatim because the 0.4.0 stability stamp shares this input"
     },
     "expected/progress_closed_milestone_split_actuals.json": {
-      "provenance": "hand-verified",
-      "issue": "#4458",
-      "evidence": "REGEN_EXPECTED=1 output checked by hand: M shown and linked at start of Wed 2026-01-07; SS/FS successors start Wed; FF/SF successors finish at end of Tue (the instant read as a finish anchor); N, placed by W finishing Wed, sits at the end of Wed (milestone_at_day_end) and its SS successor T starts Thu; Z sets the finish"
+      "provenance": "regenerated",
+      "issue": "#5017",
+      "evidence": "REGEN_EXPECTED from the Python engine after #5017 (the sign-off pin alone decides a closed milestone's edge: end of the recorded day only when live_day_end_on names it); each changed M/B row was hand-checked against that rule, and the Rust engine reproduces the bytes. The input's task names describe the superseded #4433/#4525/#4703 reading and are kept verbatim because the 0.4.0 stability stamp shares this input"
     },
     "expected/progress_completed_actuals_milestone_instant.json": {
-      "provenance": "unknown",
-      "issue": "#4433",
-      "evidence": "7cebed944: last change carries no regeneration or hand-derivation statement"
+      "provenance": "regenerated",
+      "issue": "#5017",
+      "evidence": "REGEN_EXPECTED from the Python engine after #5017 (the sign-off pin alone decides a closed milestone's edge: end of the recorded day only when live_day_end_on names it); each changed M/B row was hand-checked against that rule, and the Rust engine reproduces the bytes. The input's task names describe the superseded #4433/#4525/#4703 reading and are kept verbatim because the 0.4.0 stability stamp shares this input"
     },
     "expected/progress_completed_no_actuals_between_live_tasks.json": {
       "provenance": "unknown",
@@ -1095,6 +1105,16 @@
       "provenance": "unknown",
       "issue": "#2621",
       "evidence": "86bf0c1d4: added; no regeneration or hand-derivation statement in history"
+    },
+    "progress_closed_milestone_edge_is_the_pin.json": {
+      "provenance": "hand-verified",
+      "issue": "#5017",
+      "evidence": "the issue's repro table, A.actual_finish varied, with and without live_day_end_on; expected dates derived by hand in the fixture name"
+    },
+    "progress_closed_milestone_link_instant_exception.json": {
+      "provenance": "hand-verified",
+      "issue": "#5017",
+      "evidence": "the Monday sign-off case (A Fri, FS+0/+1d into M closed Mon, M FS+2d to B) plus a later-A-finish row; expected dates derived by hand in the fixture name"
     },
     "progress_closed_milestone_handed_back_edge_after_sign_off.json": {
       "provenance": "hand-verified",

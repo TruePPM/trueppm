@@ -130,21 +130,21 @@ Completed tasks are pinned out of network logic (ADR-0136) and keep their record
 dates. A pinned task with work is ordinary work to its successors; a pinned
 zero-duration task stays a milestone, an instant. With no actuals it sits at the
 start of its pinned day (#4343). With actuals it sits on its ``actual_finish`` (else
-``actual_start``) day, at the edge of that day it had live (#4433): the end when
-completed work finishing that day placed it, or — while a predecessor is still
-open — when the caller's previous run showed it at the end of that day
-(``Task.live_day_end_on``, #4525); the start otherwise: nothing precedes it, a
-floor (data date, SNET) held it, or open work behind it was never recorded as
-placing it. Only those fixed facts decide it, so no
-change to open work moves a closed milestone. A caller that hands its output back
-keeps the edge; whether the successors stay put depends on the link instant below.
+``actual_start``) day, and the sign-off pin alone decides which edge (#5017): the
+end exactly when the caller's previous run showed it at the end of that day
+(``Task.live_day_end_on``, #4525), the start otherwise. No predecessor is read for
+the edge — not its actuals, links or lags, and not whether it is open — so no change
+to its predecessors flips it. A caller that hands its output back keeps the edge;
+whether the successors stay put depends on the link instant below.
 
 At the start of its day, a closed milestone links from the midnight it linked from
 live, not from the recorded day's (#4690). A live milestone's link instant can be a
 midnight before the start of the day it is shown on — Sunday 00:00 shown on
 Monday (#4173), or a point below the project start (#4225) — and with calendar-day
 lag (#2534) a successor counts from it. The instant is re-read from the completed
-predecessors (:func:`_closed_milestone_link`). While any predecessor is still
+predecessors (:func:`_closed_milestone_link`), so a completed predecessor's change
+can move a lagged successor later, never earlier — an accepted exception to the
+pin; a pin-only link instant is #5089. While any predecessor is still
 open the milestone links from the start of its recorded day, as before, so closing
 it ahead of open work can still move a lagged successor (#4740). Recording an
 ``actual_start`` or a ``planned_start`` on the day a live milestone is shown, or a

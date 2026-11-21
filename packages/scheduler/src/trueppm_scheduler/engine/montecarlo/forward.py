@@ -96,10 +96,11 @@ def _completed_dates(
     #4343), including one with no actuals, so each *date* read here is a function of
     the task's own fields, the project start and the data date (a no-actuals task is
     capped at it, #4539). A closed milestone's *instant*
-    is not quite: which edge of its recorded day it sits on is read off its
-    *completed* predecessors' positions in this one deterministic pass (#4433,
-    #4525, :func:`_live_milestone_edge`). Those are pinned too, so no sampled
-    duration could move it either way; it is read once, here, and frozen. That is
+    is not quite: which edge of its recorded day it sits on is read off its own
+    ``live_day_end_on`` hand-back (#4433, #5017, :func:`_live_milestone_edge`), and
+    the midnight it links from off its *completed* predecessors (#4690), in this one
+    deterministic pass. Those are pinned too, so no sampled duration could move it
+    either way; it is read once, here, and frozen. That is
     what makes the pin a true constant across runs, the property the Monte Carlo
     fast path relies on: no run can move a completed task. (Before #4343
     the no-actuals task was placed through the network in ``schedule()``, so pinning it

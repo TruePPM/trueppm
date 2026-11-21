@@ -12,6 +12,7 @@ import threading
 import uuid
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import date
 
 from defusedxml.ElementTree import fromstring as _safe_fromstring
@@ -100,6 +101,16 @@ _CONSTRAINT_TYPES_NOT_A_LOSS: frozenset[int] = frozenset({0}) | CONSTRAINT_TYPES
 #: task, so the warning has to key on a value the PM actually changed — otherwise
 #: every import reports a loss that did not happen.
 _MSPDI_DEFAULT_PRIORITY = 500
+
+# MS Project's Standard calendar ends its working day at 17:00; a file whose
+# calendar states no shift end and that carries no <DefaultFinishTime> is read on
+# that default (#5017).
+_MSP_DEFAULT_FINISH_MINUTE = 17 * 60
+
+# The last time of day xs:dateTime can say. A shift that runs to midnight ends at
+# ``24:00:00``, but a milestone at the end of that day is written at 23:59 (the
+# exporter clamps the same way), so a day end is never read later than this.
+_LAST_MINUTE_OF_DAY = 24 * 60 - 1
 
 
 def _int_or_none(raw: str) -> int | None:
@@ -285,6 +296,107 @@ def _time_to_minutes(raw: str) -> int | None:
     if not (0 <= hours <= 24 and 0 <= minutes < 60):
         return None
     return hours * 60 + minutes
+
+
+def _is_at_day_end(raw: str, day_end_minute: int) -> bool:
+    """Whether an MSPDI datetime's time of day is at or after the working day's end.
+
+    MS Project writes a milestone that follows work at the calendar's finish time
+    (17:00 on Standard) and one held at the start of a day at its start time
+    (08:00), never at midnight, so the time of day is what says which edge of the
+    day a closed milestone sits on (#4079, #5017). A bare date carries no time and
+    reads as the start of the day.
+    """
+    candidate = raw.strip()
+    if len(candidate) < 16 or candidate[10] != "T":
+        return False
+    minute = _time_to_minutes(candidate[11:])
+    return minute is not None and minute >= day_end_minute
+
+
+def _weekday_shift_end(day_el: ET.Element, ns: str) -> int | None:
+    """The latest ``<ToTime>`` of a ``<WeekDay>``'s shifts, in minutes, or ``None``.
+
+    Skips the same zero-length and reversed shifts :func:`_weekday_working_hours`
+    ignores, and clamps a midnight end to :data:`_LAST_MINUTE_OF_DAY`.
+    """
+    ends: list[int] = []
+    times_el = day_el.find(f"{ns}WorkingTimes")
+    for wt in times_el.findall(f"{ns}WorkingTime") if times_el is not None else []:
+        frm = _time_to_minutes(wt.findtext(f"{ns}FromTime") or "")
+        to = _time_to_minutes(wt.findtext(f"{ns}ToTime") or "")
+        if frm is not None and to is not None and to > frm:
+            ends.append(to)
+    return min(max(ends), _LAST_MINUTE_OF_DAY) if ends else None
+
+
+def _calendar_day_ends(root: ET.Element, ns: str) -> dict[int, dict[str, int]]:
+    """Map each calendar UID to ``{DayType: shift end}`` over its working weekdays.
+
+    Read from every ``<Calendar>``, base or not, because a task may name any of
+    them in ``<CalendarUID>``; a weekday with no usable shift is left out.
+    """
+    by_calendar: dict[int, dict[str, int]] = {}
+    calendars_el = root.find(f"{ns}Calendars")
+    for cal_el in calendars_el.findall(f"{ns}Calendar") if calendars_el is not None else []:
+        try:
+            uid = int((cal_el.findtext(f"{ns}UID") or "").strip())
+        except ValueError:
+            continue
+        ends: dict[str, int] = {}
+        weekdays_el = cal_el.find(f"{ns}WeekDays")
+        for day_el in weekdays_el.findall(f"{ns}WeekDay") if weekdays_el is not None else []:
+            day_type = (day_el.findtext(f"{ns}DayType") or "").strip()
+            working = (day_el.findtext(f"{ns}DayWorking") or "").strip() == "1"
+            end = _weekday_shift_end(day_el, ns) if working else None
+            if day_type in _DAY_TYPE_TO_BIT and end is not None:
+                ends[day_type] = end
+        if ends:
+            by_calendar[uid] = ends
+    return by_calendar
+
+
+@dataclass(frozen=True)
+class _DayEnd:
+    """Where a file's working day ends, per calendar and weekday (#5017).
+
+    A completed milestone's ``<ActualFinish>`` time of day says which edge of its
+    day MS Project closed it on, and the end of the day is the end of the shift of
+    the calendar the milestone is scheduled on — not ``<DefaultFinishTime>``, which
+    a file may omit (TruePPM's own exporter did) or set later than its calendar's
+    shift (a 07:00-15:30 calendar under a 17:00 default), and either way a
+    milestone closed at the shift end would read as the start of its day.
+    """
+
+    by_calendar: dict[int, dict[str, int]]
+    project_calendar_uid: int | None
+    default_minute: int
+
+    def minute_for(self, calendar_uid: int | None, actual_finish: str) -> int:
+        """The day-end minute for a milestone on ``calendar_uid`` closed at ``actual_finish``.
+
+        Resolution: the task's own calendar, else the project's; within it, the
+        shift end of the milestone's weekday, else the latest shift end of any
+        working day; with no calendar shift at all, the file's
+        ``<DefaultFinishTime>``, else 17:00 (``default_minute``).
+        """
+        for uid in (calendar_uid, self.project_calendar_uid):
+            ends = self.by_calendar.get(uid) if uid is not None else None
+            if not ends:
+                continue
+            iso = _iso_date_or_none(actual_finish)
+            if iso is not None:
+                # date.weekday() is Mon=0..Sun=6; MSPDI DayType is Sun=1..Sat=7.
+                day_type = str((date.fromisoformat(iso).weekday() + 1) % 7 + 1)
+                if day_type in ends:
+                    return ends[day_type]
+            return max(ends.values())
+        return self.default_minute
+
+
+_STANDARD_DAY_END = _DayEnd(
+    by_calendar={}, project_calendar_uid=None, default_minute=_MSP_DEFAULT_FINISH_MINUTE
+)
 
 
 def _iso_date_or_none(raw: str) -> str | None:
@@ -732,6 +844,7 @@ def _parse_one_task(
     pert_role_to_field_id: dict[str, str],
     task_assignments: dict[int, list[AssignmentData]],
     warnings: list[str],
+    day_end: _DayEnd = _STANDARD_DAY_END,
 ) -> TaskData | None:
     """Parse a single ``<Task>`` element into ``TaskData``, or ``None`` to skip it.
 
@@ -772,6 +885,8 @@ def _parse_one_task(
     # into a 0-1 fraction that the importer then wrote straight into the 0-100
     # field — a 75% task landed as 0.75%). The same value drives status inference.
     raw_percent = _finite_float(pct_str, 0.0, low=0.0, high=100.0) if pct_str else 0.0
+    actual_finish_str = _child_text(task_el, ns, "ActualFinish")
+    calendar_uid = _positive_int_or_none(_child_text(task_el, ns, "CalendarUID"))
 
     return TaskData(
         uid=uid,
@@ -784,14 +899,16 @@ def _parse_one_task(
         status=_derive_task_status(start_str, raw_percent),
         notes=_child_text(task_el, ns, "Notes"),
         start=start_str[:10] if start_str else None,
-        calendar_uid=_positive_int_or_none(_child_text(task_el, ns, "CalendarUID")),
+        calendar_uid=calendar_uid,
         optimistic_duration_days=opt_days,
         most_likely_duration_days=ml_days,
         pessimistic_duration_days=pess_days,
         constraint_type=_int_or_none(_child_text(task_el, ns, "ConstraintType")),
         constraint_date=_iso_date_or_none(_child_text(task_el, ns, "ConstraintDate")),
         actual_start=_iso_date_or_none(_child_text(task_el, ns, "ActualStart")),
-        actual_finish=_iso_date_or_none(_child_text(task_el, ns, "ActualFinish")),
+        actual_finish=_iso_date_or_none(actual_finish_str),
+        actual_finish_at_day_end=is_milestone
+        and _is_at_day_end(actual_finish_str, day_end.minute_for(calendar_uid, actual_finish_str)),
         deadline=_iso_date_or_none(_child_text(task_el, ns, "Deadline")),
         predecessor_links=_parse_predecessor_links(task_el, ns),
         resource_assignments=task_assignments.get(uid, []),
@@ -920,6 +1037,7 @@ def _parse_tasks(
     pert_role_to_field_id: dict[str, str],
     task_assignments: dict[int, list[AssignmentData]],
     warnings: list[str],
+    day_end: _DayEnd = _STANDARD_DAY_END,
 ) -> list[TaskData]:
     """Parse ``<Tasks>`` into ``TaskData`` rows (per-task skips/warnings applied)."""
     tasks: list[TaskData] = []
@@ -931,7 +1049,9 @@ def _parse_tasks(
     # the summary rather than trailing the per-task notes.
     _warn_unmapped_task_fields(tasks_el, ns, warnings)
     for task_el in tasks_el.findall(f"{ns}Task"):
-        td = _parse_one_task(task_el, ns, pert_role_to_field_id, task_assignments, warnings)
+        td = _parse_one_task(
+            task_el, ns, pert_role_to_field_id, task_assignments, warnings, day_end
+        )
         if td is not None:
             tasks.append(td)
     _reconcile_actuals(tasks, warnings)
@@ -1042,8 +1162,17 @@ def parse_xml(xml_content: bytes) -> ProjectData:
     # --- Parse resources, assignments, and tasks ---
     project_data.resources, resource_map = _parse_resources(root, ns)
     task_assignments = _parse_assignments(root, ns, resource_map)
+    # A 00:00 or malformed <DefaultFinishTime> is no day end; fall back to Standard's.
+    day_end = _DayEnd(
+        by_calendar=_calendar_day_ends(root, ns),
+        project_calendar_uid=project_data.calendar_uid,
+        default_minute=(
+            _time_to_minutes(_child_text(root, ns, "DefaultFinishTime"))
+            or _MSP_DEFAULT_FINISH_MINUTE
+        ),
+    )
     project_data.tasks = _parse_tasks(
-        root, ns, pert_role_to_field_id, task_assignments, project_data.warnings
+        root, ns, pert_role_to_field_id, task_assignments, project_data.warnings, day_end
     )
 
     return project_data

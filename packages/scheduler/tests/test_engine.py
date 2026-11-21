@@ -2849,9 +2849,16 @@ class TestCompletedNoActualsIsPinned:
         "milestone",
         [
             pytest.param({}, id="live"),
-            pytest.param({"actual_finish": date(2027, 3, 3)}, id="done-actual-finish"),
             pytest.param(
-                {"actual_start": date(2027, 3, 3), "actual_finish": date(2027, 3, 3)},
+                {"actual_finish": date(2027, 3, 3), "live_day_end_on": date(2027, 3, 3)},
+                id="done-actual-finish",
+            ),
+            pytest.param(
+                {
+                    "actual_start": date(2027, 3, 3),
+                    "actual_finish": date(2027, 3, 3),
+                    "live_day_end_on": date(2027, 3, 3),
+                },
                 id="done-both-actuals",
             ),
         ],
@@ -2865,7 +2872,9 @@ class TestCompletedNoActualsIsPinned:
         Closing M on Wednesday keeps that edge — the decision was "preserve the
         live edge" — so B and the project finish do not move. Pinning every closed
         milestone at the start of its day pulled B into Wednesday, the day its
-        predecessor's work was still finishing."""
+        predecessor's work was still finishing. Since #5017 the live edge is carried
+        by the milestone's own hand-back (``live_day_end_on``, which the API passes
+        on every run), not re-read from A: the sign-off pin is authoritative."""
         wed = date(2027, 3, 3)
         p = Project(
             id="p",

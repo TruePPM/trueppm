@@ -732,10 +732,10 @@ class TestMilestoneAtDayEnd:
         is. Before #4433 a milestone pinned by actuals was never flagged and the
         API derived its end-of-day reading from the actuals itself.
 
-        A has to be *finished* for that: only completed predecessors decide a
-        closed milestone's edge (#4525). This fixture once left A open with no
-        progress, which passed only because A's forecast happened to finish on
-        the sign-off day — the dependence on a live forecast #4525 removed."""
+        Since #5017 the sign-off pin is authoritative: the closed edge is the
+        milestone's own hand-back (``live_day_end_on``, which the API passes on
+        every run), never re-read from A, so without it the closed milestone sits
+        at the start of its day whatever A recorded."""
         done = Task(
             id="M",
             name="M",
@@ -743,6 +743,7 @@ class TestMilestoneAtDayEnd:
             actual_start=date(2026, 1, 9),
             actual_finish=date(2026, 1, 9),
             percent_complete=100.0,
+            live_day_end_on=date(2026, 1, 9),
         )
         a_done = Task(
             id="A",
@@ -757,6 +758,8 @@ class TestMilestoneAtDayEnd:
         assert live["M"].milestone_at_day_end is True
         assert by_id["M"].milestone_at_day_end is True
         assert not by_id["A"].milestone_at_day_end and not by_id["B"].milestone_at_day_end
+        done.live_day_end_on = None
+        assert _by_id(_project([a_done, done], [_dep("A", "M")]))["M"].milestone_at_day_end is False
 
     def test_open_work_does_not_decide_a_closed_milestones_edge(self) -> None:
         """A milestone signed off before its predecessor finished sits at the start of its day.
@@ -910,9 +913,10 @@ class TestMilestoneAtDayEnd:
         assert run(False, False, None) == (True, fri)
         assert run(True, False, wed) == (True, fri)
         assert run(True, True, wed) == (True, fri)
-        # With nothing handed back, open work does not decide the edge.
+        # With nothing handed back, neither open nor completed work decides the
+        # edge: the sign-off pin alone does, the start of its day (#5017).
         assert run(True, False, None) == (False, thu)
-        assert run(True, True, None) == (True, fri)
+        assert run(True, True, None) == (False, thu)
         # Ignored on a live milestone: its edge is always computed.
         assert run(False, False, date(2027, 3, 10)) == (True, fri)
 
@@ -1026,14 +1030,14 @@ class TestMilestoneAtDayEnd:
         assert by_id["B"].early_start == date(2027, 3, 5)
 
     @pytest.mark.parametrize("change", ["corrected_actual", "link_deleted"])
-    def test_the_frozen_edge_is_released_once_no_predecessor_is_open(self, change: str) -> None:
-        """The frozen edge stands in for open work only (#4525).
+    def test_the_handed_back_edge_stands_after_a_change_to_closed_work(self, change: str) -> None:
+        """The sign-off pin is authoritative, hand-back included (ADR-0136, #5017).
 
         T (done Mon..Wed) -FS-> S (closed Wed) -FS-> U, with the previous run's
-        end-of-Wednesday handed back. Every predecessor is complete, so completed
-        work decides: correct T's finish to Tuesday, or delete the link, and S
-        drops to the start of Wednesday, where U starts. Freezing regardless kept
-        U a working day late after every such correction."""
+        end-of-Wednesday handed back. Correct T's finish to Tuesday, or delete the
+        link, and S stays at the end of Wednesday, U on Thursday. Releasing the
+        edge on such a change (#4525 as first written) read where T's link placed
+        S, and that reading was not monotone in T's finish (#5017)."""
         wed = date(2027, 3, 3)
         t_done = Task(
             id="T",
@@ -1062,8 +1066,8 @@ class TestMilestoneAtDayEnd:
             dependencies=deps,
         )
         by_id = {x.id: x for x in schedule(p).tasks}
-        assert by_id["S"].milestone_at_day_end is False
-        assert by_id["U"].early_start == wed
+        assert by_id["S"].milestone_at_day_end is True
+        assert by_id["U"].early_start == date(2027, 3, 4)
 
     def test_live_day_end_on_round_trips_through_to_dict(self) -> None:
         t = Task(id="M", name="M", duration=timedelta(0), live_day_end_on=date(2027, 3, 3))
@@ -2337,9 +2341,12 @@ def test_recording_a_milestone_on_its_shown_day_moves_nothing(
     live = schedule(_recorded_network(placement, out_type, out_lag, live_m, a_done))
     shown = {t.id: t for t in live.tasks}["M"]
     assert shown.early_start is not None
-    recorded = _recorded_network(
-        placement, out_type, out_lag, _recorded(variant, shown.early_start), a_done
-    )
+    m = _recorded(variant, shown.early_start)
+    if variant == "closed" and shown.milestone_at_day_end:
+        # What the API hands back from the live run (#4525); since #5017 it is the
+        # only thing that keeps a closed milestone at the end of its day.
+        m.live_day_end_on = shown.early_start
+    recorded = _recorded_network(placement, out_type, out_lag, m, a_done)
     assert _positions(schedule(recorded)) == _positions(live)
 
 
@@ -2539,17 +2546,17 @@ def test_monte_carlo_agrees_with_a_milestone_pinned_on_its_shown_day(placement: 
         assert (mc.p50, mc.p80, mc.p95) == (finish, finish, finish), variant
 
 
-class TestClosedMilestoneEdgeCappedAtTheRecordedDay:
-    """Only completed work placing a closed milestone on its recorded day gives it the end (#4703).
+class TestClosedMilestoneEdgeIsThePin:
+    """A signed-off milestone's edge is decided by its own pin, never a predecessor (#5017).
 
-    ``A -X-> M -FS-> B`` with M signed off Thu 2026-03-05. Live, A's proposal is
-    the latest one and wins; for a closed milestone, a proposal shown on a later
-    day than the sign-off is work recorded out of sequence, and it did not place
-    the milestone on the day it was signed off. Reading it as the latest proposal
-    read every such milestone as end-of-day, so closing out-of-sequence work moved
-    the already-closed gate's successors a working day later, though with that
-    work open (#4525) it moved nothing. The cross-engine half of this table is the
-    ``progress_closed_milestone_predecessor_after_sign_off`` conformance fixture.
+    ``A -X-> M -FS-> B`` with M signed off Thu 2026-03-05. The sign-off pin is
+    authoritative (ADR-0136): M is at the end of its day only when the caller's
+    previous run showed it there (``live_day_end_on`` == the sign-off day), and
+    at the start otherwise, whatever A recorded and however A links. Reading where
+    a completed A's link placed M (#4525), capped at the sign-off day (#4703), put
+    M at the end of the day only when A finished *on* it, so recording a later
+    finish pulled B a working day earlier (#5017). The cross-engine half is the
+    ``progress_closed_milestone_edge_is_the_pin`` conformance fixture.
     """
 
     START = date(2026, 3, 2)
@@ -2597,89 +2604,37 @@ class TestClosedMilestoneEdgeCappedAtTheRecordedDay:
         assert by_id["B"].early_start is not None
         return by_id["M"].milestone_at_day_end, by_id["B"].early_start
 
-    @pytest.mark.parametrize("task_calendar", [False, True])
-    @pytest.mark.parametrize(
-        ("actuals", "end_of_day"),
-        [
-            pytest.param(None, False, id="open"),
-            pytest.param((date(2026, 3, 2), date(2026, 3, 4)), False, id="finished-earlier"),
-            pytest.param((date(2026, 3, 2), date(2026, 3, 5)), True, id="finished-same-day"),
-            pytest.param((date(2026, 3, 2), date(2026, 3, 10)), False, id="finished-later"),
-        ],
-    )
-    def test_four_state_table(
-        self, actuals: tuple[date, date] | None, end_of_day: bool, task_calendar: bool
-    ) -> None:
-        """The issue's table: only finishing on the sign-off day gives the end of it."""
-        b_start = date(2026, 3, 6) if end_of_day else self.SIGN
-        assert self._run(actuals, task_calendar=task_calendar) == (end_of_day, b_start)
-
-    LATE = (
-        pytest.param((date(2026, 3, 2), date(2026, 3, 10)), id="finished-later"),
+    ACTUALS = (
+        pytest.param(None, id="open"),
+        pytest.param((date(2026, 3, 2), date(2026, 3, 4)), id="finished-earlier"),
+        pytest.param((date(2026, 3, 2), date(2026, 3, 5)), id="finished-same-day"),
         pytest.param((date(2026, 3, 2), date(2026, 3, 6)), id="finished-next-day"),
+        pytest.param((date(2026, 3, 2), date(2026, 3, 10)), id="finished-later"),
         pytest.param((date(2026, 3, 5), date(2026, 3, 10)), id="started-on-sign-off"),
         pytest.param((date(2026, 3, 9), date(2026, 3, 10)), id="started-later"),
     )
 
+    @pytest.mark.parametrize("task_calendar", [False, True], ids=["project-cal", "task-cal"])
     @pytest.mark.parametrize("handed_back", [False, True], ids=["no-hand-back", "hand-back"])
     @pytest.mark.parametrize("lag", [-2, -1, 0, 1])
-    @pytest.mark.parametrize("dep_type", list(DependencyType))
-    @pytest.mark.parametrize("actuals", LATE)
-    def test_closing_out_of_sequence_work_moves_nothing(
+    @pytest.mark.parametrize("dep_type", list(DependencyType), ids=lambda d: d.value)
+    @pytest.mark.parametrize("actuals", ACTUALS)
+    def test_the_edge_and_successor_depend_only_on_the_pin(
         self,
-        actuals: tuple[date, date],
+        actuals: tuple[date, date] | None,
         dep_type: DependencyType,
         lag: int,
         handed_back: bool,
+        task_calendar: bool,
     ) -> None:
-        """Closing work recorded after the sign-off leaves M and B where they were while open.
+        """FS/SS/SF/FF x lag x A open/closed x project/task calendar: one answer per pin.
 
-        The oracle is the README rule, applied to where the completed link places
-        the milestone, which a *live* M with the same completed A shows (public
-        API, no engine internals):
-
-        - placed on a later day than the sign-off — out of sequence: the result
-          equals leaving A open, with or without the hand-back (#4703);
-        - placed at the end of the sign-off day — a lagged link reaching back
-          onto it (FS-1 from a Friday finish, SF+0/SF+1 from a Thursday start): that
-          link places it there, so the end of the day, though with A open and
-          nothing handed back the start is shown (the known limit);
-        - placed earlier, or at the start of the day: the completed facts say no
-          link put M at the end of it, so the start-of-day floor decides and a
-          hand-back is re-read rather than frozen (#4525).
+        Hand-computed: M is pinned to Thu 03-05. At the start of it, B (FS, 0 lag)
+        starts Thu 03-05; at the end of it, Fri 03-06 (the next working day on both
+        the Mon-Fri and the Mon-Sat calendar).
         """
-        closed = self._run(actuals, dep_type, lag, handed_back=handed_back)
-        opened = self._run(None, dep_type, lag, handed_back=handed_back)
-        assert opened == ((True, date(2026, 3, 6)) if handed_back else (False, self.SIGN))
-        live = {
-            t.id: t
-            for t in schedule(
-                Project(
-                    id="p",
-                    name="p",
-                    start_date=self.START,
-                    tasks=[
-                        Task(
-                            id="A",
-                            name="A",
-                            duration=timedelta(days=3),
-                            actual_start=actuals[0],
-                            actual_finish=actuals[1],
-                            percent_complete=100.0,
-                        ),
-                        _task("M", 0),
-                    ],
-                    dependencies=[_dep("A", "M", dep_type, lag)],
-                )
-            ).tasks
-        }["M"]
-        assert live.early_finish is not None
-        if live.early_finish > self.SIGN:
-            assert closed == opened
-        elif live.early_finish == self.SIGN and live.milestone_at_day_end:
-            assert closed == (True, date(2026, 3, 6))
-        else:
-            assert closed == (False, self.SIGN)
+        expected = (True, date(2026, 3, 6)) if handed_back else (False, self.SIGN)
+        assert self._run(actuals, dep_type, lag, task_calendar, handed_back) == expected
 
     @pytest.mark.parametrize("handed_back", [False, True], ids=["no-hand-back", "hand-back"])
     def test_closing_late_work_behind_a_handed_back_edge_moves_nothing(
@@ -2783,6 +2738,86 @@ class TestClosedMilestoneEdgeCappedAtTheRecordedDay:
         # Monday 00:00 + 1 calendar day: B starts Tuesday 03-10 either way.
         assert run(a2_done=False) == run(a2_done=True) == date(2026, 3, 10)
 
+    @staticmethod
+    def _monday_sign_off_run(a_finish: date, a_lag: int) -> tuple[bool, date]:
+        """``A(1d, closed on a_finish) -FS+a_lag-> M (closed Mon 03-09) -FS+2d-> B(1d)``.
+
+        No hand-back. Returns ``(M at the end of its day, B's start)``.
+        """
+        a = Task(
+            id="A",
+            name="A",
+            duration=timedelta(days=1),
+            actual_start=a_finish,
+            actual_finish=a_finish,
+            percent_complete=100.0,
+        )
+        m = Task(
+            id="M",
+            name="M",
+            duration=timedelta(0),
+            actual_finish=date(2026, 3, 9),
+            percent_complete=100.0,
+        )
+        p = Project(
+            id="p",
+            name="p",
+            start_date=date(2026, 3, 2),
+            tasks=[a, m, _task("B", 1)],
+            dependencies=[
+                _dep("A", "M", DependencyType.FS, a_lag),
+                _dep("M", "B", DependencyType.FS, 2),
+            ],
+        )
+        by_id = {t.id: t for t in schedule(p).tasks}
+        assert by_id["B"].early_start is not None
+        return by_id["M"].milestone_at_day_end, by_id["B"].early_start
+
+    @pytest.mark.parametrize(
+        ("a_lag", "b_start"),
+        [
+            # A ends Fri 03-06; +0 is Sat 00:00, the midnight equivalent to Mon 00:00
+            # that M linked from live (#4690). Sat 00:00 + 2 calendar days = Mon 03-09.
+            pytest.param(0, date(2026, 3, 9), id="lag-0"),
+            # +1 is Sun 00:00, still equivalent to Mon 00:00: + 2 days = Tue 03-10.
+            pytest.param(1, date(2026, 3, 10), id="lag-1"),
+        ],
+    )
+    def test_accepted_exception_a_lag_counts_from_an_earlier_equivalent_midnight(
+        self, a_lag: int, b_start: date
+    ) -> None:
+        """The one predecessor read left: the #4690 link instant (accepted exception).
+
+        The pin decides M's edge (the start of Mon 03-09, no hand-back) for every
+        input. Which midnight equivalent to that start a calendar-day lag out of M
+        counts from is still read from M's completed predecessors (#4690), so A's
+        finish and lag reach B through it: a lagged successor of a milestone closed
+        at the start of its day can move when completed work changes, but only
+        later, never earlier. Owner decision 2026-11-21; a pin-only link instant is
+        #5089.
+        """
+        assert self._monday_sign_off_run(date(2026, 3, 6), a_lag) == (False, b_start)
+
+    def test_accepted_exception_is_monotone(self) -> None:
+        """A later A finish or a larger A lag never moves B earlier (#5017, #5089).
+
+        Without any predecessor M links from Mon 00:00 and B starts Wed 03-11; that
+        is the latest B the exception can produce, and the earliest is Mon 03-09.
+        """
+        finishes = [date(2026, 3, d) for d in (4, 5, 6, 7, 9, 10)]
+        lags = [-1, 0, 1, 2, 3]
+        grid = {(f, lag): self._monday_sign_off_run(f, lag) for f in finishes for lag in lags}
+        assert all(not at_end for at_end, _ in grid.values()), "no hand-back: start of day"
+        for lag in lags:
+            starts = [grid[(f, lag)][1] for f in finishes]
+            assert starts == sorted(starts), (lag, starts)
+        for f in finishes:
+            starts = [grid[(f, lag)][1] for lag in lags]
+            assert starts == sorted(starts), (f, starts)
+        b_starts = {b for _, b in grid.values()}
+        assert min(b_starts) >= date(2026, 3, 9)
+        assert max(b_starts) == date(2026, 3, 11)
+
     def test_monte_carlo_agrees_with_cpm(self) -> None:
         """Zero variance lands on the CPM finish with the out-of-sequence close."""
         a = Task(
@@ -2808,3 +2843,110 @@ class TestClosedMilestoneEdgeCappedAtTheRecordedDay:
         # B dominates the finish, so it is a function of M's edge: Thu 03-05 + 10.
         assert result.project_finish == date(2026, 3, 18)
         assert mc.p50 == mc.p80 == mc.p95 == result.project_finish
+
+
+def _issue_5017_run(a_finish: date, handed_back: bool = False) -> tuple[bool, date, date, date]:
+    """``A(1d, closed) -FS-> M (signed off Wed 03-04) -FS+1d-> B(2d)``, the issue's repro.
+
+    Returns ``(M at day end, B start, B finish, project finish)``.
+    """
+    m = Task(
+        id="M",
+        name="M",
+        duration=timedelta(0),
+        actual_start=date(2026, 3, 4),
+        actual_finish=date(2026, 3, 4),
+        percent_complete=100.0,
+        live_day_end_on=date(2026, 3, 4) if handed_back else None,
+    )
+    p = Project(
+        id="x",
+        name="x",
+        start_date=date(2026, 3, 2),
+        tasks=[
+            Task(
+                id="A",
+                name="A",
+                duration=timedelta(days=1),
+                actual_start=date(2026, 3, 2),
+                actual_finish=a_finish,
+                percent_complete=100.0,
+            ),
+            m,
+            _task("B", 2),
+        ],
+        dependencies=[_dep("A", "M"), _dep("M", "B", lag=1)],
+    )
+    r = schedule(p)
+    by_id = {t.id: t for t in r.tasks}
+    b = by_id["B"]
+    assert b.early_start is not None and b.early_finish is not None
+    assert r.project_finish is not None
+    return by_id["M"].milestone_at_day_end, b.early_start, b.early_finish, r.project_finish
+
+
+@pytest.mark.parametrize("handed_back", [False, True], ids=["no-hand-back", "hand-back"])
+@pytest.mark.parametrize("a_day", [2, 3, 4, 5, 6])
+def test_issue_5017_a_later_predecessor_finish_never_moves_b(a_day: int, handed_back: bool) -> None:
+    """The issue's table: every ``A.actual_finish`` row gives the same ``B`` (#5017).
+
+    Hand-computed on a Mon-Fri calendar. Without the hand-back M sits at the start
+    of Wed 03-04 (00:00 Wed); FS+1d counts one calendar day to Thu 03-05 00:00,
+    so B runs Thu 03-05..Fri 03-06 and the project finishes Fri 03-06. Before the
+    fix the 03-04 row alone read M as end-of-day and gave B Fri 03-06..Mon 03-09.
+    With the hand-back M sits at the end of Wed (Thu 00:00); +1d is Fri 00:00, so
+    B runs Fri 03-06..Mon 03-09 on every row.
+    """
+    expected = (
+        (True, date(2026, 3, 6), date(2026, 3, 9), date(2026, 3, 9))
+        if handed_back
+        else (False, date(2026, 3, 5), date(2026, 3, 6), date(2026, 3, 6))
+    )
+    assert _issue_5017_run(date(2026, 3, a_day), handed_back) == expected
+
+
+@pytest.mark.parametrize("handed_back", [False, True], ids=["no-hand-back", "hand-back"])
+@pytest.mark.parametrize("lag", [0, 1, 2, 4])
+def test_cpmf3_a_lag_on_a_completed_link_never_flips_the_edge(lag: int, handed_back: bool) -> None:
+    """#5017 CPMF-3: raising an unrelated completed link's lag leaves M's edge alone.
+
+    ``A(done Wed) -FS-> M`` and ``C(done Mon) -FS+lag-> M``, M signed off Wed
+    03-04, ``M -FS-> B``. Before #5017 A's same-day finish put M at the end of
+    Wednesday and a lag large enough to place C's proposal after Wednesday changed
+    the reading with no date moving. Now the flag is the pin's: unchanged by every
+    lag, with B on Wed 03-04 (start) or Thu 03-05 (end of day).
+    """
+    m = Task(
+        id="M",
+        name="M",
+        duration=timedelta(0),
+        actual_finish=date(2026, 3, 4),
+        percent_complete=100.0,
+        live_day_end_on=date(2026, 3, 4) if handed_back else None,
+    )
+    a = Task(
+        id="A",
+        name="A",
+        duration=timedelta(days=1),
+        actual_start=date(2026, 3, 4),
+        actual_finish=date(2026, 3, 4),
+        percent_complete=100.0,
+    )
+    c = Task(
+        id="C",
+        name="C",
+        duration=timedelta(days=1),
+        actual_start=date(2026, 3, 2),
+        actual_finish=date(2026, 3, 2),
+        percent_complete=100.0,
+    )
+    p = Project(
+        id="p",
+        name="p",
+        start_date=date(2026, 3, 2),
+        tasks=[a, c, m, _task("B", 1)],
+        dependencies=[_dep("A", "M"), _dep("C", "M", lag=lag), _dep("M", "B")],
+    )
+    by_id = {t.id: t for t in schedule(p).tasks}
+    assert by_id["M"].milestone_at_day_end is handed_back
+    assert by_id["B"].early_start == (date(2026, 3, 5) if handed_back else date(2026, 3, 4))

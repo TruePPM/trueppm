@@ -221,6 +221,13 @@ const OUT_OF_SCOPE: Record<string, string> = {
   progress_closed_milestone_split_actuals: 'adapter: does not thread actuals/status date',
   progress_closed_milestone_handed_back_edge_after_sign_off:
     'adapter: does not thread actuals/status date',
+  // #5017. A closed milestone's day edge is decided by its sign-off pin alone,
+  // and the link-instant exception: both fixtures feed actual_finish, which this
+  // engine's adapter cannot, by design: the browser preview engine carries no
+  // actuals (ADR-0599: preview only, the server has the last word). The rule is mirrored in the Rust engine
+  // (`wasm:test` / `scheduler:snapshot-regression` assert it).
+  progress_closed_milestone_edge_is_the_pin: 'adapter: does not thread actuals/status date',
+  progress_closed_milestone_link_instant_exception: 'adapter: does not thread actuals/status date',
   // #4345. Pins a milestone's free instant reading a work successor's Saturday
   // actual_start at its working-day start. Free float is outside this suite's
   // scope (forward pass only); excluded for the same actuals adapter gap.

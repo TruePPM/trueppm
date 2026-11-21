@@ -205,10 +205,10 @@ pub struct Task {
     pub milestone_at_day_end: bool,
     /// Input only, read on a completed milestone with recorded actuals (#4525):
     /// the day the caller's previous run showed it on at the end of the day (that
-    /// run's `early_finish` with `milestone_at_day_end` true), or `None`. While a
-    /// predecessor is still open and it names the recorded day, the closed
-    /// milestone keeps that end-of-day edge. Mirrors the Python
-    /// `Task.live_day_end_on`.
+    /// run's `early_finish` with `milestone_at_day_end` true), or `None`. It is the
+    /// whole of the sign-off pin's edge (ADR-0136, #5017): naming the recorded day
+    /// puts the closed milestone at the end of it, anything else at the start; no
+    /// predecessor is read. Mirrors the Python `Task.live_day_end_on`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",

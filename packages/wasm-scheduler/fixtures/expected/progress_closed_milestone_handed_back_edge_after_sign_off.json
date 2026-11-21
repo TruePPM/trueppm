@@ -159,18 +159,19 @@
       "total_float": 0.0,
       "free_float": 0.0,
       "is_critical": false,
-      "scheduled_start": "2026-03-05"
+      "scheduled_start": "2026-03-05",
+      "milestone_at_day_end": true
     },
     {
       "id": "B5",
-      "early_start": "2026-03-05",
-      "early_finish": "2026-03-06",
+      "early_start": "2026-03-06",
+      "early_finish": "2026-03-09",
       "late_start": "2026-03-09",
       "late_finish": "2026-03-10",
-      "total_float": 172800.0,
-      "free_float": 172800.0,
+      "total_float": 86400.0,
+      "free_float": 86400.0,
       "is_critical": false,
-      "scheduled_start": "2026-03-05"
+      "scheduled_start": "2026-03-06"
     },
     {
       "id": "A6",
@@ -192,18 +193,19 @@
       "total_float": 0.0,
       "free_float": 0.0,
       "is_critical": false,
-      "scheduled_start": "2026-03-05"
+      "scheduled_start": "2026-03-05",
+      "milestone_at_day_end": true
     },
     {
       "id": "B6",
-      "early_start": "2026-03-05",
-      "early_finish": "2026-03-06",
+      "early_start": "2026-03-06",
+      "early_finish": "2026-03-09",
       "late_start": "2026-03-09",
       "late_finish": "2026-03-10",
-      "total_float": 172800.0,
-      "free_float": 172800.0,
+      "total_float": 86400.0,
+      "free_float": 86400.0,
       "is_critical": false,
-      "scheduled_start": "2026-03-05"
+      "scheduled_start": "2026-03-06"
     }
   ],
   "critical_path": [],
