@@ -13,7 +13,14 @@
  * applies to escapers, on a surface where drift is cosmetic rather than unsafe
  * but no less invisible.
  */
-import type { ProjectTemplate, TemplateCounts } from '@/hooks/useProjectTemplates';
+import { useId, useState } from 'react';
+import { ChevronRightIcon } from '@/components/Icons';
+import {
+  useProjectTemplateOutline,
+  type ProjectTemplate,
+  type TemplateCounts,
+  type TemplateOutlineItem,
+} from '@/hooks/useProjectTemplates';
 
 /**
  * Tint per provenance tier (ADR-0789 §2).
@@ -168,3 +175,116 @@ export function TemplateCardBody({
 
 /** The card's own box, shared so the preview matches the gallery's geometry. */
 export const TEMPLATE_CARD_CLASS = 'flex flex-col gap-1 rounded-card border p-3 text-left';
+
+/** Indent per WBS level, capped so a deep outline cannot push names out of the card. */
+const DEPTH_CLASS = ['pl-0', 'pl-3', 'pl-6', 'pl-9'];
+
+/** The suffix that names a row's kind. A plain task carries none. */
+const KIND_LABEL: Record<TemplateOutlineItem['kind'], string> = {
+  phase: 'phase',
+  gate: 'gate',
+  milestone: 'milestone',
+  task: '',
+};
+
+/**
+ * "Show the N row names" — the template's phase, gate and task names, in WBS
+ * order, before anyone presses Apply (#3084).
+ *
+ * A delivery manager choosing a stage-gate skeleton is judging its *language* —
+ * whether "Gate 2 — approved to execute" is what her steering committee already
+ * calls that hold point — and the counts line cannot answer that. The names come
+ * from the server's own read of the frozen document `apply` writes from, so the
+ * list cannot disagree with what lands on the Schedule.
+ *
+ * A sibling of `TemplateCardBody`, never a child of it: the body renders inside the
+ * gallery's `role="radio"` button, a button may not contain another interactive
+ * control, and a list inside it would be flattened into the radio's accessible
+ * name. Collapsed by default so it does not compete with the counts line, and the
+ * names are fetched only when it is first opened.
+ *
+ * `tabIndex` follows the gallery's roving index, so only the focused card's toggle
+ * is a Tab stop: Tab moves from a card to its own toggle and then out of the list,
+ * rather than through one toggle per template.
+ */
+export function TemplateOutlineDisclosure({
+  templateId,
+  templateName,
+  rowCount,
+  tabIndex = 0,
+}: {
+  templateId: string;
+  templateName: string;
+  rowCount: number;
+  tabIndex?: 0 | -1;
+}) {
+  const [open, setOpen] = useState(false);
+  const regionId = useId();
+  const { data, isLoading, isError } = useProjectTemplateOutline(templateId, open);
+  if (rowCount === 0) return null;
+  const noun = `row name${rowCount === 1 ? '' : 's'}`;
+
+  return (
+    <div className="border-t border-neutral-border">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={regionId}
+        tabIndex={tabIndex}
+        onClick={() => setOpen((v) => !v)}
+        className="flex min-h-11 w-full items-center gap-1.5 px-3 text-left text-xs font-medium text-brand-primary
+                   hover:bg-neutral-surface-raised
+                   focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-primary"
+      >
+        <ChevronRightIcon
+          aria-hidden="true"
+          className={`h-3.5 w-3.5 shrink-0 transition-transform ${open ? 'rotate-90' : ''}`}
+        />
+        {open ? `Hide the ${rowCount} ${noun}` : `Show the ${rowCount} ${noun}`}
+      </button>
+      <div id={regionId} hidden={!open} className="px-3 pb-3">
+        {open && isLoading && (
+          <p role="status" className="text-xs text-neutral-text-secondary">
+            Loading row names…
+          </p>
+        )}
+        {open && isError && (
+          // Not an alert: the counts above still describe the template, and
+          // choosing it remains safe — only the preview of its names is missing.
+          <p role="status" className="text-xs text-neutral-text-secondary">
+            Couldn&rsquo;t load the row names. The counts above still describe what this
+            template writes.
+          </p>
+        )}
+        {open && data && (
+          <ol
+            aria-label={`Rows ${templateName} writes`}
+            // Scrolls past ~12 rows, and a scroll region a keyboard cannot reach
+            // is unreadable past its fold (WCAG 2.1.1): focusable, on the same
+            // roving stop as the toggle that opened it.
+            tabIndex={tabIndex}
+            className="flex max-h-48 flex-col gap-0.5 overflow-y-auto rounded-control text-xs
+                       focus:outline-none focus:ring-2 focus:ring-brand-primary"
+          >
+            {data.map((row, i) => (
+              <li
+                // Names repeat ("Review" under two phases), so position is the key.
+                key={i}
+                className={`${DEPTH_CLASS[Math.min(row.depth, DEPTH_CLASS.length - 1)]} ${
+                  row.kind === 'phase'
+                    ? 'font-medium text-neutral-text-primary'
+                    : 'text-neutral-text-primary'
+                }`}
+              >
+                {row.name}
+                {KIND_LABEL[row.kind] && (
+                  <span className="text-neutral-text-secondary"> · {KIND_LABEL[row.kind]}</span>
+                )}
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+    </div>
+  );
+}

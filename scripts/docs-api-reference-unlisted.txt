@@ -105,7 +105,6 @@ PUT /api/v1/programs/{program_pk}/webhooks/{id}/
 GET /api/v1/programs/{program_pk}/webhooks/{id}/deliveries/
 POST /api/v1/programs/{program_pk}/webhooks/{id}/test/
 GET /api/v1/project-templates/publish-preview/
-GET /api/v1/project-templates/{id}/
 POST /api/v1/projects/import/msproject/
 GET /api/v1/projects/trash/
 POST /api/v1/projects/{id}/archive/

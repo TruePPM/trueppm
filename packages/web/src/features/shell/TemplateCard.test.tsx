@@ -1,9 +1,14 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { renderWithProviders } from '@/test/utils';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { carriesLine, usageLine, TemplateCardBody } from './TemplateCard';
+import { carriesLine, usageLine, TemplateCardBody, TemplateOutlineDisclosure } from './TemplateCard';
+
+const getMock = vi.hoisted(() => vi.fn());
+vi.mock('@/api/client', () => ({ apiClient: { get: getMock } }));
 import type { TemplateCounts } from '@/hooks/useProjectTemplates';
 
 function counts(over: Partial<TemplateCounts> = {}): TemplateCounts {
@@ -72,6 +77,85 @@ describe('TemplateCardBody', () => {
       <TemplateCardBody label="Scrum product team" detail="For a feature team" taskCount={4} />,
     );
     expect(container.querySelectorAll('button, a, input, [tabindex]')).toHaveLength(0);
+  });
+});
+
+describe('TemplateOutlineDisclosure (#3084)', () => {
+  const OUTLINE = [
+    { name: 'Initiate', kind: 'phase', depth: 0 },
+    { name: 'Charter and business case', kind: 'task', depth: 1 },
+    { name: 'Gate 1 — approved to plan', kind: 'gate', depth: 1 },
+    { name: 'Closed', kind: 'milestone', depth: 0 },
+  ];
+
+  beforeEach(() => {
+    getMock.mockReset();
+    getMock.mockResolvedValue({ data: { id: 'tpl1', outline: OUTLINE } });
+  });
+
+  function renderDisclosure(rowCount = 4) {
+    return renderWithProviders(
+      <TemplateOutlineDisclosure templateId="tpl1" templateName="Stage-gate" rowCount={rowCount} />,
+    );
+  }
+
+  it('is collapsed by default and fetches nothing until opened', () => {
+    renderDisclosure();
+    const toggle = screen.getByRole('button', { name: 'Show the 4 row names' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('list')).not.toBeInTheDocument();
+    expect(getMock).not.toHaveBeenCalled();
+  });
+
+  it('lists every row name in the server order, with gates and phases named', async () => {
+    renderDisclosure();
+    await userEvent.click(screen.getByRole('button', { name: /show the 4 row names/i }));
+
+    const list = await screen.findByRole('list', { name: 'Rows Stage-gate writes' });
+    expect(getMock).toHaveBeenCalledWith('/project-templates/tpl1/');
+    const items = within(list).getAllByRole('listitem');
+    expect(items.map((li) => li.textContent)).toEqual([
+      'Initiate · phase',
+      'Charter and business case',
+      'Gate 1 — approved to plan · gate',
+      'Closed · milestone',
+    ]);
+    const toggle = screen.getByRole('button', { name: 'Hide the 4 row names' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(toggle.getAttribute('aria-controls')).toBe(list.parentElement?.id);
+    // A scroll region a keyboard cannot reach is unreadable past its fold.
+    expect(list).toHaveAttribute('tabindex', '0');
+  });
+
+  it('collapses again without refetching', async () => {
+    renderDisclosure();
+    await userEvent.click(screen.getByRole('button', { name: /show the/i }));
+    await screen.findByRole('list');
+    await userEvent.click(screen.getByRole('button', { name: /hide the/i }));
+    expect(screen.queryByRole('list')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /show the/i }));
+    await screen.findByRole('list');
+    expect(getMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('says the names failed to load without treating it as an error', async () => {
+    getMock.mockRejectedValue(new Error('boom'));
+    renderDisclosure();
+    await userEvent.click(screen.getByRole('button', { name: /show the/i }));
+    await waitFor(() =>
+      expect(screen.getByText(/couldn.t load the row names/i)).toBeInTheDocument(),
+    );
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('renders nothing for a template that writes no rows', () => {
+    const { container } = renderDisclosure(0);
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('singularizes a one-row template', () => {
+    renderDisclosure(1);
+    expect(screen.getByRole('button', { name: 'Show the 1 row name' })).toBeInTheDocument();
   });
 });
 

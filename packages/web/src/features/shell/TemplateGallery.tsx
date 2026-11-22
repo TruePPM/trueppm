@@ -4,6 +4,7 @@ import { useProjectTemplates, type ProjectTemplate } from '@/hooks/useProjectTem
 import {
   TEMPLATE_CARD_CLASS,
   TemplateCardBody,
+  TemplateOutlineDisclosure,
   templateCardFields,
   type TemplateCardFields,
 } from './TemplateCard';
@@ -281,6 +282,7 @@ export function TemplateGallery({
                   }}
                   tabIndex={i === focusIdx ? 0 : -1}
                   {...templateCardFields(template)}
+                  templateId={template.id}
                   selected={selectedId === template.id}
                   onSelect={() => onSelect(template)}
                 />
@@ -303,35 +305,53 @@ export function TemplateGallery({
   );
 }
 
+/**
+ * One card: the radio itself, then — as a sibling inside the same box — the
+ * row-name disclosure (#3084). The box carries the border and the selected tint so
+ * the two read as one card; the radio keeps the focus ring and the whole of the
+ * card's summary as its accessible name. The disclosure cannot live inside the
+ * radio: a button may not contain another interactive control.
+ */
 function TemplateOption({
   ref,
   tabIndex,
   selected,
   onSelect,
+  templateId,
   ...fields
 }: TemplateCardFields & {
   ref: (el: HTMLButtonElement | null) => void;
   selected: boolean;
   tabIndex: 0 | -1;
   onSelect: () => void;
+  templateId: string;
 }) {
   return (
-    <button
-      ref={ref}
-      type="button"
-      role="radio"
-      aria-checked={selected}
-      tabIndex={tabIndex}
-      onClick={onSelect}
-      className={`${TEMPLATE_CARD_CLASS} transition
-        focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1
-        ${
-          selected
-            ? 'border-brand-primary bg-brand-primary/5'
-            : 'border-neutral-border hover:border-brand-primary/50'
-        }`}
+    <div
+      className={`overflow-hidden rounded-card border transition ${
+        selected
+          ? 'border-brand-primary bg-brand-primary/5'
+          : 'border-neutral-border hover:border-brand-primary/50'
+      }`}
     >
-      <TemplateCardBody {...fields} />
-    </button>
+      <button
+        ref={ref}
+        type="button"
+        role="radio"
+        aria-checked={selected}
+        tabIndex={tabIndex}
+        onClick={onSelect}
+        className={`${TEMPLATE_CARD_CLASS} w-full rounded-none border-0
+          focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-primary`}
+      >
+        <TemplateCardBody {...fields} />
+      </button>
+      <TemplateOutlineDisclosure
+        templateId={templateId}
+        templateName={fields.label}
+        rowCount={fields.taskCount ?? 0}
+        tabIndex={tabIndex}
+      />
+    </div>
   );
 }

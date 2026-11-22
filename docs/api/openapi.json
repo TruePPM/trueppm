@@ -19939,6 +19939,24 @@
                         "schema": {
                             "type": "integer"
                         }
+                    },
+                    {
+                        "in": "query",
+                        "name": "program",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "Narrow to this program's templates plus the workspace-wide ones. Cannot widen past the caller's program memberships. A malformed id is a 400 for either filter."
+                    },
+                    {
+                        "in": "query",
+                        "name": "source_project",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "Only templates published from this project — the project Settings → Templates version list. Narrows the caller's visible pool; it never reveals a template the caller could not otherwise list."
                     }
                 ],
                 "tags": [
@@ -19966,6 +19984,39 @@
                         },
                         "description": ""
                     },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
+                                            "example": "Request body must be a JSON object."
+                                        },
+                                        "code": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
+                                            "example": "invalid_body"
+                                        }
+                                    },
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
+                                    }
+                                }
+                            }
+                        },
+                        "description": "A `program` or `source_project` filter that is not a UUID. Keyed by the parameter's name."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -19989,7 +20040,7 @@
         "/api/v1/project-templates/{id}/": {
             "get": {
                 "operationId": "v1_project_templates_retrieve",
-                "description": "Templates available to the caller, plus publish and apply.\n\n**ReadOnly** on purpose, not for lack of ambition. A ``ModelViewSet`` here would\ninherit create / update / destroy under this class's ``IsAuthenticated``, which\nis the wrong gate for all three: any authenticated user could mint an empty\ntemplate, or rename and delete somebody else's. Publishing has exactly one door\n(``publish``, Admin+ on the source project) and it is the door that runs the\nextraction. Editing and unpublishing are deliberately not in this issue —\nabsent is safer than present-and-ungated.\n\nApply is throttled on the existing ``seed_import`` scope rather than a new one\n(ADR-0789 §Context 3). Template apply is a third background seeding path\nalongside seed import and CSV/MS Project import; #2615 remains the issue that\nbounds per-user concurrency for all three. Reusing the scope inherits exactly\nthe bound the other paths have today and keeps that fix in one place, instead\nof adding a fourth unbounded path.",
+                "description": "One template, plus `outline`: the names of the rows applying it would write, in WBS order.",
                 "parameters": [
                     {
                         "in": "path",
@@ -20021,7 +20072,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ProjectTemplate"
+                                    "$ref": "#/components/schemas/ProjectTemplateDetail"
                                 }
                             }
                         },
@@ -79856,6 +79907,175 @@
                 "required": [
                     "project"
                 ]
+            },
+            "ProjectTemplateDetail": {
+                "type": "object",
+                "description": "One template, plus the names of the rows applying it would write (#3084).\n\nThe class docstring above keeps the whole ``structure`` document off the\ngallery; this adds only the row *names*, kinds and depths, on the detail read\nalone. Names are not a wider disclosure than publishing already made: the\n``publish`` action records a ``TEMPLATE_PUBLISHED`` audit event precisely\nbecause it puts the source project's task names in front of everyone who can\nsee the template, and any Admin who applies it gets every name written into\ntheir own project. What stays withheld is everything else the document holds\n(notes, durations, the dependency edges).\n\nDetail-only rather than on every gallery row: a template carries up to\n``MAX_TEMPLATE_NODES`` rows, so putting the outline on the list would multiply\nthe gallery's payload by its largest template for a list the card shows\ncollapsed by default. The card fetches it when the reader expands it.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "maxLength": 200
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "source_kind": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/TemplateSourceEnum"
+                            }
+                        ],
+                        "readOnly": true,
+                        "description": "Provenance chip shown in the gallery before adoption (ADR-0789).\n\n* `workspace` - Workspace\n* `community` - Community\n* `personal` - Yours"
+                    },
+                    "provenance": {
+                        "type": "string",
+                        "description": "The chip label — \"Workspace\" / \"Community\" / \"Yours\".\n\n``source_kind`` is stored, so two readers agree on Workspace and Community.\n*Yours* is the one label additionally narrowed at read time, because it is\nthe only one that is genuinely relative to who is asking (ADR-0789 §2).",
+                        "readOnly": true
+                    },
+                    "carries": {
+                        "readOnly": true
+                    },
+                    "methodology": {
+                        "type": "string",
+                        "description": "The methodology the source project carried at publish time (ADR-0791).\n\nRead off the frozen ``structure`` document, mirroring ``get_task_count`` —\nnever re-queries the (possibly since-edited/archived/deleted) source\nproject, and can never disagree with what ``apply`` will actually seed.\nFalls back to ``Methodology.HYBRID`` (never null) for a structure written\nbefore this key existed, or one edited outside the publish path — Hybrid is\nthe lossless default everywhere else in the methodology chain\n(``methodology.DEFAULT_METHODOLOGY``), so an unresolved template under-hides\nrather than over-hides tabs.",
+                        "readOnly": true
+                    },
+                    "task_count": {
+                        "type": "integer",
+                        "description": "How many rows adopting this would write — the one number that decides adoption.\n\nRead off the stored document rather than counted in SQL: the structure is\nfrozen at publish, so there is nothing to join against and no count that\ncould disagree with what apply will actually write.",
+                        "readOnly": true
+                    },
+                    "version": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "program": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "is_published": {
+                        "type": "boolean"
+                    },
+                    "published_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "published_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "published_by_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "source_project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "source_project_name": {
+                        "type": "string",
+                        "description": "Name of the project this was frozen from, or '' once it is gone.\n\nEmpty rather than absent when the FK has been nulled by a project\ndeletion: the provenance line simply drops, and the template still works.",
+                        "readOnly": true
+                    },
+                    "supersedes": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "is_superseded": {
+                        "type": "boolean",
+                        "description": "A later version replaced this one. It stays selectable on purpose —\nprojects already created from it are why it must remain legible.",
+                        "readOnly": true
+                    },
+                    "counts": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "description": "Tasks, phases, gates and dependencies, off the frozen document (#2909).\n\nServer-side because the publish inventory and the gallery's carries\nsummary are both screens whose credibility rests on a number, and a\nclient-side walk of a filtered tree would produce a different one.",
+                        "readOnly": true
+                    },
+                    "usage_count": {
+                        "type": "integer",
+                        "description": "Projects created from this template — the PMO's only house-standard signal.\n\nAnnotated on the queryset where one is available; falls back to a count so\na serializer used outside the gallery (the publish response) still answers.\nUndone applications are excluded: a template whose seeding was reversed\nwas not adopted, and counting it would overstate the standard.",
+                        "readOnly": true
+                    },
+                    "outline": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProjectTemplateOutlineItem"
+                        },
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "carries",
+                    "counts",
+                    "id",
+                    "is_superseded",
+                    "methodology",
+                    "name",
+                    "outline",
+                    "provenance",
+                    "published_at",
+                    "published_by",
+                    "published_by_name",
+                    "source_kind",
+                    "source_project",
+                    "source_project_name",
+                    "supersedes",
+                    "task_count",
+                    "usage_count",
+                    "version"
+                ]
+            },
+            "ProjectTemplateOutlineItem": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "The row name apply will write, verbatim."
+                    },
+                    "kind": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProjectTemplateOutlineItemKindEnum"
+                            }
+                        ],
+                        "description": "`phase` has structural children; `gate` is a gated milestone; `milestone` is any other milestone; everything else is `task`.\n\n* `phase` - Phase\n* `gate` - Gate\n* `milestone` - Milestone\n* `task` - Task"
+                    },
+                    "depth": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "WBS depth, 0 for a top-level row."
+                    }
+                },
+                "required": [
+                    "depth",
+                    "kind",
+                    "name"
+                ]
+            },
+            "ProjectTemplateOutlineItemKindEnum": {
+                "enum": [
+                    "phase",
+                    "gate",
+                    "milestone",
+                    "task"
+                ],
+                "type": "string",
+                "description": "* `phase` - Phase\n* `gate` - Gate\n* `milestone` - Milestone\n* `task` - Task",
+                "x-trueppm-enum": "open"
             },
             "ProjectTemplatePublishRequest": {
                 "type": "object",

@@ -104,6 +104,32 @@ describe('TemplateGallery (#2728, superseding #2729)', () => {
     expect(first).toHaveFocus();
   });
 
+  it('offers the row names outside the radio, with one Tab stop per list (#3084)', async () => {
+    mockQuery.data = [
+      makeTemplate({ id: 't1', name: 'Alpha skeleton' }),
+      makeTemplate({ id: 't2', name: 'Beta skeleton' }),
+    ];
+    renderWithProviders(<TemplateGallery selectedId="t1" onSelect={vi.fn()} />);
+    const radiogroup = screen.getByRole('radiogroup', { name: /start from a template/i });
+    const first = within(radiogroup).getByRole('radio', { name: /alpha skeleton/i });
+    const toggles = within(radiogroup).getAllByRole('button', { name: 'Show the 12 row names' });
+    expect(toggles).toHaveLength(2);
+    // Never nested in the radio: a button inside a button is invalid, and the list
+    // would be flattened into the radio's accessible name.
+    for (const toggle of toggles) expect(first.contains(toggle)).toBe(false);
+    expect(first.textContent).not.toMatch(/row names/);
+
+    // Only the focused card's toggle is tabbable: Tab goes radio → its toggle → out.
+    expect(toggles.map((t) => t.tabIndex)).toEqual([0, -1]);
+    first.focus();
+    await userEvent.tab();
+    expect(toggles[0]).toHaveFocus();
+    await userEvent.keyboard('{ArrowDown}');
+    // Arrows still rove the radios from the toggle.
+    expect(within(radiogroup).getByRole('radio', { name: /beta skeleton/i })).toHaveFocus();
+    expect(toggles.map((t) => t.tabIndex)).toEqual([-1, 0]);
+  });
+
   it('keeps Blank and Import live when the gallery fetch fails', () => {
     // A failed gallery must not block creating a project — Blank and Import stay
     // available as sibling way-in cards on the Start sheet.

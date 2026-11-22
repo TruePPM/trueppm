@@ -8,11 +8,23 @@ documentedFor: "0.5"
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/v1/project-templates/` | Gallery (filter: `?program=`) |
+| GET | `/api/v1/project-templates/` | Gallery (filters: `?program=`, `?source_project=`) |
+| GET | `/api/v1/project-templates/{id}/` | One template, plus `outline` — the row names it writes |
 | POST | `/api/v1/project-templates/publish/` | Freeze a project's shape as a template |
 | POST | `/api/v1/project-templates/{id}/apply/` | Apply to a project — returns `202` |
 | GET | `/api/v1/template-applications/` | Adoption records (filter: `?project=`) |
 | POST | `/api/v1/template-applications/{id}/undo/` | Reverse one application |
+
+Both gallery filters only narrow what you can already see: `?program=` keeps that
+program's templates plus the workspace-wide ones, and `?source_project=` keeps the
+templates published from one project. A malformed id in either is a `400`. Neither can
+surface a program-scoped template from a program you are not a member of.
+
+The detail read adds `outline`, a list of `{name, kind, depth}` in WBS order, where
+`kind` is `phase`, `gate`, `milestone` or `task` and `depth` is 0 for a top-level
+row. It is read off the same frozen document `apply` writes from. The list endpoint
+leaves it out, so the gallery stays small however large its templates are, and
+neither endpoint returns the document itself.
 
 Both writes take a JSON body. `publish` requires `project` and `name`; `apply`
 requires `project`:

@@ -72,9 +72,14 @@ function Adopted({ digest }: { digest: TemplateDivergence }) {
         </p>
         {!digest.template_available && (
           // Not an error state and not styled as one. The adoption record is
-          // denormalized precisely so it outlives the template.
+          // denormalized precisely so it outlives the template. The copy is
+          // deliberately neutral about *why* the row is gone: the product has no
+          // way to delete or unpublish a template (the viewset is read-only by
+          // design, #3039), so only direct database access can reach this branch.
+          // Naming a "deleted" lifecycle here would describe an operation a user
+          // cannot perform. Reword it when #3039 ships a real removal path.
           <p className="mt-1 text-sm text-neutral-text-secondary">
-            That template has since been deleted. What it wrote here is unaffected.
+            That template is no longer available. What it wrote here is unaffected.
           </p>
         )}
 
