@@ -43,7 +43,14 @@ DEPRECATION_ROOTS = ("packages/api/src", "packages/web/src", "packages/scheduler
 REMOVAL_RE = re.compile(
     r"(remov(?:ed?|al)|dropped?|deleted?|goes away|go away)[^.\n]{0,30}"
     r"(?:next|following|subsequent) (?:minor |major |dot )?(?:release|version|minor)"
-    r"|next release[^.\n]{0,20}(?:remov|drop|delet)",
+    r"|next release[^.\n]{0,20}(?:remov|drop|delet)"
+    # Forward-looking phrasings (#4125 audit). Plain past-tense "was removed"
+    # deliberately does not match: it is history, not a promise.
+    r"|\bwill (?:also |then )?be (?:removed|dropped|deleted)"
+    r"(?=\s*[;,)]|\s+(?:in|at|entirely|soon|once|when|after|before)\b)"
+    r"|\bremov(?:ed?|al)\b[^.\n]{0,20}\bin (?:a |the )?(?:later|future|subsequent) "
+    r"(?:minor |major |dot )?(?:release|version|minor)"
+    r"|\bremov(?:ed?|al)\b[^.\n]{0,20}\bat v?\d+\.\d+",
     re.IGNORECASE,
 )
 ISSUE_RE = re.compile(r"#\d{2,6}")
@@ -73,9 +80,27 @@ def iter_files(root: Path, base: str, suffixes: tuple[str, ...]):
                 yield rel, p
 
 
-def find_violations(root: Path) -> set[str]:
-    """Return baseline-style keys: ``aria-modal <path>`` / ``deprecation <path>``."""
-    out: set[str] = set()
+def removal_starts_on(lines: list[str], i: int) -> bool:
+    """True if a removal promise begins on line ``i``.
+
+    The next line is joined on so a promise wrapped across two string literals
+    ("Removed in a later " / "minor release.") is seen; a match counts only when
+    it starts on line ``i`` so a wrapped promise is one site, not two.
+    """
+    nxt = re.sub(r"^\s*[\"'#/*]*\s*", "", lines[i + 1]) if i + 1 < len(lines) else ""
+    cur = re.sub(r"[\"']\s*$", "", lines[i]).rstrip()
+    m = REMOVAL_RE.search(cur + " " + nxt)
+    return bool(m) and m.start() < len(cur)
+
+
+def find_violations(root: Path) -> dict[str, int]:
+    """Return baseline-style ``key -> site count``.
+
+    Keys are ``aria-modal <path>`` / ``deprecation <path>``. The count is per
+    site (each ``aria-modal`` occurrence, each unpaired removal promise) so a
+    baselined file cannot gain a second violation and stay green.
+    """
+    out: dict[str, int] = {}
     for rel, p in iter_files(root, WEB_SRC, (".tsx",)):
         text = p.read_text(encoding="utf-8", errors="replace")
         if (
@@ -83,34 +108,45 @@ def find_violations(root: Path) -> set[str]:
             and not FOCUS_TRAP_RE.search(text)
             and not FOCUS_OK_RE.search(text)
         ):
-            out.add(f"aria-modal {rel}")
+            out[f"aria-modal {rel}"] = text.count("aria-modal")
     for base in DEPRECATION_ROOTS:
         for rel, p in iter_files(root, base, (".py", ".ts", ".tsx")):
             lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
             text = "\n".join(lines)
+            sites = 0
             for i, line in enumerate(lines):
-                if not REMOVAL_RE.search(line) or DEPR_OK_RE.search(line):
+                if not removal_starts_on(lines, i) or DEPR_OK_RE.search(line):
                     continue
                 window = "\n".join(lines[max(0, i - 3) : i + 4])
                 if not (ISSUE_RE.search(window) and MARKER_RE.search(text)):
-                    out.add(f"deprecation {rel}")
-                    break
+                    sites += 1
+            if sites:
+                out[f"deprecation {rel}"] = sites
     return out
 
 
-def read_baseline(path: Path) -> set[str]:
+def read_baseline(path: Path) -> dict[str, int]:
+    """Parse ``<rule> <path> <count>`` lines (a bare ``<rule> <path>`` is 1)."""
+    out: dict[str, int] = {}
     if not path.is_file():
-        return set()
-    return {
-        ln.strip()
-        for ln in path.read_text().splitlines()
-        if ln.strip() and not ln.lstrip().startswith("#")
-    }
+        return out
+    for ln in path.read_text().splitlines():
+        ln = ln.strip()
+        if not ln or ln.startswith("#"):
+            continue
+        head, _, tail = ln.rpartition(" ")
+        if tail.isdigit() and " " in head:
+            out[head] = int(tail)
+        else:
+            out[ln] = 1
+    return out
 
 
 HEADER = (
-    "# Unpaired files grandfathered by scripts/check-pairings.py (#4125).\n"
-    "# Ratchet: entries may only be removed. Fix the file, then run\n"
+    "# Unpaired sites grandfathered by scripts/check-pairings.py (#4125).\n"
+    "# Format: <rule> <path> <site count>. A grandfathered snapshot, NOT a review:\n"
+    "# nobody has verified these files. Ratchet: a count may only fall. Fix the\n"
+    "# file, then run\n"
     "#   python3 scripts/check-pairings.py --update-baseline\n"
 )
 
@@ -118,24 +154,26 @@ HEADER = (
 def run(root: Path, baseline: Path, update: bool) -> int:
     found = find_violations(root)
     base = read_baseline(baseline)
-    new = sorted(found - base)
-    stale = sorted(base - found)
+    new = sorted(k for k, n in found.items() if n > base.get(k, 0))
+    stale = sorted(k for k, n in base.items() if found.get(k, 0) < n)
     if update:
         if new:
             print(
-                "refusing to add entries to the baseline; fix these instead:",
+                "refusing to add or raise baseline entries; fix these instead:",
                 file=sys.stderr,
             )
             for k in new:
-                print(f"  {k}", file=sys.stderr)
+                print(f"  {k} ({base.get(k, 0)} -> {found[k]})", file=sys.stderr)
             return 1
-        baseline.write_text(HEADER + "".join(f"{k}\n" for k in sorted(found)))
+        baseline.write_text(
+            HEADER + "".join(f"{k} {found[k]}\n" for k in sorted(found))
+        )
         print(f"baseline now {len(found)} entries (was {len(base)})")
         return 0
     rc = 0
     if new:
         rc = 1
-        print("UNPAIRED (new):", file=sys.stderr)
+        print("UNPAIRED (new or more sites than baselined):", file=sys.stderr)
         for k in new:
             kind, path = k.split(" ", 1)
             how = (
@@ -144,17 +182,20 @@ def run(root: Path, baseline: Path, update: bool) -> int:
                 else "add `deprecated: True` in the schema/field AND a `#NNNN` tracking issue "
                 "beside the comment, or `deprecation-ok: <reason>` on the line"
             )
-            print(f"  {path}: {kind} - {how}", file=sys.stderr)
+            print(
+                f"  {path}: {kind} - {found[k]} site(s), baseline {base.get(k, 0)} - {how}",
+                file=sys.stderr,
+            )
     if stale:
         rc = 1
         print(
-            "STALE baseline entries (now paired; run --update-baseline to lock in):",
+            "STALE baseline entries (fewer sites now; run --update-baseline to lock in):",
             file=sys.stderr,
         )
         for k in stale:
-            print(f"  {k}", file=sys.stderr)
+            print(f"  {k} ({base[k]} -> {found.get(k, 0)})", file=sys.stderr)
     if rc == 0:
-        print(f"OK: {len(found)} grandfathered, 0 new unpaired.")
+        print(f"OK: {len(found)} grandfathered files, 0 new unpaired.")
     return rc
 
 
@@ -185,21 +226,56 @@ def self_test() -> int:
             '# removed next release (#1234)\nX = {"deprecated": True}\n',
         )
         w(root, f"{a}/optout.py", "# removed next release  # deprecation-ok: env var\n")
+        # Widened phrasings (#4125 audit): each unpaired, one file apiece.
+        w(root, f"{a}/will_be.py", "# the alias will be removed at 1.0.\n")
+        w(root, f"{a}/will_be2.py", 'MSG = "kept and will be removed; use X."\n')
+        w(root, f"{a}/later.py", 'D = ("Removed in a later "\n     "minor release.")\n')
+        w(root, f"{a}/at_ver.py", "# gone: removed at 1.0\n")
+        w(
+            root,
+            f"{a}/later_paired.py",
+            'D = {"deprecated": True, "d": ("Alias (#4663). Removed in a later "\n'
+            '"minor release.")}\n',
+        )
+        # Negatives: history, and UI copy about user data, are not promises.
+        w(root, f"{a}/history.py", "# the old alias was removed in 0.3; was removed.\n")
+        w(root, f"{a}/ui_copy.py", 'T = "Your item will be removed from the board."\n')
         got = find_violations(root)
         check(
             got
             == {
-                f"aria-modal {s}/Bad.tsx",
-                f"deprecation {a}/unpaired.py",
-                f"deprecation {a}/no_marker.py",
+                f"aria-modal {s}/Bad.tsx": 1,
+                f"deprecation {a}/unpaired.py": 1,
+                f"deprecation {a}/no_marker.py": 1,
+                f"deprecation {a}/will_be.py": 1,
+                f"deprecation {a}/will_be2.py": 1,
+                f"deprecation {a}/later.py": 1,
+                f"deprecation {a}/at_ver.py": 1,
             },
-            f"violation set wrong: {sorted(got)}",
+            f"violation set wrong: {sorted(got.items())}",
         )
         bl = root / BASELINE_REL
         bl.parent.mkdir(parents=True, exist_ok=True)
         check(run(root, bl, False) == 1, "new violations with no baseline did not fail")
-        bl.write_text(HEADER + "".join(f"{k}\n" for k in sorted(got)))
+        bl.write_text(HEADER + "".join(f"{k} {n}\n" for k, n in sorted(got.items())))
         check(run(root, bl, False) == 0, "a fully baselined tree did not pass")
+        # A baselined file gaining a second site must fail (per-site, not per-file).
+        w(
+            root,
+            f"{a}/unpaired.py",
+            "# alias is removed next release.\n# also removed next release.\n",
+        )
+        check(
+            run(root, bl, False) == 1,
+            "baselined file gaining a second violation passed",
+        )
+        check(run(root, bl, True) == 1, "--update-baseline accepted a raised count")
+        w(root, f"{a}/unpaired.py", "# alias is removed next release.\n")
+        w(root, f"{s}/Bad.tsx", '<div aria-modal="true" /><div aria-modal="true" />')
+        check(
+            run(root, bl, False) == 1, "a second aria-modal in a baselined file passed"
+        )
+        w(root, f"{s}/Bad.tsx", '<div role="dialog" aria-modal="true" />')
         w(root, f"{s}/Worse.tsx", '<div aria-modal="true" />')
         check(run(root, bl, False) == 1, "a new violation beside a baseline passed")
         check(run(root, bl, True) == 1, "--update-baseline accepted an addition")

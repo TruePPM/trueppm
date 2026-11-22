@@ -1,18 +1,24 @@
-# Unpaired files grandfathered by scripts/check-pairings.py (#4125).
-# Ratchet: entries may only be removed. Fix the file, then run
+# Unpaired sites grandfathered by scripts/check-pairings.py (#4125).
+# Format: <rule> <path> <site count>. A grandfathered snapshot, NOT a review:
+# nobody has verified these files. Ratchet: a count may only fall. Fix the
+# file, then run
 #   python3 scripts/check-pairings.py --update-baseline
-aria-modal packages/web/src/components/FieldHelp.tsx
-aria-modal packages/web/src/features/board/BoardCardPopover/CardPopoverShell.tsx
-aria-modal packages/web/src/features/board/BoardViewDropdown.tsx
-aria-modal packages/web/src/features/schedule/MissingCommittedStartChip.tsx
-aria-modal packages/web/src/features/schedule/ScheduleCommitPopover.tsx
-aria-modal packages/web/src/features/schedule/buildMode/MilestoneDatePopover.tsx
-aria-modal packages/web/src/features/schedule/buildMode/SprintPrompt.tsx
-aria-modal packages/web/src/features/settings/program/BulkMethodologyImpactPreview.tsx
-aria-modal packages/web/src/features/settings/workspace/GroupManageDrawer.tsx
-aria-modal packages/web/src/features/shell/MCResultPanel.tsx
-aria-modal packages/web/src/features/shell/MoreSheet.tsx
-aria-modal packages/web/src/features/shell/NotificationPanel.tsx
-aria-modal packages/web/src/features/sprints/SprintsView.tsx
-deprecation packages/api/src/trueppm_api/apps/sync/ws_auth.py
-deprecation packages/api/src/trueppm_api/settings/base.py
+aria-modal packages/web/src/components/FieldHelp.tsx 1
+aria-modal packages/web/src/features/board/BoardCardPopover/CardPopoverShell.tsx 3
+aria-modal packages/web/src/features/board/BoardViewDropdown.tsx 1
+aria-modal packages/web/src/features/schedule/MissingCommittedStartChip.tsx 1
+aria-modal packages/web/src/features/schedule/ScheduleCommitPopover.tsx 1
+aria-modal packages/web/src/features/schedule/buildMode/MilestoneDatePopover.tsx 1
+aria-modal packages/web/src/features/schedule/buildMode/SprintPrompt.tsx 1
+aria-modal packages/web/src/features/settings/program/BulkMethodologyImpactPreview.tsx 1
+aria-modal packages/web/src/features/settings/workspace/GroupManageDrawer.tsx 2
+aria-modal packages/web/src/features/shell/MCResultPanel.tsx 3
+aria-modal packages/web/src/features/shell/MoreSheet.tsx 1
+aria-modal packages/web/src/features/shell/NotificationPanel.tsx 1
+aria-modal packages/web/src/features/sprints/SprintsView.tsx 1
+deprecation packages/api/src/trueppm_api/apps/projects/views.py 1
+deprecation packages/api/src/trueppm_api/apps/sync/ws_auth.py 2
+deprecation packages/api/src/trueppm_api/core/env_compat.py 1
+deprecation packages/api/src/trueppm_api/settings/base.py 2
+deprecation packages/web/src/features/schedule/buildMode/groupOutcome.ts 1
+deprecation packages/web/src/router.tsx 1
