@@ -220,6 +220,15 @@ test.describe('Demo landing — the merged bar (#4050 A1)', () => {
     await expect(bar).not.toContainText(/Portfolio dashboard/);
   });
 
+  test('links to the installation guide from the bar (#4116)', async ({ page }) => {
+    await page.goto(URL);
+    const bar = page.getByRole('complementary', { name: 'Demo mode' });
+    await expect(bar.getByRole('link', { name: 'Install your own' })).toHaveAttribute(
+      'href',
+      'https://docs.trueppm.com/getting-started/installation/',
+    );
+  });
+
   test('the switcher lists the program’s other sample projects', async ({ page }) => {
     await page.goto(URL);
     const trigger = page.getByTestId('demo-project-switcher');

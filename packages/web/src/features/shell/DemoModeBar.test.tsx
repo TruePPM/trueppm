@@ -109,9 +109,19 @@ describe('DemoModeBar', () => {
     expect(bar).not.toHaveTextContent(/Enterprise/);
   });
 
-  it('renders no edition disclosure on a normal install', () => {
+  it('offers an "Install your own" link to the installation guide in demo mode (#4116)', () => {
+    asDemo();
+    render(<DemoModeBar />);
+    const link = screen.getByRole('link', { name: 'Install your own' });
+    expect(link).toHaveAttribute('href', 'https://docs.trueppm.com/getting-started/installation/');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
+  });
+
+  it('renders no edition disclosure or install link on a normal install', () => {
     render(<DemoModeBar />);
     expect(screen.queryByRole('link', { name: "What's included" })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Install your own' })).toBeNull();
   });
 });
 
