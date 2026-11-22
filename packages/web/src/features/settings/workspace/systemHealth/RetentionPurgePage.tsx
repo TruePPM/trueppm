@@ -11,6 +11,7 @@
  * saving only changes the window — the next run enforces it.
  */
 
+import { WarningIcon } from '@/components/Icons';
 import { useCallback, useEffect, useId, useState } from 'react';
 import axios from 'axios';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
@@ -178,7 +179,9 @@ function PolicyRow({
                 <span className="text-neutral-text-secondary">{"Couldn't estimate impact."}</span>
               ) : impact.data ? (
                 <>
-                  <span className="font-semibold text-semantic-at-risk">⚠ </span>
+                  <span className="font-semibold text-semantic-at-risk">
+                    <WarningIcon aria-hidden="true" className="inline-block h-3 w-3 align-[-0.125em]" />{' '}
+                  </span>
                   Lowering {meta.label} to {edit.value} {meta.unit} makes{' '}
                   <span className="font-semibold tppm-mono">
                     ~{impact.data.eligible_rows.toLocaleString()}

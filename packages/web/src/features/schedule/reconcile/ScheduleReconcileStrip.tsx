@@ -16,6 +16,7 @@
  * existing `ariaAssertiveRef` region already threaded through `useScheduleCommit`
  * (two assertive regions on one view is how announcements get lost).
  */
+import { WarningIcon } from '@/components/Icons';
 import { useMemo, useState } from 'react';
 
 import { useReconcileStore } from '@/stores/reconcileStore';
@@ -61,9 +62,7 @@ function RejectedRow({
 }) {
   return (
     <li className="flex items-center gap-2 py-0.5">
-      <span aria-hidden="true" className="text-semantic-critical">
-        ⚠
-      </span>
+      <WarningIcon aria-hidden="true" className="h-3 w-3 shrink-0 text-semantic-critical" />
       <span className="truncate text-xs font-medium text-neutral-text-primary">
         {entry.taskName}
       </span>
@@ -206,7 +205,7 @@ export function ScheduleReconcileStrip({ workingDaysMask, projectFinish = null }
               data-testid="reconcile-rejected-count"
               className="inline-flex items-center gap-1 rounded-chip border border-semantic-critical/40 px-1.5 py-0.5 text-xs font-medium text-semantic-critical"
             >
-              <span aria-hidden="true">⚠</span>
+              <WarningIcon aria-hidden="true" className="h-3 w-3" />
               {rejected.length === 1 ? '1 change refused' : `${rejected.length} changes refused`}
             </span>
           )}

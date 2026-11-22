@@ -509,7 +509,7 @@ test.describe('Board view', () => {
   test('View dropdown opens menu with built-in quick filters (issue #191)', async ({ page }) => {
     await page.getByRole('button', { name: /board view: view/i }).click();
     await expect(page.getByRole('menu')).toBeVisible();
-    await expect(page.getByText('⚠ At risk')).toBeVisible();
+    await expect(page.getByText('At risk')).toBeVisible();
     await expect(page.getByText('🔴 Critical path')).toBeVisible();
     await expect(page.getByText('📅 This week')).toBeVisible();
     await expect(page.getByText('👤 My work')).toBeVisible();
@@ -519,15 +519,15 @@ test.describe('Board view', () => {
     page,
   }) => {
     await page.getByRole('button', { name: /board view: view/i }).click();
-    await page.getByText('⚠ At risk').click();
+    await page.getByText('At risk').click();
     await expect(page.getByRole('menu')).not.toBeVisible();
-    await expect(page.getByRole('button', { name: /board view: ⚠ at risk/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /board view: at risk/i })).toBeVisible();
   });
 
   test('"Clear view" appears after activating a built-in view (issue #191)', async ({ page }) => {
     await page.getByRole('button', { name: /board view: view/i }).click();
-    await page.getByText('⚠ At risk').click();
-    await page.getByRole('button', { name: /board view: ⚠ at risk/i }).click();
+    await page.getByText('At risk').click();
+    await page.getByRole('button', { name: /board view: at risk/i }).click();
     await expect(page.getByText('Clear view')).toBeVisible();
   });
 

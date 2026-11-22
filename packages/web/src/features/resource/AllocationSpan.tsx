@@ -63,7 +63,7 @@ export function AllocationSpan({
     task.name,
     `${unitsDisplay} allocation`,
     spanStart && task.early_finish ? `${spanStart} – ${task.early_finish}` : 'unscheduled',
-    variant === 'over' ? '⚠ overallocated' : '',
+    variant === 'over' ? 'overallocated' : '',
     variant === 'complete' ? 'complete' : '',
   ]
     .filter(Boolean)

@@ -20,7 +20,7 @@ import type { DetectedProvider } from '@/lib/detectProvider';
 import { previewTypeIcon } from '@/lib/previewType';
 import { safeExternalHref } from '@/lib/safeExternalHref';
 import { formatRelative } from '@/lib/formatRelative';
-import { CloseIcon, ExternalLinkIcon, LinkIcon, PencilIcon } from '@/components/Icons';
+import { CloseIcon, ExternalLinkIcon, LinkIcon, PencilIcon, WarningIcon } from '@/components/Icons';
 import { Tooltip } from '@/components/Tooltip';
 import {
   isFileProvider,
@@ -450,7 +450,7 @@ function ExternalLinkRow({ link: storedLink, projectId, taskId, canEdit }: Exter
       )}
       {refreshFailed && (
         <span className="text-xs text-semantic-critical mt-1" role="alert">
-          ⚠ Couldn&apos;t refresh — try again.
+          <WarningIcon aria-hidden="true" className="inline-block h-3 w-3 align-[-0.125em]" /> Couldn&apos;t refresh — try again.
         </span>
       )}
       {remove.isError && (

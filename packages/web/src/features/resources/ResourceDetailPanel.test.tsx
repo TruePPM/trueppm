@@ -322,7 +322,7 @@ describe('ResourceDetailPanel — deactivate/restore', () => {
     const user = userEvent.setup();
     const { onDeactivated } = renderPanel();
 
-    await user.click(screen.getByRole('button', { name: '⚠ Deactivate' }));
+    await user.click(screen.getByRole('button', { name: 'Deactivate' }));
     expect(screen.getByText('Deactivate Alice Nguyen?')).toBeInTheDocument();
     // #3584: the dialog says what deactivation does NOT revoke, and links to where.
     const note = screen.getByTestId('deactivate-not-revoked-note');
@@ -336,7 +336,7 @@ describe('ResourceDetailPanel — deactivate/restore', () => {
 
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByText('Deactivate Alice Nguyen?')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '⚠ Deactivate' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Deactivate' })).toBeInTheDocument();
     expect(deleteMock).not.toHaveBeenCalled();
     expect(onDeactivated).not.toHaveBeenCalled();
   });
@@ -345,13 +345,13 @@ describe('ResourceDetailPanel — deactivate/restore', () => {
     const user = userEvent.setup();
     const { onDeactivated } = renderPanel();
 
-    await user.click(screen.getByRole('button', { name: '⚠ Deactivate' }));
+    await user.click(screen.getByRole('button', { name: 'Deactivate' }));
     await user.click(screen.getByRole('button', { name: 'Deactivate' }));
 
     await waitFor(() => expect(deleteMock).toHaveBeenCalledWith('/resources/res-1/'));
     await waitFor(() => expect(onDeactivated).toHaveBeenCalledTimes(1));
     // The confirm row collapses again.
-    expect(screen.getByRole('button', { name: '⚠ Deactivate' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Deactivate' })).toBeInTheDocument();
   });
 
   it('surfaces a refusal when deactivate is forbidden', async () => {
@@ -365,7 +365,7 @@ describe('ResourceDetailPanel — deactivate/restore', () => {
     );
     const { onDeactivated } = renderPanel();
 
-    await user.click(screen.getByRole('button', { name: '⚠ Deactivate' }));
+    await user.click(screen.getByRole('button', { name: 'Deactivate' }));
     await user.click(screen.getByRole('button', { name: 'Deactivate' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -382,7 +382,7 @@ describe('ResourceDetailPanel — deactivate/restore', () => {
     expect(screen.getByRole('textbox', { name: 'Email' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Restore resource' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Save changes' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '⚠ Deactivate' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Deactivate' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /\+ add skill/i })).not.toBeInTheDocument();
   });
 
@@ -539,7 +539,7 @@ describe('ResourceDetailPanel — create mode', () => {
 
   it('does not render the view-mode chrome', () => {
     renderCreate();
-    expect(screen.queryByRole('button', { name: '⚠ Deactivate' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Deactivate' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /\+ add skill/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });

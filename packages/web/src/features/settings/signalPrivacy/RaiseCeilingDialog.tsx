@@ -7,6 +7,7 @@
  * separate, immediate path (more private is always safe).
  */
 
+import { WarningIcon } from '@/components/Icons';
 import { useState } from 'react';
 import {
   AUDIENCE_RUNG_LABEL_FULL,
@@ -74,7 +75,7 @@ export function RaiseCeilingDialog({
       </div>
       <p className="mt-3 text-[12px] text-neutral-text-secondary">
         {/* Decorative warning glyph — the sentence carries the meaning (rule 6). */}
-        <span aria-hidden="true">⚠</span> This is a team decision. It will be recorded in the project history and announced to the
+        <WarningIcon aria-hidden="true" className="inline-block h-3 w-3 align-[-0.125em]" /> This is a team decision. It will be recorded in the project history and announced to the
         team. It does not change who sees {signalTitle.toLowerCase()} right now — it only allows the
         Scrum Master to move the dial up to here.
       </p>

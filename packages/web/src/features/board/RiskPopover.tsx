@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router';
+import { WarningIcon } from '@/components/Icons';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import {
   useTaskRisks,
@@ -114,9 +115,10 @@ export function RiskPopover({ projectId, task, onClose }: RiskPopoverProps) {
             {risks.map((risk) => (
               <li key={risk.id} className="px-3 py-2">
                 <div className="flex items-start gap-2">
-                  <span aria-hidden="true" className="shrink-0 text-brand-accent-dark dark:text-brand-accent">
-                    ⚠
-                  </span>
+                  <WarningIcon
+                    aria-hidden="true"
+                    className="mt-0.5 h-3 w-3 shrink-0 text-brand-accent-dark dark:text-brand-accent"
+                  />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="text-xs tppm-mono text-neutral-text-disabled shrink-0">

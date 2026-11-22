@@ -19,7 +19,7 @@ import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { BuildModeRowMenu, type RowMenuItem } from '@/features/schedule/buildMode';
 import type { Task, TaskReadiness, TaskStatus } from '@/types';
 import { ReadinessChip } from './ReadinessChip';
-import { ExternalLinkIcon, MilestoneIcon } from '@/components/Icons';
+import { ExternalLinkIcon, MilestoneIcon, WarningIcon } from '@/components/Icons';
 
 /**
  * Per-row promote/demote wiring passed down from the board. `null` when the row
@@ -504,12 +504,13 @@ export function QueueRow({
           )}
           {riskCount > 0 && (
             <span
+              role="img"
               aria-label={`${riskCount} linked risk${riskCount === 1 ? '' : 's'}`}
               title={`${riskCount} linked risk${riskCount === 1 ? '' : 's'}`}
               className="text-xs text-semantic-at-risk"
               style={{ lineHeight: 1, flexShrink: 0 }}
             >
-              ⚠
+              <WarningIcon aria-hidden="true" className="h-3 w-3" />
             </span>
           )}
           {isCp && (
