@@ -35,7 +35,7 @@ Pass 4 (canvas section 6) defines the edit states (◷ Queued, ↻ Syncing, ⇄ 
      - Disjoint concurrent fields merge server-side.
      - Overlapping fields return the existing **409 `MergeConflict`** body, which becomes the ⇄ Conflict state with both named values.
      - The 409 shows the other writer's value and name only if the caller can read them (threat model §3.4).
-3. **D2, resolved.** Overwrite protection comes from `X-Base-Version`, **not** from idempotency retention. So `IDEMPOTENCY_RETENTION_HOURS` stays at 24, and the **queue TTL is 72 h**. Entries older than that are marked “✕ Expired — not sent”, shown in the review sheet, and can be retried by hand, which re-runs the base-version check. They are never replayed silently.
+3. **D2, resolved.** Overwrite protection comes from `X-Base-Version`, **not** from idempotency retention. So `IDEMPOTENCY_RETENTION_HOURS` stays at 24, and the **queue TTL is 72 h**. Entries older than that are marked “✕ Expired — not sent”, shown in the review sheet, and can be retried by hand, which re-runs the base-version check. They are never replayed silently. The sheet offers **Retry all** and **Discard all** for expired and failed entries, and each retry still goes through the base-version check (VoC round 3).
 4. **Authority is never cached.**
    - Every replay is re-authorized server-side. A role lost while offline yields “✕ Failed · you no longer have edit access”.
    - The queue isn't offered to roles that can't author the plan: ADR-0773 excludes `Role.SCHEDULER` from plan authoring. For those users, the web shows the online-only message instead of queuing an edit that will 403.
@@ -90,6 +90,11 @@ Pass 4 (canvas section 6) defines the edit states (◷ Queued, ↻ Syncing, ⇄ 
 - **API-first:** the outbox is client state by design. Preview dates are the ADR-0599 sanctioned preview path, never persisted. Every persisted outcome is a server write through existing endpoints, so MCP and API clients see the same results with no new surface.
 - **Provenance:** the 409 `MergeConflict` body and the post-replay recompute carry the `run_id`, so the “why it moved” explanation is server-derived, not client prose.
 - **Decision memory:** N/A (deliberate non-goal). Offline edits are ordinary edits, and they produce no decision distinct from an online edit.
+
+### VoC round 3 amendments (2026-11-22)
+Surfaced by a simulated persona panel (VoC round 3, evidence tier E0). It is not user research. Each change is adopted on its merits.
+- **Bulk retry and discard** of expired and failed entries (Decision 3).
+- **Upgrade notes:** each release's `getting-started/upgrade.md` entry states what happens to queued offline edits across that upgrade, including the contract-version refusal.
 
 ### On Acceptance
 - [ ] Sweep `--adr 1465` (#3045, #2951) and record the count.

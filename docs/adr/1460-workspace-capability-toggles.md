@@ -76,6 +76,13 @@ Existing ADRs constrain the shape:
 7. Idempotency: PATCH is idempotent by value. `IdempotencyMixin` already applies to `WorkspaceSettingsView`.
 8. Dead-letter: existing webhook dead-letter handling.
 
+### VoC round 3 amendments (2026-11-22)
+Surfaced by a simulated persona panel (VoC round 3, evidence tier E0). It is not user research. Each change is adopted on its merits.
+- **D1 is kept.** Exempting personal read tokens needs a token kind, and that is #1063. This ADR doesn't pre-empt it.
+- **Visibility:** the admin docs and the Agents settings row say plainly that *Agents off* also stops personal `mcp:read` tokens until #1063.
+- **Operator count:** the Agents area shows "N token requests refused since Agents was turned off", read from the recorded `capability_scope` refusals, and operators get a `trueppm_mcp_refusals_recent{constraint}` metric. A token owner gets the coalesced `agent_refused` notice (ADR-1463).
+  - Would be refuted if: admins in demos want one blunt switch and no exemption until #1063.
+
 ### AI-review amendments (2026-11-22)
 - **Write safety:** capability writes, including `mcp_enabled`, require `IsWorkspaceAdminStrict` **and** `IsNotTokenAuthenticated`, so no token can turn Agents back on, which would be a self-unlock. A refused token write records an `AgentAction` (verdict `refused`, reason `policy`).
 - **MCP:** a `get_workspace_capabilities` read tool, for the three hide-only areas. When Agents is off, MCP itself is refused, which is the point.

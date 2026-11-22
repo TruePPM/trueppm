@@ -34,11 +34,22 @@ Layer: **Programs and Projects**, with Program rollup in OSS. Portfolio and Work
    - more than 5 → `critical`;
    - null → `not_computable`, with `health_reason` copied from `p80_delta_vs_commitment_reason` (`no_commitment`, `no_forecast`).
 
+   **Commitment sources** (VoC round 3), tried in this order:
+   1. the active baseline's finish (`baseline`);
+   2. the new **`Project.commitment_date`** (`project_target`);
+   3. the program's `target_date` (`program_target`).
+
+   Without source 2, a project outside a program could get a band only by being baselined. That would make "Not computable" the default state for most standalone projects.
+   - `commitment_source` gains the value `project_target`, and `METRIC_DEFINITIONS` gains `commitment_date.project_target`.
+   - The "Not computable · no commitment" badge carries a **Set commitment** action for project Admin and Owner. It writes `commitment_date` through `PATCH /projects/{id}/`, from a human session only, and records it in project history.
+
    The thresholds use that metric's documented unit ("calendar days measured in working time"). UI copy says "days", not "working days" (a correction to the Pass 4 frames). The thresholds are module constants, not settings (Q5.2 deferred).
 2. **The PM override is unchanged.** `Project.health` still wins (`health_band_source=reported`). The response adds:
    - **`engine_band`**: the derived band even when overridden, so the UI shows “PM reports ◆ · engine says ✓”;
    - **`health_reported_at`**: a new nullable field on `Project`, set when `health` moves off AUTO. It drives the override's age display and a reconfirmation prompt at 14 days (Q5.8).
+   - **Batch reconfirm** (VoC round 3): `POST /projects/reconfirm-health/` takes a list of project IDs. It applies the per-project permission check to each, resets `health_reported_at` for every ID that passes, and returns a result per ID. The Work list offers it as one action, so a PM or PMO with many overrides doesn't have to answer a prompt per project.
 3. **Contract and versioning.** `health_band` keeps its name and values, plus the new value `not_computable`. New fields: `band_basis` ∈ {`p80_vs_commitment`, `float_counts`} (always present), `engine_band`, `health_reason` and `health_reported_at`.
+   - **`health_band` is an open enum.** The OpenAPI description says clients must treat an unknown value as `not_computable`, so `not_computable` and any later value isn't a breaking addition (VoC round 3).
    - `?health_basis=float_counts` returns the old derivation for **one minor release**, with `Deprecation` and `Sunset` headers and a `changed` changelog fragment that names the removal release (Q5.7).
    - `status_update_services.derived_health` and every other caller go through the one function (ADR-1314 owner rule).
 4. **Program rollup.**
@@ -66,14 +77,17 @@ Layer: **Programs and Projects**, with Program rollup in OSS. Portfolio and Work
 - Easier: the band now means something, every band traces to one number with an `as_of`, and the PM's voice is kept and labeled.
 - Harder: a semantic change on a shipped field. That requires the deprecation window, `band_basis`, an upgrade note, and a check of downstream alert rules.
 - Risks:
-  - Projects without a baseline or program target become `not_computable`. That is honest, and the checklist (canvas 8c) prompts the user to set a commitment.
+  - Projects without a baseline, a project commitment date or a program target become `not_computable`. That is honest, and the badge's Set commitment action plus the checklist (canvas 8c) prompt the user to set one.
   - Stale PM overrides. These are mitigated by the age display and reconfirmation.
 
 ## Implementation Notes
 
 - P3M layer: Programs and Projects.
 - Affected packages: api, web (HealthBadge), mcp (reads carry `band_basis` and `_provenance`), docs.
-- Migration: yes. `AddField(Project.health_reported_at, null=True)` and `AddField(Project.health_report_note, blank=True)` (AI-review), both expand-only.
+- Migration: yes. These fields, all expand-only:
+  - `AddField(Project.health_reported_at, null=True)`;
+  - `AddField(Project.health_report_note, blank=True)` (AI-review);
+  - `AddField(Project.commitment_date, null=True)` (VoC round 3).
 - API changes: yes, as listed in items 3–5. `docs/api/openapi.json` is regenerated, and the schema-guard fixtures are updated.
 - OSS.
 
@@ -95,6 +109,14 @@ Layer: **Programs and Projects**, with Program rollup in OSS. Portfolio and Work
 
 ### Enterprise-check (2026-11-22)
 **OSS** for the project band, the PM override and the Program worst-child rollup. Program is an OSS entity, and rolling up within one program is not portfolio governance. **Enterprise** for any Workspace-level aggregate, including plain counts per band, under the #3901 ruling. Cited: `overview/the-oss-enterprise-line.md` (“OSS gives you reality and why”: a band with its derivation is reality, and a cross-program health summary is portfolio health-score territory).
+
+### VoC round 3 amendments (2026-11-22)
+Surfaced by a simulated persona panel (VoC round 3, evidence tier E0). It is not user research. Each change is adopted on its merits.
+- **Project commitment date** (Decision 1): a third commitment source, plus the Set commitment action. It is one project's own fact, so it stays OSS under the #3901 ruling.
+  - Would be refuted if: demos show that real project sets are routinely baselined at kickoff, or sit in programs that have target dates.
+- **Batch reconfirm** of PM overrides (Decision 2).
+- **Open enum** for `health_band` (Decision 3).
+- **Upgrade notes:** the release that removes `?health_basis=float_counts` names the removal in `getting-started/upgrade.md`, beside the changelog fragment.
 
 ### On Acceptance
 - [ ] Sweep `--adr 1464` (#3901) and record the count. Add the superseding note to #3901.

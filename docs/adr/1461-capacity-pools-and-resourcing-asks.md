@@ -42,15 +42,24 @@ Constraints:
    - every task is one of the ask's covered tasks, within the asked window and units, or within the offer lines.
 
    Anything else is refused. The `TaskResource` rows are written by this service, not by an endpoint that takes arbitrary task IDs. This is how ADR-0774 is honored: the requester's ask is the task-content authority, and the manager supplies pool authority.
+
+   **Active-sprint acknowledgment** (VoC round 3). When an approval would assign people to covered tasks that sit in an **active sprint**, those assignments are not written yet. Covered tasks outside an active sprint are assigned at once.
+   - The ask enters `approved_pending_sprint_ack`, and the sprint's PO and SM get a one-click **Acknowledge** or **Decline** (with a reason). Approval by a pool manager is not consent from the team, and the sprint belongs to the team.
+   - **Acknowledge** runs `apply_ask()` for those tasks, re-checking every consent bound at that moment.
+   - **Decline** returns those tasks to the PM with the reason, and the ask records a partial outcome.
+   - Both are recorded as `AskEvent` rows and in the sprint's change audit, under the same `sprint_changed_externally` marker.
+   - Nothing applies on a timeout. The PO and SM get a reminder after 2 working days, and the PM sees "Waiting on sprint · <names>".
+   - Agents can't acknowledge.
 4. **D5, resolved:** approval writes are **attributed to the pool manager**, with `via_ask=<id>` on the assignment history and the `AskEvent`. Accountability stays with a person, and the ask link carries the consent chain.
 5. **D6, resolved:** a requesting PM sees **fit verdicts only** (✓ Fits, ◆ Partly, ▲ Over, in words). Never other people's per-person load. This reuses ADR-0963's bounded disclosure. Pool managers, members (their own rows) and workspace admins see the full load and the holds.
 6. **Holds are computed, never stored.** `GET /capacity-pools/{id}/load/` returns per-person weekly load plus `holds[{week, asked_fte, free_fte, ask_ids}]`, summed over the pool's open asks. Holds never count as bookings.
-7. **Batch approve** rechecks fit for each item inside the transaction. It approves only items whose fit is still `fits` and returns a per-ID result list. ◆ and ▲ items are refused with their reason.
+7. **Batch approve** rechecks fit for each item inside the transaction. It approves only items whose fit is still `fits` and returns a per-ID result list. ◆ and ▲ items are refused with their reason. Items that touch active-sprint tasks enter `approved_pending_sprint_ack`, as in item 3.
 8. **Outcome as a server fact.** After commit:
    - The CPM recompute goes through `scheduling/services.py::enqueue_recalculate()`.
    - `GET /resource-asks/{id}/outcome/` returns `kind`, `run_id`, `metrics`, `chain[]`, `sprint_impacts[]` (sprint, tasks and who was notified), `recompute` (pending, done or failed), and, for a refusal, `earliest_fit_date`.
-   - `sprint.scope_changed` fires through its existing dispatch for tasks in an active sprint, and the sprint's PO and SM are notified.
-9. **Agents:** an agent actor may create only a `draft`. `send`, `approve`, `counter`, `decline` and batch approve refuse agent actors (ADR-0112). Until #1063 lands, "agent actor" means any request authenticated by an MCP token.
+   - `sprint.scope_changed` fires through its existing dispatch when an acknowledged assignment lands in an active sprint.
+   - **Webhooks** (VoC round 3): `resource_ask.transitioned` is a signed, retried webhook through the existing webhook outbox, as well as a WS event. The payload carries IDs and the new state only, so integrators don't have to poll.
+9. **Agents:** an agent actor may create only a `draft`. A draft is inert: it adds no hold, appears in no queue and notifies no one until a person sends it. `send`, `approve`, `counter`, `decline` and batch approve refuse agent actors (ADR-0112). Until #1063 lands, "agent actor" means any request authenticated by an MCP token.
 
 ## Alternatives Considered
 
@@ -75,7 +84,7 @@ Constraints:
 
 - P3M layer: Programs and Projects.
 - Affected packages: api, web, mcp (read tools for asks and outcomes with `_provenance`), docs.
-- Migration: yes. Three `CreateModel` plus M2M tables, all expand-only.
+- Migration: yes. Three `CreateModel` plus M2M tables, all expand-only. The ask state enum includes `approved_pending_sprint_ack`.
 - API changes: yes. `/capacity-pools/`, `/resource-asks/` and its transitions, `/resource-asks/preview/` (non-mutating), `/batch-approve/` and `/outcome/`. Events: `resource_ask.transitioned`, IDs only on WS.
 - Layering: `resources` and `projects` are both core and lateral, so the `Task` FK is allowed (`app-layering.toml`).
 - OSS, with an Enterprise extension point for cross-program pools.
@@ -102,6 +111,16 @@ Constraints:
   - Non-goals: no pool spanning programs, no leveling, and no portfolio heat map.
 - **Enterprise:** pools spanning programs, through the provider hook that validates `pool.program == project.program`. Enterprise replaces that check. It sits beside cross-program resource leveling and the cross-portfolio heat map, which are both Enterprise.
 - **The hook must be guarded:** a provider that raises must fail **closed**, refusing the cross-program ask, and must not break the OSS approval path. It runs in its own savepoint, with a test where the provider raises a `DatabaseError`.
+
+### VoC round 3 amendments (2026-11-22)
+Surfaced by a simulated persona panel (VoC round 3, evidence tier E0). It is not user research. Each change is adopted on its merits.
+- **Active-sprint acknowledgment** (Decision 3). This narrows the 2026-11-22 Q2.2 decision that approval assigns tasks: assignments into an active sprint now wait for the PO or SM. Everything else still assigns on approval.
+  - Would be refuted if: in demos, delivery leads say a notice after approval is enough.
+- **Webhooks** for ask transitions (Decision 8).
+- **Inert agent drafts** (Decision 9).
+- **Covered tasks:** `covered_tasks` takes a list, and the web offers multi-select plus "all leaves under this summary task", so a phase-wide ask isn't 40 single picks.
+- **Kept as is:** pools stay scoped to one program, and spanning programs stays Enterprise (trueppm-enterprise#208).
+  - Would be refuted if: a resource manager's requesting PMs usually sit in one program (a demo question).
 
 ### On Acceptance
 - [ ] Sweep `--adr 1461` (#3362, #3122) and record the count.
