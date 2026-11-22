@@ -30,7 +30,7 @@ import {
 import { SettingsPageTitle, FieldRow, SettingsCard } from '../SettingsShell';
 import { useDirtyForm } from '../hooks/useDirtyForm';
 import { FieldHelp, type FieldHelpOption } from '@/components/FieldHelp';
-import { ChevronDownIcon, ChevronRightIcon, CheckIcon, XMarkIcon } from '@/components/Icons';
+import { ChevronDownIcon, ChevronRightIcon, CheckIcon, XMarkIcon, WarningIcon } from '@/components/Icons';
 import { extractFieldErrors, extractFormLevelMessage } from '@/lib/apiError';
 
 const INPUT_CLASS =
@@ -1466,7 +1466,7 @@ const CHIP_STYLES: Record<HealthStatus, string> = {
 };
 const CHIP_GLYPH: Record<HealthStatus, ReactNode> = {
   pass: <CheckIcon aria-hidden="true" className="inline-block h-3 w-3 align-[-0.0625em]" />,
-  warn: '⚠',
+  warn: <WarningIcon aria-hidden="true" className="inline-block h-3 w-3 align-[-0.0625em]" />,
   fail: <XMarkIcon aria-hidden="true" className="inline-block h-3 w-3 align-[-0.0625em]" />,
   unknown: '–',
 };

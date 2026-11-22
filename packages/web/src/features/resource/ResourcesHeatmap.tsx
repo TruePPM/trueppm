@@ -1,4 +1,5 @@
 import { UtilizationHelp } from './UtilizationHelp';
+import { WarningIcon } from '@/components/Icons';
 import { useState } from 'react';
 import type { HeatmapResource } from '@/hooks/useResourceHeatmap';
 import { HeatmapCell } from './HeatmapCell';
@@ -224,9 +225,10 @@ export function ResourcesHeatmap({ projectId, weeks, resources }: Props) {
               </div>
 
               {peakUtil > 100 && (
-                <span className="shrink-0 ml-1 text-xs font-medium text-semantic-critical" aria-hidden="true">
-                  ⚠
-                </span>
+                <WarningIcon
+                  aria-hidden="true"
+                  className="ml-1 h-3 w-3 shrink-0 text-semantic-critical"
+                />
               )}
             </button>
           );

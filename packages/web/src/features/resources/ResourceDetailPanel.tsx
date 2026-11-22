@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { WarningIcon } from '@/components/Icons';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import type { OrgResource } from '@/hooks/useResources';
@@ -307,7 +308,7 @@ function ViewPanel({ resource, onDeactivated, onRestored }: Omit<ViewProps, 'mod
                 className="min-h-11 md:min-h-7 px-3 rounded text-xs text-semantic-at-risk border border-semantic-at-risk/40 hover:bg-semantic-at-risk/5
                   focus:outline-none focus:ring-2 focus:ring-semantic-at-risk focus:ring-offset-1"
               >
-                ⚠ Deactivate
+                <WarningIcon aria-hidden="true" className="inline-block h-3 w-3 align-[-0.125em]" /> Deactivate
               </button>
               <button
                 type="button"

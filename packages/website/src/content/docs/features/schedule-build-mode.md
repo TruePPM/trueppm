@@ -75,7 +75,7 @@ The Schedule list is in one of three focus states at any time. The same keys do 
 | Alt + ↑ / ↓ | Move the row **and its subtree** among its same-indent siblings — no-op on a selection that spans more than one parent |
 | ⌘ V / Ctrl + V | Paste rows from a spreadsheet — see [Paste rows from a spreadsheet](#paste-rows-from-a-spreadsheet) below |
 | ⌘ Z / Ctrl + Z | Undo the most recent structural change — a move, indent, outdent, reorder, or grouping. While a paste receipt strip is showing, undoes the paste instead. See [Undoing a structural change](#undoing-a-structural-change) |
-| F8 | Jump to the next row that needs attention — an unresolved `@owner` mention, or a row a recent paste couldn't infer a duration for |
+| F8 | Jump to the next row that needs attention — an unresolved `@owner` mention, or a row a recent paste couldn't infer a duration or an owner for |
 | Shift + F8 | Jump to the previous such row |
 | F7 | Jump to the next row that still **needs dates** — no committed start yet |
 | Shift + F7 | Jump to the previous such row |
@@ -240,7 +240,7 @@ until you act on it:
 | `⌘ Z` / **Undo** | Removes the whole paste as one step, keeping any row you've already edited since. Needs the Project Manager role — see below |
 | **Keep** | Dismisses the strip; the rows stay |
 | **Map columns…** | Corrects a wrong column guess and re-applies the paste under the new mapping |
-| `F8` | Walks to the next row the paste couldn't infer a duration for |
+| `F8` | Walks to the next row the paste couldn't infer a duration for, or whose Owner it couldn't resolve |
 
 **Undoing a paste needs the Project Manager role — pasting does not.** Team Member and
 above can paste rows; reversing a paste in a single step is Project Manager and above.
@@ -262,10 +262,12 @@ apart because the repairs differ:
 
 | What the receipt says | What happened | What to do |
 |---|---|---|
-| *N owners were not on the roster, so were not applied* | The cell named nobody on this project — a typo, or somebody who has left | Fix the spelling in your source, or add them to the team and re-paste |
+| *N owners were not on the roster, so were not applied* | The cell named nobody on this project — a typo, or somebody who has left | Fix the spelling in your source, or follow the receipt's **add them to the team** link to the project roster and re-paste |
 | *N owners matched more than one person, so were not applied* | The cell named several people — `Ana` where the team has both Ana Rivera and Ana Silva | Use a fuller name |
 
-In both cases the **row still commits**, just without that owner. TruePPM never picks one
+In both cases the **row still commits**, just without that owner, and `F8` walks to it
+while the receipt is showing — alongside any rows that need a duration — so you can find
+the two or three affected rows in a sixty-row paste without scanning for them. TruePPM never picks one
 of several candidates on your behalf: binding work to the wrong person silently is worse
 than leaving it unassigned and saying so.
 

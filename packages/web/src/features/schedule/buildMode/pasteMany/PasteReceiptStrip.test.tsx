@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
+import { MemoryRouter } from 'react-router';
 import {
   buildPasteReceiptMessage,
   PasteReceiptStrip,
@@ -199,5 +200,62 @@ describe('buildPasteReceiptMessage three-point estimates', () => {
     expect(message).toMatch(/1 row had a three-point estimate/);
     expect(message).toMatch(/restricts estimates to the Project Manager/);
     expect(message).not.toMatch(/out-of-order/);
+  });
+});
+
+describe('PasteReceiptStrip roster link (#3033)', () => {
+  const props = {
+    isUndoing: false,
+    canUndo: true,
+    onUndo: vi.fn(),
+    onKeep: vi.fn(),
+    onMapColumns: vi.fn(),
+  };
+
+  it('links "add them to the team" to the roster when an owner was not on it', () => {
+    render(
+      <MemoryRouter>
+        <PasteReceiptStrip
+          {...props}
+          summary={summary({ unmatchedOwnerCount: 1 })}
+          rosterHref="/projects/p1/team/roster"
+        />
+      </MemoryRouter>,
+    );
+    const link = screen.getByRole('link', { name: 'add them to the team' });
+    expect(link).toHaveAttribute('href', '/projects/p1/team/roster');
+    // The sentence still reads whole around the link.
+    expect(screen.getByTestId('paste-receipt-strip')).toHaveTextContent(
+      'check the spelling, or add them to the team.',
+    );
+  });
+
+  it('renders no link when nothing was unmatched, or no destination is known', () => {
+    const { rerender } = render(
+      <MemoryRouter>
+        <PasteReceiptStrip {...props} summary={summary()} rosterHref="/projects/p1/team/roster" />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByRole('link')).toBeNull();
+    rerender(
+      <MemoryRouter>
+        <PasteReceiptStrip {...props} summary={summary({ unmatchedOwnerCount: 1 })} />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByRole('link')).toBeNull();
+    expect(screen.getByTestId('paste-receipt-strip')).toHaveTextContent('add them to the team');
+  });
+
+  it('does not link the ambiguous-owner sentence', () => {
+    render(
+      <MemoryRouter>
+        <PasteReceiptStrip
+          {...props}
+          summary={summary({ ambiguousOwnerCount: 1 })}
+          rosterHref="/projects/p1/team/roster"
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByRole('link')).toBeNull();
   });
 });

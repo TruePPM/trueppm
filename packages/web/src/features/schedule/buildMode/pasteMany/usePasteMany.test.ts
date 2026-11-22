@@ -193,3 +193,56 @@ describe('usePasteMany — the server decides whether an Undo is on offer (#3353
     expect(h.bulkDelete.mutate).toHaveBeenCalledWith(createdIds, expect.anything());
   });
 });
+
+describe('usePasteMany — dropped owners are walkable with F8 (#3033)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function pasteWithGhostOwner(result: ReturnType<typeof setup>['result']) {
+    let ops: { id: string; name?: string }[] = [];
+    h.bulkCreate.mutate = vi.fn(
+      (
+        o: { id: string; name?: string }[],
+        opts?: {
+          onSuccess?: (d: {
+            applied: { op: string; id: string }[];
+            operation_id: string | null;
+            can_undo: boolean;
+          }) => void;
+        },
+      ) => {
+        ops = o;
+        opts?.onSuccess?.({
+          applied: o.map((op) => ({ op: 'create', id: op.id })),
+          operation_id: 'op-1',
+          can_undo: true,
+        });
+      },
+    );
+    act(() => {
+      // Survey: owner unresolvable, duration present. Design: no owner, no duration.
+      result.current.handlePaste('Task\tOwner\tDuration\nSurvey\tGhost\t5\nDesign\t\t');
+    });
+    return ops;
+  }
+
+  it('puts the dropped-owner row in the walk set alongside the duration-less one', () => {
+    const { result } = setup();
+    const ops = pasteWithGhostOwner(result);
+    expect(ops).toHaveLength(2);
+    const [survey, design] = ops;
+
+    expect([...result.current.droppedOwnerIds]).toEqual([survey.id]);
+    expect([...result.current.needsDurationIds]).toEqual([design.id]);
+    expect(new Set(result.current.needsAttentionIds)).toEqual(new Set([survey.id, design.id]));
+  });
+
+  it('leaves the walk set empty once the receipt is dismissed', () => {
+    const { result } = setup();
+    pasteWithGhostOwner(result);
+    act(() => result.current.keep());
+    expect(result.current.needsAttentionIds.size).toBe(0);
+    expect(result.current.droppedOwnerIds.size).toBe(0);
+  });
+});

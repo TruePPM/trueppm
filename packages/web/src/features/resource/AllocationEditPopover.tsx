@@ -10,6 +10,7 @@
  *
  * Keyboard: Enter = Save, Escape = Cancel. Focus is trapped while open.
  */
+import { WarningIcon } from '@/components/Icons';
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
@@ -141,7 +142,7 @@ export function AllocationEditPopover({
 
       {wouldExceedAlone && (
         <div className="text-xs text-semantic-critical mb-2 flex items-start gap-1">
-          <span>⚠</span>
+          <WarningIcon aria-hidden="true" className="mt-0.5 h-3 w-3 shrink-0" />
           <span>
             {numericValue}% exceeds {Math.round(maxUnits * 100)}% availability.
           </span>

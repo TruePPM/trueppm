@@ -266,7 +266,7 @@ test('deactivate resource — shows confirm and soft-deletes', async ({ page }) 
   await page.getByRole('button', { name: /alice nguyen/i }).click();
 
   // Click deactivate
-  await page.getByRole('button', { name: /⚠ deactivate/i }).click();
+  await page.getByRole('button', { name: /^deactivate$/i }).click();
 
   // Confirm dialog appears
   await expect(page.getByText(/deactivate alice nguyen/i)).toBeVisible();
@@ -429,6 +429,6 @@ test('resource controls meet the 44px touch-target floor on mobile (#2168)', asy
   // Detail-panel actions (View mode: Save changes + Deactivate). Use exact names
   // so 'Save' doesn't collide with the "…all changes saved." sync status button.
   await page.getByRole('button', { name: /alice nguyen/i }).click();
-  await atLeast44(page.getByRole('button', { name: '⚠ Deactivate', exact: true }));
+  await atLeast44(page.getByRole('button', { name: 'Deactivate', exact: true }));
   await atLeast44(page.getByRole('button', { name: 'Save changes', exact: true }));
 });

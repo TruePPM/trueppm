@@ -6,6 +6,7 @@ import {
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
+import { WarningIcon } from '@/components/Icons';
 import {
   DndContext,
   KeyboardSensor,
@@ -333,7 +334,7 @@ function CadenceSection({
               </p>
               {selected === 'continuous' && activeSprint && (
                 <p className="text-[12px] rounded-card border border-brand-accent/30 bg-brand-accent/10 text-neutral-text-primary px-3 py-2">
-                  ⚠ This board has an active sprint. Continuous flow hides sprint tracking — the
+                  <WarningIcon aria-hidden="true" className="inline-block h-3 w-3 align-[-0.125em]" /> This board has an active sprint. Continuous flow hides sprint tracking — the
                   sprint and its data are preserved and return if you switch back to sprint-based.
                 </p>
               )}

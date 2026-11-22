@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { WarningIcon } from '@/components/Icons';
 import { formatChord } from '@/lib/platform';
 import { createPortal } from 'react-dom';
 import { Button } from '@/components/Button';
@@ -1183,7 +1184,7 @@ function Warning({ testId, children }: { testId: string; children: ReactNode }) 
     // ("warning", "warning sign", or nothing at all depending on symbol level),
     // and the sentence already says what is wrong, so it is decoration.
     <p data-testid={testId} className="text-semantic-warning leading-snug">
-      <span aria-hidden="true">⚠</span> {children}
+      <WarningIcon aria-hidden="true" className="inline-block h-3 w-3 align-[-0.125em]" /> {children}
     </p>
   );
 }

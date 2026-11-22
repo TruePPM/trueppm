@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { Task } from '@/types';
-import { findMissingDurationRow } from './pasteDurationNav';
+import { findMissingDurationRow, pasteAttentionIds } from './pasteDurationNav';
 
 function task(id: string): Task {
   return {
@@ -48,5 +48,42 @@ describe('findMissingDurationRow (#2724 — F8/Shift+F8 walk to rows needing a d
 
   it('returns null for an empty task list', () => {
     expect(findMissingDurationRow([], NEEDS, null, 'forward')).toBeNull();
+  });
+});
+
+describe('pasteAttentionIds + findMissingDurationRow (#3033 — F8 walks the union)', () => {
+  const DROPPED = new Set(['t3', 't4']);
+
+  it('unions the two sets, listing a row in both only once', () => {
+    expect([...pasteAttentionIds(NEEDS, DROPPED)].sort()).toEqual(['t2', 't3', 't4']);
+  });
+
+  it('forward F8 over the union visits duration rows and dropped-owner rows alike', () => {
+    const union = pasteAttentionIds(NEEDS, DROPPED);
+    const seen: string[] = [];
+    let current: string | null = null;
+    for (let i = 0; i < 3; i++) {
+      current = findMissingDurationRow(TASKS, union, current, 'forward')?.id ?? null;
+      seen.push(current as string);
+    }
+    expect(seen).toEqual(['t2', 't3', 't4']);
+  });
+
+  it('Shift+F8 walks it backward and wraps', () => {
+    const union = pasteAttentionIds(NEEDS, DROPPED);
+    expect(findMissingDurationRow(TASKS, union, 't2', 'backward')?.id).toBe('t4');
+    expect(findMissingDurationRow(TASKS, union, 't3', 'backward')?.id).toBe('t2');
+  });
+
+  it('a dropped-owner row alone is walkable when no row lacks a duration', () => {
+    const union = pasteAttentionIds(new Set(), DROPPED);
+    expect(findMissingDurationRow(TASKS, union, null, 'forward')?.id).toBe('t3');
+  });
+
+  it('is empty when neither warning applies, so F8 falls back to unresolved @owner tokens', () => {
+    expect(pasteAttentionIds(new Set(), new Set()).size).toBe(0);
+    expect(
+      findMissingDurationRow(TASKS, pasteAttentionIds(new Set(), new Set()), null, 'forward'),
+    ).toBeNull();
   });
 });

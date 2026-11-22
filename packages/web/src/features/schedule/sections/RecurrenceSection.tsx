@@ -19,7 +19,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
 import { ROLE_SCHEDULER, canEditTask } from '@/lib/roles';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
-import { RepeatIcon } from '@/components/Icons';
+import { RepeatIcon, WarningIcon } from '@/components/Icons';
 import { Tooltip } from '@/components/Tooltip';
 import {
   useCreateRecurrenceRule,
@@ -173,9 +173,10 @@ function CpmExclusionBanner() {
       {/* Body copy uses the high-contrast neutral token, not amber-on-amber-bg
           (which fails WCAG 1.4.3 at body size). The warning is still carried by the
           amber border, tint, and glyph. */}
-      <span aria-hidden="true" className="text-semantic-warning">
-        ⚠
-      </span>
+      <WarningIcon
+        aria-hidden="true"
+        className="mt-0.5 h-3 w-3 shrink-0 text-semantic-warning"
+      />
       <span>
         <strong className="font-semibold">Heads up:</strong> recurrences aren&apos;t added to the
         schedule&apos;s CPM compute — they run parallel to the project plan, not as a dependency in

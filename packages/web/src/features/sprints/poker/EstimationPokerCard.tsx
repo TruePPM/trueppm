@@ -8,6 +8,7 @@
  * sees the open/reveal/commit controls; every team member votes.
  */
 
+import { WarningIcon } from '@/components/Icons';
 import { useMemo, useState } from 'react';
 import type { PokerSession } from '@/types';
 import { POKER_CARDS, outlierValue } from './pokerOutlier';
@@ -265,7 +266,7 @@ function RevealBody({
       </ul>
       {outlier !== null && (
         <p className="text-xs text-semantic-critical italic">
-          ⚠ Outlier at {outlier} — worth a quick conversation before committing.
+          <WarningIcon aria-hidden="true" className="inline-block h-3 w-3 align-[-0.125em]" /> Outlier at {outlier} — worth a quick conversation before committing.
         </p>
       )}
       {canFacilitate ? (

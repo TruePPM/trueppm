@@ -84,7 +84,7 @@ describe('BoardViewDropdown', () => {
 
   it('shows active view name in button when a built-in is active', () => {
     renderDropdown({ activeViewId: 'at-risk' });
-    expect(screen.getByRole('button', { name: /board view: ⚠ at risk/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /board view: at risk/i })).toBeInTheDocument();
   });
 
   it('opens menu on button click', () => {
@@ -122,7 +122,7 @@ describe('BoardViewDropdown', () => {
   it('lists all four built-in views', () => {
     renderDropdown();
     fireEvent.click(screen.getByRole('button', { name: /board view/i }));
-    expect(screen.getByText('⚠ At risk')).toBeInTheDocument();
+    expect(screen.getByText('At risk')).toBeInTheDocument();
     expect(screen.getByText('🔴 Critical path')).toBeInTheDocument();
     expect(screen.getByText('📅 This week')).toBeInTheDocument();
     expect(screen.getByText('👤 My work')).toBeInTheDocument();
@@ -131,7 +131,7 @@ describe('BoardViewDropdown', () => {
   it('calls onApply with correct config when a built-in view is clicked', () => {
     const { onApply } = renderDropdown();
     fireEvent.click(screen.getByRole('button', { name: /board view/i }));
-    fireEvent.click(screen.getByText('⚠ At risk'));
+    fireEvent.click(screen.getByText('At risk'));
     expect(onApply).toHaveBeenCalledWith(
       expect.objectContaining({ riskLinkedOnly: true }),
       'at-risk',

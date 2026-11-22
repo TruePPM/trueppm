@@ -26,7 +26,7 @@ import {
   type BoardSavedView,
   type BoardViewConfig,
 } from '@/hooks/useBoardSavedViews';
-import { CheckIcon } from '@/components/Icons';
+import { CheckIcon, WarningIcon } from '@/components/Icons';
 import { ConfirmDialog } from '@/features/settings/components/integrations/WebhooksManager';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { canCreateSavedView, canEditSavedView } from './savedViewPermissions';
@@ -43,6 +43,8 @@ import { savedViewAriaLabel, summarizeSavedView } from './savedViewSummary';
 interface BuiltinView {
   id: string;
   label: string;
+  /** Prefix the label with the house WarningIcon (rule 242 — never a glyph). */
+  warn?: boolean;
   config: Partial<BoardViewConfig>;
   /** Tooltip explaining what the view does */
   description: string;
@@ -51,7 +53,8 @@ interface BuiltinView {
 const BUILTIN_VIEWS: BuiltinView[] = [
   {
     id: 'at-risk',
-    label: '⚠ At risk',
+    label: 'At risk',
+    warn: true,
     config: { riskLinkedOnly: true },
     description: 'Tasks with linked risks (open or mitigating)',
   },
@@ -322,6 +325,9 @@ export function BoardViewDropdown({
         className={`${btnClass} ${activeViewId ? activeClass : ''}`}
         aria-label={`Board view: ${activeLabel}`}
       >
+        {activeBuiltin?.warn && (
+          <WarningIcon aria-hidden="true" className="inline-block h-3 w-3 align-[-0.125em] mr-1" />
+        )}
         {activeLabel}
         <span aria-hidden="true" className="text-neutral-text-disabled">
           ▾
@@ -374,7 +380,10 @@ export function BoardViewDropdown({
                     : 'text-neutral-text-primary',
                 ].join(' ')}
               >
-                <span>{bv.label}</span>
+                <span>
+                  {bv.warn && <WarningIcon aria-hidden="true" className="inline-block h-3 w-3 align-[-0.125em] mr-1" />}
+                  {bv.label}
+                </span>
                 {activeViewId === bv.id && (
                   <CheckIcon
                     className="text-brand-primary inline-block h-3 w-3 align-[-0.125em]"

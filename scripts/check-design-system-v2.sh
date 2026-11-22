@@ -240,6 +240,16 @@ if [ "${1:-}" = "--self-test" ]; then
   printf '%s\n' 'const el = <button role="switch" aria-checked={on} className="h-5 w-9" />;' > "$d/Widget.tsx"
   st_probe "hand-rolled role=switch" expect-fail "$d"
 
+  # REJECT: a literal ⚠ glyph standing in for the house WarningIcon (#3864).
+  d="$(st_fixture statusglyph)"
+  printf '%s\n' 'const el = <span aria-hidden="true">⚠</span>;' > "$d/Widget.tsx"
+  st_probe "literal warning glyph" expect-fail "$d"
+
+  # ACCEPT: the glyph named in a comment, and the house icon.
+  d="$(st_fixture statusglyphok)"
+  printf '%s\n' '// the ⚠ glyph is replaced by WarningIcon' 'const el = <WarningIcon aria-hidden="true" />;' > "$d/Widget.tsx"
+  st_probe "warning glyph named only in a comment" expect-pass "$d"
+
   [ "$st_rc" -eq 0 ] && echo "SELF-TEST: all cases passed."
   exit "$st_rc"
 fi
@@ -943,6 +953,17 @@ raw_switch_offenders() {
     | g -vE "^$WEB_SRC/features/settings/components/Toggle\.tsx:" || true
 }
 
+# A literal ⚠ in rendered source (#3864, rule 242): a glyph standing in for a UI icon
+# must be the house WarningIcon SVG, which inherits currentColor and is aria-hidden.
+# ZERO TOLERANCE. Scoped to ⚠ ONLY: ✓ ✗ ⚡ still have ~27 legitimate/unswept uses in
+# non-test .tsx today, so adding them would red main — widen the glyph set below once
+# they are swept. Comment lines are skipped (prose naming the glyph is documentation).
+status_glyph_offenders() {
+  g -rInE '⚠' "$WEB_SRC" --include="*.tsx" 2>/dev/null \
+    | g -vE "$EXCLUDE" \
+    | g -vE "^[^:]+:[0-9]+:[[:space:]]*(//|\*|/\*|\{/\*)" || true
+}
+
 fail=0
 hex=$(hex_count)
 arb=$(arbitrary_count)
@@ -956,8 +977,9 @@ sem_tint=$(sem_tint_offenders | wc -l | tr -d ' ')
 query_error=$(query_error_offenders | wc -l | tr -d ' ')
 skeleton_stall=$(skeleton_stall_offenders | wc -l | tr -d ' ')
 raw_switch=$(raw_switch_offenders | wc -l | tr -d ' ')
+status_glyph=$(status_glyph_offenders | wc -l | tr -d ' ')
 
-echo "design-system-v2: hex=$hex (≤$BASELINE_HEX) · arbitrary-color=$arb (≤$BASELINE_ARBITRARY) · shadow=$shadow (≤$BASELINE_SHADOW) · black-rgba=$black (≤$BASELINE_BLACK) · style-color=$style_color (≤$BASELINE_STYLE_COLOR) · dark-chrome=$dark_chrome (=0) · tiny-text=$tiny_text (≤$BASELINE_TINY_TEXT) · bare-suspense=$bare_suspense (=0) · semantic-tint=$sem_tint (=0) · query-error-unhandled=$query_error (≤$BASELINE_QUERY_ERROR) · skeleton-stall=$skeleton_stall (=0) · raw-switch=$raw_switch (≤$BASELINE_RAW_SWITCH)" >&2
+echo "design-system-v2: hex=$hex (≤$BASELINE_HEX) · arbitrary-color=$arb (≤$BASELINE_ARBITRARY) · shadow=$shadow (≤$BASELINE_SHADOW) · black-rgba=$black (≤$BASELINE_BLACK) · style-color=$style_color (≤$BASELINE_STYLE_COLOR) · dark-chrome=$dark_chrome (=0) · tiny-text=$tiny_text (≤$BASELINE_TINY_TEXT) · bare-suspense=$bare_suspense (=0) · semantic-tint=$sem_tint (=0) · query-error-unhandled=$query_error (≤$BASELINE_QUERY_ERROR) · skeleton-stall=$skeleton_stall (=0) · raw-switch=$raw_switch (≤$BASELINE_RAW_SWITCH) · status-glyph=$status_glyph (=0)" >&2
 
 if (( arb > BASELINE_ARBITRARY )); then
   {
@@ -1081,6 +1103,15 @@ if (( skeleton_stall > 0 )); then
     echo "::error:: $skeleton_stall query value(s) gating a loading skeleton whose query reads no error/isError (rule 246, #3351)."
     echo "  A failed fetch pins the value at undefined, so the guard NEVER clears and the surface pulses forever — no error, no retry. Destructure isError + refetch and render <QueryErrorState/> ABOVE the skeleton guard (see ProgramCalendarPage / ProjectMethodologyPage). Offenders:"
     skeleton_stall_offenders | sed "$SED_INDENT4"
+  } >&2
+  fail=1
+fi
+
+if (( status_glyph > 0 )); then
+  {
+    echo "::error:: $status_glyph literal ⚠ glyph(s) in rendered source (rule 242, #3864)."
+    echo "  Use <WarningIcon aria-hidden=\"true\" className=\"inline-block h-3 w-3 align-[-0.125em]\" /> from components/Icons.tsx; it inherits currentColor and is not read aloud as \"warning sign\". Offenders:"
+    status_glyph_offenders | sed "$SED_INDENT4"
   } >&2
   fail=1
 fi

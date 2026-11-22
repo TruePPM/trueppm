@@ -4,7 +4,7 @@ import {
   useRestoreProject,
   type TrashProject,
 } from '@/hooks/useProjectMutations';
-import { InboxIcon } from '@/components/Icons';
+import { InboxIcon, WarningIcon } from '@/components/Icons';
 import { EmptyState } from '@/components/EmptyState';
 import { SettingsShell, SettingsPageTitle } from '../SettingsShell';
 import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
@@ -49,7 +49,12 @@ function DeletedMeta({ project }: { project: TrashProject }) {
           <span className={urgent ? 'font-medium text-semantic-warning' : undefined}>
             auto-deletes in {project.days_remaining}{' '}
             {project.days_remaining === 1 ? 'day' : 'days'}
-            {urgent ? ' ⚠' : ''}
+            {urgent ? (
+              <>
+                {' '}
+                <WarningIcon aria-hidden="true" className="inline-block h-3 w-3 align-[-0.125em]" />
+              </>
+            ) : null}
           </span>
         </>
       ) : null}

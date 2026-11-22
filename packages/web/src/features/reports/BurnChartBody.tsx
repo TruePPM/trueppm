@@ -1,4 +1,5 @@
 import type { RefObject } from 'react';
+import { WarningIcon } from '@/components/Icons';
 import type { BurnVariant, BurnMetric } from './hooks/useBurnChart';
 import type { ScopeChange } from './burnChartData';
 import { BurnChartCanvas } from './BurnChartCanvas';
@@ -17,7 +18,8 @@ function ChartError({ onRetry, detail }: ChartErrorProps) {
         className="flex items-center justify-center h-48 px-4 text-center text-xs text-semantic-at-risk"
         role="alert"
       >
-        <span>⚠ {detail} Adjust the date range above.</span>
+        <span>
+          <WarningIcon aria-hidden="true" className="inline-block h-3 w-3 align-[-0.125em]" /> {detail} Adjust the date range above.</span>
       </div>
     );
   }
@@ -26,7 +28,9 @@ function ChartError({ onRetry, detail }: ChartErrorProps) {
       className="flex items-center justify-center gap-3 h-48 text-xs text-semantic-at-risk"
       aria-live="polite"
     >
-      <span>⚠ Couldn&apos;t load chart data.</span>
+      <span>
+        <WarningIcon aria-hidden="true" className="inline-block h-3 w-3 align-[-0.125em]" /> Couldn&apos;t load chart data.
+      </span>
       <button
         type="button"
         onClick={onRetry}

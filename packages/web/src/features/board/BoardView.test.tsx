@@ -1479,7 +1479,7 @@ describe('BoardView', () => {
       expect(screen.getByTestId('board-filter-count')).toHaveTextContent('1');
 
       await user.click(screen.getByRole('button', { name: /board view/i }));
-      await user.click(screen.getByText('⚠ At risk'));
+      await user.click(screen.getByText('At risk'));
 
       expect(screen.queryByTestId('board-filter-chips')).not.toBeInTheDocument();
       expect(screen.queryByTestId('board-filter-count')).not.toBeInTheDocument();

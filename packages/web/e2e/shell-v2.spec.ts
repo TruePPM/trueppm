@@ -268,7 +268,7 @@ test.describe('shell v2 (shell_v2 flag)', () => {
         }),
       );
       await page.goto('/work');
-      await expect(page.getByText('No programs or projects yet')).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'No programs or projects yet' })).toBeVisible();
       await expect(page.getByRole('tree')).toHaveCount(0);
     });
   });

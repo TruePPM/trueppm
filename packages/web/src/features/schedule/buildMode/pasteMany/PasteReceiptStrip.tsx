@@ -1,3 +1,4 @@
+import { Link } from 'react-router';
 import type { PasteSummary } from './buildPasteOperations';
 import { formatChord } from '@/lib/platform';
 import { shouldDiscloseUndoFloor } from '@/lib/roles';
@@ -77,10 +78,9 @@ export function buildPasteReceiptMessage(summary: PasteSummary): string {
         ? `${n} row${n === 1 ? '' : 's'} had a three-point estimate, but this project ` +
             `restricts estimates to the Project Manager, so ${n === 1 ? 'it was' : 'they were'} ` +
             `created without one.`
-        :
-      `${n} row${n === 1 ? '' : 's'} had an incomplete or out-of-order three-point estimate, ` +
-        `so ${n === 1 ? 'it was' : 'they were'} created without one — all three values are ` +
-        `needed, with optimistic \u2264 most likely \u2264 pessimistic.`,
+        : `${n} row${n === 1 ? '' : 's'} had an incomplete or out-of-order three-point estimate, ` +
+            `so ${n === 1 ? 'it was' : 'they were'} created without one — all three values are ` +
+            `needed, with optimistic \u2264 most likely \u2264 pessimistic.`,
     );
   }
   return sentences.join(' ');
@@ -120,7 +120,15 @@ interface PasteReceiptStripProps {
   onUndo: () => void;
   onKeep: () => void;
   onMapColumns: () => void;
+  /**
+   * Where "add them to the team" goes (#3033) — the project's roster page. Omitted,
+   * the sentence stays plain text rather than linking nowhere.
+   */
+  rosterHref?: string;
 }
+
+/** The phrase in the unmatched-owner sentence that the roster link wraps. */
+const ROSTER_LINK_PHRASE = 'add them to the team';
 
 /**
  * Undo-able receipt after a paste-many batch commits (#2724). Stays on screen
@@ -141,7 +149,11 @@ export function PasteReceiptStrip({
   onUndo,
   onKeep,
   onMapColumns,
+  rosterHref,
 }: PasteReceiptStripProps) {
+  const message = buildPasteReceiptMessage(summary);
+  const linkAt =
+    rosterHref && summary.unmatchedOwnerCount > 0 ? message.indexOf(ROSTER_LINK_PHRASE) : -1;
   return (
     <div
       role="status"
@@ -151,7 +163,21 @@ export function PasteReceiptStrip({
         bg-neutral-surface-raised text-xs text-neutral-text-primary"
     >
       <span className="flex-1 min-w-0">
-        {buildPasteReceiptMessage(summary)}
+        {linkAt >= 0 && rosterHref ? (
+          <>
+            {message.slice(0, linkAt)}
+            <Link
+              to={rosterHref}
+              className="font-medium text-brand-primary underline underline-offset-2 hover:no-underline
+                focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 rounded-sm"
+            >
+              {ROSTER_LINK_PHRASE}
+            </Link>
+            {message.slice(linkAt + ROSTER_LINK_PHRASE.length)}
+          </>
+        ) : (
+          message
+        )}
         {shouldDiscloseUndoFloor(canUndo) && (
           <span className="text-neutral-text-secondary"> {UNDO_NEEDS_ADMIN_NOTE}</span>
         )}

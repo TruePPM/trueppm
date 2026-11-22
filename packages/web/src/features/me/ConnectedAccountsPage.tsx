@@ -12,6 +12,7 @@
  * GitHub section (#569's Project Integrations page deep-links here).
  */
 
+import { WarningIcon } from '@/components/Icons';
 import { type FormEvent, useEffect, useId, useState } from 'react';
 import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
@@ -843,9 +844,10 @@ function ReconnectBanner({
       className="flex flex-wrap items-center justify-between gap-2 rounded-card border border-semantic-at-risk/40 bg-semantic-at-risk-bg px-3 py-2 text-[12px] text-neutral-text-primary"
     >
       <span>
-        <span aria-hidden="true" className="font-semibold text-semantic-at-risk">
-          ⚠{' '}
-        </span>
+        <WarningIcon
+          aria-hidden="true"
+          className="inline-block h-3 w-3 align-[-0.125em] mr-1 text-semantic-at-risk"
+        />
         {message ?? `${sourceName} needs reauthorization — items stopped pulling into My Work.`}
       </span>
       {actionLabel === null ? null : (

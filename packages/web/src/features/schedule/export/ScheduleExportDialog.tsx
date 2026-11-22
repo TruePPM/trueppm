@@ -12,7 +12,7 @@
 import { useEffect } from 'react';
 import { getFocusable, useFocusTrap } from '@/hooks/useFocusTrap';
 import { Button } from '@/components/Button';
-import { CheckIcon, CloseIcon, FilePdfIcon, PrinterIcon } from '@/components/Icons';
+import { CheckIcon, CloseIcon, FilePdfIcon, PrinterIcon, WarningIcon } from '@/components/Icons';
 import { Toggle } from '@/features/settings/components/Toggle';
 import { ExportSegmentedField, type SegmentOption } from './ExportSegmentedField';
 import {
@@ -395,9 +395,10 @@ export function ScheduleExportDialog({
         {phase === 'error' && (
           <div className="flex flex-col gap-4">
             <h2 role="alert" className="text-[15px] font-semibold text-neutral-text-primary">
-              <span aria-hidden="true" className="text-semantic-critical">
-                ⚠
-              </span>{' '}
+              <WarningIcon
+                aria-hidden="true"
+                className="inline-block h-3 w-3 align-[-0.125em] text-semantic-critical"
+              />{' '}
               Couldn&rsquo;t generate the PDF
             </h2>
             <p className="text-sm text-neutral-text-secondary">

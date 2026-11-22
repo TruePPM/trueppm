@@ -11,8 +11,7 @@ interface AllocationPayload {
 }
 
 const { getMock } = vi.hoisted(() => ({
-  getMock:
-    vi.fn<(url: string, config?: unknown) => Promise<{ data: AllocationPayload }>>(),
+  getMock: vi.fn<(url: string, config?: unknown) => Promise<{ data: AllocationPayload }>>(),
 }));
 
 vi.mock('@/api/client', () => ({
@@ -65,9 +64,7 @@ function mobileRows() {
 describe('ResourcesHeatmapSkeleton', () => {
   it('reserves the header plus five person rows so the page does not reflow', () => {
     const { container } = renderWithProviders(<ResourcesHeatmapSkeleton cols={8} />);
-    expect(
-      container.getElementsByClassName('motion-safe:animate-pulse'),
-    ).toHaveLength(6);
+    expect(container.getElementsByClassName('motion-safe:animate-pulse')).toHaveLength(6);
   });
 });
 
@@ -135,9 +132,7 @@ describe('ResourcesHeatmap', () => {
       await userEvent.click(
         within(grid()).getByRole('button', { name: 'Anna Khoury, W18, 80% utilized' }),
       );
-      expect(
-        await screen.findByRole('heading', { name: 'Anna Khoury' }),
-      ).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: 'Anna Khoury' })).toBeInTheDocument();
       expect(screen.getByText('W18 · Apr 27 → May 3')).toBeInTheDocument();
       await waitFor(() =>
         expect(getMock).toHaveBeenCalledWith('/projects/p1/resource-allocation/', {
@@ -194,18 +189,15 @@ describe('ResourcesHeatmap', () => {
     it('announces the peak week and flags an over-allocated resource', () => {
       renderHeatmap({ resources: [resource({ util: [80, 130] })] });
       const [row] = mobileRows();
-      expect(row).toHaveAttribute(
-        'aria-label',
-        'Anna Khoury, over-allocated, peak 130% in W19',
-      );
-      expect(within(row).getByText('⚠')).toBeInTheDocument();
+      expect(row).toHaveAttribute('aria-label', 'Anna Khoury, over-allocated, peak 130% in W19');
+      expect(row.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
     });
 
     it('omits the over-allocation wording and glyph while within capacity', () => {
       renderHeatmap({ resources: [resource({ util: [80, 40] })] });
       const [row] = mobileRows();
       expect(row).toHaveAttribute('aria-label', 'Anna Khoury, peak 80% in W18');
-      expect(within(row).queryByText('⚠')).not.toBeInTheDocument();
+      expect(row.querySelector('svg')).toBeNull();
     });
 
     it('opens the drawer on the peak week for an over-allocated resource', async () => {
