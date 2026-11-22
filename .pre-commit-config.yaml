@@ -43,7 +43,7 @@ repos:
         stages: [pre-commit]
       # Block hardcoded secrets before they enter a commit (#1251). Wrapper uses
       # the system-installed gitleaks (brew install gitleaks) and no-ops with a
-      # warning if it is absent — the merge-blocking security:gitleaks CI job is
+      # warning if it is absent — the merge-blocking security:gitleaks check (security:static CI job) is
       # the hard gate. Config: .gitleaks.toml (auto-discovered at repo root).
       - id: gitleaks
         name: detect hardcoded secrets (gitleaks)

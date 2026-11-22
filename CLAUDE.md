@@ -296,7 +296,7 @@ short enough to be signal. Eight rules:
    with a `RunPython` repair, as `projects.0121` and `projects.0148` do. Where
    existing rows provably cannot violate the constraint, say why in a
    `# safe-constraint: <reason>` comment on the operation. `make pre-push` and the
-   `api:migration-constraint-safety` CI job enforce one or the other, and recognize
+   `api:migration-constraint-safety` check (in the `api:static` CI job) enforce one or the other, and recognize
    four shapes without a comment: the model is created in the same migration (empty
    table), the migration declares `replaces=`, the same migration runs
    `AlterUniqueTogether` for that model (a `unique_together` conversion is already

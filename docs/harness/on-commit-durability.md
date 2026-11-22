@@ -7,7 +7,7 @@ rationale and rubric live in `docs/durability/on-commit-audit.md`; this gate enf
 
 ## The gate
 
-`scripts/check-on-commit-durability.py` (CI job `lint:on-commit-durability`, `make
+`scripts/check-on-commit-durability.py` (CI check `lint:on-commit-durability` in the `api:static` job, `make
 on-commit-durability-check`, part of `make pre-push`) parses `packages/api/src/trueppm_api`
 with `ast`, expands each callback (lambda, `functools.partial`, or a same-file `def`, four
 levels deep) into the call names it reaches, and assigns one class: `outbox`,

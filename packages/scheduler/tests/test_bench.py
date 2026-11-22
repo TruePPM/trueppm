@@ -1,6 +1,7 @@
 """CPM performance benchmark — regression guard for scheduler throughput.
 
-Run by the ``scheduler:bench`` CI job, which stores timing as an artifact
+Run by the ``scheduler:bench`` CI check (``scheduler:post-test`` job), which
+stores timing as an artifact
 and fails if the 500-task chain exceeds 2 s. The 2 s budget is deliberately
 conservative (typical run is < 50 ms); the goal is catching catastrophic
 regressions (O(n²) graph walk, missing index, accidental full recompute).

@@ -876,7 +876,7 @@ few rounds the mean carries run-to-run noise; treat differences under about 20% 
 
 Nothing above 5,000 tasks and no incremental-recompute series has been measured yet. The
 2,000-task `schedule()` target of under 1 s on the CI runner is recorded, not gated: the
-`scheduler:benchmarks` job stores the benchmark JSON as an artifact on every run.
+`scheduler:post-test` job (its `scheduler:benchmarks` check) stores the benchmark JSON as an artifact on every run.
 
 Reproduce:
 

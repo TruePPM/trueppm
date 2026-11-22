@@ -193,7 +193,7 @@ a stability promise.
 100 to 5,000 tasks. It is opt-in (the `bench_*.py` name is not collected by a bare
 `pytest`) and asserts no budget; run it with
 `pytest tests/benchmarks/bench_engine.py --benchmark-only`. CI stores its JSON as an
-artifact from the `scheduler:benchmarks` job.
+artifact from the `scheduler:post-test` job (its `scheduler:benchmarks` check).
 
 ### Performance benchmarks
 
@@ -277,7 +277,7 @@ pip install -e ".[dev]" jupyter matplotlib
 jupyter notebook notebooks/
 ```
 
-The `scheduler:notebooks` CI job executes all notebooks with `jupyter nbconvert
+The `scheduler:notebooks` CI check (in the `scheduler:post-test` job) executes all notebooks with `jupyter nbconvert
 --execute` to catch regressions. A notebook cell that raises an exception fails
 the job.
 
