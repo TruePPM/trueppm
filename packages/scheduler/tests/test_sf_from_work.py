@@ -200,7 +200,8 @@ def test_a_monday_floor_held_milestone_counts_a_start_lag_from_saturday(
     link therefore counts from Saturday and bounds the successor up to two calendar
     days earlier than the same link out of work starting that Monday, which counts
     from Monday itself. Moved to Tuesday, where the day before is a working day, the
-    two agree again. ``docs/features/scheduler-conventions.md`` (SF row) states this.
+    two agree again. The SF row of
+    ``packages/website/src/content/docs/features/scheduler-conventions.md`` states it.
     """
 
     def bounds(snet: date) -> tuple[date, date]:
