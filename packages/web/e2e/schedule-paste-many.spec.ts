@@ -348,6 +348,10 @@ test.describe('paste-many — spreadsheet rows into the outline (#2724)', () => 
       /\/projects\/[^/]+\/team\/roster$/,
     );
 
+    // Gate on the pasted row being rendered: F8 walks visible rows, so pressing it
+    // before the optimistic row mounts is a silent no-op.
+    await expect(page.getByRole('row').filter({ hasText: 'Survey' })).toHaveCount(1);
+
     await page.keyboard.press('F8');
     await expect(page.locator('[data-row-id]:focus')).toContainText('Survey');
   });
