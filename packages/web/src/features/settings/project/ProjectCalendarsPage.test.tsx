@@ -144,6 +144,13 @@ beforeEach(() => {
 });
 
 describe('ProjectCalendarsPage', () => {
+  it('renders no Enterprise tiles or disabled upsell buttons (rule 231(c), #4102)', () => {
+    loadedHooks(ROLE_ADMIN);
+    renderPage();
+    expect(screen.queryByText(/Enterprise/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Learn about Enterprise/i })).toBeNull();
+  });
+
   it('renders the applied stack and the effective-working-time preview when loaded', () => {
     loadedHooks(ROLE_ADMIN);
     renderPage();

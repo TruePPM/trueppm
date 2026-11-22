@@ -186,3 +186,12 @@ stays zero).
 - **Follow-ups filed:** offline/WASM composition parity (#1661); single-project
   per-resource PTO calendars (#1662 — OSS, per enterprise-check; the cross-portfolio
   variant is the Enterprise boundary).
+
+## Classification note (#4102)
+
+Per-resource calendars (`Resource.calendar`, #540) are OSS: one PM needs them to model who
+is available. Cross-program resource leveling against those calendars stays Enterprise.
+The disabled "Resource & PTO calendars", "External holiday feeds" and "Cross-program
+calendar governance" teaser tiles were removed from the OSS settings UI (rule 231(c)); the
+"Per-resource calendars OUT" line in section 5 is a scope fence for the original slice, not an
+Enterprise ruling.

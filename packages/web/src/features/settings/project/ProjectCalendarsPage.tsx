@@ -17,7 +17,6 @@ import {
 } from '@/hooks/useProjectCalendars';
 import { SettingsPageTitle } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
-import { EnterpriseBadge } from '@/features/settings/components/EnterpriseBadge';
 import {
   CalendarIcon,
   PlusIcon,
@@ -332,9 +331,6 @@ export function ProjectCalendarsPage() {
             </p>
           </section>
         </div>
-
-        {/* ── Enterprise-gated capabilities ───────────────────────────── */}
-        <EnterpriseTiles />
       </div>
 
       {pickerOpen && isMobile && canEdit && (
@@ -739,61 +735,6 @@ function Legend() {
           <b className="font-semibold text-neutral-text-primary">{label}</b>
         </span>
       ))}
-    </div>
-  );
-}
-
-const ENTERPRISE_TILES = [
-  {
-    title: 'Resource & PTO calendars',
-    body: "Make a task's duration depend on who's assigned — per-person availability feeds cross-project resource leveling.",
-  },
-  {
-    title: 'Cross-program calendar governance',
-    body: 'Publish and enforce shared calendars across an org, with change approval.',
-  },
-  {
-    title: 'External holiday feeds (iCal)',
-    body: 'Auto-import national and regional public-holiday sets from subscribed feeds.',
-  },
-] as const;
-
-function EnterpriseTiles() {
-  return (
-    <div className="mt-8 border-t border-neutral-border pt-6">
-      <h2 className="text-[15px] font-semibold text-neutral-text-primary">
-        Scheduling · beyond a single project
-      </h2>
-      <p className="mb-4 mt-0.5 max-w-[620px] text-[13px] leading-relaxed text-neutral-text-secondary">
-        These calendar capabilities span people, programs, and external systems. They live in
-        TruePPM Enterprise and appear here only as gated affordances — no Enterprise flow ships in
-        the open-source build.
-      </p>
-      <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
-        {ENTERPRISE_TILES.map((tile) => (
-          <div
-            key={tile.title}
-            className="rounded-card border border-neutral-border bg-neutral-surface-raised p-4 opacity-90"
-          >
-            <div className="mb-2.5 flex items-center">
-              <span className="text-[14px] font-semibold text-neutral-text-primary">
-                {tile.title}
-              </span>
-              <EnterpriseBadge />
-            </div>
-            <p className="mb-3.5 text-[12.5px] leading-relaxed text-neutral-text-secondary">
-              {tile.body}
-            </p>
-            <button
-              type="button"
-              disabled
-              className="min-h-[36px] cursor-not-allowed rounded-control border border-neutral-border bg-neutral-surface px-3 text-[12px] font-medium text-neutral-text-secondary opacity-60"
-            >
-              Learn about Enterprise
-            </button>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
