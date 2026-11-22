@@ -553,7 +553,7 @@ def shift_sample_dates(program: Program, *, actor: Any = None) -> ShiftReport:
         # the request middleware; set it so the audit row names the actor even when a
         # non-request caller (a management command, a test) drives this service.
         if actor is not None:
-            locked._history_user = actor
+            locked._history_user = actor  # type: ignore[attr-defined]
         locked.save(update_fields=["sample_anchor_date"])
         program.sample_anchor_date = locked.sample_anchor_date
 
