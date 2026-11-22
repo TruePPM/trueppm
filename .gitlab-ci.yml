@@ -983,6 +983,8 @@ lint:repo-static:
   before_script:
     - apk add --no-cache bash git grep sed gawk coreutils findutils python3 diffutils
   script:
+    - bash scripts/ci/step.sh lint:pairings python3 scripts/check-pairings.py --self-test
+    - bash scripts/ci/step.sh lint:pairings python3 scripts/check-pairings.py
     - bash scripts/ci/step.sh boundary:imports bash scripts/check-enterprise-imports.sh --self-test
     - bash scripts/ci/step.sh boundary:imports bash scripts/check-enterprise-imports.sh
     - bash scripts/ci/step.sh boundary:imports bash scripts/check-boundary-doc-command.sh --self-test

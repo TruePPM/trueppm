@@ -2,7 +2,7 @@
 # Run `make help` for a list of targets.
 
 .PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod memory-check \
-        migrations-check node-version-check e2e-drift-check migrations-numbering migrations-constraint-safety bulk-create-server-version-check app-layering-check api-engine-boundary-check on-commit-durability-check schema-check openapi-check schema-breaking-check request-body-guards-check web-lint web-typecheck web-rule-numbers-check web-row-vocabulary-check pre-push pre-push-checks semgrep-freshness-check e2e-schema-guard-check web-types-drift-check cost-ledger-check api-scheduler-lock-check \
+        migrations-check node-version-check e2e-drift-check migrations-numbering migrations-constraint-safety bulk-create-server-version-check app-layering-check pairings-check api-engine-boundary-check on-commit-durability-check schema-check openapi-check schema-breaking-check request-body-guards-check web-lint web-typecheck web-rule-numbers-check web-row-vocabulary-check pre-push pre-push-checks semgrep-freshness-check e2e-schema-guard-check web-types-drift-check cost-ledger-check api-scheduler-lock-check \
         pre-push-behind-warn pre-push-collision-check pre-push-wasm pre-push-mobile mobile-lint mobile-typecheck \
         mobile-version-check \
         coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web sonar \
@@ -164,6 +164,11 @@ app-layering-check: ## Fail on a new import between domain apps outside the decl
 	@# baseline that can only shrink. Pure static analysis: no Django, no DB, ~1s.
 	@python3 scripts/check-app-layering.py --self-test
 	@python3 scripts/check-app-layering.py
+
+pairings-check: ## Fail on a new aria-modal without useFocusTrap, or "removed next release" prose without a deprecation marker + issue (#4125)
+	@# Baseline in scripts/pairings-baseline.txt can only shrink. Pure static analysis.
+	@python3 scripts/check-pairings.py --self-test
+	@python3 scripts/check-pairings.py
 
 api-engine-boundary-check: ## Fail when the API reimplements engine math outside the allow-list (#4688)
 	@python3 scripts/check-api-engine-boundary.py --self-test
@@ -844,6 +849,7 @@ pre-push-checks: migrations-numbering
 pre-push-checks: migrations-constraint-safety
 pre-push-checks: bulk-create-server-version-check
 pre-push-checks: app-layering-check
+pre-push-checks: pairings-check
 pre-push-checks: api-engine-boundary-check
 pre-push-checks: on-commit-durability-check
 pre-push-checks: schema-check

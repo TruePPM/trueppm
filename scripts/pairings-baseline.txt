@@ -1,0 +1,18 @@
+# Unpaired files grandfathered by scripts/check-pairings.py (#4125).
+# Ratchet: entries may only be removed. Fix the file, then run
+#   python3 scripts/check-pairings.py --update-baseline
+aria-modal packages/web/src/components/FieldHelp.tsx
+aria-modal packages/web/src/features/board/BoardCardPopover/CardPopoverShell.tsx
+aria-modal packages/web/src/features/board/BoardViewDropdown.tsx
+aria-modal packages/web/src/features/schedule/MissingCommittedStartChip.tsx
+aria-modal packages/web/src/features/schedule/ScheduleCommitPopover.tsx
+aria-modal packages/web/src/features/schedule/buildMode/MilestoneDatePopover.tsx
+aria-modal packages/web/src/features/schedule/buildMode/SprintPrompt.tsx
+aria-modal packages/web/src/features/settings/program/BulkMethodologyImpactPreview.tsx
+aria-modal packages/web/src/features/settings/workspace/GroupManageDrawer.tsx
+aria-modal packages/web/src/features/shell/MCResultPanel.tsx
+aria-modal packages/web/src/features/shell/MoreSheet.tsx
+aria-modal packages/web/src/features/shell/NotificationPanel.tsx
+aria-modal packages/web/src/features/sprints/SprintsView.tsx
+deprecation packages/api/src/trueppm_api/apps/sync/ws_auth.py
+deprecation packages/api/src/trueppm_api/settings/base.py
