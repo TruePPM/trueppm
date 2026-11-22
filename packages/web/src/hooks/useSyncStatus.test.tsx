@@ -93,13 +93,16 @@ describe('useSyncStatus — read-only demo has no socket by design (#4048)', () 
   it.each([
     { demo: true, expected: 'synced' },
     { demo: false, expected: 'stale' },
-  ] as const)('with demo_read_only=$demo and a failed socket derives $expected', ({ demo, expected }) => {
-    const qc = makeQC();
-    qc.setQueryData(['edition'], { edition: 'community', demo_read_only: demo });
-    useWsConnectionStore.setState({ state: 'failed' });
-    const { result } = renderHook(() => useSyncStatus(), { wrapper: wrapper(qc) });
-    expect(result.current.status.kind).toBe(expected);
-  });
+  ] as const)(
+    'with demo_read_only=$demo and a failed socket derives $expected',
+    ({ demo, expected }) => {
+      const qc = makeQC();
+      qc.setQueryData(['edition'], { edition: 'community', demo_read_only: demo });
+      useWsConnectionStore.setState({ state: 'failed' });
+      const { result } = renderHook(() => useSyncStatus(), { wrapper: wrapper(qc) });
+      expect(result.current.status.kind).toBe(expected);
+    },
+  );
 });
 
 describe('getPendingWriteCount — the real count behind the chunk-reload guard (ADR-1249)', () => {

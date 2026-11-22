@@ -69,7 +69,9 @@ test.describe('Invite acceptance', () => {
     await expect(page.getByText('This password is too common.')).toBeVisible();
   });
 
-  test('invalid link: arriving without a token shows a helpful terminal state', async ({ page }) => {
+  test('invalid link: arriving without a token shows a helpful terminal state', async ({
+    page,
+  }) => {
     await page.goto('/invite/accept');
     await expect(
       page.getByRole('heading', { name: "This invitation link isn't valid" }),

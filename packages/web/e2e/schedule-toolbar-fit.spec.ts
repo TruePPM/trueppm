@@ -61,9 +61,31 @@ const baseRow = {
 
 const TASKS = [
   { ...baseRow, id: 'ph', wbs_path: '1', name: 'Assess', is_summary: true, parent_id: null },
-  { ...baseRow, id: 'c1', wbs_path: '1.1', name: 'Inventory legacy schemas', is_summary: false, parent_id: 'ph' },
-  { ...baseRow, id: 'c2', wbs_path: '1.2', name: 'Profile data quality', is_summary: false, parent_id: 'ph', is_critical: true },
-  { ...baseRow, id: 'r2', wbs_path: '2', name: 'Migration tooling', is_summary: false, parent_id: null },
+  {
+    ...baseRow,
+    id: 'c1',
+    wbs_path: '1.1',
+    name: 'Inventory legacy schemas',
+    is_summary: false,
+    parent_id: 'ph',
+  },
+  {
+    ...baseRow,
+    id: 'c2',
+    wbs_path: '1.2',
+    name: 'Profile data quality',
+    is_summary: false,
+    parent_id: 'ph',
+    is_critical: true,
+  },
+  {
+    ...baseRow,
+    id: 'r2',
+    wbs_path: '2',
+    name: 'Migration tooling',
+    is_summary: false,
+    parent_id: null,
+  },
 ];
 
 /**
@@ -133,13 +155,11 @@ async function fitReport(page: Page) {
 async function overflowCount(page: Page): Promise<number> {
   const bar = toolbar(page);
   if ((await bar.count()) === 0) return -1;
-  const rendered = await bar.evaluate(
-    (el) => {
-      const step = el.getAttribute('data-fit-step');
-      // `Number(null)` is 0, so a missing attribute must be rejected before coercion.
-      return el.children.length > 0 && step !== null && Number.isFinite(Number(step));
-    },
-  );
+  const rendered = await bar.evaluate((el) => {
+    const step = el.getAttribute('data-fit-step');
+    // `Number(null)` is 0, so a missing attribute must be rejected before coercion.
+    return el.children.length > 0 && step !== null && Number.isFinite(Number(step));
+  });
   if (!rendered) return -1;
   return (await fitReport(page)).overflowing.length;
 }
@@ -154,9 +174,7 @@ test.describe('Schedule toolbar — nothing clips at any width (#3076)', () => {
       await page.setViewportSize({ width, height: 900 });
       // The fit loop runs in a layout effect off a ResizeObserver; wait for it
       // to settle rather than sampling mid-descent.
-      await expect
-        .poll(() => overflowCount(page), { timeout: 5_000 })
-        .toBe(0);
+      await expect.poll(() => overflowCount(page), { timeout: 5_000 }).toBe(0);
 
       const report = await fitReport(page);
       expect(report.overflowing).toEqual([]);
@@ -269,7 +287,9 @@ test.describe('Schedule toolbar — nothing clips at any width (#3076)', () => {
     await display.getByRole('menuitemcheckbox', { name: /^Today, in the bar/ }).click();
 
     // The row restates the new location — the whole point of the column.
-    await expect(display.getByRole('menuitemcheckbox', { name: /^Today, in Actions/ })).toBeVisible();
+    await expect(
+      display.getByRole('menuitemcheckbox', { name: /^Today, in Actions/ }),
+    ).toBeVisible();
     await page.keyboard.press('Escape');
 
     await expect(page.getByRole('button', { name: 'Today', exact: true })).toHaveCount(0);
