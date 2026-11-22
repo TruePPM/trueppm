@@ -38,6 +38,28 @@ const NO_UNSCOPED_COMBOBOX = {
     "the containing dialog/row locator, or name it: getByRole('combobox', { name: … }).",
 };
 
+// Unscoped generic "Retry" button (#3516). Many error states on one page each render a
+// button named exactly "Retry", so `page.getByRole('button', { name: 'Retry' })` is a
+// strict-mode violation the day a second one mounts — fixed by hand three times
+// (#3401, #3402, #3459). Scope it to the error region's own locator. Covers the string
+// forms ('Retry', "Retry") and the regex forms (/retry/i, /^Retry$/i); a longer name
+// such as /Retry the refused change on …/ is not generic and is not flagged. Only
+// `page.`-rooted calls match: a locator-rooted call is already scoped.
+const NO_UNSCOPED_RETRY_BUTTON_BASE =
+  "CallExpression[callee.object.name='page'][callee.property.name='getByRole'][arguments.0.value='button'] > ObjectExpression.arguments > Property[key.name='name'] > ";
+const NO_UNSCOPED_RETRY_BUTTON_MESSAGE =
+  "Unscoped page.getByRole('button', { name: 'Retry' }) collides with every other Retry on the page (#3516). Scope it to the error region's locator, e.g. region.getByRole('button', { name: 'Retry' }).";
+const NO_UNSCOPED_RETRY_BUTTON = [
+  {
+    selector: NO_UNSCOPED_RETRY_BUTTON_BASE + 'Literal[value=/^retry$/i]',
+    message: NO_UNSCOPED_RETRY_BUTTON_MESSAGE,
+  },
+  {
+    selector: NO_UNSCOPED_RETRY_BUTTON_BASE + 'Literal[regex.pattern=/^\\^?retry\\$?$/i]',
+    message: NO_UNSCOPED_RETRY_BUTTON_MESSAGE,
+  },
+];
+
 // Iteration-label gate (#1287, ADR-0111). User-facing copy on the
 // sprint-container surfaces must read the project's configured label via
 // useIterationLabel() (the `itl.*` forms), never the hard-coded word "sprint" —
@@ -197,20 +219,18 @@ const FLEX_TRUNCATE_MESSAGE =
 // whole value exactly once. The self-test in
 // `src/test/flexTruncateMinWidthRule.test.ts` pins the class-order permutations
 // that caught this.
-const FLEX_TRUNCATE_PAT =
-  String.raw`/^(?=[\s\S]*\bflex-1\b)(?=[\s\S]*\btruncate\b)(?![\s\S]*\bmin-w-0\b)/`;
+const FLEX_TRUNCATE_PAT = String.raw`/^(?=[\s\S]*\bflex-1\b)(?=[\s\S]*\btruncate\b)(?![\s\S]*\bmin-w-0\b)/`;
 // The CONTAINER shape (#3508): a `flex-1` element that does NOT itself clamp its
 // minimum size and has a DIRECT child element that truncates. `min-width:auto`
 // resolves to the child's intrinsic text width, so the container overflows its row.
 // One level down only (see Known gaps). Anchored with `^` for the same RegExp.test
 // suffix-retry reason as FLEX_TRUNCATE_PAT.
-const FLEX_CONTAINER_PAT =
-  String.raw`/^(?=[\s\S]*\bflex-1\b)(?![\s\S]*\bmin-w-)(?![\s\S]*\btruncate\b)(?![\s\S]*\boverflow-(x-|y-)?(hidden|auto|scroll|clip)\b)/`;
+const FLEX_CONTAINER_PAT = String.raw`/^(?=[\s\S]*\bflex-1\b)(?![\s\S]*\bmin-w-)(?![\s\S]*\btruncate\b)(?![\s\S]*\boverflow-(x-|y-)?(hidden|auto|scroll|clip)\b)/`;
 const TRUNCATE_PAT = String.raw`/\btruncate\b/`;
 const CLASS_NAME_VALUE = (pat) =>
   `JSXAttribute[name.name="className"] :matches(Literal[value=${pat}], TemplateElement[value.raw=${pat}])`;
 const FLEX_CONTAINER_MESSAGE =
-  '`flex-1` container with a truncating child but no `min-w-0` (rule 393, #3508). min-width:auto resolves to the child\'s intrinsic text width, so this box overflows its row instead of letting the child ellipsize. Add `min-w-0` (measured: 307px in a 300px row, fixed to 120px / 0px). If the container should wrap or size to content instead, say so with `// eslint-disable-next-line no-restricted-syntax` and a reason.';
+  "`flex-1` container with a truncating child but no `min-w-0` (rule 393, #3508). min-width:auto resolves to the child's intrinsic text width, so this box overflows its row instead of letting the child ellipsize. Add `min-w-0` (measured: 307px in a 300px row, fixed to 120px / 0px). If the container should wrap or size to content instead, say so with `// eslint-disable-next-line no-restricted-syntax` and a reason.";
 // esquery's `:has(> A > B)` silently matches nothing (measured at #3508: only a single
 // `> A` or a bare descendant works), so the className attribute is reached by index
 // through field-path attribute selectors instead. Three value shapes — a string
@@ -218,7 +238,11 @@ const FLEX_CONTAINER_MESSAGE =
 // the first six attributes. A className on the seventh attribute or one whose
 // `min-w-0` sits in a later template quasi is the documented gap; the escape hatch is
 // the same `eslint-disable-next-line` as everywhere else in this rule.
-const CLASS_SHAPES = ['value.value', 'value.expression.value', 'value.expression.quasis.0.value.raw'];
+const CLASS_SHAPES = [
+  'value.value',
+  'value.expression.value',
+  'value.expression.quasis.0.value.raw',
+];
 const attrClassMatch = (root, pat) =>
   `:matches(${[0, 1, 2, 3, 4, 5]
     .flatMap((i) => CLASS_SHAPES.map((sh) => `[${root}.attributes.${i}.${sh}=${pat}]`))
@@ -588,7 +612,12 @@ export default [
   {
     files: ['e2e/**/*.ts'],
     rules: {
-      'no-restricted-syntax': ['error', NO_DEFAULT_EXPORT, NO_UNSCOPED_COMBOBOX],
+      'no-restricted-syntax': [
+        'error',
+        NO_DEFAULT_EXPORT,
+        NO_UNSCOPED_COMBOBOX,
+        ...NO_UNSCOPED_RETRY_BUTTON,
+      ],
     },
   },
   prettierConfig,

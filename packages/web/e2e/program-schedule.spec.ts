@@ -196,7 +196,13 @@ test.describe('Program schedule view', () => {
     await page.goto(`/programs/${PROGRAM_ID}/schedule`);
 
     await expect(page.getByRole('alert')).toContainText(/refreshed too often/i);
-    await page.getByRole('button', { name: 'Retry' }).click();
+    // The alert <p> and its Retry button are siblings in one wrapper div, so scope to the
+    // alert's parent rather than to the alert itself.
+    await page
+      .getByRole('alert')
+      .locator('xpath=..')
+      .getByRole('button', { name: 'Retry' })
+      .click();
     await expect(page.getByText(/Cross-project critical path across 2 projects/)).toBeVisible();
     await expect(page.getByText(/refreshed too often/i)).toHaveCount(0);
   });
