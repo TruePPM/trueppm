@@ -55,7 +55,7 @@ export interface BuiltPasteBatch {
   /** Rows created without the owner their cell asked for, with the text that failed
    *  and why. The receipt reports the two reasons as separate counts; the row ids are
    *  carried so a later change can walk to them the way F8 walks `needsDurationIds`,
-   *  which this deliberately does not wire (#2905; follow-up #3033). */
+   *  which `usePasteMany` now unions into the F8 walk (#3033). */
   droppedOwners: DroppedOwner[];
 }
 

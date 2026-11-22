@@ -24,3 +24,17 @@ export function findMissingDurationRow(
     needsDurationIds.has(task.id),
   );
 }
+
+/**
+ * The rows F8 / Shift+F8 walk for the paste receipt that is showing: those
+ * created without a resolvable duration, plus those whose Owner cell the roster
+ * could not resolve (#3033). One union, one key — the documented F8 wording is
+ * "a row that needs attention", and a separate binding for each paste warning
+ * would add a key per warning. A row in both sets is walked once.
+ */
+export function pasteAttentionIds(
+  needsDurationIds: ReadonlySet<string>,
+  droppedOwnerIds: ReadonlySet<string>,
+): Set<string> {
+  return new Set([...needsDurationIds, ...droppedOwnerIds]);
+}

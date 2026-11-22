@@ -325,6 +325,33 @@ test.describe('paste-many — spreadsheet rows into the outline (#2724)', () => 
     );
   });
 
+  test('F8 walks to a row whose pasted Owner was dropped, and the receipt links to the roster', async ({
+    page,
+  }) => {
+    // #3033: a dropped owner used to be reported but unreachable. Plan resolves its
+    // owner and has a duration, so only Survey (unknown owner, duration present) is
+    // flagged — and only by the owner warning, which is what F8 must now walk to.
+    await setup(page);
+    await page.goto(SCHEDULE_URL);
+    await expect(page.getByText('Foundation')).toBeVisible();
+
+    await pasteOntoRow(
+      page,
+      'Foundation',
+      'Task\tOwner\tDuration\nPlan\tAna Rivera\t3\nSurvey\tAna Riveraa\t5',
+    );
+
+    const receipt = page.getByTestId('paste-receipt-strip');
+    await expect(receipt).toContainText('1 owner was not on the roster');
+    await expect(receipt.getByRole('link', { name: 'add them to the team' })).toHaveAttribute(
+      'href',
+      /\/projects\/[^/]+\/team\/roster$/,
+    );
+
+    await page.keyboard.press('F8');
+    await expect(page.locator('[data-row-id]:focus')).toContainText('Survey');
+  });
+
   test('Keep dismisses the receipt without touching the pasted rows', async ({ page }) => {
     await setup(page);
     await page.goto(SCHEDULE_URL);

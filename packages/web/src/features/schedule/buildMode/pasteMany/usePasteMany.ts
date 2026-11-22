@@ -6,6 +6,7 @@ import { useBulkCreateTasks, useBulkDeleteTasks } from '@/hooks/useTaskMutations
 import { useWbsStore } from '@/stores/wbsStore';
 import { buildPasteOperations, type PasteSummary } from './buildPasteOperations';
 import { inferColumns, looksLikeHeaderRow, type PasteColumnMapping } from './inferColumns';
+import { pasteAttentionIds } from './pasteDurationNav';
 import { parsePastedText, type ParsedPasteRow } from './parsePastedText';
 
 export interface PasteReceiptState {
@@ -37,6 +38,8 @@ export interface PasteReceiptState {
    */
   canUndo: boolean | undefined;
   needsDurationIds: Set<string>;
+  /** Rows whose Owner cell was dropped (unmatched or ambiguous), applied rows only. */
+  droppedOwnerIds: Set<string>;
   parsedRows: ParsedPasteRow[];
   columns: PasteColumnMapping[];
   hasHeaderRow: boolean;
@@ -103,6 +106,9 @@ export function usePasteMany({
           const needsDurationIds = new Set(
             [...built.needsDurationIds].filter((id) => appliedIds.has(id)),
           );
+          const droppedOwnerIds = new Set(
+            built.droppedOwners.map((o) => o.id).filter((id) => appliedIds.has(id)),
+          );
           if (createdIds.length === 0) {
             toast.error("Couldn't paste those rows — try again.");
             return;
@@ -117,6 +123,7 @@ export function usePasteMany({
             operationId: res.operation_id,
             canUndo: res.can_undo,
             needsDurationIds,
+            droppedOwnerIds,
             parsedRows,
             columns,
             hasHeaderRow,
@@ -221,10 +228,21 @@ export function usePasteMany({
     [receipt, bulkDelete, commit],
   );
 
+  // The F8 walk set: duration-less rows ∪ dropped-owner rows (#3033).
+  const needsAttentionIds = useMemo(
+    () =>
+      receipt
+        ? pasteAttentionIds(receipt.needsDurationIds, receipt.droppedOwnerIds)
+        : EMPTY_ID_SET,
+    [receipt],
+  );
+
   return {
     handlePaste,
     receipt,
     needsDurationIds: receipt?.needsDurationIds ?? EMPTY_ID_SET,
+    droppedOwnerIds: receipt?.droppedOwnerIds ?? EMPTY_ID_SET,
+    needsAttentionIds,
     isUndoing,
     isPasting: bulkCreate.isPending,
     undo,

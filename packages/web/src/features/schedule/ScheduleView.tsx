@@ -4323,7 +4323,7 @@ export function ScheduleView() {
       // F8 / Shift+F8 (#2727, ADR-0776 §3; extended by #2724): jump to the
       // next/previous visible row that needs attention — an unresolved
       // @owner token, or (while a paste-many receipt is showing) a row that
-      // paste couldn't resolve a duration for. No-op when nothing matches.
+      // paste couldn't resolve a duration or an owner for (#3033). No-op when nothing matches.
       // Non-destructive — this only moves focus.
       out['f8'] = (e) => {
         e.preventDefault();
@@ -4333,7 +4333,7 @@ export function ScheduleView() {
           'forward',
           (task) =>
             hasUnresolvedOwnerToken(task.name, resourcePool ?? []) ||
-            pasteMany.needsDurationIds.has(task.id),
+            pasteMany.needsAttentionIds.has(task.id),
         );
         if (!target) return;
         focus.focusRow(target.id);
@@ -4348,7 +4348,7 @@ export function ScheduleView() {
           'backward',
           (task) =>
             hasUnresolvedOwnerToken(task.name, resourcePool ?? []) ||
-            pasteMany.needsDurationIds.has(task.id),
+            pasteMany.needsAttentionIds.has(task.id),
         );
         if (!target) return;
         focus.focusRow(target.id);
@@ -5285,6 +5285,7 @@ function ScheduleOverlayLayer({
   // the same store the same way, and the toast surface it renders is mounted
   // once at the top level regardless of which caller set it (#3812).
   const setScheduleActionToast = useScheduleStore((s) => s.setScheduleActionToast);
+  const overlayProjectId = useProjectId();
   const selectedTask = selectedTaskId
     ? (allTasks.find((t) => t.id === selectedTaskId) ?? null)
     : null;
@@ -5421,6 +5422,7 @@ function ScheduleOverlayLayer({
             onUndo={pasteMany.undo}
             onKeep={pasteMany.keep}
             onMapColumns={pasteMany.openMapColumns}
+            rosterHref={overlayProjectId ? `/projects/${overlayProjectId}/team/roster` : undefined}
           />
         </div>
       )}
