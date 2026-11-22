@@ -136,7 +136,9 @@ Progress rules modeled (ADR-0132, ADR-0136; #4633)
   float ignore it.
 * **Completed milestones** with no actuals are an instant at the start of the
   pinned day — the later of the project start and their SNET — and are linked
-  from that instant (#4343, #4225, #4635).
+  from that instant (#4343, #4225, #4635), or, when the SNET holds them past the
+  project start, from that day's earliest working-time equivalent midnight, as a
+  live milestone the SNET holds with no predecessor is (#5094).
 * **Late dates never precede early ones (#3963).** The backward search is floored
   at the early span. This is modeled but not discriminated: the search already
   stops at or after the early span, so no generated or pinned case makes the
@@ -578,7 +580,8 @@ def _pinned(project: RefProject, tid: str) -> tuple[Span, date]:
     from the other; with none, it is laid out from the project start (or a later
     SNET), never the data date — completed work is history. A completed milestone
     with no actuals is an instant at the start of that day, and its links measure
-    from its SNET when one is set (#4343, #4225).
+    from its SNET when one holds it past the project start (#4343, #4225) — from
+    the SNET day's earliest equivalent midnight, as a live one's do (#5094).
 
     With no actuals the span is also capped at the data date (#4539): complete work
     has finished by then, so it ends no later than the close of the last working day
@@ -601,7 +604,12 @@ def _pinned(project: RefProject, tid: str) -> tuple[Span, date]:
         shown = base if snet is None else max(base, start_at_or_after(snet, cal))
         if project.status_date is not None and start_at_or_after(project.status_date, cal) > base:
             shown = min(shown, last_working_on_or_before(project.status_date, cal))
-        return (shown, shown), shown
+        link = shown
+        if snet is not None and base < shown == start_at_or_after(snet, cal):
+            # Held by its SNET, it links like a live milestone the SNET holds with no
+            # predecessor (#5094); one the data-date cap laid back links from its day.
+            link = min(shown, last_working_on_or_before(shown - ONE_DAY, cal) + ONE_DAY)
+        return (shown, shown), link
     if recorded.actual_finish is not None:
         finish = recorded.actual_finish + ONE_DAY
         start = recorded.actual_start or start_from_finish(finish, n, cal)

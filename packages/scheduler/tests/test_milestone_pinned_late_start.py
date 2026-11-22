@@ -241,8 +241,110 @@ def test_slip_oracle_on_zero_lag_networks_with_per_task_calendars() -> None:
     assert checked > 2000
 
 
-def test_the_project_start_floor_is_not_given_an_earlier_link() -> None:
-    """A milestone pinned on the project start's own day links from it, as before (#4635).
+def _wide_network(
+    rng: random.Random,
+    pin: tuple[str, date] | None = None,
+    with_status: bool = False,
+    complete: str | None = None,
+) -> Project:
+    """Seeded network with lags -2..3, random SNETs and an optional data date."""
+    n = rng.randint(2, 6)
+    tasks = []
+    for i in range(n):
+        duration = rng.choice([0, 0, rng.randint(1, 15)])
+        task = Task(f"t{i}", f"t{i}", timedelta(days=duration))
+        task.calendar_id = rng.choice([None, *_CALS])
+        roll = rng.random()
+        if roll < 0.15:
+            task.percent_complete = 100.0
+        elif roll < 0.3:
+            task.planned_start = _START + timedelta(days=rng.randint(0, 30))
+        tasks.append(task)
+    deps = [
+        Dependency(
+            f"t{a}",
+            f"t{b}",
+            rng.choice(list(DependencyType)),
+            timedelta(days=rng.choice([-2, -1, 0, 1, 2, 3])),
+        )
+        for b in range(1, n)
+        for a in range(b)
+        if rng.random() < 0.4
+    ]
+    by_id = {t.id: t for t in tasks}
+    if pin is not None:
+        by_id[pin[0]].planned_start = pin[1]
+    if complete is not None:
+        by_id[complete].percent_complete = 100.0
+    status = date(2026, 3, 9) if with_status else None
+    return Project(
+        "p", "p", _START, tasks, deps, Calendar(), calendars=dict(_CALS), status_date=status
+    )
+
+
+def test_slip_oracle_and_closing_on_lagged_networks_with_snets_and_a_data_date() -> None:
+    """The auditor's wider fuzz: lags -2..3, random SNETs, a data date on a third of seeds.
+
+    Two properties. Holding an open start-of-day milestone on its shown late start
+    leaves the finish where it was (the slip oracle above, on lagged links). And a
+    milestone with no predecessor that its SNET holds past the project start, marked
+    complete with no actuals, links from the midnight it linked from live, so the
+    finish does not move either (:func:`_pinned_milestone_instant`, #5094).
+    """
+    pinned_checked = closed_checked = 0
+    for seed in range(2500):
+        with_status = seed % 3 == 0
+        try:
+            base = schedule(_wide_network(random.Random(seed), with_status=with_status))
+        except SchedulerError:
+            continue
+        source = _wide_network(random.Random(seed))
+        src_by_id = {t.id: t for t in source.tasks}
+        has_pred = {d.successor_id for d in source.dependencies}
+        for out in base.tasks:
+            src = src_by_id[out.id]
+            if src.duration.days or src.percent_complete >= 100 or out.milestone_at_day_end:
+                continue
+            assert out.late_start is not None and out.early_start is not None
+            if src.planned_start is None or src.planned_start <= out.late_start:
+                try:
+                    pinned = schedule(
+                        _wide_network(random.Random(seed), (out.id, out.late_start), with_status)
+                    )
+                except SchedulerError:
+                    pass
+                else:
+                    pinned_checked += 1
+                    assert pinned.project_finish == base.project_finish, (seed, out.id)
+            if (
+                not with_status
+                and out.id not in has_pred
+                and src.planned_start is not None
+                and src.planned_start > _START
+            ):
+                closed = schedule(_wide_network(random.Random(seed), complete=out.id))
+                closed_checked += 1
+                assert closed.project_finish == base.project_finish, (seed, out.id, "closed")
+    assert pinned_checked > 4000
+    assert closed_checked > 100
+
+
+@pytest.mark.parametrize(
+    "floor_kw",
+    [
+        # Discriminates the guard: a recorded actual start on the project start's own
+        # day is a hard floor equal to the project-start floor. Without the
+        # exclusion it would link from Sat 02-28 and start B on Mon 03-02.
+        pytest.param({"actual_start": _START}, id="actual-start"),
+        # Regression pin only: an SNET on the project start is no floor at all
+        # (#4635) and is dropped before placement, so it never reaches the guard.
+        pytest.param({"planned_start": _START}, id="snet"),
+    ],
+)
+def test_the_project_start_floor_is_not_given_an_earlier_link(
+    floor_kw: dict[str, object],
+) -> None:
+    """A milestone held on the project start's own day links from it, as before (#4635).
 
     The project start only bounds where a milestone is shown, and every successor
     carries it itself; an earlier link would measure lags from before the plan opened.
@@ -252,10 +354,44 @@ def test_the_project_start_floor_is_not_given_an_earlier_link() -> None:
         "p",
         _START,
         [
-            Task("M", "M", timedelta(0), planned_start=_START),
+            Task("M", "M", timedelta(0), **floor_kw),  # type: ignore[arg-type]
             Task("B", "B", timedelta(days=1)),
         ],
         [Dependency("M", "B", DependencyType.FS, timedelta(days=1))],
         Calendar(),
     )
     assert _task(schedule(project), "B").early_start == date(2026, 3, 3)
+
+
+@pytest.mark.parametrize("lag", [1, 2, 3])
+def test_marking_a_floor_held_milestone_complete_without_actuals_moves_nothing(
+    lag: int,
+) -> None:
+    """``M`` held on Mon 03-16 by its SNET, ``M -FS+lag-> B``, live and at 100% with no actuals.
+
+    Live, ``M`` links from Sat 03-14, the earliest midnight equivalent to its floor
+    (#5094). Marked complete with no actuals it is pinned on the same day
+    (:func:`_pinned_milestone_instant`) and linked from the same midnight, so closing
+    it moves no successor; before, the pinned path linked from Monday and ``B``
+    started two calendar days later (03-18 at lag 2) than it did live.
+    """
+
+    def build(complete: bool) -> Project:
+        milestone = Task("M", "M", timedelta(0), planned_start=date(2026, 3, 16))
+        if complete:
+            milestone.percent_complete = 100.0
+        return Project(
+            "p",
+            "p",
+            _START,
+            [milestone, Task("B", "B", timedelta(days=1))],
+            [Dependency("M", "B", DependencyType.FS, timedelta(days=lag))],
+            Calendar(),
+        )
+
+    live = schedule(build(False))
+    done = schedule(build(True))
+    assert _task(live, "M").early_start == _task(done, "M").early_start == date(2026, 3, 16)
+    assert _task(live, "B").early_start == _task(done, "B").early_start
+    assert done.project_finish == live.project_finish
+    assert monte_carlo(build(True), runs=4, seed=1).p50 == done.project_finish
