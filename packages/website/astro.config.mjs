@@ -565,6 +565,7 @@ export default defineConfig({
             { slug: "architecture/broadcast-pipeline" },
             { slug: "architecture/decisions" },
             { slug: "architecture/websocket-events" },
+            { slug: "architecture/external-task-sources" },
             { slug: "architecture/seed-data-schema" },
           ],
         },

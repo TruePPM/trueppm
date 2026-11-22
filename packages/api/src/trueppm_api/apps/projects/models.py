@@ -3758,7 +3758,7 @@ class Task(VersionedModel):
     short_id = models.CharField(max_length=8, editable=False, blank=True)
     name = models.CharField(max_length=512)
     # Assignee: the Team Member responsible for this task. Nullable — unassigned
-    # tasks may only be edited by Project Manager (ADMIN, 3) or above.
+    # tasks may only be edited by Project Manager (Role.ADMIN) or above.
     # Used by IsProjectMemberWriteOrOwn to enforce the "own tasks" restriction.
     assignee = models.ForeignKey(
         settings.AUTH_USER_MODEL,
