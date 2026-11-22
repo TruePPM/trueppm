@@ -243,7 +243,10 @@ pub(crate) fn start_reading(
 /// that is later (#4690, #4883, [`equivalent_link`]); only `shown` takes the floor.
 /// Recording or pinning the day a milestone is already shown on (an
 /// `actual_start`, a `planned_start`) therefore moves nothing, and a slipping
-/// predecessor never moves the milestone's successors earlier.
+/// predecessor never moves the milestone's successors earlier. A milestone with no
+/// predecessor links from that earliest midnight too (#5094): linking from the
+/// floor itself made adding a non-binding predecessor move the successors, and
+/// pinning the milestone on its shown late start moved the finish.
 ///
 /// `completed_only` limits the links to completed predecessors — the reading a
 /// closed milestone's link instant is taken from (`closed_milestone_link`,
@@ -283,9 +286,18 @@ fn place_milestone(
         offer(&mut pred_best, proposal);
     }
     let mut link = best;
+    let floor = floors.iter().max().copied();
     if let Some(p) = pred_best {
-        if let Some(l) = equivalent_link(p, floors.iter().max().copied(), start_floor, cal)? {
+        if let Some(l) = equivalent_link(p, floor, start_floor, cal)? {
             link = Some((l.0, l.1, p.2));
+        }
+    } else if let Some(f) = floor.filter(|&f| Some(f) != start_floor) {
+        // Nothing precedes the milestone, so the floor holds it outright: it links
+        // from the floor's earliest equivalent midnight, as a floor holding a
+        // predecessor's earlier proposal does (#5094).
+        let earliest = earliest_equivalent_midnight(f, cal)?;
+        if earliest < f {
+            link = Some((earliest, true, f));
         }
     }
     if let Some(floor) = start_floor {
@@ -556,7 +568,8 @@ pub fn forward_pass(
             t.early_start = Some(es);
             t.early_finish = Some(ef);
             if t.duration_days() == 0 {
-                let (shown, pinned_link) = pinned_milestone_instant(t, node_cal, es, live_start)?;
+                let (shown, pinned_link) =
+                    pinned_milestone_instant(t, node_cal, es, live_start, start_base)?;
                 let link = closed_link.unwrap_or(pinned_link);
                 instants[i] = Some(shown);
                 links[i] = Some(link);
@@ -823,8 +836,10 @@ fn live_milestone_edge(task: &Task, recorded: NaiveDate) -> bool {
 /// finishing on Friday puts `M` at Sunday 00:00, shown at the start of Monday).
 /// Linking from the recorded day instead moved every calendar-day-lagged
 /// successor. The instant is re-read from the completed predecessors with the
-/// recorded day as a start-of-day floor ([`equivalent_link`]); a milestone a floor
-/// held, or with nothing before it, links from the recorded day. While any
+/// recorded day as a start-of-day floor ([`equivalent_link`]); with nothing before
+/// it, the recorded day holds it and it links from that day's earliest equivalent
+/// midnight, as it did live (#5094); a milestone a later floor held links from the
+/// recorded day. While any
 /// predecessor is still open (#4525: not a fact) it links from the start of the
 /// recorded day, as before #4690 — the open residual (#4740). This does not
 /// reopen the sign-off pin (ADR-0136, #5017): the pin fixes the working-time
@@ -873,9 +888,12 @@ fn closed_milestone_link(
 ///
 /// With no actuals it is an instant at the start of its pinned day, as a live
 /// milestone with no links is (#4343): the pair `place_milestone` returns with no
-/// predecessors — an SNET after the project start binds `link`, which is then the
-/// shown instant itself; the project start only bounds where it is shown (#4225),
-/// and an SNET at or before it is no floor (#4635). With actuals the day is the recorded one (`actual_finish`,
+/// predecessors — an SNET after the project start (`start_base`) binds `link`,
+/// which is then that day's earliest equivalent midnight (#5094), so marking an
+/// SNET-held milestone complete does not move a calendar-day-lagged successor;
+/// the project start only bounds where it is shown (#4225), an SNET at or before
+/// it is no floor (#4635), and a milestone the data-date cap laid back links from
+/// its shown day. With actuals the day is the recorded one (`actual_finish`,
 /// else `actual_start`), shown on and — at the end of the day — linked from alike
 /// (at the start of the day the caller replaces `link` with the live instant,
 /// `closed_milestone_link`, #4690), on the edge of that day the
@@ -890,6 +908,7 @@ fn pinned_milestone_instant(
     calendar: &Calendar,
     day: NaiveDate,
     live_start: bool,
+    start_base: NaiveDate,
 ) -> Result<(Instant, Instant), String> {
     if let Some(recorded) = task.actual_finish.or(task.actual_start) {
         if live_start {
@@ -903,9 +922,19 @@ fn pinned_milestone_instant(
         return Ok(((raw, false), (raw, start_reading(raw, false, calendar)?)));
     }
     // `day` is already the later of the project start and the SNET
-    // (`pinned_placement`), and an SNET at or before the start is no floor
-    // (#4635), so the link is the shown instant.
+    // (`pinned_placement`). Held there by the SNET, past the project start, it
+    // links from the day's earliest equivalent midnight, as a live milestone the
+    // floor holds with no predecessor does (#5094); an SNET at or before the start
+    // is no floor (#4635), so otherwise the link is the shown instant.
     let shown = (day, true);
+    if let Some(ps) = task.planned_start {
+        if day > start_base && day == next_working_day(ps, calendar)? {
+            let earliest = earliest_equivalent_midnight(day, calendar)?;
+            if earliest < day {
+                return Ok((shown, (earliest, true)));
+            }
+        }
+    }
     Ok((shown, shown))
 }
 
@@ -1558,5 +1587,33 @@ mod tests {
         assert!(by("A").is_critical);
         assert_eq!(by("A").free_float, 0.0);
         assert_eq!(result.driving_edges.len(), 1);
+    }
+
+    /// #5094: `M` held on Mon 2026-01-12 by its SNET, `M -FS+2d-> B`. Live, `M`
+    /// links from Sat 2026-01-10 00:00, the earliest midnight equivalent to its
+    /// floor, so `B` starts Mon 01-12. Marked complete with no actuals it is pinned
+    /// on the same day and must link from the same midnight; the pinned path linked
+    /// from Monday and started `B` on Wed 01-14.
+    #[test]
+    fn marking_an_snet_held_milestone_complete_without_actuals_moves_nothing() {
+        for pct in [0.0, 100.0] {
+            let project: Project = serde_json::from_value(json!({
+                "id": "p",
+                "name": "p",
+                "start_date": "2026-01-05",
+                "tasks": [
+                    {"id": "M", "name": "M", "duration": 0.0, "percent_complete": pct,
+                     "planned_start": "2026-01-12"},
+                    {"id": "B", "name": "B", "duration": 86400.0},
+                ],
+                "dependencies": [
+                    {"predecessor_id": "M", "successor_id": "B", "dep_type": "FS", "lag": 2.0 * 86400.0},
+                ],
+            }))
+            .expect("test project parses");
+            let result = schedule_impl(&project).expect("test project schedules");
+            let b = result.tasks.iter().find(|t| t.id == "B").unwrap();
+            assert_eq!(b.early_start, d(12), "percent_complete {pct}");
+        }
     }
 }

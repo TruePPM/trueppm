@@ -1,0 +1,24 @@
+{
+  "id": "p-milestone-pinned-at-late-start-with-no-predecessor",
+  "name": "A milestone with no predecessor pinned on its shown late start Monday links from Saturday 00:00, so SS+1d into a Monday-to-Thursday milestone leaves the finish on Monday (#5094)",
+  "start_date": "2026-03-02",
+  "tasks": [
+    {"id": "t0", "name": "Completed work that sets the Friday close", "duration": 3024000.0, "percent_complete": 100.0},
+    {"id": "t1", "name": "Milestone pinned on its shown late start", "duration": 0.0, "planned_start": "2026-04-20"},
+    {"id": "join", "name": "Milestone on a Monday-to-Thursday week", "duration": 0.0, "calendar_id": "fourday"}
+  ],
+  "dependencies": [
+    {"predecessor_id": "t0", "successor_id": "join", "dep_type": "FS", "lag": 0.0},
+    {"predecessor_id": "t1", "successor_id": "join", "dep_type": "SS", "lag": 86400.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": []
+  },
+  "calendars": {
+    "fourday": {
+      "working_days": 15,
+      "exceptions": []
+    }
+  }
+}

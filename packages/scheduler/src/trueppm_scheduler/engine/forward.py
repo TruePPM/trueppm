@@ -25,6 +25,7 @@ from trueppm_scheduler.engine.milestones import (
     _ONE_DAY,
     _START_ANCHORED,
     _closed_milestone_link,
+    _earliest_equivalent_midnight,
     _edge_anchor,
     _Instant,
     _link_start,
@@ -124,7 +125,7 @@ def _forward_pass(
                     node_id, task_map, g, cal, links, cal_for, recorded
                 )
                 instants[node_id], links[node_id] = _pinned_milestone_instant(
-                    task, cal, pinned[0], live_start
+                    task, cal, pinned[0], live_start, start_base
                 )
                 if recorded is not None and live_start:
                     # The midnight it linked from live, not the recorded day's (#4690).
@@ -535,19 +536,29 @@ def _live_milestone_edge(
 
 
 def _pinned_milestone_instant(
-    task: Task, cal: Calendar, day: date, live_start: bool = True
+    task: Task,
+    cal: Calendar,
+    day: date,
+    live_start: bool = True,
+    start_base: date | None = None,
 ) -> tuple[_Instant, _Instant]:
     """``(shown, link)`` for a completed milestone pinned on ``day`` (#4343, #4433).
 
     Pinning takes the milestone out of the network, but not out of being a
     milestone. With no actuals it is an instant at the start of its pinned day,
-    as a live milestone with no links is (#4343); the pair is what
-    :func:`_place_milestone` returns with no predecessors: the SNET is a fact
-    about when the milestone happens and binds ``link``; the project start only
-    bounds where it is shown (#4225). ``day`` already is the later of the two
-    (:func:`_pinned_placement`), and an SNET at or before the project start is no
-    floor (#4635) — linking from it measured successors' lags from before the plan
-    opened — so ``link`` is ``shown``.
+    as a live milestone with no links is (#4343). The SNET is a fact about when
+    the milestone happens and binds ``link``; the project start only bounds where
+    it is shown (#4225). ``day`` is the later of the project start
+    (``start_base``) and the SNET (:func:`_pinned_placement`). When the SNET holds
+    it there, past the project start, ``link`` is that day's earliest equivalent
+    midnight, as :func:`_place_milestone` links a live milestone the floor holds
+    with no predecessor (#5094): linking from the day itself made marking an
+    SNET-held milestone complete move a calendar-day-lagged successor later (an
+    SNET on a Monday is the same working-time point as Saturday 00:00). An SNET at
+    or before the project start is no floor (#4635) — linking from before the plan
+    opened measured successors' lags from there — so a milestone on the project
+    start, or laid back by the data-date cap, links from ``shown``. With no
+    ``start_base`` (the pre-#5094 call shape) ``link`` is ``shown``.
 
     With actuals recorded — the API's normal path, since ``COMPLETE`` stamps
     ``actual_finish`` — the day is the recorded one (``actual_finish``, else
@@ -580,6 +591,15 @@ def _pinned_milestone_instant(
         raw = _safe_offset(recorded, _ONE_DAY)
         return (raw, False), (raw, _start_reading(raw, False, cal))
     shown: _Instant = (day, True)
+    if (
+        start_base is not None
+        and task.planned_start is not None
+        and day > start_base
+        and day == _next_working_day(task.planned_start, cal)
+    ):
+        earliest = _earliest_equivalent_midnight(day, cal)
+        if earliest < day:
+            return shown, (earliest, True)
     return shown, shown
 
 

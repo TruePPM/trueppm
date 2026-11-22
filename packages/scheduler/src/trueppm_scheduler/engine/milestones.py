@@ -1019,7 +1019,12 @@ def _place_milestone(
     proposal only when it tied the floor (#4690 as first written) made the link
     instant jump *back* from Monday to Saturday as a predecessor slipped into the
     tie, moving successors earlier (#4883); the earliest equivalent midnight is the
-    one instant that agrees with every tie and never decreases.
+    one instant that agrees with every tie and never decreases. A milestone with no
+    predecessor links from that earliest midnight too (#5094), unless the floor is
+    the project start: linking from the floor itself made adding a predecessor that
+    does not hold the milestone move its successors, and pinning the milestone on
+    its shown late start (read from an instant such as Saturday 00:00, the start of
+    Monday) moved the finish.
 
     ``completed_only`` limits the links to completed predecessors — the reading a
     closed milestone's link instant is taken from (:func:`_closed_milestone_link`,
@@ -1047,12 +1052,20 @@ def _place_milestone(
             pred_best = proposal
 
     link = best
+    held_by = max(es_floors) if es_floors else None
     if pred_best is not None:
-        equivalent = _equivalent_link(
-            pred_best, max(es_floors) if es_floors else None, start_floor, cal
-        )
+        equivalent = _equivalent_link(pred_best, held_by, start_floor, cal)
         if equivalent is not None:
             link = (equivalent[0], equivalent[1], pred_best[2])
+    elif held_by is not None and held_by != start_floor:
+        # Nothing precedes the milestone, so the floor holds it outright: it links
+        # from the floor's earliest equivalent midnight, as a floor holding a
+        # predecessor's earlier proposal does (#5094). Linking from the floor itself
+        # made a non-binding predecessor change the successors, and pinning the
+        # milestone on its shown late start moved the finish.
+        earliest = _earliest_equivalent_midnight(held_by, cal)
+        if earliest < held_by:
+            link = (earliest, True, held_by)
     if start_floor is not None:
         offer((start_floor, True, start_floor))
     # start_floor is given for every task except an SF-linked one (#4218), and that one
@@ -1184,9 +1197,10 @@ def _closed_milestone_link(
     The instant is re-read from the facts: the completed predecessors placed with
     the recorded day as a start-of-day floor. When one of them proposes an earlier
     midnight shown on the recorded day (:func:`_equivalent_link`), that is the
-    instant the live milestone linked from, and the closed one keeps it. A
-    milestone held by a floor, or with nothing before it, links from the recorded
-    day, as it did live.
+    instant the live milestone linked from, and the closed one keeps it. With
+    nothing before it, the recorded day is the floor that holds it, and it links
+    from that day's earliest equivalent midnight, as it did live (#5094). A
+    milestone a later floor held links from the recorded day.
 
     Open work is not a fact (#4525): reading its forecast would let a slip of it
     move a closed milestone's successors. So while any predecessor is still open

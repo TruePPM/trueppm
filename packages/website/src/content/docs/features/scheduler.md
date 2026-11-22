@@ -239,7 +239,11 @@ starts. This is the MS Project and Primavera P6 reading, and it is the same for
 a task predecessor and a milestone predecessor. A positive lag counts from the
 predecessor's start itself, not from that earlier working day, so a weekend just
 before the start does not absorb it: a predecessor starting Monday with `SF+2d`
-finishes its successor on Tuesday, as MS Project does.
+finishes its successor on Tuesday, as MS Project does. A milestone held by a
+floor on a Monday is the one exception: it links from Saturday 00:00, the
+earliest midnight at the same working-time point, so a positive lag out of it
+counts from that Saturday and `SF+2d` finishes its successor on Monday
+([Scheduler conventions](/features/scheduler-conventions/), #5094).
 
 #### Lag is in calendar days, durations are in working days
 

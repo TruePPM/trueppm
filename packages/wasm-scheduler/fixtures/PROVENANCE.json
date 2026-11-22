@@ -191,6 +191,16 @@
       "issue": "#4180",
       "evidence": "bfc3e91bc: last change; message does not say how this snapshot was produced (it regenerates other snapshots or the oracle corpus only)"
     },
+    "expected/snet_held_milestone_completed_without_actuals.json": {
+      "provenance": "regenerated",
+      "issue": "#5094",
+      "evidence": "#5094: REGEN_EXPECTED=1 snapshot of the Python engine; matches the live twin (M at 0%: links from Sat 01-10 00:00, FS+2d starts B Mon 01-12) and the reference oracle's named corpus case snet_held_milestone_completed_without_actuals; fails the Python _pinned_milestone_instant and Rust pinned_milestone_instant with the #5094 completed-milestone branch disabled (M linked from Mon 01-12, B on Wed 01-14)"
+    },
+    "expected/milestone_pinned_at_late_start_with_no_predecessor.json": {
+      "provenance": "regenerated",
+      "issue": "#5094",
+      "evidence": "#5094: REGEN_EXPECTED=1 snapshot of the Python engine; checked against the slip oracle in tests/test_milestone_pinned_late_start.py (unpinned, t1's late start is Mon 04-20 and project_finish Mon 04-20; pinned there, t1 links from Sat 04-18 00:00, SS+1d puts join on Sun 04-19 00:00, shown the start of Mon 04-20, so project_finish stays Mon 04-20); fails the pre-fix Python and Rust place_milestone (t1 linked from Mon 04-20, join Tue 04-21)"
+    },
     "expected/milestone_inherited_cap_late_start.json": {
       "provenance": "regenerated",
       "issue": "#5092",
@@ -775,6 +785,16 @@
       "provenance": "unknown",
       "issue": "#4180",
       "evidence": "bfc3e91bc: added; no regeneration or hand-derivation statement in history"
+    },
+    "snet_held_milestone_completed_without_actuals.json": {
+      "provenance": "unknown",
+      "issue": "#5094",
+      "evidence": "added for #5094 from the shape of forward.rs::marking_an_snet_held_milestone_complete_without_actuals_moves_nothing (M SNET Mon 01-12 at 100% with no actuals, M -FS+2d-> B); input fixture, no hand-derivation claimed"
+    },
+    "milestone_pinned_at_late_start_with_no_predecessor.json": {
+      "provenance": "unknown",
+      "issue": "#5094",
+      "evidence": "added for #5094 from the issue's reported shape (t0 -FS-> join, t1 -SS+1d-> join, join on fourday) with t1 pinned on its shown late start; input fixture, no hand-derivation claimed"
     },
     "milestone_inherited_cap_late_start.json": {
       "provenance": "unknown",

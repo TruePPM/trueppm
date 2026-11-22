@@ -143,15 +143,19 @@ def test_sf_from_work_matches_sf_from_a_milestone_at_the_same_instant(lag_days: 
     impose the same bound. The milestone branch has read it the MSP/P6 way since
     #4079; the work branch did not, and the two disagreed by one working day — the
     internal contradiction that is the ground for this change.
+
+    Held on a Tuesday, so the instant is unambiguous: a milestone held on a Monday
+    links from Saturday 00:00, the earliest midnight that is the same working-time
+    point (#4883, #5094), and a calendar-day lag out of it counts from there.
     """
-    snet = date(2026, 3, 9)
+    snet = date(2026, 3, 10)
     project = Project(
         id="sf-equiv",
         name="sf-equiv",
         start_date=PROJECT_START,
         calendar=Calendar(),
         tasks=[
-            # Both are held at the START of Mon 03-09 by the same SNET: A as work,
+            # Both are held at the START of Tue 03-10 by the same SNET: A as work,
             # M as an instant.
             Task(id="A", name="A", duration=timedelta(days=3), planned_start=snet),
             Task(id="B", name="B", duration=timedelta(days=2)),
@@ -169,6 +173,62 @@ def test_sf_from_work_matches_sf_from_a_milestone_at_the_same_instant(lag_days: 
     assert by["B"].early_start == by["C"].early_start
     assert by["B"].late_finish == by["C"].late_finish
     assert by["B"].free_float == by["C"].free_float
+
+
+@pytest.mark.parametrize(
+    ("dep_type", "lag_days", "work_bound", "milestone_bound"),
+    [
+        # SF bounds the successor's finish: B (2 days) finishes on the bound.
+        (DependencyType.SF, 2, date(2026, 3, 10), date(2026, 3, 9)),
+        (DependencyType.SF, 3, date(2026, 3, 11), date(2026, 3, 9)),
+        (DependencyType.SF, 5, date(2026, 3, 13), date(2026, 3, 11)),
+        # SS bounds the successor's start.
+        (DependencyType.SS, 2, date(2026, 3, 11), date(2026, 3, 9)),
+        (DependencyType.SS, 3, date(2026, 3, 12), date(2026, 3, 10)),
+        (DependencyType.SS, 5, date(2026, 3, 16), date(2026, 3, 12)),
+    ],
+)
+def test_a_monday_floor_held_milestone_counts_a_start_lag_from_saturday(
+    dep_type: DependencyType, lag_days: int, work_bound: date, milestone_bound: date
+) -> None:
+    """The deliberate exception to the #4145 parity above (#5094).
+
+    An SNET on Mon 03-09 holds work ``A`` and milestone ``M`` at the start of the
+    same day, but ``M`` links from Saturday 00:00, the earliest midnight that is the
+    same working-time point as that floor, as a floor-held milestone with a
+    predecessor already did (#4883). A calendar-day lag out of it on an SS or SF
+    link therefore counts from Saturday and bounds the successor up to two working
+    days earlier than the same link out of work starting that Monday, which counts
+    from Monday itself. Moved to Tuesday, where the day before is a working day, the
+    two agree again. The SF row of
+    ``packages/website/src/content/docs/features/scheduler-conventions.md`` states it.
+    """
+
+    def bounds(snet: date) -> tuple[date, date]:
+        project = Project(
+            id="sf-monday",
+            name="sf-monday",
+            start_date=PROJECT_START,
+            calendar=Calendar(),
+            tasks=[
+                Task(id="A", name="A", duration=timedelta(days=3), planned_start=snet),
+                Task(id="B", name="B", duration=timedelta(days=2)),
+                Task(id="M", name="M", duration=timedelta(0), planned_start=snet),
+                Task(id="C", name="C", duration=timedelta(days=2)),
+            ],
+            dependencies=[
+                Dependency("A", "B", dep_type=dep_type, lag=timedelta(days=lag_days)),
+                Dependency("M", "C", dep_type=dep_type, lag=timedelta(days=lag_days)),
+            ],
+        )
+        by = {t.id: t for t in schedule(project).tasks}
+        assert by["A"].early_start == by["M"].early_start == snet
+        read = "early_finish" if dep_type is DependencyType.SF else "early_start"
+        return getattr(by["B"], read), getattr(by["C"], read)
+
+    assert bounds(date(2026, 3, 9)) == (work_bound, milestone_bound)
+    tuesday_work, tuesday_milestone = bounds(date(2026, 3, 10))
+    assert tuesday_work == tuesday_milestone
 
 
 # ---------------------------------------------------------------------------
@@ -1022,12 +1082,13 @@ def test_the_backward_pass_and_free_float_invert_the_new_anchor(
     slack = (t1.free_float if pole else t1.total_float).days
     # A milestone T1 may sit as late as Sat 03-07 00:00, the end of Friday: five
     # working days after Monday's start, one more than work, which has to *start*
-    # by Friday. An SNET can only place it at the start of a day, so its
-    # differential slip stops at Friday's start, one day short of the float.
+    # by Friday. An SNET on the Monday after links it from that Saturday 00:00
+    # (#5094), so the differential slip reaches the whole float; before, it linked
+    # from Monday and stopped at Friday's start, one day short.
     instant_extra = 1 if milestone and t2_snet is not None else 0
     if pole or t2_snet is not None:
         assert slack == float_days + instant_extra
-    slip = slack - instant_extra
+    slip = slack
     assert build(slip)[1] == measured, "slipping T1 by its float moved the date"
     assert build(slip + 1)[1] > measured, "T1's float is not the latest slip"
 

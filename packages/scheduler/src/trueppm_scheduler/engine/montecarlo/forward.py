@@ -1262,18 +1262,25 @@ def _mc_milestone_bounds(
         # reaching back to the start of its run), so the link instant never
         # decreases as a predecessor slips or the floor moves later. Held below the
         # project start when that is the floor, the link keeps its own instant.
-        safe = np.where(pred_key < 0, hard * 2 + 1, pred_key)
+        # With no predecessor the floor holds the milestone outright, and it links
+        # from that earliest midnight too (``alone``), unless the floor is the
+        # project start (#5094).
+        no_pred = pred_key < 0
+        safe = np.where(no_pred, hard * 2 + 1, pred_key)
         p_instant, p_display, p_def = with_deficit(safe)
-        below = (pred_key >= 0) & (p_instant < hard)
+        below = ~no_pred & (p_instant < hard)
         if start is None or start != hard:
             own = np.zeros(runs, dtype=bool)
+            alone = no_pred
         else:
             own = below & ((p_instant < start) | ((p_instant == start) & ~p_display))
+            alone = np.zeros(runs, dtype=bool)
         earliest = _earliest_equivalent_midnight(
             date.fromordinal(hard), index.cal_of_col[col]
         ).toordinal()
-        window = below & ~own & (earliest < hard)
-        link = np.where(own, p_instant, np.where(window, np.maximum(p_instant, earliest), link))
+        window = ((below & ~own) | alone) & (earliest < hard)
+        held = np.where(no_pred, earliest, np.maximum(p_instant, earliest))
+        link = np.where(own, p_instant, np.where(window, held, link))
         link_display = np.where(own, p_display, np.where(window, True, link_display))
         link_def = np.where(own, p_def, np.where(window, 0.0, link_def))
     return (link, link_display, link_def), with_deficit(shown_key)

@@ -3192,6 +3192,20 @@ FRACTIONAL_PERCENT_CASES: tuple[tuple[str, RefProject], ...] = (
 )
 
 
+#: #5094: a milestone its SNET holds on Monday, marked complete with no actuals,
+#: links from Saturday 00:00 as it did live, so ``T1 -FS+2d-> T2`` starts ``T2`` on
+#: Monday 01-12 either way; linking the pinned milestone from its day put it on
+#: Wednesday. The conformance fixture snet_held_milestone_completed_without_actuals
+#: is the same shape.
+SNET_HELD_MILESTONE_COMPLETED_WITHOUT_ACTUALS = RefProject(
+    start=date(2026, 1, 5),
+    durations={"T1": 0, "T2": 1},
+    links=(RefLink("T1", "T2", "FS", 2),),
+    planned_start={"T1": date(2026, 1, 12)},
+    progress={"T1": RefProgress(percent_complete=100.0)},
+)
+
+
 #: Shapes the seeded draw almost never reaches, held in the corpus by name so
 #: ``wasm:test`` checks Rust on them too: CI has no live Rust runner (#4785).
 NAMED_CORPUS_CASES: tuple[tuple[str, RefProject], ...] = (
@@ -3202,6 +3216,10 @@ NAMED_CORPUS_CASES: tuple[tuple[str, RefProject], ...] = (
         MILESTONE_STARTED_ON_ITS_SHOWN_DAY_BELOW_THE_START,
     ),
     ("milestone_started_on_its_shown_monday", MILESTONE_STARTED_ON_ITS_SHOWN_MONDAY),
+    (
+        "snet_held_milestone_completed_without_actuals",
+        SNET_HELD_MILESTONE_COMPLETED_WITHOUT_ACTUALS,
+    ),
     (
         "milestone_started_the_day_after_its_shown_monday",
         MILESTONE_STARTED_THE_DAY_AFTER_ITS_SHOWN_MONDAY,

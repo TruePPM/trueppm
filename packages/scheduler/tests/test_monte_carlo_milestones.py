@@ -300,7 +300,11 @@ class TestWhatARunIs:
         assert mc.p50_at_day_start is True
 
     def test_a_lag_counts_from_the_instant(self) -> None:
-        """M is held to Monday 00:00, so +3d is Thursday's start, not Friday + 1 + 3."""
+        """M is held to Monday by its SNET alone, so it links from Saturday 00:00 (#5094).
+
+        That midnight is the start of Monday in working time; +3d is Tuesday's start,
+        not Friday + 1 + 3, and both passes count it from the same instant.
+        """
         project = _project(
             [
                 Task(
@@ -316,7 +320,7 @@ class TestWhatARunIs:
         )
         with _draws(_exact_zeros):
             mc = _run(project)
-        assert mc.p50 == schedule(project).project_finish == date(2026, 3, 19)
+        assert mc.p50 == schedule(project).project_finish == date(2026, 3, 17)
 
     def test_an_ss_link_counts_from_the_instant(self) -> None:
         """M closes Friday, so SS+1d lands on Sunday and snaps to Monday, not Tuesday."""
