@@ -168,8 +168,10 @@ The set is open-ended and grows as features land; current event types include:
   the socket: it was uncapped (thousands of ids per recalc on a mostly-critical network),
   persisted in the replay buffer, and read by no client. It ships in 0.5 as that
   replacement; before it the key was `critical_path`. The id list is still in the
-  `schedule.recalculated` webhook payload and in the full-schedule REST reads; the
-  `task_run_completed` `result_summary` carries `critical_count` too.
+  `schedule.recalculated` webhook payload and, for a program, in the program schedule
+  read (`GET /api/v1/programs/{id}/schedule/`); single-project reads carry a per-task
+  `is_critical` flag instead. The `task_run_completed` `result_summary` of a new run
+  carries `critical_count` only; rows written before 0.5 keep their `critical_path`.
   `status_date` is the CPM data date this run resolved (`Project.status_date`
   if set, otherwise today; ADR-0752 §4), echoed so a consumer knows which
   "today" produced the dates. On the program-scoped pass (ADR-0120 D3,
