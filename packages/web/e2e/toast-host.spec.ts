@@ -296,7 +296,6 @@ test.describe('toast slots (#3149)', () => {
   test('a replacement that mounts under a stationary cursor keeps the hover pause', async ({
     page,
   }) => {
-    test.slow(); // outlives two passive dwells back to back.
     await setupAuth(page);
     await setupCatchAll(page);
     await setupApiMocks(page, { projects: FIXTURE_PROJECTS, projectId: PROJECT_ID });
@@ -322,14 +321,24 @@ test.describe('toast slots (#3149)', () => {
         body: JSON.stringify(pinCapReached),
       }),
     );
+    // The second response is held on a promise the test releases, not on a wall-clock
+    // timer: the replacement mounts at a point the test chooses, not whenever a 3 s
+    // sleep happens to expire relative to the dwell timers on a loaded runner (#5095).
+    let releaseSecond: () => void = () => undefined;
+    const secondHeld = new Promise<void>((resolve) => {
+      releaseSecond = resolve;
+    });
     await page.route(`**/api/v1/projects/${CAPPED_ID}/pin/`, async (route) => {
-      await new Promise((resolve) => setTimeout(resolve, 3_000));
+      await secondHeld;
       await route.fulfill({
         status: 409,
         contentType: 'application/json',
         body: JSON.stringify(pinCapReached),
       });
     });
+    // Page-side clock, so the dwell is advanced by the test rather than by however
+    // slowly a contended runner paints. Installed before navigation.
+    await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
     await page.goto(`/projects/${PROJECT_ID}/overview`);
 
     const rail = await openBrowse(page);
@@ -350,23 +359,55 @@ test.describe('toast slots (#3149)', () => {
     await pill.hover();
     const firstNode = await pill.elementHandle();
 
+    // Record every pill that receives a `mouseover` — the event React derives
+    // `onMouseEnter` from. Chromium dispatches it to the replacement some time after
+    // the swap (its own hit-test timer, which slows under load); the test waits for
+    // that event instead of guessing how long it takes.
+    await page.evaluate(() => {
+      const w = window as unknown as { __hoveredPills: Set<Element> };
+      w.__hoveredPills = new Set();
+      document.addEventListener(
+        'mouseover',
+        (e) => {
+          const el = (e.target as Element | null)?.closest('[data-testid="toast-pill"]');
+          if (el) w.__hoveredPills.add(el);
+        },
+        true,
+      );
+    });
+
+    // Freeze the page clock, then step past the 600ms coalescing window so the
+    // replacement is a genuine new pill rather than a count bump on the first.
+    await page.clock.pauseAt(new Date('2026-01-01T00:00:10Z'));
+    await page.clock.runFor(1_000);
+    releaseSecond();
     await second;
-    // 3s > the 600ms coalescing window, so this is a genuine new pill rather than a
-    // count bump — assert the remount rather than assuming it.
     await expect
       .poll(async () => (firstNode ? await firstNode.evaluate((n) => n.isConnected) : true))
       .toBe(false);
 
+    // Wait for the browser to deliver the hover to the replacement. Until it has, the
+    // clock is frozen, so no dwell can elapse while the pill is unhovered.
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const w = window as unknown as { __hoveredPills: Set<Element> };
+          const cur = document.querySelector('[data-testid="toast-pill"]');
+          return cur !== null && w.__hoveredPills.has(cur);
+        }),
+      )
+      .toBe(true);
+
     // The replacement mounted under the motionless cursor. Its 2.6s dwell must be
-    // paused by that hover; unpaused it would be gone well inside this wait.
-    // (Verified by removing the pause entirely, not by trusting the wait.)
-    await page.waitForTimeout(4_000);
+    // paused by that hover; unpaused, advancing 4s of page time would remove it.
+    await page.clock.runFor(4_000);
     await expect(page.getByTestId('toast-pill')).toHaveCount(1);
     await expect(page.getByTestId('toast-pill')).toContainText(PIN_CAP_MESSAGE);
 
     // And moving away releases it, proving the pause was real rather than a stuck
     // timer that never started.
     await page.mouse.move(5, 5);
-    await expect(page.getByTestId('toast-pill')).toHaveCount(0, { timeout: 10_000 });
+    await page.clock.runFor(4_000);
+    await expect(page.getByTestId('toast-pill')).toHaveCount(0);
   });
 });
