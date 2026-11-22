@@ -6,7 +6,8 @@ import re
 from typing import Any
 
 from django.contrib.auth import get_user_model
-from django.db.models import Q, QuerySet
+from django.db.models import Q, QuerySet, Value
+from django.db.models.functions import Lower
 from drf_spectacular.utils import extend_schema_field, inline_serializer
 from rest_framework import serializers
 
@@ -720,9 +721,20 @@ class ExternalStakeholderSerializer(serializers.ModelSerializer[ExternalStakehol
         # Case-insensitive per-program uniqueness across LIVE rows (the DB
         # constraint is the backstop; this returns a friendly 400 on the race loser
         # and on the common re-add-of-existing case).
+        #
+        # `LOWER(email) = LOWER(%s)`, deliberately not `email__iexact` (#3541).
+        # `iexact` compiles to `UPPER(email::text) = UPPER(%s)`, and the only index
+        # on this column is the partial unique constraint on `(program, Lower("email"))`
+        # — so `iexact` could never use it and scanned instead. Realigning the query
+        # to the constraint's own expression was chosen over adding a second, UPPER
+        # index: it needs no migration, and it makes this friendly check agree with
+        # the constraint it fronts by construction (the two case-folds differ on a
+        # few non-ASCII characters, and the constraint's is the one that decides).
+        # `Lower(Value(...))` folds the input in PostgreSQL rather than Python's
+        # `str.lower()` for the same reason.
         program_id = str(self.context.get("program_id"))
-        qs = ExternalStakeholder.objects.filter(
-            program_id=program_id, email__iexact=email, is_deleted=False
+        qs = ExternalStakeholder.objects.alias(email_lower=Lower("email")).filter(
+            program_id=program_id, email_lower=Lower(Value(email)), is_deleted=False
         )
         if self.instance is not None:
             qs = qs.exclude(pk=self.instance.pk)

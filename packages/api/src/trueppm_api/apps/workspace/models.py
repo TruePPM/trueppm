@@ -27,6 +27,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.db.models.functions import Upper
 from django.utils import timezone
 from simple_history.models import HistoricalRecords
 
@@ -585,6 +586,13 @@ class WorkspaceInvite(models.Model):
                 condition=models.Q(email_pending=True),
             ),
             models.Index(fields=["status", "-created_at"], name="ix_invite_status"),
+            # Functional, on the expression `email__iexact` compiles to
+            # (`UPPER(email::text) = UPPER(%s)`): the invite-create path checks for a
+            # pending invite this way right after the indexed `auth_user` lookup
+            # (#3541, following #3504). A plain btree on `email` would index the
+            # wrong thing and never be chosen. Declared in `Meta` rather than as
+            # `RunSQL` so it survives a migration squash (migration rule 2).
+            models.Index(Upper("email"), name="ix_invite_email_upper"),
         ]
 
     def __str__(self) -> str:
