@@ -1,0 +1,56 @@
+{
+  "project_id": "p-milestone-pinned-at-late-start-with-no-predecessor",
+  "project_start": "2026-03-02",
+  "project_finish": "2026-04-20",
+  "tasks": [
+    {
+      "id": "t0",
+      "early_start": "2026-03-02",
+      "early_finish": "2026-04-17",
+      "late_start": "2026-03-02",
+      "late_finish": "2026-04-17",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2026-03-02"
+    },
+    {
+      "id": "t1",
+      "early_start": "2026-04-20",
+      "early_finish": "2026-04-20",
+      "late_start": "2026-04-20",
+      "late_finish": "2026-04-20",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-04-20"
+    },
+    {
+      "id": "join",
+      "early_start": "2026-04-20",
+      "early_finish": "2026-04-20",
+      "late_start": "2026-04-20",
+      "late_finish": "2026-04-20",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2026-04-20"
+    }
+  ],
+  "critical_path": [
+    "t1",
+    "join"
+  ],
+  "driving_edges": [
+    {
+      "predecessor_id": "t0",
+      "successor_id": "join",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "t1",
+      "successor_id": "join",
+      "dep_type": "SS"
+    }
+  ]
+}

@@ -143,15 +143,19 @@ def test_sf_from_work_matches_sf_from_a_milestone_at_the_same_instant(lag_days: 
     impose the same bound. The milestone branch has read it the MSP/P6 way since
     #4079; the work branch did not, and the two disagreed by one working day — the
     internal contradiction that is the ground for this change.
+
+    Held on a Tuesday, so the instant is unambiguous: a milestone held on a Monday
+    links from Saturday 00:00, the earliest midnight that is the same working-time
+    point (#4883, #5094), and a calendar-day lag out of it counts from there.
     """
-    snet = date(2026, 3, 9)
+    snet = date(2026, 3, 10)
     project = Project(
         id="sf-equiv",
         name="sf-equiv",
         start_date=PROJECT_START,
         calendar=Calendar(),
         tasks=[
-            # Both are held at the START of Mon 03-09 by the same SNET: A as work,
+            # Both are held at the START of Tue 03-10 by the same SNET: A as work,
             # M as an instant.
             Task(id="A", name="A", duration=timedelta(days=3), planned_start=snet),
             Task(id="B", name="B", duration=timedelta(days=2)),
@@ -1022,12 +1026,13 @@ def test_the_backward_pass_and_free_float_invert_the_new_anchor(
     slack = (t1.free_float if pole else t1.total_float).days
     # A milestone T1 may sit as late as Sat 03-07 00:00, the end of Friday: five
     # working days after Monday's start, one more than work, which has to *start*
-    # by Friday. An SNET can only place it at the start of a day, so its
-    # differential slip stops at Friday's start, one day short of the float.
+    # by Friday. An SNET on the Monday after links it from that Saturday 00:00
+    # (#5094), so the differential slip reaches the whole float; before, it linked
+    # from Monday and stopped at Friday's start, one day short.
     instant_extra = 1 if milestone and t2_snet is not None else 0
     if pole or t2_snet is not None:
         assert slack == float_days + instant_extra
-    slip = slack - instant_extra
+    slip = slack
     assert build(slip)[1] == measured, "slipping T1 by its float moved the date"
     assert build(slip + 1)[1] > measured, "T1's float is not the latest slip"
 

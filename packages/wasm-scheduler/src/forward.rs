@@ -243,7 +243,10 @@ pub(crate) fn start_reading(
 /// that is later (#4690, #4883, [`equivalent_link`]); only `shown` takes the floor.
 /// Recording or pinning the day a milestone is already shown on (an
 /// `actual_start`, a `planned_start`) therefore moves nothing, and a slipping
-/// predecessor never moves the milestone's successors earlier.
+/// predecessor never moves the milestone's successors earlier. A milestone with no
+/// predecessor links from that earliest midnight too (#5094): linking from the
+/// floor itself made adding a non-binding predecessor move the successors, and
+/// pinning the milestone on its shown late start moved the finish.
 ///
 /// `completed_only` limits the links to completed predecessors — the reading a
 /// closed milestone's link instant is taken from (`closed_milestone_link`,
@@ -283,9 +286,18 @@ fn place_milestone(
         offer(&mut pred_best, proposal);
     }
     let mut link = best;
+    let floor = floors.iter().max().copied();
     if let Some(p) = pred_best {
-        if let Some(l) = equivalent_link(p, floors.iter().max().copied(), start_floor, cal)? {
+        if let Some(l) = equivalent_link(p, floor, start_floor, cal)? {
             link = Some((l.0, l.1, p.2));
+        }
+    } else if let Some(f) = floor.filter(|&f| Some(f) != start_floor) {
+        // Nothing precedes the milestone, so the floor holds it outright: it links
+        // from the floor's earliest equivalent midnight, as a floor holding a
+        // predecessor's earlier proposal does (#5094).
+        let earliest = earliest_equivalent_midnight(f, cal)?;
+        if earliest < f {
+            link = Some((earliest, true, f));
         }
     }
     if let Some(floor) = start_floor {
@@ -823,8 +835,10 @@ fn live_milestone_edge(task: &Task, recorded: NaiveDate) -> bool {
 /// finishing on Friday puts `M` at Sunday 00:00, shown at the start of Monday).
 /// Linking from the recorded day instead moved every calendar-day-lagged
 /// successor. The instant is re-read from the completed predecessors with the
-/// recorded day as a start-of-day floor ([`equivalent_link`]); a milestone a floor
-/// held, or with nothing before it, links from the recorded day. While any
+/// recorded day as a start-of-day floor ([`equivalent_link`]); with nothing before
+/// it, the recorded day holds it and it links from that day's earliest equivalent
+/// midnight, as it did live (#5094); a milestone a later floor held links from the
+/// recorded day. While any
 /// predecessor is still open (#4525: not a fact) it links from the start of the
 /// recorded day, as before #4690 — the open residual (#4740). This does not
 /// reopen the sign-off pin (ADR-0136, #5017): the pin fixes the working-time

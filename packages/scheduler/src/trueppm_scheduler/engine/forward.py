@@ -541,13 +541,17 @@ def _pinned_milestone_instant(
 
     Pinning takes the milestone out of the network, but not out of being a
     milestone. With no actuals it is an instant at the start of its pinned day,
-    as a live milestone with no links is (#4343); the pair is what
-    :func:`_place_milestone` returns with no predecessors: the SNET is a fact
-    about when the milestone happens and binds ``link``; the project start only
-    bounds where it is shown (#4225). ``day`` already is the later of the two
-    (:func:`_pinned_placement`), and an SNET at or before the project start is no
-    floor (#4635) — linking from it measured successors' lags from before the plan
-    opened — so ``link`` is ``shown``.
+    as a live milestone with no links is (#4343). The SNET is a fact about when
+    the milestone happens and binds ``link``; the project start only bounds where
+    it is shown (#4225). Unlike :func:`_place_milestone` with no predecessors
+    (#5094), the link is the start of the pinned day, not its earliest equivalent
+    midnight: this path has no recorded day to re-read and is reached only by a
+    milestone marked complete with no actuals, so marking an SNET-held one complete
+    that way can still move a calendar-day-lagged successor later. ``day`` already
+    is the later of the project start and the SNET (:func:`_pinned_placement`),
+    and an SNET at or before the project start is no floor (#4635) — linking
+    from it measured successors' lags from before the plan opened — so ``link``
+    is ``shown``.
 
     With actuals recorded — the API's normal path, since ``COMPLETE`` stamps
     ``actual_finish`` — the day is the recorded one (``actual_finish``, else

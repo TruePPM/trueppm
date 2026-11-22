@@ -745,6 +745,14 @@ def _place_live_milestone(
     link = held
     if latest is not None and floor is not None:
         link = _floor_link(project, tid, latest, floor) or held
+    elif floor is not None and floor != start_at_or_after(project.start, cal):
+        # Nothing precedes it: the floor holds it outright, and it links from the
+        # floor's earliest working-time equivalent midnight, as a floor holding an
+        # earlier link does (#5094). Linking from the floor itself let a
+        # non-binding predecessor move the successors.
+        earliest = last_working_on_or_before(floor - ONE_DAY, cal) + ONE_DAY
+        if earliest < floor:
+            link = (earliest, True)
     return held[0], link[0], link[1]
 
 

@@ -2109,11 +2109,15 @@ class TestFinishLinkOutOfAStartOfDayMilestone:
 
     # (lag, W early finish, W late finish). Leads count back from the zero-lag
     # finish (Friday, the close of the working day before M's instant); positive
-    # lags count from the day the instant closes (Sunday) and snap forward. Before
-    # this rule a lead also counted from Sunday: -1 named Saturday and snapped to
-    # Monday, finishing W *later* than no lead at all. W's late finish is the
-    # project finish's working-time close: the end of Friday while M at the start
-    # of Monday is the finish.
+    # lags count from the day the instant closes and snap forward. Before this
+    # rule a lead also counted from Sunday: -1 named Saturday and snapped to
+    # Monday, finishing W *later* than no lead at all. Held by its SNET with
+    # nothing before it, M links from Sat 01-10 00:00, the earliest midnight that
+    # is the start of Monday in working time (#5094), as a floor holding a
+    # predecessor's earlier link does (#4883): +1 to +3 name Saturday to Monday,
+    # all the start of Monday. W's late finish is the project finish's
+    # working-time close: the end of Friday while M at the start of Monday is the
+    # finish.
     _LEAD_TABLE = (
         (-4, MON, _JAN_9_FRI),
         (-3, _JAN_6_TUE, _JAN_9_FRI),
@@ -2121,12 +2125,12 @@ class TestFinishLinkOutOfAStartOfDayMilestone:
         (-1, date(2026, 1, 8), _JAN_9_FRI),
         (0, _JAN_9_FRI, _JAN_9_FRI),
         (1, _JAN_12_MON, _JAN_12_MON),
-        (2, _JAN_13_TUE, _JAN_13_TUE),
-        (3, date(2026, 1, 14), date(2026, 1, 14)),
-        (4, date(2026, 1, 15), date(2026, 1, 15)),
-        (5, date(2026, 1, 16), date(2026, 1, 16)),
-        (6, date(2026, 1, 19), date(2026, 1, 19)),
-        (7, date(2026, 1, 19), date(2026, 1, 19)),
+        (2, _JAN_12_MON, _JAN_12_MON),
+        (3, _JAN_12_MON, _JAN_12_MON),
+        (4, _JAN_13_TUE, _JAN_13_TUE),
+        (5, date(2026, 1, 14), date(2026, 1, 14)),
+        (6, date(2026, 1, 15), date(2026, 1, 15)),
+        (7, date(2026, 1, 16), date(2026, 1, 16)),
     )
 
     @pytest.mark.parametrize(("lag", "early", "late"), _LEAD_TABLE)
