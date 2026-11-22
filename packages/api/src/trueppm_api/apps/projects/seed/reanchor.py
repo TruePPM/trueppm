@@ -441,6 +441,12 @@ class ShiftReport:
     sweep rewrote. Reporting columns would mean either a second pass to count
     non-NULLs or a number inflated by every NULL — and the figure exists to tell
     an evaluator the scope of what just happened, which rows answer honestly.
+
+    ``actor_id`` is the user who pressed the button (``None`` for a non-request
+    caller such as a management command). It is also stamped onto the
+    ``HistoricalProgram`` row the anchor advance writes, so who re-anchored a
+    program-wide date rewrite is queryable after the fact, not only visible in
+    the return value.
     """
 
     shifted: bool
@@ -448,6 +454,7 @@ class ShiftReport:
     anchor_date: dt.date
     rows_shifted: int
     projects: int
+    actor_id: int | None = None
 
 
 def whole_week_delta(anchor: dt.date, today: dt.date) -> int:
@@ -466,6 +473,11 @@ def whole_week_delta(anchor: dt.date, today: dt.date) -> int:
 
 def shift_sample_dates(program: Program, *, actor: Any = None) -> ShiftReport:
     """Move every dated row of a sample program forward to today (ADR-1175).
+
+    ``actor`` is the user performing the re-anchor. A program-wide, owner-only date
+    rewrite needs an audit trail, so it is recorded two ways: as ``history_user`` on
+    the ``HistoricalProgram`` row written when the anchor advances (the existing
+    audit surface for program writes), and as ``ShiftReport.actor_id``.
 
     Raises:
         NotASampleProgram: the program holds no ``is_sample`` project. Checked
@@ -486,6 +498,7 @@ def shift_sample_dates(program: Program, *, actor: Any = None) -> ShiftReport:
             "current dates."
         )
 
+    actor_id: int | None = getattr(actor, "pk", None)
     project_ids: list[str] = []
     rows = 0
     days = 0
@@ -514,6 +527,7 @@ def shift_sample_dates(program: Program, *, actor: Any = None) -> ShiftReport:
                 anchor_date=anchor,
                 rows_shifted=0,
                 projects=len(project_ids),
+                actor_id=actor_id,
             )
 
         offset = dt.timedelta(days=days)
@@ -535,6 +549,11 @@ def shift_sample_dates(program: Program, *, actor: Any = None) -> ShiftReport:
         Project.objects.filter(program=locked).update(recalculated_at=None)
 
         locked.sample_anchor_date = anchor + offset
+        # simple_history reads `_history_user` off the instance before falling back to
+        # the request middleware; set it so the audit row names the actor even when a
+        # non-request caller (a management command, a test) drives this service.
+        if actor is not None:
+            locked._history_user = actor
         locked.save(update_fields=["sample_anchor_date"])
         program.sample_anchor_date = locked.sample_anchor_date
 
@@ -552,4 +571,5 @@ def shift_sample_dates(program: Program, *, actor: Any = None) -> ShiftReport:
         anchor_date=new_anchor,
         rows_shifted=rows,
         projects=len(project_ids),
+        actor_id=actor_id,
     )

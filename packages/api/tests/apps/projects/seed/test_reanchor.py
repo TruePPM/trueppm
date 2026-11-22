@@ -648,3 +648,54 @@ def test_null_dates_stay_null(aged: Program) -> None:
     assert Task.objects.filter(pk__in=unset, actual_finish__isnull=False).count() == 0, (
         "the shift invented an actual_finish for a task that has none"
     )
+
+
+# ---------------------------------------------------------------------------
+# Actor audit trail (#3870)
+# ---------------------------------------------------------------------------
+
+
+def test_shift_records_the_acting_user_on_the_report_and_the_history_row(
+    aged: Program, django_user_model: Any
+) -> None:
+    """A program-wide date rewrite names who pressed the button, observably.
+
+    Before #3870 `actor` was accepted and silently dropped, so nothing recorded who
+    re-anchored a program. The anchor advance writes a `HistoricalProgram` row; its
+    `history_user` must be the actor, and the report must carry the actor's id.
+    """
+    owner = django_user_model.objects.create_user(username="reanchor-owner", password="x")
+    history_before = aged.history.count()
+
+    report = shift_sample_dates(aged, actor=owner)
+
+    assert report.shifted is True
+    assert report.actor_id == owner.pk
+    # Select the row by the anchor it wrote, not by recency: the sample loader writes
+    # its rows under a pinned clock, so history_date does not order them reliably.
+    shift_row = aged.history.get(sample_anchor_date=report.anchor_date)
+    assert aged.history.count() == history_before + 1
+    assert shift_row.history_user_id == owner.pk
+
+
+def test_shift_without_an_actor_records_none(aged: Program) -> None:
+    """A non-request caller (management command, test) passes no actor: recorded as None."""
+    report = shift_sample_dates(aged)
+
+    assert report.shifted is True
+    assert report.actor_id is None
+    shift_row = aged.history.get(sample_anchor_date=report.anchor_date)
+    assert shift_row.history_user_id is None
+
+
+def test_a_no_op_shift_still_reports_the_actor_but_writes_no_history(
+    program: Program, django_user_model: Any
+) -> None:
+    owner = django_user_model.objects.create_user(username="reanchor-owner2", password="x")
+    history_before = program.history.count()
+
+    report = shift_sample_dates(program, actor=owner)
+
+    assert report.shifted is False
+    assert report.actor_id == owner.pk
+    assert program.history.count() == history_before
