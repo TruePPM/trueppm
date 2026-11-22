@@ -10,10 +10,8 @@ aria-modal packages/web/src/features/schedule/MissingCommittedStartChip.tsx 1
 aria-modal packages/web/src/features/schedule/ScheduleCommitPopover.tsx 1
 aria-modal packages/web/src/features/schedule/buildMode/MilestoneDatePopover.tsx 1
 aria-modal packages/web/src/features/schedule/buildMode/SprintPrompt.tsx 1
-aria-modal packages/web/src/features/settings/program/BulkMethodologyImpactPreview.tsx 1
 aria-modal packages/web/src/features/settings/workspace/GroupManageDrawer.tsx 2
-aria-modal packages/web/src/features/shell/MCResultPanel.tsx 3
-aria-modal packages/web/src/features/shell/MoreSheet.tsx 1
+aria-modal packages/web/src/features/shell/MCResultPanel.tsx 2
 aria-modal packages/web/src/features/shell/NotificationPanel.tsx 1
 aria-modal packages/web/src/features/sprints/SprintsView.tsx 1
 deprecation packages/api/src/trueppm_api/apps/projects/views.py 1

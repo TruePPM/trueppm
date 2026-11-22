@@ -58,6 +58,7 @@ MARKER_RE = re.compile(
     r"deprecated\s*=\s*True|[\"']deprecated[\"']\s*:\s*True|deprecated\s*:\s*true|"
     r"@deprecated|DeprecationWarning"
 )
+ARIA_MODAL_ATTR_RE = re.compile(r"[\"']?aria-modal[\"']?\s*[=:]")
 FOCUS_TRAP_RE = re.compile(r"useFocusTrap")
 FOCUS_OK_RE = re.compile(r"focus-trap-ok:\s*\S")
 DEPR_OK_RE = re.compile(r"deprecation-ok:\s*\S")
@@ -103,12 +104,11 @@ def find_violations(root: Path) -> dict[str, int]:
     out: dict[str, int] = {}
     for rel, p in iter_files(root, WEB_SRC, (".tsx",)):
         text = p.read_text(encoding="utf-8", errors="replace")
-        if (
-            "aria-modal" in text
-            and not FOCUS_TRAP_RE.search(text)
-            and not FOCUS_OK_RE.search(text)
-        ):
-            out[f"aria-modal {rel}"] = text.count("aria-modal")
+        # Count real attributes (`aria-modal=` / `aria-modal:`), not comment or
+        # prose mentions, so explaining the attribute never adds a site.
+        sites = len(ARIA_MODAL_ATTR_RE.findall(text))
+        if sites and not FOCUS_TRAP_RE.search(text) and not FOCUS_OK_RE.search(text):
+            out[f"aria-modal {rel}"] = sites
     for base in DEPRECATION_ROOTS:
         for rel, p in iter_files(root, base, (".py", ".ts", ".tsx")):
             lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -280,6 +280,16 @@ def self_test() -> int:
         check(run(root, bl, False) == 1, "a new violation beside a baseline passed")
         check(run(root, bl, True) == 1, "--update-baseline accepted an addition")
         (root / f"{s}/Worse.tsx").unlink()
+        w(
+            root,
+            f"{s}/Prose.tsx",
+            "// aria-modal is explained here, never set\nconst x = 1;",
+        )
+        check(
+            f"aria-modal {s}/Prose.tsx" not in find_violations(root),
+            "a prose-only aria-modal mention counted as a site",
+        )
+        (root / f"{s}/Prose.tsx").unlink()
         w(root, f"{s}/Bad.tsx", "useFocusTrap(r); aria-modal")
         check(
             run(root, bl, False) == 1,
