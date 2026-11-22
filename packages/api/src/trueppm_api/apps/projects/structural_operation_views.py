@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from django.db.models import Q, QuerySet
+from django.db.models import OuterRef, Q, QuerySet, Subquery
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -34,7 +34,11 @@ from trueppm_api.apps.access.permissions import (
     IsProjectPlanAuthor,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
-from trueppm_api.apps.projects.models import Project, StructuralOperation
+from trueppm_api.apps.projects.models import (
+    Project,
+    StructuralOperation,
+    SyncBatchOperationStatus,
+)
 from trueppm_api.apps.projects.refusal_codes import StructuralUndoBlockedReason
 from trueppm_api.apps.projects.structural_operation_services import (
     StructuralUndoRejected,
@@ -220,6 +224,20 @@ class StructuralOperationViewSet(
         project_id = self.request.query_params.get("project")
         if project_id:
             qs = qs.filter(project_id=project_id)
+        if self.action == "list":
+            # One correlated subquery per page instead of `_newest_active_id` per row
+            # (#4309). List only: `retrieve`/`undo` must read the stack fresh.
+            qs = qs.annotate(
+                newest_active_id=Subquery(
+                    StructuralOperation.objects.filter(
+                        project_id=OuterRef("project_id"),
+                        applied_by_id=OuterRef("applied_by_id"),
+                        status=SyncBatchOperationStatus.ACTIVE,
+                    )
+                    .order_by("-created_at")
+                    .values("pk")[:1]
+                )
+            )
         return qs
 
     @extend_schema(
