@@ -34,6 +34,8 @@ fi
 url="${*: -1}"
 if [ "$code" = 200 ] && [[ "$url" == *closes_issues* ]]; then
   printf '%s' "${MOCK_CLOSES:-[]}"
+elif [ "$code" = 200 ] && [[ "$url" == *labels=* ]]; then
+  printf '%s' "${MOCK_LABEL_ROWS:-[]}"
 elif [ "$code" = 200 ]; then
   printf '%s' "$url" | grep -oE 'iids\[\]=[0-9]+' | cut -d= -f2 |
     jq -R 'tonumber | {iid: ., state: "opened", title: "t\tab"}' | jq -sc .
@@ -220,6 +222,30 @@ ok
 [ "$(tracker_gate_mode)" = diff ] || fail "default mode is not diff"
 [ "$(TRACKER_GATE_MODE=drift tracker_gate_mode)" = drift ] || fail "drift mode not honored"
 TRACKER_GATE_MODE=bogus tracker_gate_mode >/dev/null 2>&1 && fail "a bogus mode was accepted"
+ok
+
+# 14. boundary:check rides the shared retry (#4400). 502 twice then 200 passes;
+#     a persistent 502 is exit 3 (retry the job), a real labeled issue is exit 1
+#     on the FIRST call (no retry), a 4xx is exit 2.
+boundary() { # [env...]; prints rc
+  local rc=0
+  env CI_PROJECT_ID=1 ISSUES_API_TOKEN=tok GITLAB_ISSUES_MAX_ATTEMPTS=3 "$@" \
+    bash "$ROOT/scripts/check-issue-boundary.sh" >"$tmp/boundary.out" 2>&1 || rc=$?
+  echo "$rc"
+}
+reset 502 502 200
+[ "$(boundary)" = 0 ] || fail "boundary:check did not survive two transient 502s"
+[ "$(calls)" -ge 4 ] || fail "boundary:check did not retry (calls=$(calls))"
+reset 502
+[ "$(boundary)" = 3 ] || fail "boundary:check persistent 502 was not exit 3"
+grep -q "failed to query GitLab API" "$tmp/boundary.out" || fail "boundary:check lost its error line"
+reset 200
+[ "$(boundary MOCK_LABEL_ROWS='[{"iid":7,"state":"opened","title":"leak"}]')" = 1 ] ||
+  fail "boundary:check did not fail a real labeled issue"
+grep -q '#7' "$tmp/boundary.out" || fail "boundary:check did not name the violating issue"
+[ "$(calls)" = 2 ] || fail "boundary:check retried a real violation (one call per label expected, calls=$(calls))"
+reset 404
+[ "$(boundary)" = 2 ] || fail "boundary:check 404 was not exit 2"
 ok
 
 echo "gitlab-issues.test.sh: all ${pass} checks passed"

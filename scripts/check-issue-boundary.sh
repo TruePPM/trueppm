@@ -9,9 +9,19 @@
 # Exit codes:
 #   0  no violations
 #   1  violations found (CI fails; see output for the list and remediation)
-#   2  invocation / API error
+#   2  invocation / API error (rejected token, 4xx)
+#   3  the tracker was unreadable after the shared bounded retry (429 / 5xx /
+#      timeout, 5 attempts with backoff). Still fail-closed, but a distinct
+#      code so a red here reads as "retry the job", not "a label is wrong"
+#      (#4400).
 
 set -euo pipefail
+
+# The retry/backoff policy lives in the shared reader, not here: this script used
+# to `curl -sf` once, so one transient 5xx failed main for 50 minutes with no code
+# cause (#4400). A real violation (exit 1) is never retried.
+# shellcheck source=lib/gitlab-issues.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/gitlab-issues.sh"
 
 API="${CI_API_V4_URL:-https://gitlab.com/api/v4}"
 PROJECT="${CI_PROJECT_ID:-}"
@@ -21,34 +31,31 @@ if [ -z "$PROJECT" ]; then
   exit 2
 fi
 
-# Prefer a project- or group-level access token (BOUNDARY_CHECK_TOKEN) — this
-# is not optional in practice. #3043 established that CI_JOB_TOKEN cannot
-# authenticate against the GitLab Issues API at all, on any project — it is
-# not in GitLab's job-token-supported endpoint list, so the JOB-TOKEN fallback
-# below 401s regardless of the token's validity. This script hard-fails
-# (exit 2) rather than silently skipping when that happens, so if this job is
-# green, BOUNDARY_CHECK_TOKEN (or an equivalent group-level variable) is
-# actually configured; do not treat the fallback as a working substitute.
-BOUNDARY_CHECK_TOKEN="${BOUNDARY_CHECK_TOKEN:-${ISSUES_API_TOKEN:-}}"
-if [ -n "${BOUNDARY_CHECK_TOKEN:-}" ]; then
-  AUTH_HEADER="PRIVATE-TOKEN: ${BOUNDARY_CHECK_TOKEN}"
-else
-  AUTH_HEADER="JOB-TOKEN: ${CI_JOB_TOKEN:-}"
-fi
+# Use a project- or group-level access token (BOUNDARY_CHECK_TOKEN, or the
+# shared ISSUES_API_TOKEN). #3043 established that CI_JOB_TOKEN cannot
+# authenticate against the GitLab Issues API at all, so it is not sent. Without
+# a token the shared reader reads anonymously, which works only while the
+# tracker is public and is rate-limited per egress IP — configure the token.
+TOKEN="${BOUNDARY_CHECK_TOKEN:-${ISSUES_API_TOKEN:-}}"
 
 found_total=0
 
 for label in enterprise portfolio; do
-  url="${API}/projects/${PROJECT}/issues?labels=${label}&state=opened&per_page=100"
-  if ! result=$(curl -sf --header "$AUTH_HEADER" "$url"); then
+  rc=0
+  rows=$(gitlab_issues_by_label "$API" "$PROJECT" "$TOKEN" "$label" opened) || rc=$?
+  if [ "$rc" -ne 0 ]; then
     echo "ERROR: failed to query GitLab API for label='${label}'" >&2
+    [ "$rc" -eq 3 ] && exit 3
     exit 2
   fi
-  count=$(echo "$result" | jq 'length')
+  count=$(printf '%s' "$rows" | grep -c . || true)
   if [ "$count" -gt 0 ]; then
     echo ""
     echo "BOUNDARY VIOLATION: ${count} open OSS issue(s) labeled '${label}':"
-    echo "$result" | jq -r '.[] | "  #\(.iid) — \(.title)\n    \(.web_url)"'
+    printf '%s\n' "$rows" | while IFS=$'\t' read -r iid _state title _rest; do
+      echo "  #${iid} — ${title}"
+      echo "    ${CI_PROJECT_URL:-https://gitlab.com/trueppm/trueppm}/-/issues/${iid}"
+    done
     found_total=$((found_total + count))
   fi
 done

@@ -53,14 +53,14 @@ gitlab_issue_states() {
 # gitlab_issue_states, for every issue carrying ALL of the comma-joined
 # <labels>, filtered to <state> (opened|closed|all, default opened). Pages
 # through the list so a growing label is never silently truncated at 100
-# (#4720). Same retry/429/token behavior as the iid lookup; returns 2 when the
-# tracker could not be read.
+# (#4720). Same retry/429/token behavior as the iid lookup; returns 3 when a
+# transient outage outlasted every retry and 2 for any other read failure.
 gitlab_issues_by_label() {
   local api="$1" project="$2" token="$3" labels="$4" state="${5:-opened}"
   local page=1 out n
   while :; do
     out=$(GITLAB_ISSUES_QUERY_OVERRIDE="state=${state}&labels=${labels}&page=${page}" \
-      _gitlab_issue_batch "$api" "$project" "$token") || return 2
+      _gitlab_issue_batch "$api" "$project" "$token") || return $?
     [ -n "$out" ] && printf '%s\n' "$out"
     n=$(printf '%s' "$out" | grep -c . || true)
     [ "$n" -lt 100 ] && return 0
