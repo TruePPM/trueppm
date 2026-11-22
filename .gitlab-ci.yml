@@ -4803,6 +4803,21 @@ api:test:
   # (.coverage.<index>); api:coverage combines them into coverage.xml for the
   # diff-coverage gate and the package soft floor. Mirrors the web:e2e shard →
   # web:e2e:report stitch pattern.
+  #
+  # Shard count re-checked for #5097 (MR pipeline 3099804965, shards 193 / 651 /
+  # 445 / 562s). The split is NOT what made those uneven: run against the
+  # committed .test_durations (16,685 entries, 2,556 serial-seconds, refreshed
+  # 2026-11-20), pytest-split's default duration_based_chunks gives 643 / 641 /
+  # 640 / 633 serial-seconds per group (~160s each across 4 xdist workers), and
+  # least_duration gives no better. Placement did it. Shard 1 ran alone on
+  # nuc-runner-2, and its pytest phase took 139s, matching the estimate. Shards 2,
+  # 3 and 4 co-tenanted on gitlab-runner-3-new (12 xdist workers plus 3 postgres
+  # services, and web:test 5/6 on the same host) and took 571 / 362 / 482s. So
+  # neither a fresh baseline nor a different algorithm moves the max. Three shards
+  # would be ~213s of pytest each on a quiet host, but at the observed 3.6x
+  # co-tenancy factor that is ~830s with collection, which is above today's 652s
+  # max. So this stays at 4. The lever for this job's tail is host placement and
+  # the runner fleet (#1040), not the split.
   parallel: 4
   # Explicit ceiling so a wedged shard cannot hold a runner slot for the project
   # default of 60 minutes (#3390). Because api:coverage `needs` all four shards,
@@ -5171,6 +5186,14 @@ web:test:
   # here — most of the max-vs-ideal gap is fleet contention, not assignment (the
   # same shard index swings 229s–447s run to run). Do not re-tune shard count off
   # the old numbers.
+  #
+  # Re-checked for #5097 (MR pipeline 3099804965): each shard ran 191–192 files,
+  # and vitest's own Duration was 192–196s on the dell runners, 264–287s on
+  # nuc-runner-2 and 384s on gitlab-runner-3-new, which was co-tenanted with three
+  # api:test shards. The spread is placement, as above, not assignment. Five shards
+  # would average 1,914 / 5 = ~383s on the 8-pipeline mean above. With the observed
+  # swing that reaches ~536s, which is over today's 405s max and puts web back on
+  # the critical path. So this stays at 6.
   #
   # needs lists only web:test's true data dependencies (#3277), mirroring the
   # same fix applied to api:test in #1121. web:test consumed neither of the two
