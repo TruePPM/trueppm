@@ -118,10 +118,10 @@ class TestProjectReceivers:
         pending = _PendingRollups()
         pending.ids[str(milestone.pk)] = None
         with patch(recompute, side_effect=_LIMIT()), pytest.raises(_LIMIT):
-            pending.flush()
+            pending.flush_milestone_rollups()
         pending.ids[str(milestone.pk)] = None
         with patch(recompute, side_effect=RuntimeError("boom")):
-            pending.flush()
+            pending.flush_milestone_rollups()
 
 
 class TestEmailSendHelpers:

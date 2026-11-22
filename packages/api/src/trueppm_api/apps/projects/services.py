@@ -4173,7 +4173,7 @@ class _PendingRollups:
     """Milestone ids awaiting one deferred recompute at the end of a transaction.
 
     Lives on the DB connection (one per thread), so it is per-transaction by
-    construction. ``flush`` is the single ``on_commit`` callback registered for the
+    construction. ``flush_milestone_rollups`` is the single ``on_commit`` callback for the
     set; whether it is still queued in ``connection.run_on_commit`` is how a later
     save tells a live set from one stranded by a rolled-back transaction.
     """
@@ -4181,7 +4181,7 @@ class _PendingRollups:
     def __init__(self) -> None:
         self.ids: dict[str, None] = {}  # insertion-ordered set
 
-    def flush(self) -> None:
+    def flush_milestone_rollups(self) -> None:
         pending = list(self.ids)
         self.ids.clear()
         for milestone_id in pending:
@@ -4199,7 +4199,7 @@ def _live_pending_rollups() -> _PendingRollups | None:
     state: _PendingRollups | None = getattr(connection, "_pending_milestone_rollups", None)
     if state is None:
         return None
-    if any(entry[1] == state.flush for entry in connection.run_on_commit):
+    if any(entry[1] == state.flush_milestone_rollups for entry in connection.run_on_commit):
         return state
     return None
 
@@ -4221,7 +4221,8 @@ def schedule_milestone_rollup(milestone_id: str | uuid.UUID) -> None:
     if state is None:
         state = _PendingRollups()
         connection._pending_milestone_rollups = state  # type: ignore[attr-defined]
-        transaction.on_commit(state.flush)
+        # on-commit-ok: recompute + broadcast_board_event only, no Celery dispatch
+        transaction.on_commit(state.flush_milestone_rollups)
     state.ids[str(milestone_id)] = None
 
 
