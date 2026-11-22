@@ -366,14 +366,17 @@ web client currently recovers such an event only through a later refetch of the
 data it affects. A gap signal that triggers a resync is planned
 ([#2848](https://gitlab.com/trueppm/trueppm/-/issues/2848)).
 
-To resume after a disconnect, reconnect with `?since=<cursor>`. The server sends
+To resume after a disconnect, reconnect with `?since=<cursor>`. Omitting `since`, or
+sending `0` or a non-numeric value, requests no replay: the socket streams live
+events only, so load current state over REST first. The server sends
 the events you are owed (`seq > since`, in order, each with `"replayed": true`)
 before the live stream resumes. It sends a single `resync_required` frame
 instead, carrying `{ "latest_seq": <n> }`, when:
 
 - part of the gap has been purged (the buffer keeps
   `TRUEPPM_BOARD_EVENT_RETENTION_HOURS`, 24 h by default);
-- you are more than 1,000 events behind; or
+- you are more than 1,000 events behind;
+- the events you are owed add up to more than 4 MiB of payload; or
 - `since` is above the project's current head.
 
 After a `resync_required`, refetch your project-scoped state and set your
