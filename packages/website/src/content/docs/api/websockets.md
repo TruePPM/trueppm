@@ -164,8 +164,10 @@ The set is open-ended and grows as features land; current event types include:
   `task_run_progress`, `task_run_completed`, `task_run_failed`, `task_run_cancelled`.
   `cpm_complete`'s payload is `{"project_finish": <ISO date or null>,
   "critical_count": <int>, "status_date": <ISO date or null>}` —
-  `critical_count` is how many tasks are on the critical path. The id list is not on
-  the socket: it was uncapped (thousands of ids per recalc on a mostly-critical network),
+  `critical_count` is how many tasks are on the critical path: every critical task in
+  the CPM result, so it is not the same figure as `critical_count` on
+  `GET /api/v1/projects/health-summary/`, which counts incomplete leaf tasks only. The
+  id list is not on the socket: it was uncapped (thousands of ids per recalc on a mostly-critical network),
   persisted in the replay buffer, and read by no client. It ships in 0.5 as that
   replacement; before it the key was `critical_path`. The id list is still in the
   `schedule.recalculated` webhook payload and, for a program, in the program schedule

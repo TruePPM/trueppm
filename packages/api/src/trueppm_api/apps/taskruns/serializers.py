@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 
 from trueppm_api.apps.taskruns.models import TaskRun
@@ -83,6 +84,9 @@ class TaskRunSerializer(_ErrorDetailAdminOnlyMixin, serializers.ModelSerializer[
         return getattr(user, "username", None) or getattr(user, "email", None)
 
 
+# critical_path is deprecated, not removed, here: runs recorded before 0.5 still
+# carry it and the API keeps echoing what was persisted (api/stability.md).
+@extend_schema_serializer(deprecate_fields=["critical_path"])
 class SchedulerRunResultSummarySerializer(serializers.Serializer[Any]):
     """Typed view over TaskRun.result_summary when task_name='scheduling.recalculate'.
 
@@ -93,11 +97,16 @@ class SchedulerRunResultSummarySerializer(serializers.Serializer[Any]):
     """
 
     project_finish = serializers.DateField(required=False, allow_null=True)
+    # Not allow_null: DRF serves a missing key as null when allow_null is set, which
+    # would put ``critical_path: null`` on every new run. No writer ever stored null
+    # here, so omitting the key when the row lacks it loses nothing.
     critical_path = serializers.ListField(
         child=serializers.CharField(),
         required=False,
-        allow_null=True,
-        help_text="Legacy: present only on runs recorded before critical_count (#4656).",
+        help_text=(
+            "Deprecated: present only on runs recorded before critical_count; "
+            "new runs omit it. Read critical_count instead."
+        ),
     )
     critical_count = serializers.IntegerField(
         required=False,

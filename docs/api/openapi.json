@@ -82534,8 +82534,8 @@
                         "items": {
                             "type": "string"
                         },
-                        "nullable": true,
-                        "description": "Legacy: present only on runs recorded before critical_count (#4656)."
+                        "description": "Deprecated: present only on runs recorded before critical_count; new runs omit it. Read critical_count instead.",
+                        "deprecated": true
                     },
                     "critical_count": {
                         "type": "integer",

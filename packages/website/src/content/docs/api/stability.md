@@ -602,20 +602,21 @@ security-critical exception.
 
 ### `critical_path` removed from `cpm_complete` and `task_run_completed` (#4656)
 
-The `cpm_complete` WebSocket event and the `result_summary` of the
-`task_run_completed` event (and of a new `TaskRun` row) carried `critical_path`, the
+The `cpm_complete` WebSocket event, the `result_summary` of the
+`task_run_completed` event, and the `result_summary` of a new scheduler run as served
+by `GET /api/v1/projects/{id}/scheduler-runs/` carried `critical_path`, the
 uncapped list of every critical task id: about 39 KB per 1,000 critical tasks on each
-recalculation, persisted in the replay buffer. Both now carry `critical_count`, an
-integer, instead. Removing a field is **Breaking** by the table above, and this ships in
+recalculation, persisted in the replay buffer. All three now carry `critical_count`,
+an integer, instead. Removing a field is **Breaking** by the table above, and this ships in
 0.5 with no deprecation window: no web or MCP client in this repository reads the old
 key, so a window would only have kept the payload bloat alive. Enterprise-side
 consumers could not be checked from this repository; an integration that reads
-`critical_path` from either payload must switch to `critical_count`, or read the ids
+`critical_path` from any of them must switch to `critical_count`, or read the ids
 from the `schedule.recalculated` webhook payload, which keeps the full list, or, for a
-program, from the program schedule read. `TaskRun` rows written before 0.5 keep their
-`critical_path`. The key is a WebSocket and free-form `result_summary` member, not a
-declared OpenAPI property, so the schema-breaking gate does not see it and needs no
-allowlist entry.
+program, from the program schedule read. Runs recorded before 0.5 keep their
+`critical_path`, and `GET /api/v1/projects/{id}/scheduler-runs/` still returns it on
+those rows, so the property stays declared on `SchedulerRunResultSummary` in the
+OpenAPI schema, marked `deprecated`; runs recorded from 0.5 on omit it.
 
 | | |
 |---|---|

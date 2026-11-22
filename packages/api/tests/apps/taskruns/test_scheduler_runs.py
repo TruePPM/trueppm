@@ -111,6 +111,29 @@ def test_list_returns_typed_result_summary_and_username(
 
 
 @pytest.mark.django_db
+def test_list_echoes_critical_count_and_omits_critical_path_on_new_runs(
+    member_client: APIClient, project: Project, user: object
+) -> None:
+    """A run recorded since the id list left result_summary serves the count only.
+
+    ``critical_path`` stays declared (deprecated) for legacy rows; the serializer must
+    not synthesize it, as ``null`` or otherwise, for a row that never stored it.
+    """
+    _make_run(
+        project,
+        initiated_by=user,
+        result_summary={"project_finish": "2026-06-01", "critical_count": 3},
+    )
+
+    resp = member_client.get(_url(project))
+    assert resp.status_code == 200
+    summary = _results(resp)[0]["result_summary"]
+    assert summary["project_finish"] == "2026-06-01"
+    assert summary["critical_count"] == 3
+    assert "critical_path" not in summary
+
+
+@pytest.mark.django_db
 def test_list_handles_null_result_summary(
     member_client: APIClient, project: Project, user: object
 ) -> None:
