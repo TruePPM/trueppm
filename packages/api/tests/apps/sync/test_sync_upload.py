@@ -35,6 +35,7 @@ from trueppm_api.apps.projects.models import (
     TaskStatus,
     TaskType,
 )
+from trueppm_api.apps.projects.services import recompute_milestone_rollup
 from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskResource
 from trueppm_api.apps.sync.models import SyncBatch, SyncBatchStatus
 from trueppm_api.apps.teams.models import Team, TeamMembership, TeamRole
@@ -1267,6 +1268,52 @@ def test_sync_link_to_active_sprint_enters_pending_acceptance(
     assert SprintScopeChange.objects.filter(
         sprint=sprint, task=task, status=ScopeChangeStatus.PENDING
     ).exists()
+
+
+@pytest.mark.django_db
+def test_sync_upload_of_20_sprint_rows_emits_one_milestone_rollup(
+    admin_client: APIClient,
+    project: Project,
+    django_capture_on_commit_callbacks: Any,
+) -> None:
+    """#4654: a batch linking 20 tasks into a milestone-targeting sprint recomputes
+    and broadcasts that milestone's rollup once, not once per row. The upload runs in
+    one atomic block, so the deferred flush fires a single time at commit."""
+    milestone = Task.objects.create(
+        project=project,
+        name="Launch",
+        duration=0,
+        is_milestone=True,
+        early_finish=date(2026, 4, 30),
+        early_start=date(2026, 4, 30),
+    )
+    sprint = Sprint.objects.create(
+        project=project,
+        name="Planned",
+        start_date=date(2026, 4, 1),
+        finish_date=date(2026, 4, 14),
+        state=SprintState.PLANNED,
+        target_milestone=milestone,
+    )
+    tasks = [Task.objects.create(project=project, name=f"R{i}", duration=1) for i in range(20)]
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as broadcast,
+        patch(
+            "trueppm_api.apps.projects.services.recompute_milestone_rollup",
+            wraps=recompute_milestone_rollup,
+        ) as recompute,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        resp = admin_client.post(
+            _url(project),
+            _payload(updated=[{"id": str(t.pk), "sprint": str(sprint.pk)} for t in tasks]),
+            format="json",
+        )
+    assert resp.status_code == 200
+    assert recompute.call_count == 1
+    rollups = [c for c in broadcast.call_args_list if c.args[1] == "milestone_rollup_updated"]
+    assert len(rollups) == 1
+    assert rollups[0].args[2]["milestone_id"] == str(milestone.pk)
 
 
 # ---------------------------------------------------------------------------

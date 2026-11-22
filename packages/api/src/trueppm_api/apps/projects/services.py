@@ -4176,6 +4176,12 @@ class _PendingRollups:
     construction. ``flush_milestone_rollups`` is the single ``on_commit`` callback for the
     set; whether it is still queued in ``connection.run_on_commit`` is how a later
     save tells a live set from one stranded by a rolled-back transaction.
+
+    Accepted edge: an id parked inside a savepoint that later rolls back is not
+    removed while the outer flush callback is still queued, so the flush may
+    recompute and broadcast a milestone whose triggering save was undone. That is
+    one extra recompute reporting current committed truth, never a wrong value, and
+    removing it would need per-savepoint bookkeeping the saving does not justify.
     """
 
     def __init__(self) -> None:
