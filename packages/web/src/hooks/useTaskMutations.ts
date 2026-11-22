@@ -394,7 +394,8 @@ export interface RescheduleTaskPayload {
   /** Target finish date (#951) — the server derives the working-day `duration`
    *  from the project calendar. Sent by the Gantt resize commit in place of
    *  `duration` so a bar dragged across a weekend commits the correct
-   *  working-day span, not the inflated calendar span. */
+   *  working-day span, not the inflated calendar span. Never stored, and not a
+   *  finish-no-later-than constraint: CPM does not enforce it afterwards (#3345). */
   planned_finish?: string | null;
   /** Partial Task values applied to the cache immediately (optimistic UI). */
   optimistic: Partial<Task>;

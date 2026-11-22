@@ -4264,7 +4264,24 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # project's composed calendar so a bar dragged across a weekend or holiday commits the
     # correct working-day count, not the inflated calendar span. Never persisted —
     # ``duration`` remains the stored field; this is popped in ``validate()``.
-    planned_finish = serializers.DateField(required=False, allow_null=True, write_only=True)
+    #
+    # The ``help_text`` is the field's OpenAPI description (#3465): an integrator
+    # building from the schema alone sees a writable date named like a constraint,
+    # so the schema itself has to say it is not one. Set here, on the serializer,
+    # because it is not a model field and carries no model ``help_text`` to inherit.
+    planned_finish = serializers.DateField(
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text=(
+            "Write-only resize input, never stored or returned. The server converts it "
+            "at write time into `duration`: the working days from the task's start to "
+            "this date on the project calendar. It is NOT a finish-no-later-than "
+            "constraint and is not currently enforced by the CPM backward pass, so a "
+            "later change to a predecessor can move the task's finish past this date. "
+            "Whether it becomes an enforced constraint is tracked in #3345."
+        ),
+    )
 
     def get_short_id_display(self, obj: Task) -> str:
         """Compact, in-project task reference — ``T-8`` (#2430).

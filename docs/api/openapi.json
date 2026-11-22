@@ -72239,7 +72239,8 @@
                         "type": "string",
                         "format": "date",
                         "writeOnly": true,
-                        "nullable": true
+                        "nullable": true,
+                        "description": "Write-only resize input, never stored or returned. The server converts it at write time into `duration`: the working days from the task's start to this date on the project calendar. It is NOT a finish-no-later-than constraint and is not currently enforced by the CPM backward pass, so a later change to a predecessor can move the task's finish past this date. Whether it becomes an enforced constraint is tracked in #3345."
                     },
                     "deadline": {
                         "type": "string",
@@ -88050,7 +88051,8 @@
                         "type": "string",
                         "format": "date",
                         "writeOnly": true,
-                        "nullable": true
+                        "nullable": true,
+                        "description": "Write-only resize input, never stored or returned. The server converts it at write time into `duration`: the working days from the task's start to this date on the project calendar. It is NOT a finish-no-later-than constraint and is not currently enforced by the CPM backward pass, so a later change to a predecessor can move the task's finish past this date. Whether it becomes an enforced constraint is tracked in #3345."
                     },
                     "deadline": {
                         "type": "string",
@@ -89346,7 +89348,8 @@
                         "type": "string",
                         "format": "date",
                         "writeOnly": true,
-                        "nullable": true
+                        "nullable": true,
+                        "description": "Write-only resize input, never stored or returned. The server converts it at write time into `duration`: the working days from the task's start to this date on the project calendar. It is NOT a finish-no-later-than constraint and is not currently enforced by the CPM backward pass, so a later change to a predecessor can move the task's finish past this date. Whether it becomes an enforced constraint is tracked in #3345."
                     },
                     "deadline": {
                         "type": "string",
