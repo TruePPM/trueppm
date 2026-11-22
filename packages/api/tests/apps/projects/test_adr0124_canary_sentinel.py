@@ -177,6 +177,58 @@ def test_workspace_archive_carries_no_canary(project: Project, blocked_task: Tas
     assert [n for n, body in members.items() if CANARY.encode() in body] == []
 
 
+def test_sync_task_serializer_does_not_declare_the_private_field() -> None:
+    """The pull serializer has no read gate, so the field must not be on it at all (#4124)."""
+    from trueppm_api.apps.sync.serializers import SyncTaskSerializer
+
+    assert "blocked_reason" not in SyncTaskSerializer.Meta.fields
+
+
+def test_sync_pull_payload_carries_no_canary(
+    project: Project, blocked_task: Task, owner: Any, assignee: Any
+) -> None:
+    """A real pull, as a non-reader AND as the assignee: sync is not a reader of the text."""
+    for user in (owner, assignee):
+        body = _get(user, f"/api/v1/projects/{project.pk}/sync/?since=0")
+        assert str(blocked_task.pk) in body, "pull returned no task — the sweep is vacuous"
+        assert CANARY not in body
+
+
+def test_sync_conflict_body_does_not_echo_the_canary_to_a_non_reader(
+    project: Project, blocked_task: Task, owner: Any
+) -> None:
+    """``conflict.py`` builds ``server_value`` from the requester-gated TaskSerializer.
+
+    The non-reader's own conflicting ``blocked_reason`` edit is echoed as ``client_value``
+    (their own input, not the stored text); the stored canary must never appear.
+    """
+    base = blocked_task.server_version
+    blocked_task.blocked_reason = "another writer's text"
+    blocked_task.save()
+    client = APIClient()
+    client.force_authenticate(user=owner)
+    resp = client.post(
+        f"/api/v1/projects/{project.pk}/sync/",
+        {
+            "client_batch_id": "00000000-0000-4000-8000-000000000124",
+            "last_pulled_at": base,
+            "changes": {
+                "tasks": {
+                    "created": [],
+                    "updated": [{"id": str(blocked_task.pk), "blocked_reason": "owner edit"}],
+                    "deleted": [],
+                }
+            },
+        },
+        format="json",
+    )
+    assert resp.status_code == 200, resp.content[:300]
+    raw = resp.content.decode()
+    assert len(resp.json()["conflicts"]["tasks"]) == 1, "no conflict produced — vacuous"
+    assert CANARY not in raw
+    assert "another writer" not in raw  # the stored text, not just the canary prefix
+
+
 # Every non-migration source file that mentions ``blocked_reason``, each judged once.
 # A new entry means a new reader or writer of the private field: add a sentinel check
 # above (or state why none applies) *before* extending this set.
