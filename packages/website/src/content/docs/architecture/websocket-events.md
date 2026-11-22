@@ -138,19 +138,14 @@ Two deliberate qualifiers:
   to `<resource>_<past-tense-verb>`. The grandfathered strings are normalized only
   at the 1.0 wire-freeze, where a one-time breaking rename is acceptable.
 
-One string that shipped in 0.4 broke the grammar and is corrected rather than
-grandfathered: `dependencies_bulk_created` (plural resource) is renamed
-`dependency_bulk_created`. Both names are emitted for one minor, 0.5, and the plural
-is removed in 0.6 (#5096); until then it sits on the grandfather list as a
+Two strings that shipped in 0.4 broke the grammar and are corrected rather than
+grandfathered: `dependencies_bulk_created` is renamed `dependency_bulk_created`, and
+`decisions_policy_changed` is renamed `decision_policy_changed` (plural resource
+word in both). Each old name is emitted alongside the new one for one minor, 0.5,
+and is removed in 0.6 (#5096); until then it sits on the grandfather list as a
 deprecated alias. `test_ws_event_names_follow_the_grammar_outside_the_grandfather_list`
-enforces the grammar: any event not on the shrink-only grandfather list (and
-the one exemption below) must be `<singular resource>_<past-tense verb>`.
-
-**Explicit exemption, decision pending:** `decisions_policy_changed` also first shipped
-in 0.4 and carries a plural resource word, so it is not grandfathered by age. It is
-listed as a separate, shrink-only exemption (`_NEW_IN_0_4_PLURAL_EXEMPTIONS`) rather
-than renamed. Whether to rename it (another dual-emit alias) or keep it as a compound
-noun is a pending maintainer decision.
+enforces the grammar: any event not on the shrink-only grandfather list must be
+`<singular resource>_<past-tense verb>`.
 
 ## The frozen contract
 

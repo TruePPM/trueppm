@@ -621,6 +621,9 @@ FROZEN_WS_EVENT_TYPES = frozenset(
         "comment_created",
         "cpm_complete",
         "cpm_error",
+        "decision_policy_changed",
+        # Deprecated 0.4 alias of decision_policy_changed; remove in 0.6 (#5098).
+        # TODO(#5096): delete this entry when the alias is removed.
         "decisions_policy_changed",
         "demo_presenter_set",
         "demo_reordered",
@@ -772,7 +775,7 @@ def test_ws_event_type_set_is_frozen() -> None:
 # which predate the rule are grandfathered. Nothing enforced that, so
 # ``dependencies_bulk_created`` shipped in 0.4 violating it. The grandfather list
 # below is the ONLY exemption and is ratcheted: it may shrink, never grow.
-# TODO(#5096): the ``dependencies_bulk_created`` entry goes in 0.6.
+# TODO(#5096): the ``dependencies_bulk_created`` and ``decisions_policy_changed`` entries go in 0.6.
 # ---------------------------------------------------------------------------
 
 # Past-tense verbs a conforming event may end in. Extending this is a naming decision;
@@ -798,6 +801,8 @@ _GRANDFATHERED_WS_EVENT_TYPES = frozenset(
     {
         "cpm_complete",
         "cpm_error",
+        # Deprecated 0.4 alias of decision_policy_changed; remove in 0.6 (#5098).
+        "decisions_policy_changed",
         # Deprecated 0.4 alias of dependency_bulk_created; remove in 0.6 (#4481).
         "dependencies_bulk_created",
         "flagged_for_backlog",
@@ -814,14 +819,7 @@ _GRANDFATHERED_WS_EVENT_TYPES = frozenset(
         "tasks_restructured",
     }
 )
-_GRANDFATHER_CEILING = 15
-
-# NOT grandfathered: introduced in 0.4.0 (so it predates no wire-freeze) yet carries a
-# plural resource word ("decisions"). Whether to rename it (another dual-emit alias,
-# see #5096) or exempt it as a compound noun is a PENDING MAINTAINER DECISION; until
-# then it is an explicit, separately counted exemption. Shrink-only like the list above.
-_NEW_IN_0_4_PLURAL_EXEMPTIONS = frozenset({"decisions_policy_changed"})
-_NEW_IN_0_4_PLURAL_EXEMPTION_CEILING = 1
+_GRANDFATHER_CEILING = 16
 
 
 def _ws_event_grammar_violation(event_type: str) -> str | None:
@@ -843,7 +841,7 @@ def test_ws_event_names_follow_the_grammar_outside_the_grandfather_list() -> Non
     live = _broadcast_event_types_in_source()
     violations = sorted(
         reason
-        for name in live - _GRANDFATHERED_WS_EVENT_TYPES - _NEW_IN_0_4_PLURAL_EXEMPTIONS
+        for name in live - _GRANDFATHERED_WS_EVENT_TYPES
         if (reason := _ws_event_grammar_violation(name))
     )
     assert not violations, (
@@ -860,14 +858,7 @@ def test_ws_grandfather_list_only_shrinks() -> None:
         "The grammar grandfather list and its ceiling disagree. A new event conforms "
         "to the grammar; it does not join the exemption. A removal lowers the ceiling."
     )
-    assert len(_NEW_IN_0_4_PLURAL_EXEMPTIONS) == _NEW_IN_0_4_PLURAL_EXEMPTION_CEILING
-    assert _NEW_IN_0_4_PLURAL_EXEMPTIONS <= FROZEN_WS_EVENT_TYPES
     assert _GRANDFATHERED_WS_EVENT_TYPES <= FROZEN_WS_EVENT_TYPES
-    assert not _GRANDFATHERED_WS_EVENT_TYPES & _NEW_IN_0_4_PLURAL_EXEMPTIONS
-    still_violating_exempt = [
-        n for n in _NEW_IN_0_4_PLURAL_EXEMPTIONS if _ws_event_grammar_violation(n) is None
-    ]
-    assert not still_violating_exempt, f"Drop from the 0.4 exemptions: {still_violating_exempt}"
     still_conforming = sorted(
         n for n in _GRANDFATHERED_WS_EVENT_TYPES if _ws_event_grammar_violation(n) is None
     )
@@ -878,7 +869,13 @@ def test_ws_grandfather_list_only_shrinks() -> None:
 
 def test_ws_grammar_rejects_a_synthetic_non_conforming_name() -> None:
     """The check discriminates: bad names fail it, conforming names pass it."""
-    for bad in ("dependencies_bulk_created", "task_updating", "tasks_created", "presence_join"):
+    for bad in (
+        "dependencies_bulk_created",
+        "decisions_policy_changed",
+        "task_updating",
+        "tasks_created",
+        "presence_join",
+    ):
         assert _ws_event_grammar_violation(bad), bad
     for good in ("dependency_bulk_created", "task_created", "sprint_retro_updated"):
         assert _ws_event_grammar_violation(good) is None, good

@@ -526,14 +526,14 @@ class TestDecisionsPolicy:
         r = outsider_client.get(_decisions_policy_url(project))
         assert r.status_code in (403, 404)
 
-    def test_patch_broadcasts_decisions_policy_changed_event(
+    def test_patch_broadcasts_decision_policy_changed_event(
         self,
         admin_client: APIClient,
         project: Project,
         memberships: None,
         django_capture_on_commit_callbacks: object,
     ) -> None:
-        """PATCH fires a deferred ``decisions_policy_changed`` board event (#4283).
+        """PATCH fires a deferred ``decision_policy_changed`` board event (#4283, #5098).
 
         Regression test for the bug this issue fixes: the view used to save the
         policy with no broadcast anywhere in the write path, so a peer with the
@@ -548,8 +548,11 @@ class TestDecisionsPolicy:
                     _decisions_policy_url(project), {"oversight_visible": True}, format="json"
                 )
             assert r.status_code == 200, r.data
-        assert mock_bcast.call_count == 1
-        project_id, event_type, payload = mock_bcast.call_args.args
-        assert project_id == str(project.pk)
-        assert event_type == "decisions_policy_changed"
-        assert payload == {"id": str(project.pk), "oversight_visible": True}
+        # #5098: the new name first, then the deprecated 0.4 plural alias (removed in 0.6),
+        # both from the one on_commit callback.
+        assert mock_bcast.call_count == 2
+        expected = {"id": str(project.pk), "oversight_visible": True}
+        assert [c.args for c in mock_bcast.call_args_list] == [
+            (str(project.pk), "decision_policy_changed", expected),
+            (str(project.pk), "decisions_policy_changed", expected),
+        ]

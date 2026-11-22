@@ -4284,26 +4284,29 @@ describe('useProjectWebSocket — signal-privacy, velocity-suggestion, task-rela
   });
 
   // --- #4283: Decisions-view oversight-visibility consent ---
-  it('invalidates decisions-policy, but not the decisions list, on decisions_policy_changed', () => {
-    // decisions-policy is what OversightConsentControl reads, so a Member+ peer's
-    // control stays in sync with another admin's toggle. The decisions LIST is
-    // deliberately NOT invalidated here: ProjectConsumer.connect() closes with
-    // 4003 for any role below Member, and can_read_decisions gates oversight_visible
-    // on exactly those same below-Member roles — so every socket that can receive
-    // this event is already Member+, for whom the list read already succeeds
-    // unconditionally regardless of oversight_visible. An oversight reader (below
-    // Member) is never connected to this socket and sees the change on next load,
-    // not live. (An earlier round of this fix added a ['decisions', id]
-    // invalidation on a false premise that it would unlock such a reader live;
-    // removed once that premise was verified false — completeness-check round 2.)
-    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
-    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+  it.each(['decision_policy_changed', 'decisions_policy_changed'])(
+    'invalidates decisions-policy, but not the decisions list, on %s',
+    (eventType) => {
+      // decisions-policy is what OversightConsentControl reads, so a Member+ peer's
+      // control stays in sync with another admin's toggle. The decisions LIST is
+      // deliberately NOT invalidated here: ProjectConsumer.connect() closes with
+      // 4003 for any role below Member, and can_read_decisions gates oversight_visible
+      // on exactly those same below-Member roles — so every socket that can receive
+      // this event is already Member+, for whom the list read already succeeds
+      // unconditionally regardless of oversight_visible. An oversight reader (below
+      // Member) is never connected to this socket and sees the change on next load,
+      // not live. (An earlier round of this fix added a ['decisions', id]
+      // invalidation on a false premise that it would unlock such a reader live;
+      // removed once that premise was verified false — completeness-check round 2.)
+      const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+      renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
 
-    dispatch('decisions_policy_changed', { id: 'proj-1', oversight_visible: true });
+      dispatch(eventType, { id: 'proj-1', oversight_visible: true });
 
-    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['decisions-policy', 'proj-1'] });
-    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['decisions', 'proj-1'] });
-  });
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['decisions-policy', 'proj-1'] });
+      expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['decisions', 'proj-1'] });
+    },
+  );
 
   // --- #3772: velocity-suggestion settlement ---
   it.each(['velocity_suggestion_accepted', 'velocity_suggestion_dismissed'])(

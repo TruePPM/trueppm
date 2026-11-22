@@ -45,7 +45,8 @@
  *                  (every task-scoped + pending-list query) + sprint-backlog (#2845, #3772)
  *   signal_privacy_changed / signal_ceiling_proposal_changed → invalidate signal-privacy + ceiling-proposals
  *   signal_ceiling_vote_cast → invalidate ceiling-proposals + signal-privacy (tally lives in both, #3771)
- *   decisions_policy_changed → invalidate decisions-policy (ADR-0167, #4283 — keeps a Member+
+ *   decision_policy_changed → invalidate decisions-policy (ADR-0167, #4283, #5098; also the 0.4
+ *                  alias decisions_policy_changed, removed in 0.6, #5096 — keeps a Member+
  *                  peer's OversightConsentControl in sync with another admin's toggle; an
  *                  oversight reader, below Member, is never connected to this socket in the
  *                  first place and sees the change on their next load, see the handler below)
@@ -1301,7 +1302,9 @@ function registerDecisionsPolicyHandlers(on: OnFn, deps: WsHandlerDeps): void {
   // Member, the only role the switch actually gates) is never connected to
   // this socket at all and sees the new posture on their next page load, not
   // live — there is no live-sync path for that role today.
-  on('decisions_policy_changed', () => {
+  // #5098: `decision_policy_changed` is the grammar-conforming name; the plural alias is
+  // dual-emitted through 0.5 and removed in 0.6 (#5096). One on() handles both.
+  on(['decision_policy_changed', 'decisions_policy_changed'], () => {
     void queryClient.invalidateQueries({
       queryKey: ['decisions-policy', projectIdRef.current],
     });
