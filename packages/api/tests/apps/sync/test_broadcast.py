@@ -627,6 +627,7 @@ FROZEN_WS_EVENT_TYPES = frozenset(
         "demo_toggled",
         "dependency_accepted",
         # Deprecated 0.4 alias of dependency_bulk_created; remove in 0.6 (#4481).
+        # TODO(#5096): delete this entry when the alias is removed.
         "dependencies_bulk_created",
         "dependency_bulk_created",
         "dependency_created",
@@ -771,6 +772,7 @@ def test_ws_event_type_set_is_frozen() -> None:
 # which predate the rule are grandfathered. Nothing enforced that, so
 # ``dependencies_bulk_created`` shipped in 0.4 violating it. The grandfather list
 # below is the ONLY exemption and is ratcheted: it may shrink, never grow.
+# TODO(#5096): the ``dependencies_bulk_created`` entry goes in 0.6.
 # ---------------------------------------------------------------------------
 
 # Past-tense verbs a conforming event may end in. Extending this is a naming decision;
@@ -784,6 +786,10 @@ _WS_PAST_TENSE_VERBS = frozenset(
         *("split", "started", "toggled", "transferred", "unarchived", "updated"),
     }
 )
+
+# Resource words that are singular despite ending in "s"; without this a legitimate
+# ``task_status_changed`` / ``board_progress_updated`` would be read as plural.
+_SINGULAR_S_WORDS = frozenset({"status", "progress", "address", "canvas", "alias", "bus", "bonus"})
 
 # Frozen strings that break the grammar and are kept for wire stability until the 1.0
 # wire-freeze. Never add to this: a new event conforms. Delete an entry when its
@@ -817,7 +823,11 @@ def _ws_event_grammar_violation(event_type: str) -> str | None:
     resource, _, verb = event_type.rpartition("_")
     if not resource or verb not in _WS_PAST_TENSE_VERBS:
         return f"{event_type!r}: last word {verb!r} is not an allow-listed past-tense verb"
-    plural = [seg for seg in resource.split("_") if seg.endswith("s") and not seg.endswith("ss")]
+    plural = [
+        seg
+        for seg in resource.split("_")
+        if seg.endswith("s") and not seg.endswith("ss") and seg not in _SINGULAR_S_WORDS
+    ]
     if plural:
         return f"{event_type!r}: resource word(s) {plural} look plural; use the singular"
     return None
@@ -857,6 +867,10 @@ def test_ws_grammar_rejects_a_synthetic_non_conforming_name() -> None:
         assert _ws_event_grammar_violation(bad), bad
     for good in ("dependency_bulk_created", "task_created", "sprint_retro_updated"):
         assert _ws_event_grammar_violation(good) is None, good
+    # Singular words that merely end in "s" are not plurals (verbs must still be allow-listed).
+    assert _ws_event_grammar_violation("task_status_changed") is None
+    assert _ws_event_grammar_violation("board_progress_updated") is None
+    assert _ws_event_grammar_violation("dependencies_status_changed")  # real plural still fails
     assert "brand_new_things_created" not in FROZEN_WS_EVENT_TYPES  # not exempt by accident
 
 

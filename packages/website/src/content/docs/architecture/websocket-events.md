@@ -141,7 +141,7 @@ Two deliberate qualifiers:
 One string that shipped in 0.4 broke the grammar and is corrected rather than
 grandfathered: `dependencies_bulk_created` (plural resource) is renamed
 `dependency_bulk_created`. Both names are emitted for one minor, 0.5, and the plural
-is removed in 0.6. `test_ws_event_type_set_is_frozen` also enforces the grammar: any
+is removed in 0.6 (#5096). `test_ws_event_type_set_is_frozen` also enforces the grammar: any
 event not on its shrink-only grandfather list must be `<singular resource>_<past-tense verb>`.
 
 ## The frozen contract
