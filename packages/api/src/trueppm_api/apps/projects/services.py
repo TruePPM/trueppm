@@ -20,7 +20,8 @@ from decimal import Decimal
 from functools import partial
 from typing import TYPE_CHECKING, Any, NamedTuple
 
-from django.db import transaction
+from celery.exceptions import SoftTimeLimitExceeded
+from django.db import connection, transaction
 from django.utils import timezone
 
 # Re-exported (not just used internally) so every existing ``from
@@ -4168,6 +4169,68 @@ def batch_compute_milestone_rollups(milestones: Any) -> dict[Any, dict[str, Any]
     }
 
 
+class _PendingRollups:
+    """Milestone ids awaiting one deferred recompute at the end of a transaction.
+
+    Lives on the DB connection (one per thread), so it is per-transaction by
+    construction. ``flush`` is the single ``on_commit`` callback registered for the
+    set; whether it is still queued in ``connection.run_on_commit`` is how a later
+    save tells a live set from one stranded by a rolled-back transaction.
+    """
+
+    def __init__(self) -> None:
+        self.ids: dict[str, None] = {}  # insertion-ordered set
+
+    def flush(self) -> None:
+        pending = list(self.ids)
+        self.ids.clear()
+        for milestone_id in pending:
+            try:
+                recompute_milestone_rollup(milestone_id)
+            except SoftTimeLimitExceeded:
+                raise
+            except Exception:
+                # Runs at commit, after the primary write succeeded: a cosmetic
+                # rollup must never surface as a failed request.
+                logger.exception("milestone rollup: deferred recompute failed for %s", milestone_id)
+
+
+def _live_pending_rollups() -> _PendingRollups | None:
+    state: _PendingRollups | None = getattr(connection, "_pending_milestone_rollups", None)
+    if state is None:
+        return None
+    if any(entry[1] == state.flush for entry in connection.run_on_commit):
+        return state
+    return None
+
+
+def schedule_milestone_rollup(milestone_id: str | uuid.UUID) -> None:
+    """Recompute a milestone's rollup once per transaction, however many tasks saved.
+
+    Each ``Task`` save in a sprint bound to a milestone used to run the 4-6 query
+    rollup and queue its own ``milestone_rollup_updated`` broadcast — a 150-task sprint
+    close was ~150 recomputes and 150 persisted ``BoardEvent`` rows (#4654). Inside a
+    transaction the id is parked on a per-connection set and a single ``on_commit``
+    callback recomputes each pending milestone once. Outside a transaction there is
+    nothing to batch, so it recomputes immediately.
+    """
+    if not connection.in_atomic_block:
+        recompute_milestone_rollup(milestone_id)
+        return
+    state = _live_pending_rollups()
+    if state is None:
+        state = _PendingRollups()
+        connection._pending_milestone_rollups = state  # type: ignore[attr-defined]
+        transaction.on_commit(state.flush)
+    state.ids[str(milestone_id)] = None
+
+
+def _discard_pending_rollup(milestone_id: str | uuid.UUID) -> None:
+    state = _live_pending_rollups()
+    if state is not None:
+        state.ids.pop(str(milestone_id), None)
+
+
 def recompute_milestone_rollup(
     milestone_id: str | uuid.UUID,
     *,
@@ -4176,12 +4239,17 @@ def recompute_milestone_rollup(
     """Recompute the milestone rollup and broadcast the result.
 
     Idempotent — every call produces the truth from current sprint/task state.
-    Safe to call concurrently; broadcast deduplication is handled by the
-    on_commit registry (one broadcast per milestone per transaction).
+    Safe to call concurrently. This function itself does NOT deduplicate: each call
+    queues one broadcast. Per-transaction dedup of the task-save path lives in
+    :func:`schedule_milestone_rollup`; an explicit call here also drops that
+    milestone from the pending set, because it has just computed the truth
+    and a deferred recompute would only broadcast the same thing again.
 
     Returns the payload (also broadcast). Returns ``None`` when the milestone
     no longer exists or is not actually a milestone — caller handles silently.
     """
+    if broadcast:
+        _discard_pending_rollup(milestone_id)
     from trueppm_api.apps.projects.models import Task
     from trueppm_api.apps.scheduling.finish_reading import FINISH_READING_FIELDS
     from trueppm_api.apps.sync.broadcast import broadcast_board_event
