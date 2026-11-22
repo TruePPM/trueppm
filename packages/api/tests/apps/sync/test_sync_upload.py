@@ -1876,3 +1876,44 @@ def test_refused_batch_applies_once_the_blocking_state_is_fixed(
     milestone.refresh_from_db()
     assert milestone.percent_complete == 50
     assert SyncBatch.objects.get(client_batch_id=batch_id).status == SyncBatchStatus.COMPLETED
+
+
+# ---------------------------------------------------------------------------
+# Project FK priming on the batch fetch (#2591)
+# ---------------------------------------------------------------------------
+
+
+def _project_row_selects(admin_client: APIClient, project: Project, rows: int) -> int:
+    """SELECTs against ``projects_project`` for an N-row ``planned_start`` push."""
+    tasks = [Task.objects.create(project=project, name=f"P{rows}-{i}") for i in range(rows)]
+    payload = _payload(updated=[{"id": str(t.pk), "planned_start": "2026-02-02"} for t in tasks])
+    with CaptureQueriesContext(connection) as ctx:
+        resp = admin_client.post(_url(project), payload, format="json")
+    assert resp.status_code == 200, resp.data
+    return sum(
+        1
+        for q in ctx.captured_queries
+        if q["sql"].lstrip().startswith("SELECT") and 'FROM "projects_project"' in q["sql"]
+    )
+
+
+@pytest.mark.django_db
+def test_upload_project_reads_are_constant_in_the_row_count(
+    admin_client: APIClient, project: Project
+) -> None:
+    """The batch's tasks arrive with ``project`` primed, so its hooks don't re-read it (#2591).
+
+    ``fetch_project_scoped_tasks`` filters ON the project FK, which does not populate
+    the FK cache; every ``TaskSerializer.update()`` hook that touches
+    ``instance.project`` (the start-shift hook fires on any ``planned_start``
+    write) then issued one SELECT per row for the same project. The project-row
+    reads must not grow with the batch.
+
+    Counts the ``projects_project`` SELECTs rather than wrapping the request in
+    ``django_assert_num_queries``: the batch as a whole is O(N) by design — one
+    ``UPDATE ... RETURNING`` per row (#1527) — so a total count cannot be constant,
+    and pinning an exact total would break on every unrelated hook change.
+    """
+    small = _project_row_selects(admin_client, project, rows=3)
+    large = _project_row_selects(admin_client, project, rows=12)
+    assert large == small, f"project re-read per row: {small} for 3 rows, {large} for 12"

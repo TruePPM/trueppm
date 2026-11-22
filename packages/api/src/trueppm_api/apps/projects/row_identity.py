@@ -66,7 +66,18 @@ def fetch_project_scoped_tasks(row_ids: set[str], project: Project) -> dict[str,
 
     if not row_ids:
         return {}
-    return {str(t.pk): t for t in Task.objects.filter(pk__in=row_ids, project=project)}
+    rows = list(Task.objects.filter(pk__in=row_ids, project=project))
+    for task in rows:
+        # Filtering ON an FK does not populate its cache, so every serializer
+        # update hook that reads ``instance.project`` (the start-shift, estimate
+        # governance and duration-policy hooks) would otherwise issue one SELECT
+        # per row for the same project (#2591). Every row is scoped to ``project``
+        # by the filter above, so assigning the already-loaded instance is exact,
+        # and cheaper than ``select_related`` re-reading the same row N times.
+        # Sharing one instance also means a hook that moves the project start
+        # (``shift_project_start_if_needed``) is seen by the next row's hook.
+        task.project = project
+    return {str(t.pk): t for t in rows}
 
 
 def foreign_task_ids(
