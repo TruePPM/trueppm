@@ -879,6 +879,11 @@ boundary:check:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
     - if: '$CI_COMMIT_BRANCH == "main"'
+  # Exit 3 = tracker unreadable after the script's own retries: infrastructure,
+  # retried here. Still fails closed (no allow_failure) if it stays unreadable.
+  retry:
+    max: 2
+    exit_codes: [3]
   before_script:
     - apk add --no-cache curl jq bash
   script:
