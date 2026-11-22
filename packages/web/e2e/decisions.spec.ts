@@ -311,7 +311,7 @@ test.describe('Decisions view — live oversight-visibility sync (#4283)', () =>
     socket.send(
       JSON.stringify({
         protocol_version: 1,
-        event_type: 'decisions_policy_changed',
+        event_type: 'decision_policy_changed',
         payload: { id: PROJECT_ID, oversight_visible: true },
         seq: 1,
       }),

@@ -63,13 +63,24 @@ def _emit_oversight_visible_changed(project_id: Any, oversight_visible: bool) ->
     from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
     project_id_str = str(project_id)
-    transaction.on_commit(
-        lambda: broadcast_board_event(
+
+    def _broadcast() -> None:
+        # #5098: ``decision_policy_changed`` is the grammar-conforming name. The plural
+        # ``decisions_policy_changed`` shipped in 0.4, so it is dual-emitted for one
+        # minor (0.5) in this same callback and removed in 0.6; clients handle both.
+        # TODO(#5096): drop the plural alias emit below in 0.6.
+        broadcast_board_event(
+            project_id_str,
+            "decision_policy_changed",
+            {"id": project_id_str, "oversight_visible": oversight_visible},
+        )
+        broadcast_board_event(
             project_id_str,
             "decisions_policy_changed",
             {"id": project_id_str, "oversight_visible": oversight_visible},
         )
-    )
+
+    transaction.on_commit(_broadcast)
 
 
 def can_read_decisions(

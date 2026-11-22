@@ -91,7 +91,7 @@ class ProjectDecisionsPolicyView(APIView):
         body.is_valid(raise_exception=True)
         policy = get_or_create_decisions_policy(project)
         # set_oversight_visible is the one chokepoint that both saves (bumping
-        # server_version / HistoricalRecords) and broadcasts decisions_policy_changed
+        # server_version / HistoricalRecords) and broadcasts decision_policy_changed
         # on commit (#4283) — mirrors signal_privacy_services' write+broadcast layering.
         policy = set_oversight_visible(policy, body.validated_data["oversight_visible"])
         return Response(self._payload(request, project.pk, policy.oversight_visible))
