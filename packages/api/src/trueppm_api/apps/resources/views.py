@@ -1560,7 +1560,7 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
 
     Permission model:
     - Read (GET/HEAD/OPTIONS): any project member (Viewer+) via IsProjectMember.
-    - Write (POST/PATCH/DELETE): Resource Manager (2) or above via CanAssignResource.
+    - Write (POST/PATCH/DELETE): Resource Manager (Role.SCHEDULER) or above via CanAssignResource.
       The create path additionally checks role in perform_create because has_object_permission
       is not called before the object exists.
 
@@ -1669,7 +1669,7 @@ class TaskResourceViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskResour
     def perform_create(self, serializer: BaseSerializer[TaskResource]) -> None:
         """Block assignment creation for summary tasks, then trigger CPM and broadcast.
 
-        Role check: Resource Manager (2) or above is required. has_object_permission is
+        Role check: Resource Manager (Role.SCHEDULER) or above is required. has_object_permission is
         not called for create (no object exists yet), so the role is verified here against
         the task's project before the row is written.
 

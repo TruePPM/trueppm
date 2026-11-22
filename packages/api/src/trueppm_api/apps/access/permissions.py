@@ -252,7 +252,7 @@ def can_user_edit_task(request: Request, task: Any, *, method: str = "PATCH") ->
     if role is None:
         return False
 
-    # Project Manager (3) and Project Admin (4): full write on any task.
+    # Project Manager (Role.ADMIN) and Project Admin (Role.OWNER): full write on any task.
     if role >= Role.ADMIN:
         return True
 
@@ -268,15 +268,15 @@ def can_user_edit_task(request: Request, task: Any, *, method: str = "PATCH") ->
         ) and _is_product_owner(request, project_id):
             return True
 
-    # Resource Manager (2): cannot edit task content (only resource assignment).
+    # Resource Manager (Role.SCHEDULER): cannot edit task content (only resource assignment).
     if role == Role.SCHEDULER:
         return False
 
-    # Team Member (1): may only edit their own assigned tasks.
+    # Team Member (Role.MEMBER): may only edit their own assigned tasks.
     if role == Role.MEMBER:
         return is_task_assignee(request.user, task)
 
-    # Viewer (0): no writes.
+    # Viewer (Role.VIEWER): no writes.
     return False
 
 
@@ -506,8 +506,8 @@ def can_user_log_time(request: Request, task: Any) -> bool:
     tasks. The entry it gates is owned by the logger (``user`` is server-set to
     ``request.user``), so this is IDOR-safe by construction.
 
-    Rule: ``role >= Role.MEMBER`` on ``task.project``. Viewer (0) is denied; Member (1),
-    Scheduler (2), Admin (3), Owner (4) — and Enterprise custom roles ≥ 100 by the
+    Rule: ``role >= Role.MEMBER`` on ``task.project``. Viewer (Role.VIEWER) is denied;
+    Member, Scheduler, Admin and Owner — and Enterprise custom roles ≥ 100 by the
     band-threshold contract — may log. Fails closed: no auth / no membership / no
     resolvable project yields ``False`` (never an exception, never over-permissive).
     """
@@ -863,7 +863,7 @@ class IsProjectMember(BasePermission):
 
 
 class IsProjectMemberWrite(BasePermission):
-    """Allow Team Member (1) or above to perform write operations.
+    """Allow Team Member (Role.MEMBER) or above to perform write operations.
 
     On safe methods falls back to IsProjectMember (Viewer+ may read).
     """
@@ -1019,7 +1019,7 @@ class CanLogTime(BasePermission):
 
 
 class IsProjectScheduler(BasePermission):
-    """Allow Resource Manager (2) or above.
+    """Allow Resource Manager (Role.SCHEDULER) or above.
 
     Used on: dependency creation/edit.
     """
@@ -1044,7 +1044,7 @@ class IsProjectScheduler(BasePermission):
 
 
 class IsProjectAdmin(BasePermission):
-    """Allow Project Manager (3) or above."""
+    """Allow Project Manager (Role.ADMIN) or above."""
 
     message = "You need at least Project Manager role for this action."
 
@@ -1224,7 +1224,7 @@ class IsTaskScopeManager(BasePermission):
 
 
 class IsProjectOwner(BasePermission):
-    """Allow only Project Admin (Owner, 4).
+    """Allow only Project Admin (Role.OWNER).
 
     Used for: ProjectViewSet.destroy (only Project Admin may delete a project).
     """
@@ -1550,7 +1550,7 @@ class IsProgramMemberOrWorkspaceVisible(IsProgramMember):
 
 
 class IsProgramScheduler(BasePermission):
-    """Require Scheduler (2) or above on a program — for **reads** as well as writes.
+    """Require Scheduler (Role.SCHEDULER) or above on a program — for **reads** as well as writes.
 
     The program counterpart to ``IsProjectScheduler``. Resource allocation /
     contention data is Scheduler+ even on GET (web-rule 94 / the per-project
@@ -1584,7 +1584,7 @@ class IsProgramScheduler(BasePermission):
 
 
 class IsProgramEditor(BasePermission):
-    """Allow Team Member (1) or above on a program.
+    """Allow Team Member (Role.MEMBER) or above on a program.
 
     Used for BacklogItem create/edit endpoints (#501) and any other program-
     level write that is not Admin-gated. For #502 the only Editor-gated action
@@ -2057,8 +2057,8 @@ class IsOrgAdmin(BasePermission):
     """Org-level admin gate for the global resource catalog (issue #155).
 
     OSS has no separate org-admin entity. Admin authority is derived from
-    project membership: any user with Project Manager (ADMIN, 3) or Owner
-    (4) role on at least one *live* project may manage the resource catalog.
+    project membership: any user with Project Manager (Role.ADMIN) or Owner
+    (Role.OWNER) role on at least one *live* project may manage the resource catalog.
     Memberships on archived or soft-deleted projects do not count (#3569).
 
     Django superusers bypass the membership check.
@@ -2189,7 +2189,7 @@ class IsWorkspaceOperator(BasePermission):
 
 
 class CanAssignResource(BasePermission):
-    """Allow Resource Manager (2) or above to assign resources to tasks.
+    """Allow Resource Manager (Role.SCHEDULER) or above to assign resources to tasks.
 
     Live, not a stub: gates ``ProjectResourceViewSet`` and ``TaskResourceViewSet`` in
     ``resources/views.py``. Removing it would open resource assignment to any Member.
