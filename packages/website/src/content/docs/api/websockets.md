@@ -138,9 +138,12 @@ The set is open-ended and grows as features land; current event types include:
   `tasks_bulk_mutated`. No `task_dates_updated` frame is sent when a CPM pass moves no
   tasks; `cpm_complete` always fires.
 - **Dependencies**: `dependency_created`, `dependency_updated`, `dependency_deleted`,
-  `dependency_accepted`, `dependency_rejected`, `dependencies_bulk_created` (one
+  `dependency_accepted`, `dependency_rejected`, `dependency_bulk_created` (one
   aggregated event per `POST /tasks/bulk/` batch, carrying every applied edge's id
-  as `dependency_ids` — not one `dependency_created` per edge, #3770). A
+  as `dependency_ids` — not one `dependency_created` per edge, #3770). The
+  same batch also emits `dependencies_bulk_created`, the plural name this event
+  shipped under in 0.4; it is a deprecated alias that will be removed in 0.6, so
+  subscribe to `dependency_bulk_created`. A
   cross-project edge fans `dependency_created`, `dependency_updated` and
   `dependency_deleted` to both endpoint projects, pending proposals included. So does
   a task or project delete (bulk, offline sync and permanent delete included) or restore
@@ -312,7 +315,8 @@ and `*_deleted` event, the sprint-family events above, `member_added`,
 `suggestion_id` may appear beside it with the same value, kept for older consumers.
 An actor is named as `actor_id`, never by display label alone. The exceptions have
 no single subject row: `board_config_updated` (the project's board configuration),
-`dependencies_bulk_created` (a batch, named by `dependency_ids`),
+`dependency_bulk_created` and its deprecated alias `dependencies_bulk_created`
+(a batch, named by `dependency_ids`),
 `milestone_forecast_updated` (a computed forecast, named by `milestone_id`) and
 `roster_changed` (named by `resource_id`; it covers both allocation-row and
 resource-level writes). The API test suite enforces this rule over every broadcast
@@ -458,7 +462,8 @@ adding it to that frozen set. Events with no webhook counterpart are marked
 | `dependency_updated` | **WS-only** |
 | `dependency_accepted` | **WS-only** |
 | `dependency_rejected` | **WS-only** |
-| `dependencies_bulk_created` | **WS-only** |
+| `dependency_bulk_created` | **WS-only** |
+| `dependencies_bulk_created` | **WS-only** — deprecated alias of `dependency_bulk_created`, removed in 0.6 |
 | `task_relation_created` | **WS-only** |
 | `task_relation_updated` | **WS-only** |
 | `task_relation_deleted` | **WS-only** |

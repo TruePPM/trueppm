@@ -181,6 +181,9 @@ _ID_WAIVERS: dict[str, str] = {
     "board_config_updated": "Subject is the project's board configuration (a JSON "
     "field on Project), not a row of its own; the project is the channel.",
     "dependencies_bulk_created": "Aggregate of up to 500 edges from one POST "
+    "/tasks/bulk/; names them as the plural dependency_ids (#3770), so no single id. "
+    "Deprecated alias of dependency_bulk_created, removed in 0.6 (#4481).",
+    "dependency_bulk_created": "Aggregate of up to 500 edges from one POST "
     "/tasks/bulk/; names them as the plural dependency_ids (#3770), so no single id.",
     "roster_changed": "Fanned out from allocation-row writes (ProjectResource create/"
     "update/delete) and resource-level writes alike; the one stable subject is the "

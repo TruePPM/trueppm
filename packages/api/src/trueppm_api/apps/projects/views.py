@@ -11410,6 +11410,10 @@ def _register_bulk_commit_hooks(
     if dep_ids:
 
         def _broadcast_dependencies_bulk_created(ids: list[str] = dep_ids) -> None:
+            # #4481: ``dependency_bulk_created`` is the grammar-conforming name. The
+            # plural ``dependencies_bulk_created`` shipped in 0.4, so it is dual-emitted
+            # for one minor (0.5) and removed in 0.6; clients handle both.
+            broadcast_board_event(project_id, "dependency_bulk_created", {"dependency_ids": ids})
             broadcast_board_event(project_id, "dependencies_bulk_created", {"dependency_ids": ids})
 
         transaction.on_commit(_broadcast_dependencies_bulk_created)

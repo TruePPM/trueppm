@@ -239,15 +239,14 @@ def test_dependency_edges_broadcast_one_aggregated_event_not_one_per_edge(
 
     events = [call.args[1] for call in mock_bcast.call_args_list]
     assert "dependency_created" not in events
+    # One-minor dual-emit (#4481): the conforming name and its 0.4 plural alias, once each.
+    assert events.count("dependency_bulk_created") == 1
     assert events.count("dependencies_bulk_created") == 1
 
-    payload = next(
-        call.args[2]
-        for call in mock_bcast.call_args_list
-        if call.args[1] == "dependencies_bulk_created"
-    )
     applied_ids = {e["id"] for e in r.data["dependencies"]["applied"]}
-    assert set(payload["dependency_ids"]) == applied_ids
+    for name in ("dependency_bulk_created", "dependencies_bulk_created"):
+        payload = next(call.args[2] for call in mock_bcast.call_args_list if call.args[1] == name)
+        assert set(payload["dependency_ids"]) == applied_ids, name
 
 
 @pytest.mark.django_db
@@ -256,7 +255,7 @@ def test_no_dependency_broadcast_when_every_edge_is_rejected(
     project: Project,
     django_capture_on_commit_callbacks: object,
 ) -> None:
-    """A batch whose edges all reject must not emit an empty `dependencies_bulk_created`."""
+    """A batch whose edges all reject must not emit an empty `dependency_bulk_created` or alias."""
     a = str(uuid.uuid4())
     with (
         patch("trueppm_api.apps.projects.views._enqueue_recalculate"),
@@ -276,6 +275,7 @@ def test_no_dependency_broadcast_when_every_edge_is_rejected(
     assert r.data["dependencies"]["applied"] == []
     events = [call.args[1] for call in mock_bcast.call_args_list]
     assert "dependencies_bulk_created" not in events
+    assert "dependency_bulk_created" not in events
 
 
 # ---------------------------------------------------------------------------
