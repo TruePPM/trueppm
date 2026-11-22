@@ -128,7 +128,7 @@ Add the app to `INSTALLED_APPS`. Notes:
   `base_url` whose host is not allowed for that key, so a token is never sent to an
   arbitrary host. `jira` has built-in rules, but a new key has no built-in hosts, so a
   connection to your source is accepted only for hosts an operator lists in
-  `TRUEPPM_INTEGRATION_ALLOWED_HOSTS`, and the URL must be `https`. Tell your users'
+  `TRUEPPM_INTEGRATION_ALLOWED_HOSTS`, and the URL must be `https` (outside `DEBUG`). Tell your users'
   administrators to add the provider's host.
 - Credentials are stored per user and per source, encrypted at rest. Your `secret`
   argument is the decrypted token.
