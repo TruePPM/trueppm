@@ -1,0 +1,16 @@
+{
+  "id": "p-snet-held-milestone-completed-without-actuals",
+  "name": "A milestone held by an SNET on Monday and marked complete with no actuals links from Saturday 00:00, as it did live, so FS+2d still starts its successor on Monday (#5094)",
+  "start_date": "2026-01-05",
+  "tasks": [
+    {"id": "M", "name": "Milestone held by its SNET, closed with no actuals", "duration": 0.0, "percent_complete": 100.0, "planned_start": "2026-01-12"},
+    {"id": "B", "name": "Work two calendar days after the milestone", "duration": 86400.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "M", "successor_id": "B", "dep_type": "FS", "lag": 172800.0}
+  ],
+  "calendar": {
+    "working_days": 31,
+    "exceptions": []
+  }
+}

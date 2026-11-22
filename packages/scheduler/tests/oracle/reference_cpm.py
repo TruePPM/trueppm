@@ -138,7 +138,8 @@ Progress rules modeled (ADR-0132, ADR-0136; #4633)
   pinned day — the later of the project start and their SNET — and are linked
   from that instant (#4343, #4225, #4635), or, when the SNET holds them past the
   project start, from that day's earliest working-time equivalent midnight, as a
-  live milestone the SNET holds with no predecessor is (#5094).
+  live milestone the SNET holds with no predecessor is (#5094). The named corpus
+  case ``snet_held_milestone_completed_without_actuals`` discriminates this.
 * **Late dates never precede early ones (#3963).** The backward search is floored
   at the early span. This is modeled but not discriminated: the search already
   stops at or after the early span, so no generated or pinned case makes the

@@ -197,7 +197,7 @@ def test_a_monday_floor_held_milestone_counts_a_start_lag_from_saturday(
     same day, but ``M`` links from Saturday 00:00, the earliest midnight that is the
     same working-time point as that floor, as a floor-held milestone with a
     predecessor already did (#4883). A calendar-day lag out of it on an SS or SF
-    link therefore counts from Saturday and bounds the successor up to two calendar
+    link therefore counts from Saturday and bounds the successor up to two working
     days earlier than the same link out of work starting that Monday, which counts
     from Monday itself. Moved to Tuesday, where the day before is a working day, the
     two agree again. The SF row of
