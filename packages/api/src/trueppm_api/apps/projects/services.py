@@ -4233,9 +4233,25 @@ def schedule_milestone_rollup(milestone_id: str | uuid.UUID) -> None:
 
 
 def _discard_pending_rollup(milestone_id: str | uuid.UUID) -> None:
-    state = _live_pending_rollups()
-    if state is not None:
-        state.ids.pop(str(milestone_id), None)
+    """Drop a milestone from the pending set when an explicit recompute supersedes it.
+
+    Only safe when the explicit call's own broadcast cannot be rolled back without
+    the pending flush going too, i.e. the call sits in the same atomic block as the
+    flush callback or an enclosing one: every savepoint open now is one the flush was
+    queued under (``on_commit`` stores that set and drops the callback when any of
+    them rolls back). From a deeper savepoint the id stays parked: should that
+    savepoint roll back, the explicit broadcast goes with it while the flush survives,
+    and discarding would leave the milestone never broadcast at commit. Staying parked
+    costs one duplicate event when the savepoint is released instead.
+    """
+    state = getattr(connection, "_pending_milestone_rollups", None)
+    if state is None:
+        return
+    for sids, func, *_ in connection.run_on_commit:
+        if func == state.flush_milestone_rollups:
+            if set(connection.savepoint_ids) <= sids:
+                state.ids.pop(str(milestone_id), None)
+            return
 
 
 def recompute_milestone_rollup(
@@ -4250,7 +4266,9 @@ def recompute_milestone_rollup(
     queues one broadcast. Per-transaction dedup of the task-save path lives in
     :func:`schedule_milestone_rollup`; an explicit call here also drops that
     milestone from the pending set, because it has just computed the truth
-    and a deferred recompute would only broadcast the same thing again.
+    and a deferred recompute would only broadcast the same thing again (unless it
+    runs in a savepoint the pending flush does not share; see
+    :func:`_discard_pending_rollup`).
 
     Returns the payload (also broadcast). Returns ``None`` when the milestone
     no longer exists or is not actually a milestone — caller handles silently.

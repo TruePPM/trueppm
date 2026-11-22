@@ -793,6 +793,39 @@ def test_explicit_recompute_supersedes_the_pending_deferred_one(
     assert len(_rollup_events(broadcast)) == 1
 
 
+@pytest.mark.django_db
+def test_explicit_recompute_in_a_rolled_back_savepoint_keeps_the_pending_flush(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """The explicit call's broadcast dies with its savepoint; the parked id must not.
+
+    A task save parks the milestone; an explicit recompute inside a nested atomic that
+    then rolls back would, if it discarded the parked id, leave nothing to broadcast
+    the milestone when the outer transaction commits.
+    """
+    from django.db import transaction
+
+    milestone = _make_milestone(project)
+    sprint = _make_sprint(project, target_milestone=milestone, state=SprintState.ACTIVE)
+    (task,) = _sprint_tasks(project, sprint, 1)
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as broadcast,
+        django_capture_on_commit_callbacks(execute=True),
+        transaction.atomic(),
+    ):
+        task.sprint = sprint
+        task.save()
+        try:
+            with transaction.atomic():
+                recompute_milestone_rollup(milestone.pk)
+                raise RuntimeError("roll back the savepoint")
+        except RuntimeError:
+            pass
+    events = _rollup_events(broadcast)
+    assert len(events) == 1
+    assert events[0].args[2]["milestone_id"] == str(milestone.pk)
+
+
 @pytest.mark.django_db(transaction=True)
 def test_a_rolled_back_transaction_does_not_strand_the_next_one(project: Project) -> None:
     from django.db import transaction
