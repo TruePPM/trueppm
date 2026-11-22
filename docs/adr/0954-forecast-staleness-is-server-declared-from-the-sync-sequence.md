@@ -264,7 +264,7 @@ Monte Carlo payload; no second implementation). What remained open was whether t
 Overview card should act on it. Decision:
 
 * **The band stays visible and the card shows a marker.** When `forecast_staleness` is
-  `project_changed`, the added-time card renders a quiet "Plan changed since this
+  `project_changed`, the added-time card renders a quiet "Edited since this
   forecast" note and the link reads "Re-run forecast". The number and band are not
   suppressed.
 * **`risk_premium_state` stays age-only.** §6 stands: `last_sync_version` advances on any
@@ -274,8 +274,7 @@ Overview card should act on it. Decision:
   untouched.
 * **Measured behavior of a no-op save:** `VersionedModel.save()` advances the counter on
   every save whether or not a field changed, so a no-op `save()` does flip the marker.
-  This is the accepted false-stale direction (§2), and it is why the marker says what
-  changed in the project, not that a date moved.
-* **Upgrade path:** the precise schedule-only counter (the `MAX(Task.edited_at)` option
+  This is the accepted false-stale direction (§2), and it is why the marker says the project was edited, not that a date moved.
+* **Upgrade path (#5099):** the precise schedule-only counter (the `MAX(Task.edited_at)` option
   under Alternatives, or a counter bumped only by schedule-relevant writes) remains the
   way to remove false-stale markers if they prove noisy.

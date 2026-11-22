@@ -414,7 +414,7 @@ test.describe('Project overview page', () => {
   }) => {
     const card = page.getByRole('region', { name: /added time vs computed finish/i });
     await expect(card.getByText('+11d')).toBeVisible();
-    await expect(card.getByText(/plan changed since this forecast/i)).toHaveCount(0);
+    await expect(card.getByText(/edited since this forecast/i)).toHaveCount(0);
 
     await page.unroute(`**/api/v1/projects/${PROJECT_ID}/overview/`);
     await page.route(`**/api/v1/projects/${PROJECT_ID}/overview/`, (route) =>
@@ -433,7 +433,7 @@ test.describe('Project overview page', () => {
 
     // The premium is not suppressed; the marker and the re-run action join it.
     await expect(card.getByText('+11d')).toBeVisible();
-    await expect(card.getByText(/plan changed since this forecast/i)).toBeVisible();
+    await expect(card.getByText(/edited since this forecast/i)).toBeVisible();
     await expect(card.getByRole('link', { name: /re-run forecast/i })).toBeVisible();
   });
 

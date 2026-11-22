@@ -1003,8 +1003,8 @@ question — whether the *added-time number* is still worth reporting — and st
 age-based (a week). Use `forecast_staleness` to ask whether the forecast matches
 your plan.
 
-The project Overview reports both. Its added-time card keeps showing the number and
-its band when the plan moves, and will add a quiet *Plan changed since this
+The project Overview reports both. Its added-time card will keep showing the number and
+its band when the project is edited, and will add a quiet *Edited since this
 forecast* note (with a **Re-run forecast** link) whenever `forecast_staleness` is
 `project_changed`. The card does not hide the number, because the signal behind it
 fires on any write in the project and would otherwise keep a healthy estimate

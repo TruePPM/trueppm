@@ -143,7 +143,7 @@ describe('AddedTimeCard', () => {
       </MemoryRouter>,
     );
     const c = card();
-    expect(within(c).getByText(/plan changed since this forecast/i)).toBeInTheDocument();
+    expect(within(c).getByText(/edited since this forecast/i)).toBeInTheDocument();
     // The premium itself is not suppressed.
     expect(within(c).getByText('+11d')).toBeInTheDocument();
     expect(within(c).getByRole('link', { name: /re-run forecast/i })).toBeInTheDocument();
@@ -151,7 +151,7 @@ describe('AddedTimeCard', () => {
 
   it('renders no plan-changed marker by default', () => {
     renderCard(MEASURED);
-    expect(within(card()).queryByText(/plan changed since this forecast/i)).toBeNull();
+    expect(within(card()).queryByText(/edited since this forecast/i)).toBeNull();
   });
 
   it('collapses the band entirely when there is no verdict — no placeholder, no dash', () => {

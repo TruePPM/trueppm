@@ -48,13 +48,14 @@ interface AddedTimeCardProps {
    */
   forecastStale?: boolean;
   /**
-   * The plan has changed since this forecast was computed (`forecast_staleness ===
+   * The project has been edited since this forecast was computed (`forecast_staleness ===
    * 'project_changed'`, #5063). Renders a quiet note beside the band and leaves the
    * band itself untouched: `risk_premium_state` stays age-only (ADR-0954 amendment)
    * because the counter behind this moves on any synced write, so folding it into
-   * the state would hide the premium classification. Wording is "may be out of date",
-   * not "the plan changed": the counter over-approximates and the claim must not
-   * outrun the evidence.
+   * the state would hide the premium classification. Wording is "Edited since
+   * this forecast", not "the plan changed": the counter over-approximates (it also
+   * advances on a save that moved no dates) and the claim must not outrun the
+   * evidence.
    */
   planChanged?: boolean;
 }
@@ -285,7 +286,7 @@ export function AddedTimeCard({
 
       {planChanged === true && (
         <p data-testid="added-time-plan-changed" className="text-xs text-neutral-text-secondary">
-          Plan changed since this forecast. Re-run to refresh.
+          Edited since this forecast. Re-run to refresh.
         </p>
       )}
 
