@@ -1973,81 +1973,6 @@ ci:artifact-assertions:
     - bash scripts/check-artifact-assertions.sh --self-test
     - bash scripts/check-artifact-assertions.sh
 
-api:membership-live-floor:
-  # A membership READ that omits `is_deleted` resolves a REVOKED member as live (#3458).
-  #
-  # Revoking access soft-deletes the row, and `uniq_(project|program)_membership_..._user`
-  # is unconditional — the tombstone keeps owning the slot, so the lookup answers with the
-  # departed member's old role. That defect was fixed FIVE times as five separate issues
-  # (#3386 write gates, #3410 re-add 500, #3411 three read paths, #3456 the weekly digest
-  # emailing revoked members, #3457 the seed exporter exporting them), every one found by
-  # a gate sweep on an unrelated MR. Nothing ran on a branch.
-  #
-  # Scope-inverted rather than grep-shaped, and that is what makes it affordable: 127
-  # membership-manager chains live outside migrations, 12 of them unfloored reads, and
-  # ALL TWELVE are correct by design — so a bare `*Membership.objects` grep is a 100%
-  # false-positive gate. The twelve sit in four modules, so checking everywhere and
-  # exempting a named few costs a four-line allowlist and fires zero false positives.
-  # Replayed against `main` before #3411 it reported 7 violations, all 7 real.
-  #
-  # AST, not a line regex: `is_deleted` is a COLUMN, so it appears in `.only("role",
-  # "is_deleted")` — a projection, not a filter — and in the SELECT list of every
-  # membership query. A substring probe reports a false pass on a wholly unfiltered read.
-  # Pure static analysis: no Django, no database, seconds.
-  extends: [.api-no-db, .fast-job]
-  stage: analyze
-  needs:
-    - job: ci:build-api-image
-      optional: true
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script: []
-  script:
-    # Self-test FIRST: a gate's failure mode is a green pipeline, so "it passed" is not
-    # evidence that it can still fail (#3195). Both bounds are pinned — the unfloored
-    # read is caught, and each correct-by-design shape is not.
-    - python3 scripts/check-membership-live-floor.py --self-test
-    - python3 scripts/check-membership-live-floor.py
-
-api:pii-exposure:
-  # Two account-PII exposure classes were closed by hand ten times with no gate (#3640):
-  # (A) a hand-rolled response dict writing an `email` key, bypassing the serializer that
-  # owns the #891 address-harvest policy; (B) a write ModelSerializer exposing an
-  # unnarrowed User FK, which makes the write an account oracle. AST, no Django, no DB.
-  # Opt-outs and the baseline are rubber stamps: they remove the silence only.
-  extends: [.api-no-db, .fast-job]
-  stage: analyze
-  needs:
-    - job: ci:build-api-image
-      optional: true
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script: []
-  script:
-    # Self-test FIRST (#3195): prove both classes are still caught before believing none were.
-    - python3 scripts/check-pii-exposure.py --self-test
-    - python3 scripts/check-pii-exposure.py
-
-api:time-bound-comments:
-  # Comments asserting a time-bound fact ("Stub", "UNRELEASED", "as of this writing")
-  # outlive the fact (#4399). Each match needs a TODO(#NNN) or `time-bound-ok:` reason.
-  # An opt-out is a rubber stamp: it removes the silence only.
-  extends: [.api-no-db, .fast-job]
-  stage: analyze
-  needs:
-    - job: ci:build-api-image
-      optional: true
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script: []
-  script:
-    # Self-test FIRST (#3195): prove the gate still fails before believing it passed.
-    - python3 scripts/check-time-bound-comments.py --self-test
-    - python3 scripts/check-time-bound-comments.py
-
 helm:metric-names:
   extends: .fast-job
   # The chart's PromQL must only name series the application emits (#2805).
@@ -2925,89 +2850,33 @@ scheduler:type-check:
         fi
       }
 
-api:type-check:
-  extends: [.api-no-db, .fast-job]
-  stage: analyze
-  # Two caches: the inherited pip cache (re-stated via the anchor with its
-  # pull policy, since a list cache replaces the template's map rather than
-  # merging) plus the mypy incremental cache. mypy --strict is cold-slow;
-  # persisting .mypy_cache across pipelines turns most runs into incremental
-  # re-checks. Keyed on pyproject.toml so a dependency/stub bump resets it.
-  cache:
-    - <<: *api-cache
-      policy: pull
-    - key:
-        files:
-          - packages/api/pyproject.toml
-        prefix: api-mypy
-      paths:
-        - packages/api/.mypy_cache/
-  # ci:build-api-image is optional — when deps haven't changed it isn't in
-  # the pipeline and the job pulls the already-published image from the
-  # registry. Same pattern repeated on every job that uses the ci-api image.
-  needs:
-    - api:lint
-    - job: ci:build-api-image
-      optional: true
-  <<: *rules-api
-  script:
-    - cd packages/api
-    # Self-heal an occasionally-corrupt restored incremental cache (#2233). mypy
-    # exits 2 on a fatal INTERNAL ERROR (distinct from exit 1 = real type errors);
-    # on a crash, drop .mypy_cache and retry once from cold so a corrupt cache
-    # flakes green instead of failing the pipeline, while genuine type errors
-    # still fast-fail. The happy path keeps the incremental speedup.
-    - |
-      mypy src/trueppm_api || {
-        rc=$?
-        if [ "$rc" -eq 2 ]; then
-          echo "mypy INTERNAL ERROR (exit 2) — clearing .mypy_cache and retrying cold"
-          rm -rf .mypy_cache
-          mypy src/trueppm_api
-        else
-          exit "$rc"
-        fi
-      }
-
-api:migration-check:
-  # makemigrations --check --dry-run compares model state to migration files.
-  # No database connection is made; .api-no-db template is sufficient.
+api:static:
+  # The API's always-on static gates in one job (#5097). Each was its own job,
+  # paying a runner slot for 3-31s of work, and GitLab caps active jobs across
+  # concurrent pipelines (see scripts/ci/step.sh). Each check keeps its old job
+  # name as its check name: `=== CHECK <name>` / `=== FAIL <name>` in this log,
+  # and `step.sh --finish` lists every failed check at the end. Each check's
+  # rationale lives in its script's header. Every gate here runs its own
+  # --self-test first (#3195) under the same check name.
   #
-  # Runs on every MR pipeline (no `changes:` filter) — kaizen #640 N5. The job
-  # is ~36s and catches inter-MR migration drift that the per-MR `changes:`
-  # filter misses (two MRs landing close together each pass migration-check on
-  # their own diff, but their merged result fails on main).
-  extends: [.api-no-db, .fast-job]
-  stage: analyze
-  needs:
-    - job: api:lint
-      optional: true
-    - job: ci:build-api-image
-      optional: true
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  script:
-    - cd packages/api
-    - python manage.py makemigrations --check --dry-run
-
-api:migration-numbering:
-  # Cross-branch migration-numbering collision guard. makemigrations --check
-  # (above) only sees THIS branch's tree, so it cannot catch two parallel
-  # branches that each number a migration projects/0080_*.py off the same base:
-  # both pass, the first merges, and the second — still on a stale base — merges
-  # too, leaving main with two 0080 leaf migrations (a conflict that needs a
-  # renumber or a --merge migration, with main red in the meantime).
+  # All of these share one scope: main plus every MR, with no `changes:` filter.
+  # The path-scoped API gates (type-check, openapi-check under rules-api, and
+  # schema-drift and uv-lock-check with their own `changes:` lists) are a
+  # different trigger and are deliberately not folded in here. Folding them would
+  # run them on every MR.
   #
-  # This job compares the branch against origin/main and fails if a NEW migration
-  # reuses a number main already assigns to a different migration — the state that
-  # becomes a two-leaf conflict at merge, detectable on the second branch BEFORE
-  # it merges. Pure git + stdlib Python: no DB, no Django, no dependency install,
-  # so before_script (the api[dev] pip install) is skipped. GIT_DEPTH:0 + an
-  # explicit fetch make origin/main available under GitLab's shallow clone.
+  # api:migration-check runs on every MR on purpose (kaizen #640 N5). Two MRs can
+  # each pass on their own diff and still fail together on main. It is the only
+  # check here that needs Django importable, so the editable install runs as its
+  # own step right before it. The pure-static checks before it stay cheap, and a
+  # failed install shows as a named failure rather than aborting the job.
   extends: [.api-no-db, .fast-job]
   stage: analyze
   variables:
+    # Full history: migration-numbering diffs against origin/main, schema-breaking
+    # reads the latest v* tag, and app-layering and on-commit-durability read the
+    # merge-base copy of their baselines (CI_MERGE_REQUEST_DIFF_BASE_SHA). Each of
+    # them fails closed if what it needs is unreachable.
     GIT_DEPTH: "0"
   needs:
     - job: ci:build-api-image
@@ -3019,198 +2888,88 @@ api:migration-numbering:
   script:
     - git config --global --add safe.directory "$CI_PROJECT_DIR"
     - git fetch origin "$CI_DEFAULT_BRANCH" --quiet
-    # Self-test FIRST: a duplicate migration number exists only on the merged
-    # tree, so both branches stay green alone and this job is the one place it
-    # can surface. Prove it can still reject one (#3195).
-    - python3 scripts/check-migration-numbering.py --self-test
-    - python3 scripts/check-migration-numbering.py "origin/$CI_DEFAULT_BRANCH"
-
-api:migration-constraint-safety:
-  # `AddConstraint` builds and VALIDATES its index against every existing row, so a
-  # constraint added to a POPULATED table fails `migrate` on any database already
-  # holding a violating row — and migrations run on container start, making that an
-  # upgrade crash-loop rather than a failed deploy (#3068).
-  #
-  # Neither existing migration gate can see this. api:migration-check runs
-  # `makemigrations --check --dry-run`, which compares model state to migration files
-  # and never opens a database (its own comment says so); api:migration-numbering is a
-  # numbering-collision guard. The green api:migration-check on the offending MR read
-  # as evidence about the migration when it was evidence about something else.
-  #
-  # The classification is entirely static, so this is a lint: no Django, no database,
-  # no dependency install, seconds. An AddConstraint on a table not created in the same
-  # migration must be preceded by a RunPython repair, or carry an explicit
-  # `# safe-constraint: <reason>` comment.
-  extends: [.api-no-db, .fast-job]
-  stage: analyze
-  needs:
-    - job: ci:build-api-image
-      optional: true
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script: []
-  script:
-    # Self-test FIRST: an unguarded AddConstraint on a populated table is an
-    # upgrade crash-loop, not a rollback-able failed deploy (#3068). Prove the
-    # gate still rejects one, and that all four safe shapes still pass (#3195).
-    - python3 scripts/check-migration-constraint-safety.py --self-test
-    - python3 scripts/check-migration-constraint-safety.py
-
-api:migration-imports:
-  # A data migration that imports `apps.<app>.services` (or `bundled_templates`) runs
-  # LIVE code: refactoring that function silently changes what the migration does on a
-  # fresh install, and a squash that loads callables from the retained originals can
-  # never let them go (#4603). Frozen copies live in each app's `backfill` module.
-  # Pure ast walk: no Django, no database.
-  extends: [.api-no-db, .fast-job]
-  stage: analyze
-  needs:
-    - job: ci:build-api-image
-      optional: true
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script: []
-  script:
-    # Self-test FIRST: prove the gate still rejects a services import before
-    # believing it found none (#3195).
-    - python3 scripts/check-migration-imports.py --self-test
-    - python3 scripts/check-migration-imports.py
-
-api:bulk-create-server-version:
-  # `bulk_create` never calls `save()`, so the INSERT path that sets
-  # `server_version = 1` does not run and the row publishes 0: a lock token no client
-  # can echo back as `X-Base-Version`. Nothing else sees it -- ruff cannot, and
-  # api:migration-check never opens a database. Pure static analysis: no Django, no
-  # database, seconds. A `VersionedModel` bulk_create must set `server_version` in its
-  # scope or carry `# safe-bulk-create: <reason>`.
-  extends: [.api-no-db, .fast-job]
-  stage: analyze
-  needs:
-    - job: ci:build-api-image
-      optional: true
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script: []
-  script:
-    # Self-test FIRST: prove the gate still rejects a violation and accepts the
-    # correct shapes before trusting its verdict on the tree.
-    - python3 scripts/check-bulk-create-server-version.py --self-test
-    - python3 scripts/check-bulk-create-server-version.py
-
-api:app-layering:
-  # The OSS-to-Enterprise edge is gated (boundary:imports); the edges BETWEEN domain apps
-  # were not, so coupling accumulated until a change in one domain broke another (#4887).
-  # packages/api/app-layering.toml declares which app layer may import which; existing
-  # violations sit in packages/api/app-layering-baseline.txt, a ceiling that can only
-  # shrink. A new upward import fails here; `# layering-ok: <reason>` opts one site out.
-  # Pure static analysis (stdlib ast + tomllib): no Django, no database, ~1s.
-  extends: [.api-no-db, .fast-job]
-  variables:
-    # Full history so the baseline-raise check can read the merge-base copy of
-    # app-layering-baseline.txt (CI_MERGE_REQUEST_DIFF_BASE_SHA). The check fails closed
-    # if that SHA is unreachable; on main it prints a note and is skipped.
-    GIT_DEPTH: "0"
-  stage: analyze
-  needs:
-    - job: ci:build-api-image
-      optional: true
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script: []
-  script:
-    # Self-test FIRST: prove the gate still rejects an upward import before trusting
-    # its verdict on the tree (#3195).
-    - python3 scripts/check-app-layering.py --self-test
-    - python3 scripts/check-app-layering.py
-
-lint:api-engine-boundary:
-  # The API must not reimplement engine math: every sampled, scheduled, or derived value
-  # is a trueppm_scheduler call (#4688; #2645/#4663/#4660 were instances). Pattern-based
-  # and narrow (np.random, random., np.percentile, timedelta(days=) outside the
-  # allow-list in packages/api/api-engine-boundary-allowlist.txt, a ceiling that can only
-  # shrink; every entry names an issue). Pure static analysis, ~1s.
-  extends: [.api-no-db, .fast-job]
-  stage: analyze
-  needs:
-    - job: ci:build-api-image
-      optional: true
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script: []
-  script:
-    - python3 scripts/check-api-engine-boundary.py --self-test
-    - python3 scripts/check-api-engine-boundary.py
-
-lint:on-commit-durability:
-  # Every transaction.on_commit callback is classified; Celery dispatch needs a registered
-  # outbox row behind it (#2473, rationale in docs/durability/on-commit-audit.md). Registry
-  # and a baseline in packages/api/on-commit-*.txt, ratcheted against its merge-base copy
-  # (needs full git history: a raise fails unless the entry carries '# raise-ok: <reason>'). Pure static analysis, ~1s.
-  extends: [.api-no-db, .fast-job]
-  variables:
-    # Full history so the merge-base ratchet can read the base copy of
-    # on-commit-baseline.txt (CI_MERGE_REQUEST_DIFF_BASE_SHA); fails closed if unreachable.
-    GIT_DEPTH: "0"
-  stage: analyze
-  needs:
-    - job: ci:build-api-image
-      optional: true
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script: []
-  script:
-    - python3 scripts/check-on-commit-durability.py --self-test
-    - python3 scripts/check-on-commit-durability.py
-
-api:schema-breaking:
-  # stability.md promises a deprecation window for every Breaking change (field
-  # removal/rename, type change, status-code change, optional -> required, enum
-  # value removal), but api:schema-regression-style checks only compare path and
-  # schema NAMES against main - and a field dropped in one MR becomes main's
-  # baseline for the next (#4594). This diffs the schema's shape against the latest
-  # v* RELEASE TAG (prereleases included), which a merge cannot move.
-  #
-  # Pure stdlib Python on two JSON files read via `git show`: no DB, no Django, no
-  # install. GIT_DEPTH:0 + an explicit tag fetch make the tag available under
-  # GitLab's shallow clone; --require-baseline turns "no tag" into a failure rather
-  # than a silent skip, which would be a gate that always passes.
-  extends: [.api-no-db, .fast-job]
-  stage: analyze
-  variables:
-    GIT_DEPTH: "0"
-  needs:
-    - job: ci:build-api-image
-      optional: true
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script: []
-  script:
-    - git config --global --add safe.directory "$CI_PROJECT_DIR"
     - git fetch origin --tags --quiet
-    - python3 scripts/check-schema-breaking.py --self-test
-    - python3 scripts/check-schema-breaking.py --require-baseline
+    - bash scripts/ci/step.sh api:migration-numbering python3 scripts/check-migration-numbering.py --self-test
+    - bash scripts/ci/step.sh api:migration-numbering python3 scripts/check-migration-numbering.py "origin/$CI_DEFAULT_BRANCH"
+    - bash scripts/ci/step.sh api:migration-constraint-safety python3 scripts/check-migration-constraint-safety.py --self-test
+    - bash scripts/ci/step.sh api:migration-constraint-safety python3 scripts/check-migration-constraint-safety.py
+    - bash scripts/ci/step.sh api:migration-imports python3 scripts/check-migration-imports.py --self-test
+    - bash scripts/ci/step.sh api:migration-imports python3 scripts/check-migration-imports.py
+    - bash scripts/ci/step.sh api:bulk-create-server-version python3 scripts/check-bulk-create-server-version.py --self-test
+    - bash scripts/ci/step.sh api:bulk-create-server-version python3 scripts/check-bulk-create-server-version.py
+    - bash scripts/ci/step.sh api:app-layering python3 scripts/check-app-layering.py --self-test
+    - bash scripts/ci/step.sh api:app-layering python3 scripts/check-app-layering.py
+    - bash scripts/ci/step.sh lint:api-engine-boundary python3 scripts/check-api-engine-boundary.py --self-test
+    - bash scripts/ci/step.sh lint:api-engine-boundary python3 scripts/check-api-engine-boundary.py
+    - bash scripts/ci/step.sh lint:on-commit-durability python3 scripts/check-on-commit-durability.py --self-test
+    - bash scripts/ci/step.sh lint:on-commit-durability python3 scripts/check-on-commit-durability.py
+    - bash scripts/ci/step.sh api:schema-breaking python3 scripts/check-schema-breaking.py --self-test
+    - bash scripts/ci/step.sh api:schema-breaking python3 scripts/check-schema-breaking.py --require-baseline
+    - bash scripts/ci/step.sh api:membership-live-floor python3 scripts/check-membership-live-floor.py --self-test
+    - bash scripts/ci/step.sh api:membership-live-floor python3 scripts/check-membership-live-floor.py
+    - bash scripts/ci/step.sh api:pii-exposure python3 scripts/check-pii-exposure.py --self-test
+    - bash scripts/ci/step.sh api:pii-exposure python3 scripts/check-pii-exposure.py
+    - bash scripts/ci/step.sh api:time-bound-comments python3 scripts/check-time-bound-comments.py --self-test
+    - bash scripts/ci/step.sh api:time-bound-comments python3 scripts/check-time-bound-comments.py
+    # The same editable re-link .api-no-db's before_script does, then the one
+    # Django-backed check.
+    - bash scripts/ci/step.sh api:migration-check pip install -e "packages/scheduler[dev]" --quiet
+    - bash scripts/ci/step.sh api:migration-check pip install -e "packages/api[dev]" --quiet
+    - bash scripts/ci/step.sh api:migration-check sh -c 'cd packages/api && python manage.py makemigrations --check --dry-run'
+    - bash scripts/ci/step.sh --finish
 
-api:openapi-check:
-  # drf-spectacular schema generation is pure view/serializer introspection;
-  # no database queries are made. --validate checks for valid OpenAPI 3;
-  # --fail-on-warn promotes warnings to errors.
+api:analyze:
+  # api:type-check and api:openapi-check share one trigger (rules-api), one image
+  # and the same fail-fast edge on api:lint, so they run as checks in one job
+  # (#5097). The check names are unchanged (`=== CHECK api:type-check`).
+  #
+  # Two caches: the inherited pip cache (re-stated via the anchor with its pull
+  # policy, since a list cache replaces the template's map rather than merging)
+  # plus the mypy incremental cache. mypy --strict is cold-slow; persisting
+  # .mypy_cache across pipelines turns most runs into incremental re-checks.
+  # Keyed on pyproject.toml so a dependency/stub bump resets it.
   extends: [.api-no-db, .fast-job]
   stage: analyze
+  cache:
+    - <<: *api-cache
+      policy: pull
+    - key:
+        files:
+          - packages/api/pyproject.toml
+        prefix: api-mypy
+      paths:
+        - packages/api/.mypy_cache/
+  # ci:build-api-image is optional. When deps haven't changed it isn't in the
+  # pipeline, and the job pulls the already-published image from the registry.
   needs:
     - api:lint
     - job: ci:build-api-image
       optional: true
   <<: *rules-api
   script:
-    - cd packages/api
-    - python manage.py spectacular --validate --file /dev/null
+    # Self-heal an occasionally-corrupt restored incremental cache (#2233). mypy
+    # exits 2 on a fatal INTERNAL ERROR (distinct from exit 1 = real type errors).
+    # On a crash, drop .mypy_cache and retry once from cold. That way a corrupt
+    # cache flakes green instead of failing the pipeline, and genuine type errors
+    # still fail. The happy path keeps the incremental speedup.
+    - |
+      bash scripts/ci/step.sh api:type-check sh -c '
+        cd packages/api
+        mypy src/trueppm_api || {
+          rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "mypy INTERNAL ERROR (exit 2) — clearing .mypy_cache and retrying cold"
+            rm -rf .mypy_cache
+            mypy src/trueppm_api
+          else
+            exit "$rc"
+          fi
+        }'
+    # drf-spectacular schema generation is pure view/serializer introspection; no
+    # database queries are made. --validate checks for valid OpenAPI 3, and
+    # --fail-on-warn promotes warnings to errors.
+    - bash scripts/ci/step.sh api:openapi-check sh -c 'cd packages/api && python manage.py spectacular --validate --file /dev/null'
+    - bash scripts/ci/step.sh --finish
 
 api:schema-drift:
   # Ensures docs/api/openapi.json stays in sync with the live DRF schema.
