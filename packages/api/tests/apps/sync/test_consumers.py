@@ -1782,3 +1782,60 @@ def test_role_can_subscribe_live_floor() -> None:
     assert role_can_subscribe_live(Role.MEMBER - 1) is False
     for role in (Role.MEMBER, Role.SCHEDULER, Role.ADMIN, Role.OWNER):
         assert role_can_subscribe_live(role) is True
+
+
+async def _drain_until_close(communicator: Any, timeout: float = 3) -> dict[str, Any]:
+    """Read frames until a ``websocket.close`` arrives (raises on timeout)."""
+    while True:
+        frame = await communicator.receive_output(timeout=timeout)
+        if frame["type"] == "websocket.close":
+            return frame
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("in_memory_channel_layer")
+async def test_membership_revoked_while_connected_closes_the_live_socket_4003(
+    user: object, project: Project
+) -> None:
+    """The end-to-end revoke path: a Member's open socket dies when the row is soft-deleted.
+
+    Unlike ``test_connection_evict_closes_matching_user`` (which calls the handler) and
+    the revoke-command test (which patches the evict call), nothing here is stubbed past
+    authentication: the membership write fires the real receiver, ``on_commit`` pushes a
+    real ``connection.evict`` through the channel layer, and the consumer closes 4003.
+    """
+    from asgiref.testing import ApplicationCommunicator
+
+    membership = await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=user, role=Role.MEMBER
+    )
+    path = f"/ws/v1/projects/{project.pk}/"
+    scope = {
+        "type": "websocket",
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"ticket=t",
+        "headers": [],
+        "subprotocols": [],
+    }
+    with patch(
+        "trueppm_api.apps.sync.consumers.authenticate_scope",
+        new=AsyncMock(return_value=WsAuthResult(user=user, via="ticket")),
+    ):
+        communicator = ApplicationCommunicator(_ws_app(), scope)
+        await communicator.send_input({"type": "websocket.connect"})
+        first = await communicator.receive_output(timeout=2)
+        assert first["type"] == "websocket.accept", first
+
+        # Still open before the revoke: nothing closes it on its own. (A timed-out
+        # ``receive_output`` cancels the app, so probe liveness without reading.)
+        await asyncio.sleep(0.2)
+        assert communicator.future.done() is False
+
+        await database_sync_to_async(membership.delete)()
+        close_frame = await _drain_until_close(communicator)
+
+        assert close_frame == {"type": "websocket.close", "code": 4003}
+        await communicator.send_input({"type": "websocket.disconnect", "code": 4003})
+        await communicator.wait(timeout=2)

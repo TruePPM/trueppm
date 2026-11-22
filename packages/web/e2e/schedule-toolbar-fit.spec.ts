@@ -122,6 +122,28 @@ async function fitReport(page: Page) {
   });
 }
 
+/**
+ * Overflow count that is only 0 once the toolbar has actually rendered and fitted.
+ *
+ * `expect.poll(...).toBe(0)` matches the FIRST sample, so a bare `overflowing.length`
+ * passes on a toolbar that has not mounted (no children → nothing overflows) or whose
+ * fit loop has not published `data-fit-step`. Returning -1 until both signals exist
+ * makes "0" mean "rendered, and nothing clips".
+ */
+async function overflowCount(page: Page): Promise<number> {
+  const bar = toolbar(page);
+  if ((await bar.count()) === 0) return -1;
+  const rendered = await bar.evaluate(
+    (el) => {
+      const step = el.getAttribute('data-fit-step');
+      // `Number(null)` is 0, so a missing attribute must be rejected before coercion.
+      return el.children.length > 0 && step !== null && Number.isFinite(Number(step));
+    },
+  );
+  if (!rendered) return -1;
+  return (await fitReport(page)).overflowing.length;
+}
+
 const WIDTHS = [1920, 1440, 1280, 1024] as const;
 
 test.describe('Schedule toolbar — nothing clips at any width (#3076)', () => {
@@ -133,7 +155,7 @@ test.describe('Schedule toolbar — nothing clips at any width (#3076)', () => {
       // The fit loop runs in a layout effect off a ResizeObserver; wait for it
       // to settle rather than sampling mid-descent.
       await expect
-        .poll(async () => (await fitReport(page)).overflowing.length, { timeout: 5_000 })
+        .poll(() => overflowCount(page), { timeout: 5_000 })
         .toBe(0);
 
       const report = await fitReport(page);
@@ -146,11 +168,11 @@ test.describe('Schedule toolbar — nothing clips at any width (#3076)', () => {
 
   test('concedes MORE as the window narrows, and gives it back as it widens', async ({ page }) => {
     await page.setViewportSize({ width: 1920, height: 900 });
-    await expect.poll(async () => (await fitReport(page)).overflowing.length).toBe(0);
+    await expect.poll(() => overflowCount(page)).toBe(0);
     const wide = (await fitReport(page)).step;
 
     await page.setViewportSize({ width: 1024, height: 900 });
-    await expect.poll(async () => (await fitReport(page)).overflowing.length).toBe(0);
+    await expect.poll(() => overflowCount(page)).toBe(0);
     const narrow = (await fitReport(page)).step;
     expect(narrow).toBeGreaterThan(wide);
 
@@ -170,7 +192,7 @@ test.describe('Schedule toolbar — nothing clips at any width (#3076)', () => {
     const openActions = () => page.getByRole('button', { name: 'Project actions' }).click();
 
     await page.setViewportSize({ width: 1400, height: 900 });
-    await expect.poll(async () => (await fitReport(page)).overflowing.length).toBe(0);
+    await expect.poll(() => overflowCount(page)).toBe(0);
     const wide = (await fitReport(page)).step;
     await expect(exportInBar).toHaveCount(1);
 
@@ -179,7 +201,7 @@ test.describe('Schedule toolbar — nothing clips at any width (#3076)', () => {
     await expect
       .poll(async () => (await fitReport(page)).step, { timeout: 5_000 })
       .toBeGreaterThan(wide);
-    await expect.poll(async () => (await fitReport(page)).overflowing.length).toBe(0);
+    await expect.poll(() => overflowCount(page)).toBe(0);
     expect((await fitReport(page)).step).toBeGreaterThan(wide);
     await expect(exportInBar).toHaveCount(0);
     await openActions();
@@ -200,7 +222,7 @@ test.describe('Schedule toolbar — nothing clips at any width (#3076)', () => {
     // label wrapped. A wrapped label is taller than its own line-height.
     for (const width of WIDTHS) {
       await page.setViewportSize({ width, height: 900 });
-      await expect.poll(async () => (await fitReport(page)).overflowing.length).toBe(0);
+      await expect.poll(() => overflowCount(page)).toBe(0);
       const tallest = await toolbar(page).evaluate((bar) => {
         let max = 0;
         for (const child of Array.from(bar.querySelectorAll('button, [role="status"], span'))) {
@@ -221,7 +243,7 @@ test.describe('Schedule toolbar — nothing clips at any width (#3076)', () => {
     // A heading that said otherwise would send someone resizing the window to
     // get back something only the Display menu can return.
     await page.setViewportSize({ width: 1920, height: 900 });
-    await expect.poll(async () => (await fitReport(page)).overflowing.length).toBe(0);
+    await expect.poll(() => overflowCount(page)).toBe(0);
 
     await page.getByRole('button', { name: 'Project actions' }).click();
     const menu = page.getByRole('menu', { name: 'Project actions' });
@@ -235,7 +257,7 @@ test.describe('Schedule toolbar — nothing clips at any width (#3076)', () => {
     page,
   }) => {
     await page.setViewportSize({ width: 1920, height: 900 });
-    await expect.poll(async () => (await fitReport(page)).overflowing.length).toBe(0);
+    await expect.poll(() => overflowCount(page)).toBe(0);
     await expect(page.getByRole('button', { name: 'Today', exact: true })).toBeVisible();
 
     // Drive it through the real pin, not through a width guess: the ladder's
@@ -261,7 +283,7 @@ test.describe('Schedule toolbar — nothing clips at any width (#3076)', () => {
     // One identity at a time. Duplicate accessible names are the failure mode
     // of every responsive toolbar that hides with CSS instead of unmounting.
     await page.setViewportSize({ width: 1920, height: 900 });
-    await expect.poll(async () => (await fitReport(page)).overflowing.length).toBe(0);
+    await expect.poll(() => overflowCount(page)).toBe(0);
     await expect(page.getByRole('button', { name: 'Today', exact: true })).toBeVisible();
 
     await page.getByRole('button', { name: 'Project actions' }).click();
@@ -274,7 +296,7 @@ test.describe('Schedule toolbar — nothing clips at any width (#3076)', () => {
     page,
   }) => {
     await page.setViewportSize({ width: 1024, height: 900 });
-    await expect.poll(async () => (await fitReport(page)).overflowing.length).toBe(0);
+    await expect.poll(() => overflowCount(page)).toBe(0);
 
     // The chip states the mode in the bar, at the narrowest composition.
     const chip = page.getByRole('button', { name: /^Mode: Author/ });
@@ -296,7 +318,7 @@ test.describe('Schedule toolbar — nothing clips at any width (#3076)', () => {
     // stopped the mode collapsing, the row saying it collapses stayed true-looking
     // through a full green suite. Rule 368(b) is this assertion.
     await page.setViewportSize({ width: 1024, height: 900 });
-    await expect.poll(async () => (await fitReport(page)).overflowing.length).toBe(0);
+    await expect.poll(() => overflowCount(page)).toBe(0);
 
     await page.getByRole('button', { name: /^Display/ }).click();
     const menu = page.getByRole('menu', { name: 'Display options' });
@@ -319,7 +341,7 @@ test.describe('Schedule toolbar — nothing clips at any width (#3076)', () => {
     page,
   }) => {
     await page.setViewportSize({ width: 1024, height: 900 });
-    await expect.poll(async () => (await fitReport(page)).overflowing.length).toBe(0);
+    await expect.poll(() => overflowCount(page)).toBe(0);
     // Focus a row so there is a target to describe — via a CONTENT cell. The
     // row's first gridcell is the row-controls lane (#3026), and its centre only
     // focused the row while it held two buttons with a 2px gap between them;
@@ -342,7 +364,7 @@ test.describe('Schedule toolbar — nothing clips at any width (#3076)', () => {
 
   test('Display ▾ says where each pinned control currently is', async ({ page }) => {
     await page.setViewportSize({ width: 1024, height: 900 });
-    await expect.poll(async () => (await fitReport(page)).overflowing.length).toBe(0);
+    await expect.poll(() => overflowCount(page)).toBe(0);
 
     await page.getByRole('button', { name: /^Display/ }).click();
     const menu = page.getByRole('menu', { name: 'Display options' });

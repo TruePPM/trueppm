@@ -100,21 +100,29 @@ def test_live_row_still_resolves_through_the_unconditional_constraint(program: P
     assert not ProgramMembership.live().filter(program=program, user=revoked).exists()
 
 
-def test_live_filters_in_the_where_clause_not_merely_the_select_list() -> None:
-    """``is_deleted`` is a COLUMN, so it appears in the SELECT list of every membership
-    query. A substring check over the compiled SQL is therefore vacuous — it matches a
-    completely unfiltered queryset. Assert on the text *after* ``WHERE``.
-    """
-    sql = str(ProgramMembership.live().query)
-    assert " WHERE " in sql, sql
-    where = sql.split(" WHERE ", 1)[1]
-    assert "is_deleted" in where, where
+def _where_lookups(node: Any) -> list[tuple[str, str, Any]]:
+    """Flatten a compiled ``WhereNode`` into ``(field, lookup_name, rhs)`` triples.
 
-    # The negative control: the same substring check against the unfiltered manager, to
-    # prove the assertion above is discriminating and not merely true of all SQL.
-    unfloored = str(ProgramMembership.objects.all().query)
-    assert "is_deleted" in unfloored  # in the SELECT list
-    assert " WHERE " not in unfloored
+    Reads the predicate tree itself rather than the SQL text: ``is_deleted`` is a column,
+    so it appears in the SELECT list of every membership query and any substring check
+    over the rendered SQL matches a completely unfiltered queryset.
+    """
+    found: list[tuple[str, str, Any]] = []
+    for child in getattr(node, "children", []):
+        if hasattr(child, "children"):
+            found.extend(_where_lookups(child))
+        elif hasattr(child, "lhs") and hasattr(child.lhs, "target"):
+            found.append((child.lhs.target.name, child.lookup_name, child.rhs))
+    return found
+
+
+def test_live_filters_in_the_where_clause_not_merely_the_select_list() -> None:
+    """``live()`` carries an ``is_deleted = False`` predicate, asserted on the query tree."""
+    assert ("is_deleted", "exact", False) in _where_lookups(ProgramMembership.live().query.where)
+
+    # The negative control: the unfiltered manager has no such predicate, which proves
+    # the assertion above discriminates rather than being true of every queryset.
+    assert _where_lookups(ProgramMembership.objects.all().query.where) == []
 
 
 def test_live_floors_the_membership_only_not_the_program(program: Program, owner: Any) -> None:
@@ -141,13 +149,13 @@ def test_live_mirrors_the_project_axis_helper() -> None:
     """
     from trueppm_api.apps.access.models import ProjectMembership
 
-    project_where = str(ProjectMembership.live().query).split(" WHERE ", 1)[1]
-    program_where = str(ProgramMembership.live().query).split(" WHERE ", 1)[1]
+    project_where = _where_lookups(ProjectMembership.live().query.where)
+    program_where = _where_lookups(ProgramMembership.live().query.where)
 
     assert ProjectMembership.live().model is ProjectMembership
     assert ProgramMembership.live().model is ProgramMembership
-    assert "is_deleted" in project_where
-    assert "is_deleted" in program_where
+    assert ("is_deleted", "exact", False) in project_where
+    assert ("is_deleted", "exact", False) in program_where
 
 
 # ---------------------------------------------------------------------------

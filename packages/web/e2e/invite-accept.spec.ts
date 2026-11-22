@@ -75,4 +75,80 @@ test.describe('Invite acceptance', () => {
       page.getByRole('heading', { name: "This invitation link isn't valid" }),
     ).toBeVisible();
   });
+
+  // The backend answers expired, already-used and revoked tokens with ONE generic 400
+  // (no token enumeration), so the page cannot tell them apart — the contract is that
+  // every one of them lands on the same terminal "not valid" state with the form gone.
+  for (const [scenario, detail] of [
+    ['expired', 'Invalid or expired invitation.'],
+    ['already used', 'Invalid or expired invitation.'],
+    ['revoked', 'Invalid or expired invitation.'],
+  ] as const) {
+    test(`error state: a ${scenario} token ends in the terminal invalid-link state`, async ({
+      page,
+    }) => {
+      await setupCatchAll(page);
+      await page.route(ACCEPT_URL, (route) =>
+        route.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: JSON.stringify({ detail }),
+        }),
+      );
+
+      await page.goto('/invite/accept?token=stale-token');
+      await page.getByLabel('Username').fill('anna_khoury');
+      await page.getByLabel('Password', { exact: true }).fill(STRONG_PASSWORD);
+      await page.getByRole('button', { name: 'Create account & join' }).click();
+
+      await expect(
+        page.getByRole('heading', { name: "This invitation link isn't valid" }),
+      ).toBeVisible();
+      // Terminal: no form left to retry with, and no navigation to sign-in.
+      await expect(page.getByLabel('Username')).toHaveCount(0);
+      await expect(page).toHaveURL(/\/invite\/accept/);
+    });
+  }
+
+  test('error state: a taken username is surfaced under the username field', async ({ page }) => {
+    await setupCatchAll(page);
+    await page.route(ACCEPT_URL, (route) =>
+      route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'That username is already taken.' }),
+      }),
+    );
+
+    await page.goto('/invite/accept?token=valid-token');
+    await page.getByLabel('Username').fill('anna_khoury');
+    await page.getByLabel('Password', { exact: true }).fill(STRONG_PASSWORD);
+    await page.getByRole('button', { name: 'Create account & join' }).click();
+
+    await expect(page.getByText('That username is already taken. Try another.')).toBeVisible();
+    await expect(page.getByLabel('Username')).toBeVisible();
+  });
+
+  test('error state: a rate-limited accept asks the user to wait and stays on the form', async ({
+    page,
+  }) => {
+    await setupCatchAll(page);
+    await page.route(ACCEPT_URL, (route) =>
+      route.fulfill({
+        status: 429,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'Request was throttled.' }),
+      }),
+    );
+
+    await page.goto('/invite/accept?token=valid-token');
+    await page.getByLabel('Username').fill('anna_khoury');
+    await page.getByLabel('Password', { exact: true }).fill(STRONG_PASSWORD);
+    await page.getByRole('button', { name: 'Create account & join' }).click();
+
+    await expect(
+      page.getByText('Too many attempts. Please wait a minute and try again.'),
+    ).toBeVisible();
+    await expect(page).toHaveURL(/\/invite\/accept/);
+  });
 });
