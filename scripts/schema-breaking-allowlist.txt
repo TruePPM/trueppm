@@ -121,3 +121,7 @@ endpoint-removed | * /api/v1/me/timesheets/{week_start}/submit | timer-and-times
 # synchronous 200 forecast body is gone (ADR-1430, pre-1.0 policy exception in
 # stability.md, same reasoning as #2881/#3137: keeping it kept the defect on by default).
 status-removed | POST /api/v1/projects/{id}/monte-carlo/ 200 | monte-carlo-run-answers-202-instead-of-the-forecast-2273 | the synchronous response was the defect: it pinned a web worker and a DB connection per run
+
+# #4652 - the Monte Carlo cap refusal moves from 402 (tier: "team") to 400.
+status-removed | POST /api/v1/projects/{id}/monte-carlo/ 402 | monte-carlo-cap-refusal-is-400-not-402-4652 | pricing vocabulary in the OSS contract; no edition has a team tier
+status-removed | GET /api/v1/projects/{id}/monte-carlo/whatif/ 402 | monte-carlo-cap-refusal-is-400-not-402-4652 | same refusal on the what-if endpoint

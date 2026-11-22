@@ -157,24 +157,26 @@ class TestMonteCarloEndpoint:
         )
         assert r.status_code == 404
 
-    def test_cap_exceeded_returns_402(
+    def test_cap_exceeded_returns_400(
         self,
         member_client: APIClient,
         project: Project,
         pert_task: Task,
         settings: object,
     ) -> None:
-        """Requesting more sims than the cap returns 402 with structured body."""
+        """Requesting more sims than the cap returns 400 with structured body."""
         settings.MC_SIMULATION_CAP = 100  # type: ignore[attr-defined]
         r = member_client.post(
             f"/api/v1/projects/{project.pk}/monte-carlo/",
             {"n_simulations": 101},
             format="json",
         )
-        assert r.status_code == 402
+        assert r.status_code == 400
         assert r.data["error"] == "simulation_cap_exceeded"
         assert r.data["code"] == "simulation_cap_exceeded"
-        assert r.data["tier"] == "team"
+        assert "tier" not in r.data
+        assert r.data["max_runs"] == 100
+        assert r.data["max_tasks"] == settings.MC_TASK_CAP  # type: ignore[attr-defined]
         assert r.data["detail"] == r.data["message"]
 
     def test_engine_sample_cell_cap_returns_400_not_an_upsell(
@@ -200,13 +202,13 @@ class TestMonteCarloEndpoint:
         assert "tier" not in r.data
         assert r.data["detail"].startswith("Monte Carlo sampled durations would exceed 5 cells")
 
-    def test_task_cap_exceeded_returns_402(
+    def test_task_cap_exceeded_returns_400(
         self,
         member_client: APIClient,
         project: Project,
         settings: object,
     ) -> None:
-        """Projects exceeding the task cap return 402."""
+        """Projects exceeding the task cap return 400."""
         # Create 3 tasks, set cap to 2.
         for i in range(3):
             Task.objects.create(project=project, name=f"T{i}", duration=1)
@@ -216,10 +218,24 @@ class TestMonteCarloEndpoint:
             {"n_simulations": 10},
             format="json",
         )
-        assert r.status_code == 402
+        assert r.status_code == 400
         assert r.data["error"] == "simulation_cap_exceeded"
         assert r.data["code"] == "simulation_cap_exceeded"
         assert r.data["detail"] == r.data["message"]
+
+    def test_raised_run_cap_admits_the_same_request(
+        self,
+        member_client: APIClient,
+        project: Project,
+        pert_task: Task,
+        settings: object,
+    ) -> None:
+        """#4652: the refusal is a setting, so raising it lets the same request through."""
+        settings.MC_SIMULATION_CAP = 100  # type: ignore[attr-defined]
+        url = f"/api/v1/projects/{project.pk}/monte-carlo/"
+        assert member_client.post(url, {"n_simulations": 150}, format="json").status_code == 400
+        settings.MC_SIMULATION_CAP = 200  # type: ignore[attr-defined]
+        assert member_client.post(url, {"n_simulations": 150}, format="json").status_code == 200
 
     def test_task_cap_is_checked_before_rows_are_materialized(
         self,
@@ -238,7 +254,7 @@ class TestMonteCarloEndpoint:
             r = member_client.post(
                 f"/api/v1/projects/{project.pk}/monte-carlo/", {"n_simulations": 10}, format="json"
             )
-        assert r.status_code == 402
+        assert r.status_code == 400
         assert r.data["error"] == "simulation_cap_exceeded"
         built.assert_not_called()
 

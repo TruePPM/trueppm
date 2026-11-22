@@ -23399,7 +23399,7 @@
         "/api/v1/projects/{id}/monte-carlo/": {
             "post": {
                 "operationId": "v1_projects_monte_carlo_create",
-                "description": "Queue a Monte Carlo probabilistic schedule simulation on a Celery worker.\n\nValidates in the request what is cheap and caller-specific — membership, the\narchived freeze, ``n_simulations``, and the two COUNT-based size caps — then\ncreates a ``PENDING`` ``TaskRun`` and answers ``202`` with its id. The simulation,\nthe ``mc_latest`` cache refresh and the attributed ``MonteCarloRun`` row all\nhappen in :func:`~.tasks.run_monte_carlo_simulation` (#2273).\n\nWhy off the request thread, reversing #1203's synchronous-by-design call: the\ncaps bound one simulation's cost, but with ``ATOMIC_REQUESTS`` every in-flight\nrun also held a web worker and an open transaction for its whole duration, so a\nhandful of concurrent runs could pin the connection pool. A worker bounds that\nby its own concurrency instead. ADR-1430 records the contract change.\n\nThe attributed history row is decided HERE, from the caller's role, and passed\nto the worker: the forecast read is Member-level but the record is Scheduler+\n(#1502), and the worker has no request to resolve a role from.\n\nRequest body (all optional):\n    n_simulations (int): Number of simulation runs. Defaults to the largest\n        count this project's size admits — settings.MC_SIMULATION_CAP, or\n        fewer under MC_CELL_CAP on a large project; the task run's\n        ``result_summary.n_simulations`` reports the count simulated. An\n        explicit value is honored exactly or refused; it must not exceed\n        either cap.\n\nReturns 202 when queued; 400 for an invalid ``n_simulations`` or too many\ndependencies; 402 for too many committed tasks; 404 if the project does not\nexist; 403 if the caller lacks access or the project is archived. Every other\nrefusal arrives on the failed task run (see the 202 description).",
+                "description": "Queue a Monte Carlo probabilistic schedule simulation on a Celery worker.\n\nValidates in the request what is cheap and caller-specific — membership, the\narchived freeze, ``n_simulations``, and the two COUNT-based size caps — then\ncreates a ``PENDING`` ``TaskRun`` and answers ``202`` with its id. The simulation,\nthe ``mc_latest`` cache refresh and the attributed ``MonteCarloRun`` row all\nhappen in :func:`~.tasks.run_monte_carlo_simulation` (#2273).\n\nWhy off the request thread, reversing #1203's synchronous-by-design call: the\ncaps bound one simulation's cost, but with ``ATOMIC_REQUESTS`` every in-flight\nrun also held a web worker and an open transaction for its whole duration, so a\nhandful of concurrent runs could pin the connection pool. A worker bounds that\nby its own concurrency instead. ADR-1430 records the contract change.\n\nThe attributed history row is decided HERE, from the caller's role, and passed\nto the worker: the forecast read is Member-level but the record is Scheduler+\n(#1502), and the worker has no request to resolve a role from.\n\nRequest body (all optional):\n    n_simulations (int): Number of simulation runs. Defaults to the largest\n        count this project's size admits — settings.MC_SIMULATION_CAP, or\n        fewer under MC_CELL_CAP on a large project; the task run's\n        ``result_summary.n_simulations`` reports the count simulated. An\n        explicit value is honored exactly or refused; it must not exceed\n        either cap.\n\nReturns 202 when queued; 400 for an invalid ``n_simulations``, too many\ndependencies, too many committed tasks, or an ``n_simulations`` above the cap;\n404 if the project does not exist; 403 if the caller lacks access or the project\nis archived. Every other refusal arrives on the failed task run (see the 202 description).",
                 "parameters": [
                     {
                         "in": "path",
@@ -23453,7 +23453,7 @@
                                 }
                             }
                         },
-                        "description": "The simulation was queued on a Celery worker (#2273). Body {task_run_id, status, n_simulations}: poll GET /projects/{pk}/task-runs/{task_run_id}/ until status is success or failed. On success the result is the project's latest forecast — read it from GET /projects/{pk}/monte-carlo/latest/ (the same payload this endpoint returned synchronously before #2273), and result_summary carries {run_id, n_simulations, last_run_at}; run_id is null when the caller is below Scheduler, which refreshes the forecast but records no attributed history row (#1502). On failed, result_summary carries the refusal body below plus status_code (400, 402 or 503), exactly as this endpoint returned it before the move: a cyclic graph, MC_CELL_CAP, the engine caps, a busy worker slot or the wall-clock budget."
+                        "description": "The simulation was queued on a Celery worker (#2273). Body {task_run_id, status, n_simulations}: poll GET /projects/{pk}/task-runs/{task_run_id}/ until status is success or failed. On success the result is the project's latest forecast — read it from GET /projects/{pk}/monte-carlo/latest/ (the same payload this endpoint returned synchronously before #2273), and result_summary carries {run_id, n_simulations, last_run_at}; run_id is null when the caller is below Scheduler, which refreshes the forecast but records no attributed history row (#1502). On failed, result_summary carries the refusal body below plus status_code (400 or 503), exactly as this endpoint returned it before the move: a cyclic graph, MC_CELL_CAP, the engine caps, a busy worker slot or the wall-clock budget."
                     },
                     "400": {
                         "content": {
@@ -23473,34 +23473,22 @@
                                             "task_count": 5000
                                         },
                                         "summary": "simulation_cell_cap_exceeded"
-                                    }
-                                }
-                            }
-                        },
-                        "description": "Invalid n_simulations or too many dependencies (synchronous). The following arrive asynchronously, as a failed task run whose result_summary carries this body plus status_code: cyclic dependency, invalid input, or out-of-range project span; or an explicit n_simulations whose runs x tasks product exceeds MC_CELL_CAP (#2839) — body {error/code: simulation_cell_cap_exceeded, message/detail, max_runs, task_count}, where max_runs is the largest count this project admits. An omitted n_simulations is never refused for size: it runs max_runs iterations and the 200 body's `runs` reports the count actually simulated. Also the engine's own sampled-duration cell cap (body {detail}), reachable only when an operator raises or unsets MC_CELL_CAP; no tier raises it, so it is never a 402."
-                    },
-                    "402": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
-                                },
-                                "examples": {
+                                    },
                                     "SimulationCapExceeded": {
                                         "value": {
                                             "error": "simulation_cap_exceeded",
                                             "code": "simulation_cap_exceeded",
-                                            "tier": "team",
-                                            "message": "Simulation count exceeds the community-edition cap.",
-                                            "detail": "Simulation count exceeds the community-edition cap."
+                                            "max_runs": 1000,
+                                            "max_tasks": 5000,
+                                            "message": "Project has more than 5000 committed tasks.",
+                                            "detail": "Project has more than 5000 committed tasks."
                                         },
                                         "summary": "simulation_cap_exceeded"
                                     }
                                 }
                             }
                         },
-                        "description": "OSS simulation cap exceeded (too many committed tasks, synchronous; or n_simulations above MC_SIMULATION_CAP, asynchronous via the task run)."
+                        "description": "Invalid n_simulations or too many dependencies (synchronous). The following arrive asynchronously, as a failed task run whose result_summary carries this body plus status_code: cyclic dependency, invalid input, or out-of-range project span; or an explicit n_simulations whose runs x tasks product exceeds MC_CELL_CAP (#2839) — body {error/code: simulation_cell_cap_exceeded, message/detail, max_runs, task_count}, where max_runs is the largest count this project admits. An omitted n_simulations is never refused for size: it runs max_runs iterations and the 200 body's `runs` reports the count actually simulated. Also the engine's own sampled-duration cell cap (body {detail}), reachable only when an operator raises or unsets MC_CELL_CAP. Also {error/code: simulation_cap_exceeded, message/detail, max_runs, max_tasks}: too many committed tasks (synchronous), or n_simulations above MC_SIMULATION_CAP (synchronous); max_runs/max_tasks echo the operator-set MC_SIMULATION_CAP / MC_TASK_CAP (TRUEPPM_MC_SIMULATION_CAP / TRUEPPM_MC_TASK_CAP), null when unset. Formerly HTTP 402 with a `tier` key (#4652)."
                     },
                     "403": {
                         "content": {
@@ -23737,7 +23725,7 @@
                         "schema": {
                             "type": "integer"
                         },
-                        "description": "Monte Carlo iterations. Defaults to the largest count this project's size admits: MC_SIMULATION_CAP, or fewer under MC_CELL_CAP (runs x tasks) on a large project — `runs` in the response reports the count simulated. An explicit value is honored exactly or refused (402 above MC_SIMULATION_CAP, 400 above the size-derived maximum)."
+                        "description": "Monte Carlo iterations. Defaults to the largest count this project's size admits: MC_SIMULATION_CAP, or fewer under MC_CELL_CAP (runs x tasks) on a large project — `runs` in the response reports the count simulated. An explicit value is honored exactly or refused (400 above MC_SIMULATION_CAP or above the size-derived maximum)."
                     },
                     {
                         "in": "query",
@@ -23795,18 +23783,7 @@
                                 }
                             }
                         },
-                        "description": "Invalid input: malformed/absent params, both or neither of duration_delta/new_duration, task_id not a committed task in this project, a milestone (zero-duration) target, a completed task (its dates are actuals), a summary (phase) target whose span is rolled up from its children and so cannot be perturbed, a cyclic dependency, or an out-of-range project span; or an explicit n_simulations above the size-derived maximum (MC_CELL_CAP, #2839) — body {error/code: simulation_cell_cap_exceeded, message/detail, max_runs, task_count}; or the engine's own sampled-duration cell cap (body {detail}), reachable only when an operator raises or unsets MC_CELL_CAP; no tier raises it, so it is never a 402."
-                    },
-                    "402": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
-                                }
-                            }
-                        },
-                        "description": "OSS simulation cap exceeded (n_simulations or task count too high)."
+                        "description": "Invalid input: malformed/absent params, both or neither of duration_delta/new_duration, task_id not a committed task in this project, a milestone (zero-duration) target, a completed task (its dates are actuals), a summary (phase) target whose span is rolled up from its children and so cannot be perturbed, a cyclic dependency, or an out-of-range project span; or an explicit n_simulations above the size-derived maximum (MC_CELL_CAP, #2839) — body {error/code: simulation_cell_cap_exceeded, message/detail, max_runs, task_count}; or the engine's own sampled-duration cell cap (body {detail}), reachable only when an operator raises or unsets MC_CELL_CAP; or {error/code: simulation_cap_exceeded, message/detail, max_runs, max_tasks} for n_simulations or a task count above the operator-set MC_SIMULATION_CAP / MC_TASK_CAP (formerly 402, #4652)."
                     },
                     "404": {
                         "content": {
