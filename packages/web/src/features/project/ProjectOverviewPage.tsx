@@ -69,6 +69,11 @@ interface OverviewData extends AddedTimeFacts {
   team_utilization_reason?: 'no_roster' | 'no_capacity' | null;
   owner_name: string | null;
   start_date: string;
+  /**
+   * Whether the forecast behind the added-time card still describes the plan (#3140,
+   * #5063). Optional for an API that predates it; absence renders no marker.
+   */
+  forecast_staleness?: 'current' | 'project_changed' | 'aged' | 'unknown';
   // Risk summary used by the "Open risks" KPI card and risk register summary section.
   open_risk_count?: number;
   high_risk_count?: number;
@@ -1224,6 +1229,7 @@ function OverviewKpiSection({
   secondary,
   focusHeadingText,
   addedTime,
+  planChanged,
   base,
   refetchOverview,
 }: {
@@ -1233,6 +1239,7 @@ function OverviewKpiSection({
   secondary: OverviewMetric[];
   focusHeadingText: string;
   addedTime: AddedTimePresentation;
+  planChanged: boolean;
   base?: string;
   refetchOverview: () => unknown;
 }) {
@@ -1268,7 +1275,12 @@ function OverviewKpiSection({
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Added time leads the row: it is the only card carrying a date pair, and
               it is the reading a PM acts on before the severity bands beside it. */}
-          <AddedTimeCard presentation={addedTime} base={base} />
+          <AddedTimeCard
+            presentation={addedTime}
+            base={base}
+            forecastStale={planChanged}
+            planChanged={planChanged}
+          />
           {focus.map((m) => (
             <KpiCard
               key={m.key}
@@ -1520,6 +1532,7 @@ export function ProjectOverviewPage() {
         secondary={secondary}
         focusHeadingText={focusHeadingText}
         addedTime={addedTime}
+        planChanged={overview?.forecast_staleness === 'project_changed'}
         base={projectId ? `/projects/${projectId}` : undefined}
         refetchOverview={refetchOverview}
       />

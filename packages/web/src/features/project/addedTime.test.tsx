@@ -131,6 +131,29 @@ describe('AddedTimeCard', () => {
     expect(within(c).getByText('9% of remaining duration')).toBeInTheDocument();
   });
 
+  it('shows the plan-changed marker beside a kept band, and offers the re-run (#5063)', () => {
+    render(
+      <MemoryRouter>
+        <AddedTimeCard
+          presentation={addedTimePresentation(MEASURED)}
+          base="/projects/p1"
+          forecastStale
+          planChanged
+        />
+      </MemoryRouter>,
+    );
+    const c = card();
+    expect(within(c).getByText(/edited since this forecast/i)).toBeInTheDocument();
+    // The premium itself is not suppressed.
+    expect(within(c).getByText('+11d')).toBeInTheDocument();
+    expect(within(c).getByRole('link', { name: /re-run forecast/i })).toBeInTheDocument();
+  });
+
+  it('renders no plan-changed marker by default', () => {
+    renderCard(MEASURED);
+    expect(within(card()).queryByText(/edited since this forecast/i)).toBeNull();
+  });
+
   it('collapses the band entirely when there is no verdict — no placeholder, no dash', () => {
     renderCard(MEASURED);
     // The band ships null until calibrated thresholds exist (#2299); an empty chip or

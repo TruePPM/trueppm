@@ -1003,6 +1003,14 @@ question — whether the *added-time number* is still worth reporting — and st
 age-based (a week). Use `forecast_staleness` to ask whether the forecast matches
 your plan.
 
+The project Overview reports both. Its added-time card will keep showing the number and
+its band when the project is edited, and will add a quiet *Edited since this
+forecast* note (with a **Re-run forecast** link) whenever `forecast_staleness` is
+`project_changed`. The card does not hide the number, because the signal behind it
+fires on any write in the project and would otherwise keep a healthy estimate
+permanently suppressed. A save that changes nothing still counts as a write, so the
+note can appear after an edit that moved no date; re-running clears it.
+
 For integrators: when a schedule recalculation finishes successfully and the
 project's latest forecast is `project_changed` or `aged`, TruePPM fires the
 `forecast_recompute_requested` extension signal once for that run. The community

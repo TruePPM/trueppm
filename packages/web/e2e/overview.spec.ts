@@ -42,6 +42,9 @@ const FIXTURE_OVERVIEW = {
   risk_premium_reason: null,
   risk_premium_cpm_finish: '2026-10-24',
   risk_premium_p80: '2026-11-04',
+  forecast_staleness: 'current',
+  plan_version: 7,
+  plan_version_current: 7,
 };
 
 const FIXTURE_ATTENTION = {
@@ -404,6 +407,34 @@ test.describe('Project overview page', () => {
     // No digit, no proportion track — the measured presentation must be unreachable.
     await expect(card.getByText(/of remaining duration/)).toHaveCount(0);
     await expect(card.getByText('+0d')).toHaveCount(0);
+  });
+
+  test('a plan that moved since the forecast keeps the band and adds a marker (#5063)', async ({
+    page,
+  }) => {
+    const card = page.getByRole('region', { name: /added time vs computed finish/i });
+    await expect(card.getByText('+11d')).toBeVisible();
+    await expect(card.getByText(/edited since this forecast/i)).toHaveCount(0);
+
+    await page.unroute(`**/api/v1/projects/${PROJECT_ID}/overview/`);
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/overview/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ...FIXTURE_OVERVIEW,
+          forecast_staleness: 'project_changed',
+          plan_version: 7,
+          plan_version_current: 8,
+        }),
+      }),
+    );
+    await page.reload();
+
+    // The premium is not suppressed; the marker and the re-run action join it.
+    await expect(card.getByText('+11d')).toBeVisible();
+    await expect(card.getByText(/edited since this forecast/i)).toBeVisible();
+    await expect(card.getByRole('link', { name: /re-run forecast/i })).toBeVisible();
   });
 
   test('attention and my-task rows link to the task detail view (#1984)', async ({ page }) => {
