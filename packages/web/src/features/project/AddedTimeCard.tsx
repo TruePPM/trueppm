@@ -47,6 +47,16 @@ interface AddedTimeCardProps {
    * so a caller that does not pass it renders exactly as before.
    */
   forecastStale?: boolean;
+  /**
+   * The plan has changed since this forecast was computed (`forecast_staleness ===
+   * 'project_changed'`, #5063). Renders a quiet note beside the band and leaves the
+   * band itself untouched: `risk_premium_state` stays age-only (ADR-0954 amendment)
+   * because the counter behind this moves on any synced write, so folding it into
+   * the state would hide the premium classification. Wording is "may be out of date",
+   * not "the plan changed": the counter over-approximates and the claim must not
+   * outrun the evidence.
+   */
+  planChanged?: boolean;
 }
 
 const CARD_BASE =
@@ -202,7 +212,12 @@ function AddedTimeEmptyCard({
   );
 }
 
-export function AddedTimeCard({ presentation, base, forecastStale }: AddedTimeCardProps) {
+export function AddedTimeCard({
+  presentation,
+  base,
+  forecastStale,
+  planChanged,
+}: AddedTimeCardProps) {
   // Empty states are structurally distinct from a measured zero, not just worded
   // differently: no digit, no track, no as-of stamp, and a dashed frame. That is what
   // stops "we have not measured this" from reading as "we measured no risk".
@@ -267,6 +282,12 @@ export function AddedTimeCard({ presentation, base, forecastStale }: AddedTimeCa
       />
 
       {ratioPct != null && ratioLabel && <ProportionTrack pct={ratioPct} label={ratioLabel} />}
+
+      {planChanged === true && (
+        <p data-testid="added-time-plan-changed" className="text-xs text-neutral-text-secondary">
+          Plan changed since this forecast. Re-run to refresh.
+        </p>
+      )}
 
       <div className="flex items-center justify-between gap-3 mt-auto">
         {!isStale && asOf && (

@@ -254,3 +254,28 @@ stronger claim §5 forbids.
   view is function-based, so `has_object_permission` is never called and the in-body check
   covers membership only — a Monte Carlo run on an archived project succeeds. File
   separately.
+
+## Amendment (2026-11-22, #5063): the Overview card keeps its band and shows a marker
+
+`GET /projects/<pk>/overview/` already carries `forecast_staleness`, `plan_version` and
+`plan_version_current` beside the `risk_premium_*` family (the same
+`forecast_staleness_from_run` / `forecast_staleness_for_payload` derivation as the
+Monte Carlo payload; no second implementation). What remained open was whether the
+Overview card should act on it. Decision:
+
+* **The band stays visible and the card shows a marker.** When `forecast_staleness` is
+  `project_changed`, the added-time card renders a quiet "Plan changed since this
+  forecast" note and the link reads "Re-run forecast". The number and band are not
+  suppressed.
+* **`risk_premium_state` stays age-only.** §6 stands: `last_sync_version` advances on any
+  synced write, so folding drift into the state would read stale almost permanently and
+  destroy the premium/zero/negative classification. A regression test pins that drift
+  moves `forecast_staleness` and leaves `risk_premium_state` and `risk_premium_band`
+  untouched.
+* **Measured behavior of a no-op save:** `VersionedModel.save()` advances the counter on
+  every save whether or not a field changed, so a no-op `save()` does flip the marker.
+  This is the accepted false-stale direction (§2), and it is why the marker says what
+  changed in the project, not that a date moved.
+* **Upgrade path:** the precise schedule-only counter (the `MAX(Task.edited_at)` option
+  under Alternatives, or a counter bumped only by schedule-relevant writes) remains the
+  way to remove false-stale markers if they prove noisy.

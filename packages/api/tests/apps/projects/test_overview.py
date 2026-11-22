@@ -1407,6 +1407,96 @@ class TestOverviewAddedTime:
         c.force_authenticate(user=other_user)
         assert c.get(self.url(project.pk)).status_code == 403
 
+    # -- plan-version drift beside the age-only premium (#5063, ADR-0954 amendment) --
+
+    def test_a_run_behind_the_plan_version_reads_project_changed(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        """Acceptance (1): run at N, project at N+1 reads stale on the Overview."""
+        Project.objects.filter(pk=project.pk).update(last_sync_version=7)
+        self.make_run(project, plan_version=7)
+        Project.objects.filter(pk=project.pk).update(last_sync_version=8)
+
+        data = client.get(self.url(project.pk)).json()
+
+        assert data["forecast_staleness"] == "project_changed"
+        assert data["plan_version"] == 7
+        assert data["plan_version_current"] == 8
+
+    def test_a_run_at_the_current_plan_version_reads_current(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        Project.objects.filter(pk=project.pk).update(last_sync_version=7)
+        self.make_run(project, plan_version=7)
+
+        data = client.get(self.url(project.pk)).json()
+
+        assert data["forecast_staleness"] == "current"
+
+    def test_a_null_plan_version_run_falls_back_to_age_never_current(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        """Acceptance (2): a pre-#3140 run has no version to compare, so a young one is
+        `unknown` (not `current`) and an old one is `aged`."""
+        from django.utils import timezone
+
+        from trueppm_api.apps.scheduling.models import MonteCarloRun
+
+        run = self.make_run(project, plan_version=None)
+        assert client.get(self.url(project.pk)).json()["forecast_staleness"] == "unknown"
+
+        MonteCarloRun.objects.filter(pk=run.pk).update(  # type: ignore[attr-defined]
+            taken_at=timezone.now() - datetime.timedelta(days=30)
+        )
+        assert client.get(self.url(project.pk)).json()["forecast_staleness"] == "aged"
+
+    def test_a_no_op_save_DOES_move_the_plan_version_so_the_card_flips(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        """Documents actual behavior, not the issue's hoped-for one (#5063 acc. 2).
+
+        `VersionedModel.save()` advances `server_version` and draws a new `sync_seq`
+        on EVERY save, changed or not, so `Project.last_sync_version` moves on a
+        no-op `save()` and the forecast reads `project_changed`. This is the
+        over-approximation ADR-0954 §2 accepts (false-stale, never false-fresh); the
+        precise schedule-only counter is the upgrade path. A CPM `bulk_update` does
+        not move it (pinned in test_forecast_staleness.py).
+        """
+        task = make_task(project)
+        project.refresh_from_db()
+        self.make_run(project, plan_version=project.last_sync_version)
+        assert client.get(self.url(project.pk)).json()["forecast_staleness"] == "current"
+
+        task.refresh_from_db()
+        task.save()
+
+        data = client.get(self.url(project.pk)).json()
+        assert data["forecast_staleness"] == "project_changed"
+
+    def test_plan_drift_never_changes_the_age_only_risk_premium_state(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        """ADR-0954 §6 pin: drift is a separate key and must not fold into
+        `risk_premium_state`, which would read stale after any synced write and lose
+        the premium/zero/negative classification."""
+        Project.objects.filter(pk=project.pk).update(last_sync_version=7)
+        self.make_run(project, plan_version=7)
+        before = client.get(self.url(project.pk)).json()
+
+        Project.objects.filter(pk=project.pk).update(last_sync_version=99)
+        after = client.get(self.url(project.pk)).json()
+
+        assert after["forecast_staleness"] == "project_changed"
+        assert before["forecast_staleness"] == "current"
+        for key in (
+            "risk_premium_state",
+            "risk_premium_band",
+            "risk_premium_days",
+            "risk_premium_as_of",
+        ):
+            assert after[key] == before[key], key
+        assert after["risk_premium_state"] != "stale"
+
     def test_the_forecast_payload_reports_the_same_premium_for_the_same_run(
         self, client: APIClient, project: Project, membership: object
     ) -> None:
