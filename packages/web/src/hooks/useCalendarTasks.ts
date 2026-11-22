@@ -22,7 +22,8 @@ interface ApiTask {
   planned_start: string | null;
   duration: number;
   percent_complete: number;
-  is_critical: boolean;
+  // Null for a task outside the committed set (ADR-1152): no CPM output exists for it.
+  is_critical: boolean | null;
   status: TaskStatus;
   is_milestone: boolean;
   is_summary: boolean;
@@ -60,7 +61,7 @@ function mapTask(t: ApiTask): Task {
     duration: t.duration,
     progress: t.percent_complete,
     parentId: t.parent_id,
-    isCritical: t.is_critical,
+    isCritical: t.is_critical ?? false,
     isComplete: t.status === 'COMPLETE',
     isSummary: t.is_summary,
     isMilestone: t.is_milestone,

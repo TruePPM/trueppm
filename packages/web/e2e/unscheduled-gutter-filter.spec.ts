@@ -55,7 +55,10 @@ const FIXTURE_TASKS = [
   // backlog ideas as work that needs scheduling.
   task({ id: 't-backlog', wbs_path: '2', name: 'Backlog Idea',
     status: 'BACKLOG' }),
-  // BACKLOG with a PM-committed planned_start — excluded (committed).
+  // BACKLOG with a PM-committed planned_start — excluded (committed). The
+  // early_start/early_finish below are a deliberately hostile fixture: production
+  // no longer sends CPM dates on a BACKLOG row (ADR-1152, #3578), but the gate must
+  // key on planned_start regardless of what dates are present.
   task({ id: 't-backlog-committed', wbs_path: '2.1', name: 'Backlog Committed',
     status: 'BACKLOG', planned_start: '2026-04-15',
     early_start: '2026-04-15', early_finish: '2026-04-22' }),

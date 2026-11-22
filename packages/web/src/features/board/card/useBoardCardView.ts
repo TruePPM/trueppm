@@ -308,6 +308,10 @@ export function useBoardCardView(props: BoardCardProps): BoardCardView {
   // status is not yet a team concern; it reappears on accept). The neutral
   // PendingAcceptanceChip carries the read-state instead.
   const isPending = task.sprintPending === true;
+  // The `isScheduled` escape valve (a BACKLOG card with a plannedStart/sprint
+  // still shows CP) is reachable only from optimistic, pre-refetch local state
+  // since #3578: the API sends is_critical null for every BACKLOG row. Kept on
+  // purpose; it is not dead.
   const showCriticalState = task.isCritical && isScheduled && !isPending;
   const isIdea = (task.readiness ?? 'estimated') === 'idea';
 

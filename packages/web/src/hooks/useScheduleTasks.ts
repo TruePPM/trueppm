@@ -49,7 +49,8 @@ export interface ApiTask {
   planned_start: string | null;
   duration: number;
   percent_complete: number;
-  is_critical: boolean;
+  // Null for a task outside the committed set (ADR-1152): no CPM output exists for it.
+  is_critical: boolean | null;
   status: TaskStatus;
   /** Named board lane within `status` (#2967). Absent on payloads/WS deltas that
    *  predate the field, which reads the same as the unassigned default. */
@@ -393,7 +394,7 @@ export function mapTask(t: ApiTask): Task {
     remainingDuration: t.remaining_duration ?? null,
     progress: t.percent_complete,
     parentId: t.parent_id,
-    isCritical: t.is_critical,
+    isCritical: t.is_critical ?? false,
     isComplete: t.percent_complete >= 100,
     isSummary: t.is_summary,
     isMilestone: t.is_milestone,

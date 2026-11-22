@@ -35,23 +35,22 @@ describe('useUnscheduledTasks', () => {
   });
 
   it('includes NOT_STARTED tasks even when CPM has set a `start` (early_start)', () => {
-    // In production a NOT_STARTED card promoted from BACKLOG immediately gets a
-    // CPM-computed `early_start`. The gutter must still surface it until the PM
-    // commits a planned date.
-    const tasks = [
-      t({ id: 'u1', status: 'NOT_STARTED', start: '2026-04-01', plannedStart: null }),
-    ];
+    // A NOT_STARTED card is in the committed set, so CPM gives it an `early_start`
+    // (ADR-1152). The gutter must still surface it until the PM commits a planned
+    // date.
+    const tasks = [t({ id: 'u1', status: 'NOT_STARTED', start: '2026-04-01', plannedStart: null })];
     const { result } = renderHook(() => useUnscheduledTasks(tasks));
     expect(result.current.map((x) => x.id)).toEqual(['u1']);
   });
 
   it('includes BACKLOG ideas without a PM-committed start (issue #332)', () => {
     // BACKLOG cards with no plannedStart used to be excluded as "pre-planning"
-    // but #332 reclassifies them: CPM gives them an early_start, so the
+    // but #332 reclassifies them: back then CPM gave them an early_start, so the
     // Schedule view was rendering them as scheduled bars and the Unscheduled
-    // tray claimed "all tasks have planned dates" — both wrong. The gutter
-    // is the correct surface for both NOT_STARTED and BACKLOG without a
-    // committed date.
+    // tray claimed "all tasks have planned dates" — both wrong. (Since #3578 the
+    // API sends no CPM dates for BACKLOG at all; this fixture sets none, which
+    // is now the production shape.) The gutter is the correct surface for both
+    // NOT_STARTED and BACKLOG without a committed date.
     const tasks = [
       t({ id: 'b1', status: 'BACKLOG', plannedStart: null }),
       t({ id: 'n1', status: 'NOT_STARTED', plannedStart: null }),

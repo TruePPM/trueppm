@@ -38,8 +38,10 @@ const PHASE_TASK = {
 /**
  * Build the task list for a single test variant. The backlog task's
  * planned_start is the only knob that flips between "uncommitted" and
- * "committed". CPM-derived early_start is ALWAYS set (mimicking production)
- * to prove the gate keys on planned_start, not on the absence of dates.
+ * "committed". A deliberately hostile fixture: early_start is ALWAYS set on this
+ * BACKLOG row even though production no longer sends CPM dates for BACKLOG
+ * (ADR-1152, #3578), to prove the gate keys on planned_start, not on the absence
+ * of dates.
  */
 function buildTasks(plannedStart: string | null) {
   return [
