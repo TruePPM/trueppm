@@ -79,38 +79,33 @@ test.describe('Invite acceptance', () => {
   });
 
   // The backend answers expired, already-used and revoked tokens with ONE generic 400
-  // (no token enumeration), so the page cannot tell them apart — the contract is that
-  // every one of them lands on the same terminal "not valid" state with the form gone.
-  for (const [scenario, detail] of [
-    ['expired', 'Invalid or expired invitation.'],
-    ['already used', 'Invalid or expired invitation.'],
-    ['revoked', 'Invalid or expired invitation.'],
-  ] as const) {
-    test(`error state: a ${scenario} token ends in the terminal invalid-link state`, async ({
-      page,
-    }) => {
-      await setupCatchAll(page);
-      await page.route(ACCEPT_URL, (route) =>
-        route.fulfill({
-          status: 400,
-          contentType: 'application/json',
-          body: JSON.stringify({ detail }),
-        }),
-      );
+  // (no token enumeration; the string below is the server's `_INVALID_INVITE_MESSAGE`),
+  // so the page cannot tell them apart. One test covers all three because there is
+  // nothing to distinguish: the contract is a single terminal "not valid" state.
+  test('error state: an expired, used or revoked token ends in the terminal invalid-link state', async ({
+    page,
+  }) => {
+    await setupCatchAll(page);
+    await page.route(ACCEPT_URL, (route) =>
+      route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'This invitation link is invalid or has expired.' }),
+      }),
+    );
 
-      await page.goto('/invite/accept?token=stale-token');
-      await page.getByLabel('Username').fill('anna_khoury');
-      await page.getByLabel('Password', { exact: true }).fill(STRONG_PASSWORD);
-      await page.getByRole('button', { name: 'Create account & join' }).click();
+    await page.goto('/invite/accept?token=stale-token');
+    await page.getByLabel('Username').fill('anna_khoury');
+    await page.getByLabel('Password', { exact: true }).fill(STRONG_PASSWORD);
+    await page.getByRole('button', { name: 'Create account & join' }).click();
 
-      await expect(
-        page.getByRole('heading', { name: "This invitation link isn't valid" }),
-      ).toBeVisible();
-      // Terminal: no form left to retry with, and no navigation to sign-in.
-      await expect(page.getByLabel('Username')).toHaveCount(0);
-      await expect(page).toHaveURL(/\/invite\/accept/);
-    });
-  }
+    await expect(
+      page.getByRole('heading', { name: "This invitation link isn't valid" }),
+    ).toBeVisible();
+    // Terminal: no form left to retry with, and no navigation to sign-in.
+    await expect(page.getByLabel('Username')).toHaveCount(0);
+    await expect(page).toHaveURL(/\/invite\/accept/);
+  });
 
   test('error state: a taken username is surfaced under the username field', async ({ page }) => {
     await setupCatchAll(page);
