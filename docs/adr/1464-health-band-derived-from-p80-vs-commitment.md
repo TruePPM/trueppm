@@ -1,4 +1,4 @@
-# ADR-1464: The derived health band reads P80 against the commitment; worst child stops at Program; Workspace shows counts
+# ADR-1464: The derived health band reads P80 against the commitment; worst child stops at Program; Workspace has no health in OSS
 
 ## Status
 
@@ -24,7 +24,7 @@ Layer: **Programs and Projects**, with Program rollup in OSS. Portfolio and Work
 - The derived band is P80 against the commitment.
 - The PM override stays, and is labeled.
 - The worst-child rollup stops at Program.
-- Workspace shows counts only.
+- Workspace shows no health and no counts in OSS. Counts are Enterprise under the #3901 ruling (enterprise-check, 2026-11-22).
 
 ## Decision
 

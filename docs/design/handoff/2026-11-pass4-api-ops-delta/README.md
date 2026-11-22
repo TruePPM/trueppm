@@ -6,8 +6,8 @@
 > - **Expenses** answer ADR-1324's #2557 deferral and have no currency field. The rate grant reuses ADR-1324's endpoint and audit ([ADR-1462](../../../adr/1462-non-labor-expenses-and-rate-editor-grant.md)).
 > - **Push:** [ADR-1463](../../../adr/1463-web-push-via-notification-matrix.md).
 > - **Health:** “ADR-0133” in this doc is wrong. ADR-0133 is about task capabilities, and the health rule has no ADR of its own. The derived band thresholds the existing `p80_delta_vs_commitment_days` ([ADR-1464](../../../adr/1464-health-band-derived-from-p80-vs-commitment.md)).
-> - **Workspace health:** enterprise-check (2026-11-22) removed even the counts. A cross-program count is Enterprise under the #3901 ruling, so the `counts{…}` in §2.5 is **not** OSS.
-> - **Offline:** updates replay through `PATCH` with `X-Base-Version` (ADR-0217 merge), not a new `tasks/bulk` precondition ([ADR-1465](../../../adr/1465-web-offline-schedule-outbox.md)).
+> - **Workspace health:** enterprise-check (2026-11-22) removed even the counts. A cross-program count is Enterprise under the #3901 ruling, so the `counts{…}` in §2.5 and the decisions table is **not** OSS.
+> - **Offline:** updates replay through `PATCH` with `X-Base-Version` (ADR-0217 merge), not a new `tasks/bulk` precondition; only creates and links go through `tasks/bulk`. The queue TTL is **72 h**, not 7 days ([ADR-1465](../../../adr/1465-web-offline-schedule-outbox.md)).
 
 **Source design:** Claude Design canvas "TruePPM Redesign — Pass 4"
 (https://claude.ai/artifact/J42mduLLSusGEmuGakkw6e), sections 1–8, as revised 2026-11-22.
@@ -29,7 +29,7 @@ Decisions already taken (2026-11-22) that this doc assumes:
 | Agents enforced | **Agents** is the one enforced capability. When off, the server refuses agent-actor tokens. |
 | Q2.1, Q2.2 | Asks go to a **pool**. Covered tasks are required. Approval **assigns** people to those tasks. |
 | Q3.1 | Rates: workspace admins see and edit all. Project Owners and Admins see totals only. Rate-editor grantees see and edit their pools. Everyone else gets the field omitted. |
-| Health | The band is **P80 vs commitment**. The PM override is kept and labeled. Worst-child rollup stops at Program. Workspace shows **counts only**. This supersedes ADR-0133's derived rule. |
+| Health | The band is **P80 vs commitment**. The PM override is kept and labeled. Worst-child rollup stops at Program. Workspace shows **counts only** *(superseded: no Workspace health or counts in OSS, ADR-1464)*. This supersedes ADR-0133's derived rule. |
 | Push | Push rides the **existing** notification preference matrix (#2132). See §4: it is the matrix's existing `mobile_push` column. |
 
 ---
@@ -38,7 +38,7 @@ Decisions already taken (2026-11-22) that this doc assumes:
 
 | Model | App (layer) | Fields (summary) | Notes |
 |---|---|---|---|
-| `WorkspaceCapability` | `workspace` (core) | `key` ∈ {agile, resources, time_cost, agents}, `enabled`, `changed_by`, `changed_at` | A missing row means enabled. That gives existing installs default-on with no data migration. |
+| `WorkspaceCapability` *(superseded: three `Workspace` columns plus `mcp_enabled`, ADR-1460)* | `workspace` (core) | `key` ∈ {agile, resources, time_cost, agents}, `enabled`, `changed_by`, `changed_at` | A missing row means enabled. That gives existing installs default-on with no data migration. |
 | `ResourcePool` | `resources` (core) | `name`, `workspace`, `managers` (M2M User), `members` (M2M Resource) | **New concept.** Today `resource_pool` is the per-project roster. Pick a name that doesn't collide (`CapacityPool`?) and record it in the ADR. Pools are scoped to one program for OSS, pending `enterprise-check` (Q2.3). |
 | `ResourceAsk` | `resources` | `pool`, `project`, `role`, `count`, `units`, `start`, `duration_wd`, `covered_tasks` (M2M Task, ≥1), `note`, `state` ∈ {draft, sent, seen, approved, countered, declined, withdrawn}, `requested_by`, `actor_kind` (human/agent), `decided_by`, `decided_at`, `decline_constraint` (JSON: name, value, limit, window, found_by, confirmed_by) | `draft` exists for agent-authored asks, and only a human sends. State transitions are server-enforced. |
 | `AskOfferLine` | `resources` | `ask`, `resource`, `units`, `start`, `end`, `task` (nullable FK) | Counter-offer lines carry a proposed person→task mapping (Q2.9). |
@@ -65,7 +65,7 @@ All new endpoints go through `rbac-check`, `security-review` and `api-docs`. Eve
 - `PATCH /workspace/capabilities/{key}/` is restricted to workspace admins.
   - With data present, the request must carry `confirm_counts_seen_at`, so the UI can't skip the confirm step.
   - Turning off `agile` with an active sprint requires `confirm_text: "AGILE"`. The server returns the list of notified POs and SMs.
-- **Agents enforcement is middleware, not a DRF default permission class.** A gate added to `DEFAULT_PERMISSION_CLASSES` is silently inert, because most views override it.
+- *(Superseded: Agents reuses the existing fail-closed `mcp_enabled` enforcement, ADR-1460.)* **Agents enforcement is middleware, not a DRF default permission class.** A gate added to `DEFAULT_PERMISSION_CLASSES` is silently inert, because most views override it.
   - When `agents` is off, any request authenticated as an agent actor (ADR-0112) gets a 403 with `{"code": "capability_off", "capability": "agents"}`.
   - **Until #1063** introduces agent actor kinds, every MCP token is refused (threat-model D1, decided 2026-11-22), because today's only actor kind, `MCP_TOKEN`, is a person's own token. After #1063, only agent actors are refused.
 
@@ -114,11 +114,11 @@ All new endpoints go through `rbac-check`, `security-review` and `api-docs`. Eve
 - `health_band_source` ∈ {reported, derived} is kept.
 - `?health_basis=float_counts` returns the old derivation for **one minor release**, with `Deprecation` and `Sunset` headers and a changelog `changed` fragment that names the removal version.
 - Program rollup: `derivation{rule: "worst_child", driver_project, total, computable, reported}`.
-- Workspace: `counts{on_track, at_risk, critical, not_computable}`. **No workspace band field** (the #3901 ruling). #3901 gets a superseding note.
+- Workspace *(superseded: not OSS, ADR-1464)*: `counts{on_track, at_risk, critical, not_computable}`. **No workspace band field** (the #3901 ruling). #3901 gets a superseding note.
 - This needs an ADR superseding ADR-0133 §derived.
 
 ### 2.6 Offline replay (web)
-- The queue replays through the existing `tasks/bulk` endpoint with `Idempotency-Key` and client IDs (ADR-0772).
+- Creates and links replay through the existing `tasks/bulk` endpoint with `Idempotency-Key` and client IDs (ADR-0772). Updates and reparents replay through `PATCH /tasks/{id}/` with `X-Base-Version` (ADR-1465).
 - **Conflict contract to define:** 409 with `{"code": "conflict", "field", "your_value", "server_value", "server_actor", "server_at"}`.
 - Refusals return 422 with `{"code", "reason"}`.
 - The idempotency key must be retained for at least the queue's 7-day purge window.
@@ -161,7 +161,7 @@ New WS event names must be added to `FROZEN_WS_EVENT_TYPES` and pass `docs:ws-ev
 | Migrations | Expand-only, as in §1. The upgrade note states that old pods are compatible. There is no destructive step in 0.5. |
 | Recompute after approval | Goes through the outbox into a Celery task tracked by `taskruns`. Adds a queue-depth metric and a dead-letter alert, as for existing recomputes. The ask outcome endpoint reports `recompute: pending|done|failed`, so a stuck run is visible in the UI and not silent. |
 | Push | `push.enabled: false` by default in `values.yaml`, so a default install makes **zero** outbound push calls. When enabled, VAPID keys come from `push.vapid.existingSecret`, or are chart-generated with `lookup` so `helm upgrade` never rotates them. Document the egress hostnames (FCM, Mozilla autopush, Apple push) with a NetworkPolicy example. The VAPID secret is listed in the backup runbook. |
-| Service worker | It is shared by the PWA install, push and the offline outbox. It is versioned with the web image and respects the ADR-1249 previous-asset window. The server sends a kill-switch header that unregisters it. The outbox stamps an API contract version and refuses to replay across an incompatible change. Queued edits are kept per user per device and purged after 7 days. “Encrypted at rest” needs a stated key location, or the claim is dropped (Q6.5). |
+| Service worker | It is shared by the PWA install, push and the offline outbox. It is versioned with the web image and respects the ADR-1249 previous-asset window. The server sends a kill-switch header that unregisters it. The outbox stamps an API contract version and refuses to replay across an incompatible change. Queued edits are kept per user per device and purged after 72 h (ADR-1465). “Encrypted at rest” needs a stated key location, or the claim is dropped (Q6.5). |
 | Capability defaults | `workspace.defaultCapabilities` in Helm values seeds new workspaces. Whether values can **pin** a capability that the UI can't widen is open (Q1-ops). |
 | Sizing | Asks and expenses are small tables. Expense occurrences are computed, not stored. Push fan-out adds worker load in proportion to subscribed devices × events, with a sizing note in `administration/sizing.md`. |
 | Backup | The new tables are covered by the logical backup. The only new secret is VAPID. |
@@ -170,7 +170,7 @@ New WS event names must be added to `FROZEN_WS_EVENT_TYPES` and pass `docs:ws-ev
 
 `threat-model` has run: [THREAT-MODEL.md](THREAT-MODEL.md). Its decisions D1–D6 amend this doc where they conflict. In particular:
 - §2.1 Agents enforcement can't tell agent from human until #1063 lands.
-- §2.6 replay needs `server_version` preconditions, because idempotency keys live 24 h.
+- §2.6 replay needs `server_version` preconditions, because idempotency keys live 24 h. *(Resolved: `X-Base-Version` on PATCH, ADR-1465.)*
 - §2.4 push endpoints need a host allowlist (SSRF).
 - `threat-model` before `architect`:
   - Agents enforcement (a new authorization boundary);
@@ -180,7 +180,7 @@ New WS event names must be added to `FROZEN_WS_EVENT_TYPES` and pass `docs:ws-ev
 - `enterprise-check`:
   - pools spanning programs (Q2.3);
   - the Rate editor grant vs custom roles (Q3.8);
-  - Workspace counts (#3901 ruling).
+  - Workspace counts (#3901 ruling). *(Superseded: counts are Enterprise, trueppm-enterprise#210.)*
 - `ai-review`: every new computed value and mutation in §2.
 - `migration-check`, `broadcast-check` (ask and expense writes are board-scoped), `api-docs`, `rbac-check`, `security-review`.
 - Docs: `administration/` pages for capabilities, push (Helm values, egress, VAPID) and the rate-editor grant. Each has a `documentedFor: "0.5"` and a `Ships in 0.5` callout until 0.5 ships.
