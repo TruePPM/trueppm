@@ -103,6 +103,33 @@ def _http_surfaces(project: Project, task: Task) -> dict[str, str]:
         "changelog": f"{base}/changelog/",
         "standup": f"{base}/standup/",
         "project export": f"{base}/export/",
+        "project blocked roll-up": f"{base}/blocked/",
+    }
+
+
+def _write_surfaces(project: Project, task: Task, requester: Any) -> dict[str, str]:
+    """Raw bodies of the WRITE responses that echo a task back to a non-reader.
+
+    A write returns the full task representation, so it is a reader too: a PATCH of an
+    unrelated field and a bulk update row must not carry the private text back to a
+    requester who is neither assignee nor mentioned.
+    """
+    client = APIClient()
+    client.force_authenticate(user=requester)
+    patch_resp = client.patch(
+        f"/api/v1/tasks/{task.pk}/", {"name": "Renamed by owner"}, format="json"
+    )
+    assert patch_resp.status_code == 200, patch_resp.content[:300]
+    bulk_resp = client.post(
+        f"/api/v1/projects/{project.pk}/tasks/bulk/",
+        {"operations": [{"op": "update", "id": str(task.pk), "data": {"name": "Bulk renamed"}}]},
+        format="json",
+    )
+    assert bulk_resp.status_code == 207, bulk_resp.content[:300]
+    assert len(bulk_resp.json()["applied"]) == 1, "bulk row not applied — vacuous"
+    return {
+        "task PATCH response": patch_resp.content.decode(),
+        "task bulk response": bulk_resp.content.decode(),
     }
 
 
@@ -139,6 +166,30 @@ def test_no_http_surface_serves_the_canary_to_a_non_reader(
         if CANARY in _get(owner, path)
     ]
     assert leaks == []
+
+
+def test_no_write_response_serves_the_canary_to_a_non_reader(
+    project: Project, blocked_task: Task, owner: Any
+) -> None:
+    surfaces = _write_surfaces(project, blocked_task, owner)
+    assert [name for name, body in surfaces.items() if CANARY in body] == []
+
+
+def test_sprint_blocked_rollup_serves_no_canary_to_a_non_reader(
+    project: Project, blocked_task: Task, owner: Any
+) -> None:
+    from trueppm_api.apps.projects.models import Sprint
+
+    sprint = Sprint.objects.create(
+        project=project,
+        name="Canary sprint",
+        start_date=date(2026, 4, 1),
+        finish_date=date(2026, 4, 14),
+    )
+    Task.objects.filter(pk=blocked_task.pk).update(sprint=sprint)
+    body = _get(owner, f"/api/v1/sprints/{sprint.pk}/blocked/")
+    assert len(json.loads(body)["blocked"]) == 1, "roll-up empty — vacuous"
+    assert CANARY not in body
 
 
 def test_the_canary_is_live_for_its_legitimate_reader(
@@ -247,7 +298,7 @@ _REVIEWED_FIELD_TOUCHPOINTS: dict[str, str] = {
     "apps/projects/services.py": "standup/new-blocker delta reads emptiness only",
     "apps/projects/standup.py": "standup payload never serializes the text (sentinel: standup)",
     "apps/projects/standup_views.py": "standup view (sentinel: standup)",
-    "apps/projects/structural_operation_services.py": "undo snapshot of the field",
+    "apps/projects/structural_operation_services.py": "unrelated: undo_blocked_reason() helper",
     "apps/projects/structural_operation_views.py": "undo refusal wiring",
     "apps/projects/views.py": "task write/rollup views",
     "apps/workspace/export.py": "BLOCKER_REASON_EXCLUDE — column dropped from archive",
