@@ -102,7 +102,8 @@ const json = (body: unknown) => ({
   body: JSON.stringify(body),
 });
 
-const paginated = (results: unknown[]) => json({ count: results.length, next: null, previous: null, results });
+const paginated = (results: unknown[]) =>
+  json({ count: results.length, next: null, previous: null, results });
 
 async function seedAuth(page: Page) {
   await page.addInitScript(() => {
@@ -138,7 +139,9 @@ async function setupProgramReads(page: Page, roster: ReturnType<typeof rosterRow
       }),
     ),
   );
-  await page.route(`**/api/v1/programs/${PROGRAM_ID}/members/**`, (route) => route.fulfill(json([])));
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/members/**`, (route) =>
+    route.fulfill(json([])),
+  );
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/backlog-items/**`, (route) =>
     route.fulfill(json([])),
   );
@@ -284,10 +287,7 @@ test.describe('program Owner with no project membership (#3469)', () => {
     //    project that is not there ("› Dashboard" was the reported symptom), and
     //    carries no leading empty program segment.
     const location = page.getByRole('navigation', { name: 'Location' });
-    await expect(location.getByText('Project unavailable')).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
+    await expect(location.getByText('Project unavailable')).toHaveAttribute('aria-current', 'page');
     await expect(location.getByText('Dashboard')).toHaveCount(0);
     await expect(location.getByRole('button', { name: /Switch program/ })).toHaveCount(0);
     await expect(location.getByRole('link', { name: /Open program/ })).toHaveCount(0);
@@ -409,13 +409,11 @@ test.describe('project member outside the program (#3469)', () => {
     const urls = recordRequests(page);
     await page.goto(`/projects/${OPEN_PROJECT}/overview`);
     await expect(page.getByRole('navigation', { name: 'View' })).toBeVisible({ timeout: 10_000 });
-    // Give any deferred fetch a chance to fire before asserting on absence — an
-    // `expect(...).toHaveLength(0)` that samples immediately is vacuous.
-    await expect
-      .poll(() => urls.filter((u) => u.includes(`/programs/${PROGRAM_ID}/`)).length, {
-        timeout: 3_000,
-      })
-      .toBe(0);
+    // Settle first: `networkidle` is the positive signal that every deferred fetch
+    // the page was going to issue has fired. A bare `expect.poll(...).toBe(0)` would
+    // pass on its first sample, so it could not see a late request.
+    await page.waitForLoadState('networkidle');
+    expect(urls.filter((u) => u.includes(`/programs/${PROGRAM_ID}/`))).toHaveLength(0);
   });
 
   test('the rail does not name a program the viewer cannot open', async ({ page }) => {

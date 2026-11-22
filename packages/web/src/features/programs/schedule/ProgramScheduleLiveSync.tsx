@@ -53,6 +53,9 @@ const SCHEDULE_AFFECTING_EVENTS: ReadonlySet<string> = new Set([
   'dependency_deleted',
   // #3770: the aggregated form POST /tasks/bulk/ emits for a batch of applied
   // edges — never a per-edge dependency_created for a bulk request.
+  'dependency_bulk_created',
+  // 0.4 alias of the above, dual-emitted through 0.5 and removed in 0.6 (#4481).
+  // TODO(#5096): drop this alias in 0.6.
   'dependencies_bulk_created',
   'sprint_created',
   'sprint_updated',

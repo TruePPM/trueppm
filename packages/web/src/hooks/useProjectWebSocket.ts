@@ -21,7 +21,8 @@
  *                  fields / no changed_fields / uncached row / failed read → invalidate tasks
  *   tasks_reordered / tasks_bulk_mutated → invalidate tasks
  *   tasks_restructured → invalidate tasks + dependencies (ungroup drops edges, undo restores them)
- *   dependency_created / dependency_updated / dependency_deleted / dependencies_bulk_created
+ *   dependency_created / dependency_updated / dependency_deleted / dependency_bulk_created
+ *                     (also the 0.4 alias dependencies_bulk_created, removed in 0.6, #5096)
  *                     → invalidate dependencies + tasks
  *   baseline_created / baseline_activated / baseline_deleted → invalidate baselines + tasks
  *   risk_created / risk_updated / risk_deleted → invalidate risks
@@ -645,6 +646,11 @@ function registerTaskMutationHandlers(on: OnFn, deps: WsHandlerDeps): void {
       // per edge (up to TASK_BULK_MAX_DEPENDENCIES=500). Same invalidation as its
       // singular sibling above; the payload just carries `dependency_ids` (plural)
       // instead of a single `id`, which this handler does not need to read.
+      // #4481: `dependency_bulk_created` is the grammar-conforming name; the plural
+      // above is its 0.4 alias, dual-emitted through 0.5 and removed in 0.6. Both
+      // land on this one handler, so a client sees the same invalidation either way.
+      // TODO(#5096): drop the plural alias in 0.6.
+      'dependency_bulk_created',
       'dependencies_bulk_created',
     ],
     () => {

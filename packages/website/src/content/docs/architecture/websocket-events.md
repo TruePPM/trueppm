@@ -110,7 +110,7 @@ WebSocket `event_type` values follow one pattern:
 
 Examples: `task_created`, `task_updated`, `task_deleted`, `dependency_accepted`,
 `baseline_activated`, `roster_changed`, `sprint_retro_updated`,
-`task_run_started`, `slip_conflicts_updated`. The `task_run_*` family
+`task_run_started`. The `task_run_*` family
 (`task_run_started`, `task_run_completed`, `task_run_failed`, `task_run_cancelled`)
 follows the same rule with a two-word resource; `task_run_progress` is the exception
 and is grandfathered below. New events
@@ -126,17 +126,31 @@ Two deliberate qualifiers:
   [WebSocket ↔ webhook taxonomy](/api/websockets/#websocket--webhook-event-taxonomy).
 - **A handful of shipped strings predate the rule.** Bulk and collection events use
   a plural or non-`<resource>_<verb>` form — `tasks_bulk_mutated`,
-  `tasks_reordered`, `tasks_restructured`, `phases_reordered`, `backlog_reranked`,
-  `risks_imported`. Four more break the grammar in a different way:
-  `presence_join` and `presence_leave` (present tense, not past; shipped in 0.2)
-  and `cpm_complete` and `cpm_error` (no verb at all; shipped in 0.1). Three more
-  shipped in 0.3 and break the grammar too: `comment_created` (no resource noun
-  before the verb), `flagged_for_backlog` (no past-tense verb), and
-  `task_run_progress` (a noun, not a past-tense verb). These are
+  `tasks_reordered`, `tasks_restructured`, `phases_reordered`, `risks_imported`,
+  `slip_conflicts_updated`, `task_dates_updated` and `project_custom_fields_updated`.
+  Four more break the grammar in a different way: `presence_join` and
+  `presence_leave` (present tense, not past; shipped in 0.2) and `cpm_complete` and
+  `cpm_error` (no verb at all; shipped in 0.1). `flagged_for_backlog` (no past-tense
+  verb) and `task_run_progress` (a noun, not a past-tense verb) break it too.
+  (`backlog_reranked` and `comment_created` conform and are not exempt.) These are
   **grandfathered**: they predate the rule, are part of the frozen contract, and
   will not be renamed mid-line. New events do not get the same latitude — conform
   to `<resource>_<past-tense-verb>`. The grandfathered strings are normalized only
   at the 1.0 wire-freeze, where a one-time breaking rename is acceptable.
+
+One string that shipped in 0.4 broke the grammar and is corrected rather than
+grandfathered: `dependencies_bulk_created` (plural resource) is renamed
+`dependency_bulk_created`. Both names are emitted for one minor, 0.5, and the plural
+is removed in 0.6 (#5096); until then it sits on the grandfather list as a
+deprecated alias. `test_ws_event_names_follow_the_grammar_outside_the_grandfather_list`
+enforces the grammar: any event not on the shrink-only grandfather list (and
+the one exemption below) must be `<singular resource>_<past-tense verb>`.
+
+**Explicit exemption, decision pending:** `decisions_policy_changed` also first shipped
+in 0.4 and carries a plural resource word, so it is not grandfathered by age. It is
+listed as a separate, shrink-only exemption (`_NEW_IN_0_4_PLURAL_EXEMPTIONS`) rather
+than renamed. Whether to rename it (another dual-emit alias) or keep it as a compound
+noun is a pending maintainer decision.
 
 ## The frozen contract
 

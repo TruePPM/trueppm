@@ -466,3 +466,103 @@ def test_sprint_authored_inverted_still_fails_loudly(owner: Any) -> None:
             create_users=True,
         )
     assert not Sprint.objects.filter(name="Sprint 1").exists()
+
+
+@pytest.mark.parametrize("shift_days", [3, 7, 30])
+def test_same_shape_exceptions_survive_a_reload_at_a_shifted_anchor(
+    owner: Any, shift_days: int
+) -> None:
+    """#4393: two authored exceptions with the SAME description and span length.
+
+    Recurring "Team offsite" blocks share a stale-match key, ``(description, span)``,
+    so the matcher cannot tell the two apart by shape. After a reload at a different
+    anchor the calendar must hold exactly the rows the pack authors at the new anchor:
+    neither occurrence's stale copy lingers, and (``shift_days=7``, the spacing between
+    the blocks) an old row that coincides with the other occurrence's *new* position is
+    kept once rather than deleted-then-missing or duplicated.
+    """
+    offsite = [
+        {"exc_start": "A+10", "exc_end": "A+11", "description": "Team offsite"},
+        {"exc_start": "A+17", "exc_end": "A+18", "description": "Team offsite"},
+    ]
+    first = date(2026, 10, 1)
+    second = first + timedelta(days=shift_days)
+
+    for anchor, replace in ((first, False), (second, True)):
+        import_seed(
+            _seed(anchor=anchor.isoformat(), exceptions=offsite, sprint=("A+1", "A+5")),
+            owner=owner,
+            create_users=True,
+            is_sample=True,
+            replace=replace,
+        )
+
+    rows = list(Calendar.objects.get(name="Drift 5-day").exceptions.order_by("exc_start"))
+    assert [(r.exc_start, r.exc_end, r.description) for r in rows] == [
+        (second + timedelta(days=10), second + timedelta(days=11), "Team offsite"),
+        (second + timedelta(days=17), second + timedelta(days=18), "Team offsite"),
+    ]
+
+
+_MONDAY_FRIDAY = range(5)
+
+
+@pytest.mark.parametrize("first_run", [2, 3, 6])
+@pytest.mark.parametrize("second_run", [0, 1, 2, 5, 8])
+def test_chained_non_working_runs_land_the_repaired_sprint_finish_on_a_working_day(
+    owner: Any, first_run: int, second_run: int
+) -> None:
+    """#4393: the collapse repair snaps ONCE, from ``start + 1 day`` — so a second
+    non-working stretch sitting right after the snapped start must not strand the finish.
+
+    Anchor 2026-10-09 is a Friday; the sprint is A+1..A+4. A first holiday run from A+3
+    swallows the sprint (start snaps to the day after the run, the finish is inside it,
+    both collapse). A second run begins the day after that snapped start. The repaired
+    finish must be a real working day strictly after the start, and the *first* one —
+    a window that stretched further than it had to would hide a wrong snap.
+    """
+    anchor = date(2026, 10, 9)
+    holiday1 = [anchor + timedelta(days=3 + n) for n in range(first_run)]
+
+    def _is_working(d: date, off: set[date]) -> bool:
+        return d.weekday() in _MONDAY_FRIDAY and d not in off
+
+    off = set(holiday1)
+    expected_start = anchor + timedelta(days=1)
+    while not _is_working(expected_start, off):
+        expected_start += timedelta(days=1)
+    # The second run starts the day after the snapped start (relative to the anchor).
+    second_from = (expected_start + timedelta(days=1) - anchor).days
+    holiday2 = [anchor + timedelta(days=second_from + n) for n in range(second_run)]
+    off |= set(holiday2)
+
+    def _rel(d: date) -> str:
+        return f"A+{(d - anchor).days}"
+
+    exceptions = [
+        {"exc_start": _rel(holiday1[0]), "exc_end": _rel(holiday1[-1]), "description": "Holiday 1"}
+    ]
+    if holiday2:
+        exceptions.append(
+            {
+                "exc_start": _rel(holiday2[0]),
+                "exc_end": _rel(holiday2[-1]),
+                "description": "Holiday 2",
+            }
+        )
+
+    import_seed(
+        _seed(anchor=anchor.isoformat(), exceptions=exceptions, sprint=("A+1", "A+4")),
+        owner=owner,
+        create_users=True,
+    )
+
+    expected_finish = expected_start + timedelta(days=1)
+    while not _is_working(expected_finish, off):
+        expected_finish += timedelta(days=1)
+
+    sprint = Sprint.objects.get(name="Sprint 1")
+    assert sprint.start_date == expected_start
+    assert sprint.finish_date == expected_finish
+    assert sprint.finish_date > sprint.start_date
+    assert _is_working(sprint.finish_date, off)
