@@ -137,7 +137,7 @@ class TestStatusDateFloorArming:
         assert cpm_complete_payload["dates_changed"] is True
         assert set(cpm_complete_payload) == {
             "project_finish",
-            "critical_path",
+            "critical_count",
             "status_date",
             "dates_changed",
         }

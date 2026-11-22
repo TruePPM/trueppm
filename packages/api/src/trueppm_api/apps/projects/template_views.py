@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Any, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import Case, Count, IntegerField, Q, QuerySet, Value, When
+from django.db.models import Case, Count, Exists, IntegerField, OuterRef, Q, QuerySet, Value, When
 from drf_spectacular.utils import (
     OpenApiResponse,
     extend_schema,
@@ -284,6 +284,9 @@ class ProjectTemplateSerializer(serializers.ModelSerializer[ProjectTemplate]):
     def get_is_superseded(self, obj: ProjectTemplate) -> bool:
         """A later version replaced this one. It stays selectable on purpose —
         projects already created from it are why it must remain legible."""
+        annotated = getattr(obj, "has_successor", None)
+        if annotated is not None:
+            return bool(annotated)
         return obj.superseded_by.exists()
 
     def get_task_count(self, obj: ProjectTemplate) -> int:
@@ -437,6 +440,10 @@ class ProjectTemplateViewSet(IdempotencyMixin, viewsets.ReadOnlyModelViewSet[Pro
             # One aggregate rather than a per-row count in the serializer: the
             # gallery renders every template at once, so a SerializerMethodField
             # doing its own query is N+1 by construction (#2909).
+            # One EXISTS in the list query instead of one per row (#4309).
+            .annotate(
+                has_successor=Exists(ProjectTemplate.objects.filter(supersedes=OuterRef("pk")))
+            )
             .annotate(
                 adoption_count=Count(
                     "applications",

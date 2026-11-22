@@ -40,7 +40,7 @@ only the ids the act recorded in ``removed_synced_child_ids``.
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from django.db import transaction
 from django.db.models import Q
@@ -262,7 +262,13 @@ def _newest_active_id(operation: StructuralOperation) -> uuid.UUID | None:
 
     Scoped per actor so ⌘Z means "undo *your* last structural act" — a collaborator's
     unrelated act in a disjoint region must not block you (ADR-0880 §8).
+
+    The list endpoint annotates ``newest_active_id`` onto each row with one correlated
+    subquery, and that value is preferred here so a page costs no per-row query (#4309).
+    Only the list annotates: the undo write path must read the stack fresh.
     """
+    if hasattr(operation, "newest_active_id"):
+        return cast("uuid.UUID | None", operation.newest_active_id)
     from trueppm_api.apps.projects.models import StructuralOperation, SyncBatchOperationStatus
 
     return (

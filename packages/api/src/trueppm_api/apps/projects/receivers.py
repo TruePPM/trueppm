@@ -190,10 +190,10 @@ def _register_milestone_rollup_receiver() -> None:
         )
         if milestone_id is None:
             return
-        from trueppm_api.apps.projects.services import recompute_milestone_rollup
+        from trueppm_api.apps.projects.services import schedule_milestone_rollup
 
         try:
-            recompute_milestone_rollup(milestone_id)
+            schedule_milestone_rollup(milestone_id)
         except SoftTimeLimitExceeded:
             raise
         except Exception:

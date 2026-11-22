@@ -104,11 +104,24 @@ class TestProjectReceivers:
         task = Task.objects.create(project=project, name="t", duration=1, sprint=sprint)
         milestone = Task.objects.create(project=project, name="m", duration=0, is_milestone=True)
         Sprint.objects.filter(pk=sprint.pk).update(target_milestone=milestone)
-        target = "trueppm_api.apps.projects.services.recompute_milestone_rollup"
-        with patch(target, side_effect=_LIMIT()), pytest.raises(_LIMIT):
+        # The receiver defers the recompute to commit (#4654), so the soft limit can
+        # surface from either the scheduling call or the deferred flush.
+        schedule = "trueppm_api.apps.projects.services.schedule_milestone_rollup"
+        with patch(schedule, side_effect=_LIMIT()), pytest.raises(_LIMIT):
             task.save()
-        with patch(target, side_effect=RuntimeError("boom")):
+        with patch(schedule, side_effect=RuntimeError("boom")):
             task.save()
+
+        from trueppm_api.apps.projects.services import _PendingRollups
+
+        recompute = "trueppm_api.apps.projects.services.recompute_milestone_rollup"
+        pending = _PendingRollups()
+        pending.ids[str(milestone.pk)] = None
+        with patch(recompute, side_effect=_LIMIT()), pytest.raises(_LIMIT):
+            pending.flush_milestone_rollups()
+        pending.ids[str(milestone.pk)] = None
+        with patch(recompute, side_effect=RuntimeError("boom")):
+            pending.flush_milestone_rollups()
 
 
 class TestEmailSendHelpers:

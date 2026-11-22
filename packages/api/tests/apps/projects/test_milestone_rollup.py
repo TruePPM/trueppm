@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -707,3 +708,211 @@ def test_task_save_outside_sprint_does_not_recompute(project: Project) -> None:
         task.save(update_fields=["name"])
     rollup_events = [c for c in broadcast.call_args_list if c.args[1] == "milestone_rollup_updated"]
     assert rollup_events == []
+
+
+# ---------------------------------------------------------------------------
+# Task-save receiver — one recompute and one broadcast per milestone per
+# transaction (#4654)
+# ---------------------------------------------------------------------------
+
+
+def _sprint_tasks(project: Project, sprint: Sprint, n: int) -> list[Task]:
+    return [Task.objects.create(project=project, name=f"T{i}", duration=1) for i in range(n)]
+
+
+def _rollup_events(broadcast: Any) -> list[Any]:
+    return [c for c in broadcast.call_args_list if c.args[1] == "milestone_rollup_updated"]
+
+
+@pytest.mark.django_db
+def test_many_task_saves_in_one_transaction_emit_one_rollup(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    milestone = _make_milestone(project)
+    sprint = _make_sprint(project, target_milestone=milestone, state=SprintState.ACTIVE)
+    tasks = _sprint_tasks(project, sprint, 20)
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as broadcast,
+        patch(
+            "trueppm_api.apps.projects.services.recompute_milestone_rollup",
+            wraps=recompute_milestone_rollup,
+        ) as recompute,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        for task in tasks:
+            task.sprint = sprint
+            task.save()
+        # Nothing computed yet: the work is deferred to commit.
+        assert recompute.call_count == 0
+    assert recompute.call_count == 1
+    events = _rollup_events(broadcast)
+    assert len(events) == 1
+    assert events[0].args[2]["milestone_id"] == str(milestone.pk)
+
+
+@pytest.mark.django_db
+def test_single_task_save_still_emits_exactly_one_rollup_with_payload(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    milestone = _make_milestone(project)
+    sprint = _make_sprint(
+        project,
+        target_milestone=milestone,
+        state=SprintState.COMPLETED,
+        committed_points=10,
+        completed_points=7,
+    )
+    task = Task.objects.create(project=project, name="solo", duration=1)
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as broadcast,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        task.sprint = sprint
+        task.save()
+    events = _rollup_events(broadcast)
+    assert len(events) == 1
+    assert events[0].args[2]["percent_complete"] == 70.0
+
+
+@pytest.mark.django_db
+def test_explicit_recompute_supersedes_the_pending_deferred_one(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """Sprint close saves each task, then recomputes once itself — still one event."""
+    milestone = _make_milestone(project)
+    sprint = _make_sprint(project, target_milestone=milestone, state=SprintState.ACTIVE)
+    tasks = _sprint_tasks(project, sprint, 5)
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as broadcast,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        for task in tasks:
+            task.sprint = sprint
+            task.save()
+        recompute_milestone_rollup(milestone.pk)
+    assert len(_rollup_events(broadcast)) == 1
+
+
+@pytest.mark.django_db
+def test_explicit_recompute_in_a_rolled_back_savepoint_keeps_the_pending_flush(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """The explicit call's broadcast dies with its savepoint; the parked id must not.
+
+    A task save parks the milestone; an explicit recompute inside a nested atomic that
+    then rolls back would, if it discarded the parked id, leave nothing to broadcast
+    the milestone when the outer transaction commits.
+    """
+    from django.db import transaction
+
+    milestone = _make_milestone(project)
+    sprint = _make_sprint(project, target_milestone=milestone, state=SprintState.ACTIVE)
+    (task,) = _sprint_tasks(project, sprint, 1)
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as broadcast,
+        django_capture_on_commit_callbacks(execute=True),
+        transaction.atomic(),
+    ):
+        task.sprint = sprint
+        task.save()
+        try:
+            with transaction.atomic():
+                recompute_milestone_rollup(milestone.pk)
+                raise RuntimeError("roll back the savepoint")
+        except RuntimeError:
+            pass
+    events = _rollup_events(broadcast)
+    assert len(events) == 1
+    assert events[0].args[2]["milestone_id"] == str(milestone.pk)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_a_rolled_back_transaction_does_not_strand_the_next_one(project: Project) -> None:
+    from django.db import transaction
+
+    milestone = _make_milestone(project)
+    sprint = _make_sprint(project, target_milestone=milestone, state=SprintState.ACTIVE)
+    doomed, kept = _sprint_tasks(project, sprint, 2)
+    with patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as broadcast:
+        try:
+            with transaction.atomic():
+                doomed.sprint = sprint
+                doomed.save()
+                raise RuntimeError("roll back")
+        except RuntimeError:
+            pass
+        assert _rollup_events(broadcast) == []
+        with transaction.atomic():
+            kept.sprint = sprint
+            kept.save()
+    assert len(_rollup_events(broadcast)) == 1
+
+
+@pytest.mark.django_db
+def test_savepoint_rollback_before_first_schedule_does_not_strand_the_outer_flush(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """An inner savepoint that rolled back discards the flush callback it queued;
+    the next save in the outer transaction must notice and queue a fresh one."""
+    from django.db import transaction
+
+    milestone = _make_milestone(project)
+    sprint = _make_sprint(project, target_milestone=milestone, state=SprintState.ACTIVE)
+    doomed, kept = _sprint_tasks(project, sprint, 2)
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as broadcast,
+        django_capture_on_commit_callbacks(execute=True),
+        transaction.atomic(),
+    ):
+        try:
+            with transaction.atomic():
+                doomed.sprint = sprint
+                doomed.save()
+                raise RuntimeError("roll back the savepoint")
+        except RuntimeError:
+            pass
+        kept.sprint = sprint
+        kept.save()
+    events = _rollup_events(broadcast)
+    assert len(events) == 1
+    assert events[0].args[2]["milestone_id"] == str(milestone.pk)
+
+
+@pytest.mark.django_db
+def test_savepoint_rollback_after_first_schedule_costs_one_harmless_extra_recompute(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """Accepted behavior (see ``_PendingRollups``): an id parked inside a rolled-back
+    savepoint stays in the set because the outer flush callback is still live. The
+    committed milestone is broadcast exactly once; the stale one costs one recompute
+    that reports current truth (here the clear state), never a wrong value."""
+    from django.db import transaction
+
+    kept_ms = _make_milestone(project, name="kept")
+    stale_ms = _make_milestone(project, name="stale")
+    kept_sprint = _make_sprint(project, target_milestone=kept_ms, state=SprintState.ACTIVE)
+    stale_sprint = _make_sprint(
+        project, target_milestone=stale_ms, state=SprintState.ACTIVE, name="Other"
+    )
+    kept, doomed = _sprint_tasks(project, kept_sprint, 2)
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as broadcast,
+        django_capture_on_commit_callbacks(execute=True),
+        transaction.atomic(),
+    ):
+        kept.sprint = kept_sprint
+        kept.save()
+        try:
+            with transaction.atomic():
+                doomed.sprint = stale_sprint
+                doomed.save()
+                raise RuntimeError("roll back the savepoint")
+        except RuntimeError:
+            pass
+    by_milestone: dict[str, list[Any]] = {}
+    for event in _rollup_events(broadcast):
+        by_milestone.setdefault(event.args[2]["milestone_id"], []).append(event.args[2])
+    assert len(by_milestone[str(kept_ms.pk)]) == 1
+    assert len(by_milestone[str(stale_ms.pk)]) == 1
+    # The stale recompute read committed state: the rolled-back link left no trace.
+    assert by_milestone[str(stale_ms.pk)][0]["percent_complete"] in (None, 0, 0.0)

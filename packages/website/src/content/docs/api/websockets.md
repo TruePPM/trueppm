@@ -163,7 +163,17 @@ The set is open-ended and grows as features land; current event types include:
 - **Scheduling**: `cpm_complete`, `cpm_error`, `task_run_started`,
   `task_run_progress`, `task_run_completed`, `task_run_failed`, `task_run_cancelled`.
   `cpm_complete`'s payload is `{"project_finish": <ISO date or null>,
-  "critical_path": [<task id>, ...], "status_date": <ISO date or null>}` —
+  "critical_count": <int>, "status_date": <ISO date or null>}` —
+  `critical_count` is how many tasks are on the critical path: every critical task in
+  the CPM result, so it is not the same figure as `critical_count` on
+  `GET /api/v1/projects/health-summary/`, which counts incomplete leaf tasks only. The
+  id list is not on the socket: it was uncapped (thousands of ids per recalc on a mostly-critical network),
+  persisted in the replay buffer, and read by no client. It ships in 0.5 as that
+  replacement; before it the key was `critical_path`. The id list is still in the
+  `schedule.recalculated` webhook payload and, for a program, in the program schedule
+  read (`GET /api/v1/programs/{id}/schedule/`); single-project reads carry a per-task
+  `is_critical` flag instead. The `task_run_completed` `result_summary` of a new run
+  carries `critical_count` only; rows written before 0.5 keep their `critical_path`.
   `status_date` is the CPM data date this run resolved (`Project.status_date`
   if set, otherwise today; ADR-0752 §4), echoed so a consumer knows which
   "today" produced the dates. On the program-scoped pass (ADR-0120 D3,

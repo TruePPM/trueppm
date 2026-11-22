@@ -34,7 +34,7 @@ def test_empty_project_settles_dateless_result(calendar: Calendar) -> None:
 
     _run_schedule(str(project.pk), tracker)
 
-    tracker.set_result.assert_called_once_with({"project_finish": None, "critical_path": []})
+    tracker.set_result.assert_called_once_with({"project_finish": None, "critical_count": 0})
 
 
 @pytest.mark.django_db
@@ -47,7 +47,7 @@ def test_only_backlog_tasks_settles_dateless_result(calendar: Calendar) -> None:
 
     _run_schedule(str(project.pk), tracker)
 
-    tracker.set_result.assert_called_once_with({"project_finish": None, "critical_path": []})
+    tracker.set_result.assert_called_once_with({"project_finish": None, "critical_count": 0})
 
 
 @pytest.mark.django_db
@@ -58,4 +58,4 @@ def test_missing_project_settles_dateless_result(calendar: Calendar) -> None:
 
     _run_schedule(missing_pk, tracker)
 
-    tracker.set_result.assert_called_once_with({"project_finish": None, "critical_path": []})
+    tracker.set_result.assert_called_once_with({"project_finish": None, "critical_count": 0})

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 
 from trueppm_api.apps.taskruns.models import TaskRun
@@ -83,17 +84,34 @@ class TaskRunSerializer(_ErrorDetailAdminOnlyMixin, serializers.ModelSerializer[
         return getattr(user, "username", None) or getattr(user, "email", None)
 
 
+# critical_path is deprecated, not removed, here: runs recorded before 0.5 still
+# carry it and the API keeps echoing what was persisted (api/stability.md).
+@extend_schema_serializer(deprecate_fields=["critical_path"])
 class SchedulerRunResultSummarySerializer(serializers.Serializer[Any]):
     """Typed view over TaskRun.result_summary when task_name='scheduling.recalculate'.
 
-    The tracker writes ``{"project_finish": "YYYY-MM-DD", "critical_path": [uuid, ...],
-    "status_date": "YYYY-MM-DD"}`` from ``_run_schedule``. Fields are optional
-    because failed runs may never reach ``set_result()``.
+    The tracker writes ``{"project_finish": "YYYY-MM-DD", "critical_count": N,
+    "status_date": "YYYY-MM-DD"}`` from ``_run_schedule`` (the id list moved to the
+    webhook payload in #4656; rows written before that still carry ``critical_path``).
+    Fields are optional because failed runs may never reach ``set_result()``.
     """
 
     project_finish = serializers.DateField(required=False, allow_null=True)
+    # Not allow_null: DRF serves a missing key as null when allow_null is set, which
+    # would put ``critical_path: null`` on every new run. No writer ever stored null
+    # here, so omitting the key when the row lacks it loses nothing.
     critical_path = serializers.ListField(
-        child=serializers.CharField(), required=False, allow_null=True
+        child=serializers.CharField(),
+        required=False,
+        help_text=(
+            "Deprecated: present only on runs recorded before critical_count; "
+            "new runs omit it. Read critical_count instead."
+        ),
+    )
+    critical_count = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text="How many tasks were on the critical path.",
     )
     # The data date this run was actually computed against (ADR-0752 §4) — a
     # REST fallback for a client that missed the live cpm_complete/
