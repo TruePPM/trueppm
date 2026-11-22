@@ -173,14 +173,14 @@ on-commit-durability-check: ## Fail on an on_commit callback that dispatches Cel
 	@python3 scripts/check-on-commit-durability.py --self-test
 	@python3 scripts/check-on-commit-durability.py
 
-schema-breaking-check: ## Run the api:schema-breaking CI job locally (#4594): Breaking API changes vs the latest v* tag
+schema-breaking-check: ## Run the api:schema-breaking CI check (api:static job) locally (#4594): Breaking API changes vs the latest v* tag
 	@python3 scripts/check-schema-breaking.py --self-test
 	@python3 scripts/check-schema-breaking.py
 
 schema-check: ## Verify docs/api/openapi.json matches the live DRF schema
 	bash scripts/export-openapi.sh --check
 
-openapi-check: ## Run the api:openapi-check CI job locally (#3958): spectacular --validate, change-gated to packages/api, packages/scheduler, docs/api/openapi.json
+openapi-check: ## Run the api:openapi-check CI check (api:analyze job) locally (#3958): spectacular --validate, change-gated to packages/api, packages/scheduler, docs/api/openapi.json
 	@# schema-check proves the committed JSON matches the live schema; it never
 	@# asks whether that schema is VALID OpenAPI 3, which api:openapi-check does
 	@# and which used to be discoverable only a CI round-trip after the push.
@@ -200,13 +200,13 @@ openapi-check: ## Run the api:openapi-check CI job locally (#3958): spectacular 
 api-lint: ## Run the api:lint CI job locally (ruff check + format --check)
 	cd packages/api && ruff check src/ tests/ && ruff format --check src/ tests/
 
-api-typecheck: ## Run the api:type-check CI job locally (mypy)
+api-typecheck: ## Run the api:type-check CI check (api:analyze job) locally (mypy)
 	cd packages/api && PYTHONPATH="$(CURDIR)/packages/api/src:$(CURDIR)/packages/scheduler/src" $(call mypy_for,packages/api) src/trueppm_api
 
 scheduler-lint: ## Run the scheduler:lint CI job locally (ruff check + format --check)
 	cd packages/scheduler && ruff check src/ tests/ && ruff format --check src/ tests/
 
-scheduler-typecheck: ## Run the scheduler:type-check CI job locally (mypy)
+scheduler-typecheck: ## Run the scheduler:type-check CI check (scheduler:lint job) locally (mypy)
 	cd packages/scheduler && $(call mypy_for,packages/scheduler)
 
 web-lint: ## Run the web:lint CI job locally (eslint on packages/web/src + e2e)
@@ -220,14 +220,14 @@ web-typecheck: ## Run the web:type-check CI job locally (src + e2e projects)
 	# help text claimed it ran the CI job.
 	cd packages/web && npm run typecheck
 
-mobile-lint: ## Run the mobile:lint CI job locally (eslint on packages/mobile/src)
+mobile-lint: ## Run the mobile:lint CI check (mobile:static job) locally (eslint on packages/mobile/src)
 	cd packages/mobile && npm run lint
 
-mobile-typecheck: ## Run the mobile:type-check CI job locally (tsc --noEmit)
+mobile-typecheck: ## Run the mobile:type-check CI check (mobile:static job) locally (tsc --noEmit)
 	cd packages/mobile && npx tsc --noEmit
 
 pre-push-mobile: ## Run the mobile:lint + mobile:type-check CI gates locally, change-gated to packages/mobile
-	@# Mirrors pre-push-wasm: the CI mobile:lint / mobile:type-check jobs run only
+	@# Mirrors pre-push-wasm: the CI mobile:lint / mobile:type-check checks (mobile:static job) run only
 	@# on the ~few% of MRs that touch packages/mobile. Change-gated against
 	@# origin/main and skipped when packages/mobile/node_modules is absent — the
 	@# package is self-contained (not part of the shared web node_modules symlink),
@@ -243,7 +243,7 @@ pre-push-mobile: ## Run the mobile:lint + mobile:type-check CI gates locally, ch
 	fi
 
 pre-push-wasm: ## Run the wasm:lint CI gate locally (cargo clippy -D warnings), change-gated to packages/wasm-scheduler
-	@# Mirrors the CI wasm:lint job, which runs `cargo clippy --all-targets -- -D
+	@# Mirrors the CI wasm:lint check (wasm:check job), which runs `cargo clippy --all-targets -- -D
 	@# warnings` and blocks the pipeline on the ~12% of MRs that touch the wasm
 	@# package — a failure class make pre-push otherwise leaves to a ~7min CI
 	@# round-trip (#912). CI gates clippy ONLY (no cargo fmt --check), so we don't
@@ -739,7 +739,7 @@ package-licenses-check: ## Run the lint:package-licenses check (in the lint:repo
 	@bash scripts/check-package-licenses.sh --self-test
 	@bash scripts/check-package-licenses.sh
 
-scheduler-sdist-check: ## Run the scheduler:sdist-check CI job locally (#4520)
+scheduler-sdist-check: ## Run the scheduler:sdist-check CI check locally (scheduler:lock-sdist job) (#4520)
 	@# Builds the trueppm-scheduler sdist from a copy of the package with dev
 	@# artifacts planted in it, and fails if any leak or a required file is missing.
 	@bash scripts/check-scheduler-sdist.sh --self-test

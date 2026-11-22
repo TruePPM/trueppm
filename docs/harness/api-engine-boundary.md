@@ -10,7 +10,7 @@ This is the engine-side complement of ADR-0599 (API-first).
 
 ## The gate
 
-`scripts/check-api-engine-boundary.py` (CI job `lint:api-engine-boundary`, `make
+`scripts/check-api-engine-boundary.py` (CI check `lint:api-engine-boundary` in the `api:static` job, `make
 api-engine-boundary-check`, part of `make pre-push`) scans code tokens in
 `packages/api/src/trueppm_api` for four spellings: `np.random`/`default_rng`,
 `random.<fn>(`, `np.percentile`/`np.quantile`, and `timedelta(days=` (minus now-cutoffs,

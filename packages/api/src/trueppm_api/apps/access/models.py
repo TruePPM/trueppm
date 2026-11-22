@@ -254,12 +254,13 @@ class ProjectMembership(VersionedModel):
 
         Since #3458 a new direct read that omits the floor **is** caught:
         ``scripts/check-membership-live-floor.py`` (``make pre-push`` and the
-        ``api:membership-live-floor`` CI job) rejects an unfloored read of either
-        membership manager outside a short allowlist. It does not require the read to go
-        through *this* method — an inline ``is_deleted=False`` satisfies it — so this
-        stays a shared definition to prefer rather than an invariant. Note what the gate
-        cannot see: a defect *inside* an allowlisted module, and a join filter, which is
-        why the paragraph above still matters.
+        ``api:membership-live-floor`` check of the ``api:static`` CI job) rejects an
+        unfloored read of either membership manager outside a short allowlist. It does
+        not require the read to go through *this* method — an inline
+        ``is_deleted=False`` satisfies it — so this stays a shared definition
+        to prefer rather than an invariant. Note what the gate cannot see: a
+        defect *inside* an allowlisted module, and a join filter, which is why the
+        paragraph above still matters.
 
         Some direct reads must see revoked rows and stay on ``objects`` by design: the
         ``pre_save`` receiver in :mod:`~trueppm_api.apps.access.signals`, which reads the
@@ -386,10 +387,10 @@ class ProgramMembership(VersionedModel):
 
         What is new in #3458 and is *not* on the project side is that the floor is now
         checked rather than merely preferred: ``scripts/check-membership-live-floor.py``
-        (``make pre-push`` and the ``api:membership-live-floor`` CI job) fails any
-        unfloored read of either membership manager outside a short allowlist of modules
-        that must see revoked rows. The reads that must stay unfloored are named there,
-        with a reason each, rather than restated here.
+        (``make pre-push`` and the ``api:membership-live-floor`` check of the
+        ``api:static`` CI job) fails any unfloored read of either membership manager outside a short
+        allowlist of modules that must see revoked rows. The reads that must stay
+        unfloored are named there, with a reason each, rather than restated here.
         """
         return cls.objects.filter(is_deleted=False)
 

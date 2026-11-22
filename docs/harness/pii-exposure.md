@@ -7,7 +7,7 @@ Two account-PII defect classes were closed by hand ten times with no CI signal:
 - **Class B**: a write `ModelSerializer` over a model with an FK to `AUTH_USER_MODEL`
   auto-generates a `PrimaryKeyRelatedField` over every account, so the write is an account oracle.
 
-Run it with `make pii-exposure-check` (part of `make pre-push`; CI job `api:pii-exposure`).
+Run it with `make pii-exposure-check` (part of `make pre-push`; CI check `api:pii-exposure` in the `api:static` job).
 Both run `--self-test` first, which pins a must-match and a must-not-match case per class.
 
 ## Opt-outs

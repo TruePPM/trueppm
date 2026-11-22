@@ -1345,6 +1345,12 @@ docs:static:
     - bash scripts/ci/step.sh docs:ws-event-reachability bash scripts/check-ws-event-reachability.sh --self-test
     - bash scripts/ci/step.sh docs:adr-status bash scripts/check-adr-status.sh --self-test
     - bash scripts/ci/step.sh docs:adr-status bash scripts/check-adr-status.sh
+    # docs:config-links (#3190): every https://docs.trueppm.com link in
+    # packages/helm/values.yaml and .env.example must resolve to a page AND an
+    # anchor that exist. A link that 404s is worse than no link, because it looks
+    # authoritative. Its own job until #5097.
+    - bash scripts/ci/step.sh docs:config-links bash scripts/check-config-doc-links.sh
+    - bash scripts/ci/step.sh docs:config-links bash scripts/check-config-doc-links.sh --self-test
     - bash scripts/ci/step.sh --finish
 
 docs:known-issues-freshness:
@@ -1405,6 +1411,8 @@ docs:known-issues-freshness:
   script:
     - bash scripts/check-known-issues-freshness.sh --self-test
     - bash scripts/check-known-issues-freshness.sh
+
+
 
 lint:scheduler-readme-limitations:
   extends: .fast-job
@@ -1474,72 +1482,9 @@ tracker:drift-report:
   script:
     - bash scripts/tracker-drift-report.sh
 
-docs:config-links:
-  # Every https://docs.trueppm.com link in the two files an operator actually
-  # edits — packages/helm/values.yaml and .env.example — must resolve to a page
-  # AND an anchor that exist (#3190).
-  #
-  # Those two files carried zero documentation links between them: their only
-  # `https://` strings were example values, and the one pointer that existed was
-  # `Full variable list: docs/administration/configuration.` — no scheme, no
-  # host, and a trailing period that reads as part of the path. From inside a
-  # values file on someone's disk a site-relative path resolves to nothing.
-  #
-  # With forty absolute links the failure mode moves: a link that 404s is worse
-  # than no link, because it looks authoritative. Anchors drift whenever a
-  # heading is reworded, which docs branches do routinely, so this has to be
-  # checked rather than reviewed.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-  before_script:
-    # BusyBox grep rejects --include/--exclude-dir; this gate uses neither, but
-    # `grep -oh` and `grep -qx` are both POSIX and safe here.
-    - apk add --no-cache bash grep sed
-  script:
-    - bash scripts/check-config-doc-links.sh
-    - bash scripts/check-config-doc-links.sh --self-test
-
-security:demo-nginx-allowlist:
-  extends: .fast-job
-  # Public-demo nginx allowlist gate (#1763, extended #4356). The hosted
-  # read-only demo (try.trueppm.com / docker-compose.demo.yml) is
-  # read-only by construction (DemoReadOnlyMiddleware) and reachable only through
-  # the anonymous, tokenized, read-only share link; its SECRET_KEY is generated
-  # per install on first boot (#4946). A blanket `location /api/ { proxy_pass … }` on the
-  # demo's nginx template (the production posture) would expose the full
-  # authenticated API to the public internet, breaking that invariant. This
-  # gate fails the pipeline if nginx/demo.conf.template ever regresses to
-  # proxying anything beyond the vetted allowlist (share endpoints, liveness
-  # probe, static, loopback admin).
-  #
-  # #4356: the Helm chart's web ConfigMap (packages/helm/templates/web/
-  # configmap.yaml) renders two of its own equivalents of this surface — the
-  # share-link demo and the interactive demo (ADR-1197) — that the gate never
-  # checked: it read only the compose template, so a Go-template edit could
-  # reopen a blanket /api/ proxy in the CHART while this job stayed green.
-  # scripts/check-demo-nginx-allowlist.sh now also renders both branches with
-  # `helm template` and checks each against its own invariants (route
-  # allowlist for the share-link demo, GET/HEAD/OPTIONS method fence for the
-  # interactive demo). helm and yq are both plain `apk` packages, so this job
-  # keeps its existing alpine:3.20 image rather than switching to nginx:headers'
-  # alpine/helm image. ~2s.
-  stage: lint
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-  before_script:
-    - apk add --no-cache bash grep sed helm yq
-  script:
-    - bash scripts/check-demo-nginx-allowlist.sh
-    - bash scripts/check-demo-nginx-allowlist.sh --self-test
-
 ci:build-api-image:
   # Rebuild and push the custom ci-api image used by the .api / .api-no-db
-  # job templates and by mcp:typecheck / mcp:test. Pre-bakes libpq-dev + gcc +
+  # job templates and by the mcp:test job (its mcp:typecheck and mcp:test checks). Pre-bakes libpq-dev + gcc +
   # all dev-dep wheels (scheduler + api + mcp) so the downstream api:* jobs skip
   # ~3min of cold install on every run (kaizen #640 item 3) and the mcp:* jobs
   # skip their cold mcp[dev] install.
@@ -1872,13 +1817,47 @@ ci:build-keycloak-image:
     - docker push "$IMAGE"
 
 scheduler:lint:
+  # ruff plus mypy --strict, as two checks in one job (#5097). scheduler:type-check
+  # used to be its own job, and every scheduler test job waited on both. Folding it
+  # here saves a runner slot and a scheduling hop on the path to scheduler:test.
+  # Its check name is unchanged (`=== CHECK scheduler:type-check`).
   extends: [.scheduler, .fast-job]
   stage: lint
+  # Two caches: the inherited pip cache (re-stated via the anchor, since a list
+  # cache replaces the template's map rather than merging) plus the mypy
+  # incremental cache. mypy --strict is cold-slow, and persisting .mypy_cache
+  # across pipelines turns most runs into incremental re-checks. Keyed on
+  # pyproject.toml so a dependency or stub bump resets it cleanly.
+  cache:
+    - <<: *scheduler-cache
+    - key:
+        files:
+          - packages/scheduler/pyproject.toml
+        prefix: scheduler-mypy
+      paths:
+        - packages/scheduler/.mypy_cache/
   <<: *rules-scheduler
   script:
     - cd packages/scheduler
-    - ruff check src/ tests/
-    - ruff format --check src/ tests/
+    - sh ../../scripts/ci/step.sh scheduler:lint ruff check src/ tests/
+    - sh ../../scripts/ci/step.sh scheduler:lint ruff format --check src/ tests/
+    # Self-heal an occasionally-corrupt restored incremental cache (#2233). mypy
+    # exits 2 on a fatal INTERNAL ERROR (distinct from exit 1 = real type errors).
+    # On a crash, drop .mypy_cache and retry once from cold. That way a corrupt
+    # cache flakes green, and genuine type errors still fail.
+    - |
+      sh ../../scripts/ci/step.sh scheduler:type-check sh -c '
+        mypy || {
+          rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "mypy INTERNAL ERROR (exit 2) — clearing .mypy_cache and retrying cold"
+            rm -rf .mypy_cache
+            mypy
+          else
+            exit "$rc"
+          fi
+        }'
+    - sh ../../scripts/ci/step.sh --finish
 
 ci:pypi-id-tokens:
   extends: .fast-job
@@ -1972,81 +1951,6 @@ ci:artifact-assertions:
   script:
     - bash scripts/check-artifact-assertions.sh --self-test
     - bash scripts/check-artifact-assertions.sh
-
-api:membership-live-floor:
-  # A membership READ that omits `is_deleted` resolves a REVOKED member as live (#3458).
-  #
-  # Revoking access soft-deletes the row, and `uniq_(project|program)_membership_..._user`
-  # is unconditional — the tombstone keeps owning the slot, so the lookup answers with the
-  # departed member's old role. That defect was fixed FIVE times as five separate issues
-  # (#3386 write gates, #3410 re-add 500, #3411 three read paths, #3456 the weekly digest
-  # emailing revoked members, #3457 the seed exporter exporting them), every one found by
-  # a gate sweep on an unrelated MR. Nothing ran on a branch.
-  #
-  # Scope-inverted rather than grep-shaped, and that is what makes it affordable: 127
-  # membership-manager chains live outside migrations, 12 of them unfloored reads, and
-  # ALL TWELVE are correct by design — so a bare `*Membership.objects` grep is a 100%
-  # false-positive gate. The twelve sit in four modules, so checking everywhere and
-  # exempting a named few costs a four-line allowlist and fires zero false positives.
-  # Replayed against `main` before #3411 it reported 7 violations, all 7 real.
-  #
-  # AST, not a line regex: `is_deleted` is a COLUMN, so it appears in `.only("role",
-  # "is_deleted")` — a projection, not a filter — and in the SELECT list of every
-  # membership query. A substring probe reports a false pass on a wholly unfiltered read.
-  # Pure static analysis: no Django, no database, seconds.
-  extends: [.api-no-db, .fast-job]
-  stage: analyze
-  needs:
-    - job: ci:build-api-image
-      optional: true
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script: []
-  script:
-    # Self-test FIRST: a gate's failure mode is a green pipeline, so "it passed" is not
-    # evidence that it can still fail (#3195). Both bounds are pinned — the unfloored
-    # read is caught, and each correct-by-design shape is not.
-    - python3 scripts/check-membership-live-floor.py --self-test
-    - python3 scripts/check-membership-live-floor.py
-
-api:pii-exposure:
-  # Two account-PII exposure classes were closed by hand ten times with no gate (#3640):
-  # (A) a hand-rolled response dict writing an `email` key, bypassing the serializer that
-  # owns the #891 address-harvest policy; (B) a write ModelSerializer exposing an
-  # unnarrowed User FK, which makes the write an account oracle. AST, no Django, no DB.
-  # Opt-outs and the baseline are rubber stamps: they remove the silence only.
-  extends: [.api-no-db, .fast-job]
-  stage: analyze
-  needs:
-    - job: ci:build-api-image
-      optional: true
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script: []
-  script:
-    # Self-test FIRST (#3195): prove both classes are still caught before believing none were.
-    - python3 scripts/check-pii-exposure.py --self-test
-    - python3 scripts/check-pii-exposure.py
-
-api:time-bound-comments:
-  # Comments asserting a time-bound fact ("Stub", "UNRELEASED", "as of this writing")
-  # outlive the fact (#4399). Each match needs a TODO(#NNN) or `time-bound-ok:` reason.
-  # An opt-out is a rubber stamp: it removes the silence only.
-  extends: [.api-no-db, .fast-job]
-  stage: analyze
-  needs:
-    - job: ci:build-api-image
-      optional: true
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script: []
-  script:
-    # Self-test FIRST (#3195): prove the gate still fails before believing it passed.
-    - python3 scripts/check-time-bound-comments.py --self-test
-    - python3 scripts/check-time-bound-comments.py
 
 helm:metric-names:
   extends: .fast-job
@@ -2228,94 +2132,17 @@ web:lint:
   script:
     - npm run lint
 
-web:knip:
-  # Dead-surface regrowth gate (#3375). Thirteen web modules with zero importers
-  # accumulated because nothing detected the class; deleting them is a one-time
-  # cleanup, this is what stops it happening again. Config and the reasoning
-  # behind every clause live in packages/web/knip.jsonc.
-  #
-  # Its OWN job, deliberately not folded into `npm run lint`. web:lint heads the
-  # web critical path at ~179s and web:build, web:type-check and web:test all
-  # `needs:` it, so anything appended there is a serial prefix in front of every
-  # other web job. This one has no dependants and runs beside it for free.
-  #
-  # BLOCKING, not allow_failure. The ratchet lives in knip's own per-rule
-  # severity (`rules` in knip.jsonc), not in the job: the rules that are clean
-  # today are `error` and red this job; the four with a backlog that predates
-  # the gate — files (9), exports (50), types (53), duplicates (3) — are `warn`,
-  # which still prints every finding in this log but does not reach the exit
-  # code. #3434 promotes each to `error` as it reaches zero; #3369 clears files.
-  #
-  # This is deliberately NOT `allow_failure: true`. A failing allow_failure job
-  # renders as a GREEN pipeline — the pipeline `status` field says `success`
-  # with the job red underneath — so the one reader who needed the signal is the
-  # one who never sees it. Staging by rule keeps the job's verdict honest:
-  # yellow never happens, and red means a class we said was clean is not.
-  # Do NOT wrap the invocation in `|| true` and do NOT reach for allow_failure
-  # to admit a new backlog; downgrade the specific rule in knip.jsonc, on the
-  # record, with the issue that closes it.
-  extends: [.web, .fast-job]
-  stage: lint
-  <<: *rules-web
-  script:
-    - npm run knip:strict
-
-mobile:lint:
+mobile:static:
+  # mobile:lint and mobile:type-check as checks in one job (#5097). They share
+  # .mobile and rules-mobile, and type-check already waited on lint, so this
+  # costs no wall time. The check names are unchanged.
   extends: [.mobile, .fast-job]
   stage: lint
   <<: *rules-mobile
   script:
-    - npm run lint
-
-wasm:lint:
-  extends: [.wasm, .fast-job]
-  stage: lint
-  <<: *rules-wasm
-  script:
-    - cargo clippy --all-targets -- -D warnings
-
-helm:lint:
-  extends: .fast-job
-  image:
-    name: alpine/helm:3.14.0@sha256:a90798c9c2b671e3546b10db1ae0b845f9abccc9f9ff79b34744a1ba146b67ed
-    entrypoint: [""]
-  stage: lint
-  <<: *rules-helm
-  script:
-    - helm lint packages/helm/
-    # Lint each shipped overlay too (#2879). `helm lint` validates values against
-    # values.schema.json, and the schema is the only thing that catches a values key
-    # no template reads — an unknown or misspelled key is otherwise accepted in
-    # silence and changes nothing on the pod (the #2860 mechanism). Linting the
-    # default values alone would leave the overlays uncovered. Each overlay is given
-    # the minimum extra --set it needs to RENDER, so a schema violation is the only
-    # thing that can fail here.
-    - helm lint packages/helm/ -f packages/helm/values-dev.yaml
-    - |
-      helm lint packages/helm/ -f packages/helm/values-prod.yaml \
-        --set 'env.DATABASE_URL=postgres://u:p@db.example.com:5432/trueppm?sslmode=require' \
-        --set 'env.REDIS_URL=redis://cache.example.com:6379/0'
-    - |
-      helm lint packages/helm/ -f packages/helm/values-demo.yaml \
-        --set demo.baseUrl=https://demo.example.com \
-        --set demo.shareToken.schedule=ci-schedule-token \
-        --set demo.shareToken.board=ci-board-token \
-        --set networkPolicy.ingressControllerConfirmed=true
-    # Guard the bug class from #777: a `DJANGO_SETTINGS_MODULE` typo in the chart
-    # (e.g. `settings.production` vs the real `settings.prod`) crash-loops every
-    # fresh deploy yet passes `helm lint` silently. Verify every settings module
-    # the chart names actually exists in packages/api. Dependency-free (no
-    # `helm template`, which would require the subcharts to be built first).
-    - |
-      fail=0
-      for mod in $(grep -rhoE 'trueppm_api\.settings\.[a-z_]+' packages/helm/ | sort -u); do
-        f="packages/api/src/$(echo "$mod" | tr '.' '/').py"
-        if [ ! -f "$f" ]; then
-          echo "ERROR: chart references settings module '$mod' but $f does not exist"
-          fail=1
-        fi
-      done
-      [ "$fail" -eq 0 ] || exit 1
+    - sh ../../scripts/ci/step.sh mobile:lint npm run lint
+    - sh ../../scripts/ci/step.sh mobile:type-check npm run typecheck
+    - sh ../../scripts/ci/step.sh --finish
 
 helm:template:
   # Static deploy-contract gate (#2279): render the chart and prove the manifests
@@ -2344,6 +2171,37 @@ helm:template:
     - echo "${YQ_SHA256}  /usr/local/bin/yq" | sha256sum -c -
     - chmod +x /usr/local/bin/yq
   script:
+    # helm:lint runs first, as a named check (#5097). It used to be its own job on
+    # this image and trigger. `helm lint` validates values against
+    # values.schema.json, and the schema is the only thing that catches a values key
+    # no template reads (#2879, the #2860 mechanism). So each shipped overlay is
+    # linted too, with the minimum extra --set it needs to RENDER. The settings-module
+    # loop guards #777: a DJANGO_SETTINGS_MODULE typo in the chart crash-loops every
+    # fresh deploy yet passes `helm lint` silently. A failed lint check is recorded,
+    # and the render below still runs. `step.sh --finish` at the end lists it.
+    - bash scripts/ci/step.sh helm:lint helm lint packages/helm/
+    - bash scripts/ci/step.sh helm:lint helm lint packages/helm/ -f packages/helm/values-dev.yaml
+    - |
+      bash scripts/ci/step.sh helm:lint helm lint packages/helm/ -f packages/helm/values-prod.yaml \
+        --set 'env.DATABASE_URL=postgres://u:p@db.example.com:5432/trueppm?sslmode=require' \
+        --set 'env.REDIS_URL=redis://cache.example.com:6379/0'
+    - |
+      bash scripts/ci/step.sh helm:lint helm lint packages/helm/ -f packages/helm/values-demo.yaml \
+        --set demo.baseUrl=https://demo.example.com \
+        --set demo.shareToken.schedule=ci-schedule-token \
+        --set demo.shareToken.board=ci-board-token \
+        --set networkPolicy.ingressControllerConfirmed=true
+    - |
+      bash scripts/ci/step.sh helm:lint sh -c '
+        fail=0
+        for mod in $(grep -rhoE "trueppm_api\.settings\.[a-z_]+" packages/helm/ | sort -u); do
+          f="packages/api/src/$(echo "$mod" | tr . /).py"
+          if [ ! -f "$f" ]; then
+            echo "ERROR: chart references settings module $mod but $f does not exist"
+            fail=1
+          fi
+        done
+        [ "$fail" -eq 0 ]'
     # Render the full chart the way a real deploy is shaped (a released image tag
     # + an operator envFrom secret) so kubeconform validates concrete manifests.
     - helm template trueppm packages/helm --set image.tag=latest --set 'envFrom[0].secretRef.name=trueppm-env' > /tmp/rendered.yaml
@@ -2836,6 +2694,8 @@ helm:template:
         echo "$out" | grep -qi 'additional propert\|must be one of' \
           || { echo "ROLLOUT TEST INVALID: --set $bad failed, but not from a schema validation error:"; echo "$out"; exit 1; }
       done
+    # Verdict for the helm:lint checks at the top of this script.
+    - bash scripts/ci/step.sh --finish
 
 mcp:lint:
   extends: .fast-job
@@ -2881,133 +2741,33 @@ mcp:registry-validate:
 # without waiting for other packages' lint jobs.
 # ---------------------------------------------------------------------------
 
-scheduler:type-check:
-  extends: [.scheduler, .fast-job]
-  stage: analyze
-  # Two caches: the inherited pip cache (re-stated via the anchor, since a
-  # list cache replaces the template's map rather than merging) plus the mypy
-  # incremental cache. mypy --strict is cold-slow; persisting .mypy_cache
-  # across pipelines turns most runs into incremental re-checks. Keyed on
-  # pyproject.toml so a dependency/stub bump resets it cleanly.
-  cache:
-    - <<: *scheduler-cache
-    - key:
-        files:
-          - packages/scheduler/pyproject.toml
-        prefix: scheduler-mypy
-      paths:
-        - packages/scheduler/.mypy_cache/
-  # ci:build-scheduler-image is optional — when deps haven't changed it
-  # isn't in the pipeline and the job pulls the existing tag from the
-  # registry. Same pattern repeated on every scheduler:* consumer that
-  # overrides needs (GitLab replaces needs on extension).
-  needs:
-    - scheduler:lint
-    - job: ci:build-scheduler-image
-      optional: true
-  <<: *rules-scheduler
-  script:
-    - cd packages/scheduler
-    # Self-heal an occasionally-corrupt restored incremental cache (#2233). mypy
-    # exits 2 on a fatal INTERNAL ERROR (distinct from exit 1 = real type errors);
-    # on a crash, drop .mypy_cache and retry once from cold so a corrupt cache
-    # flakes green instead of failing the pipeline, while genuine type errors
-    # still fast-fail. The happy path keeps the incremental speedup.
-    - |
-      mypy || {
-        rc=$?
-        if [ "$rc" -eq 2 ]; then
-          echo "mypy INTERNAL ERROR (exit 2) — clearing .mypy_cache and retrying cold"
-          rm -rf .mypy_cache
-          mypy
-        else
-          exit "$rc"
-        fi
-      }
-
-api:type-check:
-  extends: [.api-no-db, .fast-job]
-  stage: analyze
-  # Two caches: the inherited pip cache (re-stated via the anchor with its
-  # pull policy, since a list cache replaces the template's map rather than
-  # merging) plus the mypy incremental cache. mypy --strict is cold-slow;
-  # persisting .mypy_cache across pipelines turns most runs into incremental
-  # re-checks. Keyed on pyproject.toml so a dependency/stub bump resets it.
-  cache:
-    - <<: *api-cache
-      policy: pull
-    - key:
-        files:
-          - packages/api/pyproject.toml
-        prefix: api-mypy
-      paths:
-        - packages/api/.mypy_cache/
-  # ci:build-api-image is optional — when deps haven't changed it isn't in
-  # the pipeline and the job pulls the already-published image from the
-  # registry. Same pattern repeated on every job that uses the ci-api image.
-  needs:
-    - api:lint
-    - job: ci:build-api-image
-      optional: true
-  <<: *rules-api
-  script:
-    - cd packages/api
-    # Self-heal an occasionally-corrupt restored incremental cache (#2233). mypy
-    # exits 2 on a fatal INTERNAL ERROR (distinct from exit 1 = real type errors);
-    # on a crash, drop .mypy_cache and retry once from cold so a corrupt cache
-    # flakes green instead of failing the pipeline, while genuine type errors
-    # still fast-fail. The happy path keeps the incremental speedup.
-    - |
-      mypy src/trueppm_api || {
-        rc=$?
-        if [ "$rc" -eq 2 ]; then
-          echo "mypy INTERNAL ERROR (exit 2) — clearing .mypy_cache and retrying cold"
-          rm -rf .mypy_cache
-          mypy src/trueppm_api
-        else
-          exit "$rc"
-        fi
-      }
-
-api:migration-check:
-  # makemigrations --check --dry-run compares model state to migration files.
-  # No database connection is made; .api-no-db template is sufficient.
+api:static:
+  # The API's always-on static gates in one job (#5097). Each was its own job,
+  # paying a runner slot for 3-31s of work, and GitLab caps active jobs across
+  # concurrent pipelines (see scripts/ci/step.sh). Each check keeps its old job
+  # name as its check name: `=== CHECK <name>` / `=== FAIL <name>` in this log,
+  # and `step.sh --finish` lists every failed check at the end. Each check's
+  # rationale lives in its script's header. Every gate here runs its own
+  # --self-test first (#3195) under the same check name.
   #
-  # Runs on every MR pipeline (no `changes:` filter) — kaizen #640 N5. The job
-  # is ~36s and catches inter-MR migration drift that the per-MR `changes:`
-  # filter misses (two MRs landing close together each pass migration-check on
-  # their own diff, but their merged result fails on main).
-  extends: [.api-no-db, .fast-job]
-  stage: analyze
-  needs:
-    - job: api:lint
-      optional: true
-    - job: ci:build-api-image
-      optional: true
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  script:
-    - cd packages/api
-    - python manage.py makemigrations --check --dry-run
-
-api:migration-numbering:
-  # Cross-branch migration-numbering collision guard. makemigrations --check
-  # (above) only sees THIS branch's tree, so it cannot catch two parallel
-  # branches that each number a migration projects/0080_*.py off the same base:
-  # both pass, the first merges, and the second — still on a stale base — merges
-  # too, leaving main with two 0080 leaf migrations (a conflict that needs a
-  # renumber or a --merge migration, with main red in the meantime).
+  # All of these share one scope: main plus every MR, with no `changes:` filter.
+  # The path-scoped API gates (type-check, openapi-check under rules-api, and
+  # schema-drift and uv-lock-check with their own `changes:` lists) are a
+  # different trigger and are deliberately not folded in here. Folding them would
+  # run them on every MR.
   #
-  # This job compares the branch against origin/main and fails if a NEW migration
-  # reuses a number main already assigns to a different migration — the state that
-  # becomes a two-leaf conflict at merge, detectable on the second branch BEFORE
-  # it merges. Pure git + stdlib Python: no DB, no Django, no dependency install,
-  # so before_script (the api[dev] pip install) is skipped. GIT_DEPTH:0 + an
-  # explicit fetch make origin/main available under GitLab's shallow clone.
+  # api:migration-check runs on every MR on purpose (kaizen #640 N5). Two MRs can
+  # each pass on their own diff and still fail together on main. It is the only
+  # check here that needs Django importable, so the editable install runs as its
+  # own step right before it. The pure-static checks before it stay cheap, and a
+  # failed install shows as a named failure rather than aborting the job.
   extends: [.api-no-db, .fast-job]
   stage: analyze
   variables:
+    # Full history: migration-numbering diffs against origin/main, schema-breaking
+    # reads the latest v* tag, and app-layering and on-commit-durability read the
+    # merge-base copy of their baselines (CI_MERGE_REQUEST_DIFF_BASE_SHA). Each of
+    # them fails closed if what it needs is unreachable.
     GIT_DEPTH: "0"
   needs:
     - job: ci:build-api-image
@@ -3019,198 +2779,88 @@ api:migration-numbering:
   script:
     - git config --global --add safe.directory "$CI_PROJECT_DIR"
     - git fetch origin "$CI_DEFAULT_BRANCH" --quiet
-    # Self-test FIRST: a duplicate migration number exists only on the merged
-    # tree, so both branches stay green alone and this job is the one place it
-    # can surface. Prove it can still reject one (#3195).
-    - python3 scripts/check-migration-numbering.py --self-test
-    - python3 scripts/check-migration-numbering.py "origin/$CI_DEFAULT_BRANCH"
-
-api:migration-constraint-safety:
-  # `AddConstraint` builds and VALIDATES its index against every existing row, so a
-  # constraint added to a POPULATED table fails `migrate` on any database already
-  # holding a violating row — and migrations run on container start, making that an
-  # upgrade crash-loop rather than a failed deploy (#3068).
-  #
-  # Neither existing migration gate can see this. api:migration-check runs
-  # `makemigrations --check --dry-run`, which compares model state to migration files
-  # and never opens a database (its own comment says so); api:migration-numbering is a
-  # numbering-collision guard. The green api:migration-check on the offending MR read
-  # as evidence about the migration when it was evidence about something else.
-  #
-  # The classification is entirely static, so this is a lint: no Django, no database,
-  # no dependency install, seconds. An AddConstraint on a table not created in the same
-  # migration must be preceded by a RunPython repair, or carry an explicit
-  # `# safe-constraint: <reason>` comment.
-  extends: [.api-no-db, .fast-job]
-  stage: analyze
-  needs:
-    - job: ci:build-api-image
-      optional: true
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script: []
-  script:
-    # Self-test FIRST: an unguarded AddConstraint on a populated table is an
-    # upgrade crash-loop, not a rollback-able failed deploy (#3068). Prove the
-    # gate still rejects one, and that all four safe shapes still pass (#3195).
-    - python3 scripts/check-migration-constraint-safety.py --self-test
-    - python3 scripts/check-migration-constraint-safety.py
-
-api:migration-imports:
-  # A data migration that imports `apps.<app>.services` (or `bundled_templates`) runs
-  # LIVE code: refactoring that function silently changes what the migration does on a
-  # fresh install, and a squash that loads callables from the retained originals can
-  # never let them go (#4603). Frozen copies live in each app's `backfill` module.
-  # Pure ast walk: no Django, no database.
-  extends: [.api-no-db, .fast-job]
-  stage: analyze
-  needs:
-    - job: ci:build-api-image
-      optional: true
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script: []
-  script:
-    # Self-test FIRST: prove the gate still rejects a services import before
-    # believing it found none (#3195).
-    - python3 scripts/check-migration-imports.py --self-test
-    - python3 scripts/check-migration-imports.py
-
-api:bulk-create-server-version:
-  # `bulk_create` never calls `save()`, so the INSERT path that sets
-  # `server_version = 1` does not run and the row publishes 0: a lock token no client
-  # can echo back as `X-Base-Version`. Nothing else sees it -- ruff cannot, and
-  # api:migration-check never opens a database. Pure static analysis: no Django, no
-  # database, seconds. A `VersionedModel` bulk_create must set `server_version` in its
-  # scope or carry `# safe-bulk-create: <reason>`.
-  extends: [.api-no-db, .fast-job]
-  stage: analyze
-  needs:
-    - job: ci:build-api-image
-      optional: true
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script: []
-  script:
-    # Self-test FIRST: prove the gate still rejects a violation and accepts the
-    # correct shapes before trusting its verdict on the tree.
-    - python3 scripts/check-bulk-create-server-version.py --self-test
-    - python3 scripts/check-bulk-create-server-version.py
-
-api:app-layering:
-  # The OSS-to-Enterprise edge is gated (boundary:imports); the edges BETWEEN domain apps
-  # were not, so coupling accumulated until a change in one domain broke another (#4887).
-  # packages/api/app-layering.toml declares which app layer may import which; existing
-  # violations sit in packages/api/app-layering-baseline.txt, a ceiling that can only
-  # shrink. A new upward import fails here; `# layering-ok: <reason>` opts one site out.
-  # Pure static analysis (stdlib ast + tomllib): no Django, no database, ~1s.
-  extends: [.api-no-db, .fast-job]
-  variables:
-    # Full history so the baseline-raise check can read the merge-base copy of
-    # app-layering-baseline.txt (CI_MERGE_REQUEST_DIFF_BASE_SHA). The check fails closed
-    # if that SHA is unreachable; on main it prints a note and is skipped.
-    GIT_DEPTH: "0"
-  stage: analyze
-  needs:
-    - job: ci:build-api-image
-      optional: true
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script: []
-  script:
-    # Self-test FIRST: prove the gate still rejects an upward import before trusting
-    # its verdict on the tree (#3195).
-    - python3 scripts/check-app-layering.py --self-test
-    - python3 scripts/check-app-layering.py
-
-lint:api-engine-boundary:
-  # The API must not reimplement engine math: every sampled, scheduled, or derived value
-  # is a trueppm_scheduler call (#4688; #2645/#4663/#4660 were instances). Pattern-based
-  # and narrow (np.random, random., np.percentile, timedelta(days=) outside the
-  # allow-list in packages/api/api-engine-boundary-allowlist.txt, a ceiling that can only
-  # shrink; every entry names an issue). Pure static analysis, ~1s.
-  extends: [.api-no-db, .fast-job]
-  stage: analyze
-  needs:
-    - job: ci:build-api-image
-      optional: true
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script: []
-  script:
-    - python3 scripts/check-api-engine-boundary.py --self-test
-    - python3 scripts/check-api-engine-boundary.py
-
-lint:on-commit-durability:
-  # Every transaction.on_commit callback is classified; Celery dispatch needs a registered
-  # outbox row behind it (#2473, rationale in docs/durability/on-commit-audit.md). Registry
-  # and a baseline in packages/api/on-commit-*.txt, ratcheted against its merge-base copy
-  # (needs full git history: a raise fails unless the entry carries '# raise-ok: <reason>'). Pure static analysis, ~1s.
-  extends: [.api-no-db, .fast-job]
-  variables:
-    # Full history so the merge-base ratchet can read the base copy of
-    # on-commit-baseline.txt (CI_MERGE_REQUEST_DIFF_BASE_SHA); fails closed if unreachable.
-    GIT_DEPTH: "0"
-  stage: analyze
-  needs:
-    - job: ci:build-api-image
-      optional: true
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script: []
-  script:
-    - python3 scripts/check-on-commit-durability.py --self-test
-    - python3 scripts/check-on-commit-durability.py
-
-api:schema-breaking:
-  # stability.md promises a deprecation window for every Breaking change (field
-  # removal/rename, type change, status-code change, optional -> required, enum
-  # value removal), but api:schema-regression-style checks only compare path and
-  # schema NAMES against main - and a field dropped in one MR becomes main's
-  # baseline for the next (#4594). This diffs the schema's shape against the latest
-  # v* RELEASE TAG (prereleases included), which a merge cannot move.
-  #
-  # Pure stdlib Python on two JSON files read via `git show`: no DB, no Django, no
-  # install. GIT_DEPTH:0 + an explicit tag fetch make the tag available under
-  # GitLab's shallow clone; --require-baseline turns "no tag" into a failure rather
-  # than a silent skip, which would be a gate that always passes.
-  extends: [.api-no-db, .fast-job]
-  stage: analyze
-  variables:
-    GIT_DEPTH: "0"
-  needs:
-    - job: ci:build-api-image
-      optional: true
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script: []
-  script:
-    - git config --global --add safe.directory "$CI_PROJECT_DIR"
     - git fetch origin --tags --quiet
-    - python3 scripts/check-schema-breaking.py --self-test
-    - python3 scripts/check-schema-breaking.py --require-baseline
+    - bash scripts/ci/step.sh api:migration-numbering python3 scripts/check-migration-numbering.py --self-test
+    - bash scripts/ci/step.sh api:migration-numbering python3 scripts/check-migration-numbering.py "origin/$CI_DEFAULT_BRANCH"
+    - bash scripts/ci/step.sh api:migration-constraint-safety python3 scripts/check-migration-constraint-safety.py --self-test
+    - bash scripts/ci/step.sh api:migration-constraint-safety python3 scripts/check-migration-constraint-safety.py
+    - bash scripts/ci/step.sh api:migration-imports python3 scripts/check-migration-imports.py --self-test
+    - bash scripts/ci/step.sh api:migration-imports python3 scripts/check-migration-imports.py
+    - bash scripts/ci/step.sh api:bulk-create-server-version python3 scripts/check-bulk-create-server-version.py --self-test
+    - bash scripts/ci/step.sh api:bulk-create-server-version python3 scripts/check-bulk-create-server-version.py
+    - bash scripts/ci/step.sh api:app-layering python3 scripts/check-app-layering.py --self-test
+    - bash scripts/ci/step.sh api:app-layering python3 scripts/check-app-layering.py
+    - bash scripts/ci/step.sh lint:api-engine-boundary python3 scripts/check-api-engine-boundary.py --self-test
+    - bash scripts/ci/step.sh lint:api-engine-boundary python3 scripts/check-api-engine-boundary.py
+    - bash scripts/ci/step.sh lint:on-commit-durability python3 scripts/check-on-commit-durability.py --self-test
+    - bash scripts/ci/step.sh lint:on-commit-durability python3 scripts/check-on-commit-durability.py
+    - bash scripts/ci/step.sh api:schema-breaking python3 scripts/check-schema-breaking.py --self-test
+    - bash scripts/ci/step.sh api:schema-breaking python3 scripts/check-schema-breaking.py --require-baseline
+    - bash scripts/ci/step.sh api:membership-live-floor python3 scripts/check-membership-live-floor.py --self-test
+    - bash scripts/ci/step.sh api:membership-live-floor python3 scripts/check-membership-live-floor.py
+    - bash scripts/ci/step.sh api:pii-exposure python3 scripts/check-pii-exposure.py --self-test
+    - bash scripts/ci/step.sh api:pii-exposure python3 scripts/check-pii-exposure.py
+    - bash scripts/ci/step.sh api:time-bound-comments python3 scripts/check-time-bound-comments.py --self-test
+    - bash scripts/ci/step.sh api:time-bound-comments python3 scripts/check-time-bound-comments.py
+    # The same editable re-link .api-no-db's before_script does, then the one
+    # Django-backed check.
+    - bash scripts/ci/step.sh api:migration-check pip install -e "packages/scheduler[dev]" --quiet
+    - bash scripts/ci/step.sh api:migration-check pip install -e "packages/api[dev]" --quiet
+    - bash scripts/ci/step.sh api:migration-check sh -c 'cd packages/api && python manage.py makemigrations --check --dry-run'
+    - bash scripts/ci/step.sh --finish
 
-api:openapi-check:
-  # drf-spectacular schema generation is pure view/serializer introspection;
-  # no database queries are made. --validate checks for valid OpenAPI 3;
-  # --fail-on-warn promotes warnings to errors.
+api:analyze:
+  # api:type-check and api:openapi-check share one trigger (rules-api), one image
+  # and the same fail-fast edge on api:lint, so they run as checks in one job
+  # (#5097). The check names are unchanged (`=== CHECK api:type-check`).
+  #
+  # Two caches: the inherited pip cache (re-stated via the anchor with its pull
+  # policy, since a list cache replaces the template's map rather than merging)
+  # plus the mypy incremental cache. mypy --strict is cold-slow; persisting
+  # .mypy_cache across pipelines turns most runs into incremental re-checks.
+  # Keyed on pyproject.toml so a dependency/stub bump resets it.
   extends: [.api-no-db, .fast-job]
   stage: analyze
+  cache:
+    - <<: *api-cache
+      policy: pull
+    - key:
+        files:
+          - packages/api/pyproject.toml
+        prefix: api-mypy
+      paths:
+        - packages/api/.mypy_cache/
+  # ci:build-api-image is optional. When deps haven't changed it isn't in the
+  # pipeline, and the job pulls the already-published image from the registry.
   needs:
     - api:lint
     - job: ci:build-api-image
       optional: true
   <<: *rules-api
   script:
-    - cd packages/api
-    - python manage.py spectacular --validate --file /dev/null
+    # Self-heal an occasionally-corrupt restored incremental cache (#2233). mypy
+    # exits 2 on a fatal INTERNAL ERROR (distinct from exit 1 = real type errors).
+    # On a crash, drop .mypy_cache and retry once from cold. That way a corrupt
+    # cache flakes green instead of failing the pipeline, and genuine type errors
+    # still fail. The happy path keeps the incremental speedup.
+    - |
+      bash scripts/ci/step.sh api:type-check sh -c '
+        cd packages/api
+        mypy src/trueppm_api || {
+          rc=$?
+          if [ "$rc" -eq 2 ]; then
+            echo "mypy INTERNAL ERROR (exit 2) — clearing .mypy_cache and retrying cold"
+            rm -rf .mypy_cache
+            mypy src/trueppm_api
+          else
+            exit "$rc"
+          fi
+        }'
+    # drf-spectacular schema generation is pure view/serializer introspection; no
+    # database queries are made. --validate checks for valid OpenAPI 3, and
+    # --fail-on-warn promotes warnings to errors.
+    - bash scripts/ci/step.sh api:openapi-check sh -c 'cd packages/api && python manage.py spectacular --validate --file /dev/null'
+    - bash scripts/ci/step.sh --finish
 
 api:schema-drift:
   # Ensures docs/api/openapi.json stays in sync with the live DRF schema.
@@ -3426,45 +3076,33 @@ api:image-lock-check:
         -e SECRET_KEY=ci-image-lock-check-smoke \
         "$IMAGE" /venv/bin/python manage.py check
 
-scheduler:uv-lock-check:
+scheduler:lock-sdist:
   extends: .fast-job
-  # Verify packages/scheduler/uv.lock stays in sync with the scheduler's
-  # pyproject.toml (#1153 scheduler OSV migration). The scheduler now commits a
-  # resolved lock — not to pin the published wheel (it still ships version ranges
-  # from pyproject.toml) but to give security:osv a scannable dependency surface
-  # (OSV can audit a lockfile; it cannot audit a range). This gate fails if
-  # pyproject changed without re-locking; refresh with
+  # Two scheduler package gates as checks in one job (#5097). Each keeps its old
+  # job name as its check name (`=== CHECK scheduler:uv-lock-check`).
+  #
+  # scheduler:uv-lock-check verifies packages/scheduler/uv.lock stays in sync
+  # with the scheduler's pyproject.toml (#1153 scheduler OSV migration). The
+  # scheduler commits a resolved lock, not to pin the published wheel (it still
+  # ships version ranges from pyproject.toml) but to give security:osv a
+  # scannable dependency surface (OSV can audit a lockfile; it cannot audit a
+  # range). It fails if pyproject changed without re-locking; refresh with
   # `cd packages/scheduler && uv lock`. uv is pinned so the committed lock's
-  # revision stays stable across CI runs and Renovate's lockFileMaintenance owns
-  # the routine refreshes. Mirrors api:uv-lock-check; kept as its own job so a
-  # scheduler-only change does not pull in the api manifests and vice versa.
-  stage: analyze
-  image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
-  needs: []
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
-      changes:
-        - packages/scheduler/pyproject.toml
-        - packages/scheduler/uv.lock
-        - .gitlab-ci.yml
-  before_script:
-    - !reference [.pip-floor, before_script]
-    - pip install uv==0.9.5 --quiet
-  script:
-    - cd packages/scheduler
-    - uv lock --check
-
-scheduler:sdist-check:
-  extends: .fast-job
-  # The trueppm-scheduler sdist ships only its allow-listed files and no developer
-  # artifacts (#4520). Before the [tool.hatch.build.targets.sdist] allow-list, a
-  # local `python -m build` after a test run packed `.coverage` (absolute paths
-  # from the developer's machine) and `.hypothesis/`. scheduler:build builds
-  # from a clean checkout, so it was never affected; this guards a manual or
-  # fallback release. The script plants dev artifacts in a COPY of the package,
-  # builds the sdist, asserts on its members, then builds a wheel from it. Its
-  # --self-test runs first, in this job, so a gate that stopped being able to fail
-  # is itself caught.
+  # revision stays stable and Renovate's lockFileMaintenance owns the routine
+  # refreshes. Mirrors api:uv-lock-check.
+  #
+  # scheduler:sdist-check asserts the trueppm-scheduler sdist ships only its
+  # allow-listed files and no developer artifacts (#4520). Before the
+  # [tool.hatch.build.targets.sdist] allow-list, a local `python -m build` after
+  # a test run packed `.coverage` (absolute paths from the developer's machine)
+  # and `.hypothesis/`. scheduler:build builds from a clean checkout, so it was
+  # never affected; this guards a manual or fallback release. The script plants
+  # dev artifacts in a COPY of the package, builds the sdist, asserts on its
+  # members, then builds a wheel from it. Its --self-test runs first, in this
+  # job, so a gate that stopped being able to fail is itself caught.
+  #
+  # The rules are sdist-check's, a superset of the lock check's, so the lock
+  # check also runs on any other packages/scheduler change.
   stage: analyze
   image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
   needs: []
@@ -3479,14 +3117,16 @@ scheduler:sdist-check:
     - !reference [.pip-floor, before_script]
     - pip install uv==0.9.5 --quiet
   script:
-    - bash scripts/check-scheduler-sdist.sh --self-test
-    - bash scripts/check-scheduler-wheel-smoke.sh --self-test
-    - bash scripts/check-scheduler-sdist.sh
+    - bash scripts/ci/step.sh scheduler:uv-lock-check sh -c 'cd packages/scheduler && uv lock --check'
+    - bash scripts/ci/step.sh scheduler:sdist-check bash scripts/check-scheduler-sdist.sh --self-test
+    - bash scripts/ci/step.sh scheduler:sdist-check bash scripts/check-scheduler-wheel-smoke.sh --self-test
+    - bash scripts/ci/step.sh scheduler:sdist-check bash scripts/check-scheduler-sdist.sh
+    - bash scripts/ci/step.sh --finish
 
 mcp:uv-lock-check:
   extends: .fast-job
   # Verify packages/mcp/uv.lock stays in sync with packages/mcp/pyproject.toml.
-  # Mirrors api:/scheduler:uv-lock-check, and became load-bearing when mcp:build
+  # Mirrors api:uv-lock-check and the scheduler:uv-lock-check check, and became load-bearing when mcp:build
   # landed (#2809): that job materializes its CycloneDX SBOM with
   # `uv sync --frozen`, which HARD-FAILS on a stale lock. Without this gate the
   # first symptom of a forgotten `uv lock` would be a red mcp:build job on an
@@ -3517,61 +3157,6 @@ web:type-check:
   <<: *rules-web
   script:
     - npm run typecheck
-
-mcp:typecheck:
-  extends: .fast-job
-  # mypy --strict over packages/mcp. Uses the custom ci-api image, which now
-  # pre-bakes the mcp[dev] wheels (mcp SDK + httpx + stubs) alongside api's; the
-  # runtime install is a fast editable re-link, not a cold download. mypy reads
-  # the package's own pyproject config (packages = ["trueppm_mcp"], strict).
-  # ci:build-api-image is optional — when deps haven't changed it isn't in the
-  # pipeline and the job pulls the existing tag from the registry.
-  stage: analyze
-  image: $CI_REGISTRY_IMAGE/ci-api:$CI_API_TAG
-  needs:
-    - mcp:lint
-    - job: ci:build-api-image
-      optional: true
-  <<: *rules-mcp
-  before_script:
-    - pip install -e "packages/mcp[dev]" --quiet
-  script:
-    - cd packages/mcp
-    - mypy
-
-mobile:type-check:
-  extends: [.mobile, .fast-job]
-  stage: analyze
-  needs: [mobile:lint]
-  <<: *rules-mobile
-  script:
-    - npm run typecheck
-
-wasm:build:
-  # Verify the WASM crate compiles to wasm32. The pkg/ output is not passed
-  # downstream — this validates the build is clean.
-  extends: .wasm
-  stage: analyze
-  # wasm-pack + the wasm32 target are baked into the ci-wasm image; the job just
-  # builds. Re-add the optional ci:build-wasm-image need (extends replaces the
-  # template's needs list).
-  needs:
-    - wasm:lint
-    - job: ci:build-wasm-image
-      optional: true
-  <<: *rules-wasm
-  script:
-    - wasm-pack build --target web --release
-    # The generated .d.ts is the package's public JS surface. Every other
-    # TypeScript surface in this repo is camelCase, so a snake_case export here
-    # reads as a bug to the first consumer — and once `packages/web` imports the
-    # package, renaming becomes a permanent breaking change. Gate it while it is
-    # still free (#2602). Only runs where the .d.ts exists, i.e. right here after
-    # wasm-pack; the Rust-side names are unaffected.
-    # Self-test FIRST, before the ~40s wasm build, so a disarmed gate reds in
-    # seconds (#3195).
-    - ./scripts/check-dts-camelcase.sh --self-test
-    - ./scripts/check-dts-camelcase.sh
 
 web:build:
   # Builds the production bundle and publishes dist/ as an artifact so the
@@ -3627,12 +3212,13 @@ security:bandit:api:
 # packages' analyze jobs are done (DAG via needs:).
 # ---------------------------------------------------------------------------
 
+
+
 scheduler:test:
   extends: .scheduler
   stage: test
   needs:
     - scheduler:lint
-    - scheduler:type-check
     - job: ci:build-scheduler-image
       optional: true
   <<: *rules-scheduler
@@ -3673,7 +3259,6 @@ scheduler:test:compat:
   stage: test
   needs:
     - scheduler:lint
-    - scheduler:type-check
   <<: *rules-scheduler
   parallel:
     matrix:
@@ -3719,7 +3304,6 @@ scheduler:test-lowest:
   image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
   needs:
     - scheduler:lint
-    - scheduler:type-check
   <<: *rules-scheduler
   before_script:
     # git: the stock slim image does not bake it in, and
@@ -3780,15 +3364,20 @@ mcp:test:
   image: $CI_REGISTRY_IMAGE/ci-api:$CI_API_TAG
   needs:
     - mcp:lint
-    - mcp:typecheck
     - job: ci:build-api-image
       optional: true
   <<: *rules-mcp
   before_script:
     - pip install -e "packages/mcp[dev]" --quiet
+  # mcp:typecheck (mypy --strict over packages/mcp) runs here as a check before
+  # the tests (#5097). It used to be its own job on the same image, trigger and
+  # install, and mcp:test waited on it anyway. mypy reads the package's own
+  # pyproject config (packages = ["trueppm_mcp"], strict).
   script:
     - cd packages/mcp
-    - pytest --cov=trueppm_mcp --cov-report=term-missing --cov-report=xml --cov-fail-under=80
+    - sh ../../scripts/ci/step.sh mcp:typecheck mypy
+    - sh ../../scripts/ci/step.sh mcp:test pytest --cov=trueppm_mcp --cov-report=term-missing --cov-report=xml --cov-fail-under=80
+    - sh ../../scripts/ci/step.sh --finish
   coverage: '/TOTAL.*\s(\d+%)/'
   artifacts:
     paths:
@@ -3796,13 +3385,32 @@ mcp:test:
     expire_in: 7 days
     when: always
 
-scheduler:bench:
-  # Performance regression guard for the CPM engine.
-  # Runs on every MR that touches packages/scheduler/ and on main.
-  # Timing output is stored as an artifact so regressions can be spotted
-  # by comparing successive runs in the GitLab UI.
-  # The test itself hard-fails at 2s (catastrophic regression circuit-breaker);
-  # the > 20% regression signal requires manual comparison of artifacts.
+scheduler:post-test:
+  # The three scheduler jobs that run after scheduler:test, as checks in one job
+  # (#5097). They share an image, a trigger (rules-scheduler) and the
+  # scheduler:test edge, and each one used to take a runner slot for 23-29s. Each
+  # keeps its old job name as its check name (`=== CHECK scheduler:bench`).
+  #
+  # scheduler:bench is the performance regression guard for the CPM engine. The
+  # test hard-fails at 2s, as a circuit breaker for a catastrophic regression. A
+  # > 20% regression has to be spotted by comparing the bench-output.txt
+  # artifacts of successive runs. pipefail keeps the `| tee` from hiding a red
+  # pytest.
+  #
+  # scheduler:benchmarks is the pytest-benchmark suite (#4230): schedule() and
+  # monte_carlo(runs=1000) at 100/500/1k/2k/5k tasks, on a chain and on a mixed
+  # per-task-calendar network. It records timings and asserts no time budget, so
+  # it fails only if a case errors. benchmark.json is the cross-commit comparison.
+  #
+  # scheduler:notebooks executes every scheduler notebook, to catch code drift
+  # and broken examples. The non-root ci image (USER ci, #2085/#2236) can't write
+  # jupyter's data files into the root-owned /usr/local/etc/jupyter prefix, and
+  # `pip install --user` still writes them there. So it installs into a throwaway
+  # venv under $HOME whose prefix uid 1000 can write. --system-site-packages lets
+  # the venv's kernel import the editable trueppm_scheduler.
+  #
+  # Artifacts upload `when: always`, so one red check still leaves the other two's
+  # output to compare.
   extends: .scheduler
   stage: test
   needs:
@@ -3812,61 +3420,17 @@ scheduler:bench:
   <<: *rules-scheduler
   script:
     - cd packages/scheduler
-    - pytest tests/test_bench.py -v --tb=short 2>&1 | tee bench-output.txt
+    - sh ../../scripts/ci/step.sh scheduler:bench bash -o pipefail -c 'pytest tests/test_bench.py -v --tb=short 2>&1 | tee bench-output.txt'
+    - sh ../../scripts/ci/step.sh scheduler:benchmarks pytest tests/benchmarks/bench_engine.py --benchmark-only --benchmark-json=benchmark.json
+    - sh ../../scripts/ci/step.sh scheduler:notebooks sh -c 'python -m venv --system-site-packages "$HOME/nbenv" && "$HOME/nbenv/bin/pip" install --quiet jupyter nbconvert && "$HOME/nbenv/bin/jupyter" nbconvert --to notebook --execute --inplace notebooks/*.ipynb'
+    - sh ../../scripts/ci/step.sh --finish
   artifacts:
     paths:
       - packages/scheduler/bench-output.txt
-    expire_in: 30 days
-
-scheduler:benchmarks:
-  # pytest-benchmark suite (#4230): schedule() and monte_carlo(runs=1000) at
-  # 100/500/1k/2k/5k tasks on a chain and a mixed per-task-calendar network.
-  # Records timings only and asserts no time budget (scheduler:bench is the
-  # circuit breaker); the JSON artifact is the cross-commit comparison. With no
-  # timing threshold it fails only if a case errors, so it is a blocking job.
-  extends: .scheduler
-  stage: test
-  needs:
-    - scheduler:test
-    - job: ci:build-scheduler-image
-      optional: true
-  <<: *rules-scheduler
-  script:
-    - cd packages/scheduler
-    - pytest tests/benchmarks/bench_engine.py --benchmark-only --benchmark-json=benchmark.json
-  artifacts:
-    paths:
       - packages/scheduler/benchmark.json
-    expire_in: 30 days
-
-scheduler:notebooks:
-  # Execute all scheduler notebooks to catch code drift and broken examples.
-  # jupyter nbconvert --execute runs each cell in order; a cell that raises an
-  # exception fails the job. matplotlib is optional — notebooks guard against
-  # ImportError with a try/except so missing it is not a failure.
-  extends: .scheduler
-  stage: test
-  needs:
-    - scheduler:test
-    - job: ci:build-scheduler-image
-      optional: true
-  <<: *rules-scheduler
-  script:
-    - cd packages/scheduler
-    # The non-root ci image (USER ci, #2085/#2236) can't write jupyter's data
-    # files into the root-owned /usr/local/etc/jupyter prefix. `pip install
-    # --user` is not enough: it routes the Python packages to ~/.local but still
-    # writes jupyter's data_files to that root-owned prefix (Errno 13). Install
-    # into a throwaway venv under $HOME whose prefix is fully writable by uid 1000.
-    # --system-site-packages so the venv's kernel still imports the editable
-    # trueppm_scheduler from the system site-packages (the notebooks execute it).
-    - python -m venv --system-site-packages "$HOME/nbenv"
-    - $HOME/nbenv/bin/pip install --quiet jupyter nbconvert
-    - $HOME/nbenv/bin/jupyter nbconvert --to notebook --execute --inplace notebooks/*.ipynb
-  artifacts:
-    paths:
       - packages/scheduler/notebooks/*.ipynb
-    expire_in: 7 days
+    expire_in: 30 days
+    when: always
 
 scheduler:fuzz-deep:
   # Tier B of the contract-fuzzing strategy (#1456). The deterministic Tier A
@@ -4607,17 +4171,37 @@ perf:load:
       - perf-summary.json
     expire_in: 30 days
 
-wasm:test:
+wasm:check:
+  # The WASM crate's four gates as checks in one job (#5097). They share the
+  # ci-wasm image and rules-wasm, and they already ran as a strict chain (lint,
+  # then build, then test, then license-check). So one job costs no wall time and
+  # saves three runner slots. Each keeps its old job name as its check name
+  # (`=== CHECK wasm:license-check`). CLAUDE.md's tech-stack table cites
+  # wasm:lint, wasm:test and wasm:license-check by those names.
+  #
+  # wasm:build checks that the crate compiles to wasm32. The pkg/ output is not
+  # passed downstream. The generated .d.ts is the package's public JS surface,
+  # and every other TypeScript surface in this repo is camelCase. A snake_case
+  # export would read as a bug to the first consumer, and once packages/web
+  # imports it a rename is a permanent breaking change. So it is gated while
+  # that is still free (#2602). The gate's self-test runs before the build, so a
+  # disarmed gate shows up in seconds (#3195).
+  #
+  # wasm:license-check runs cargo-deny (licenses, advisories, bans, sources)
+  # against deny.toml: no copyleft dependency, no unignored RustSec advisory, no
+  # yanked crate, and every crate from crates.io. git and the pinned cargo-deny
+  # 0.19.9 are baked into the ci-wasm image. 0.19.x is required to parse CVSS
+  # 4.0 entries in the live RustSec DB.
   extends: .wasm
-  stage: test
-  needs:
-    - wasm:lint
-    - wasm:build
-    - job: ci:build-wasm-image
-      optional: true
+  stage: analyze
   <<: *rules-wasm
   script:
-    - cargo test --all-targets
+    - sh ../../scripts/ci/step.sh wasm:lint cargo clippy --all-targets -- -D warnings
+    - sh ../../scripts/ci/step.sh wasm:build ./scripts/check-dts-camelcase.sh --self-test
+    - sh ../../scripts/ci/step.sh wasm:build sh -c 'wasm-pack build --target web --release && ./scripts/check-dts-camelcase.sh'
+    - sh ../../scripts/ci/step.sh wasm:test cargo test --all-targets
+    - sh ../../scripts/ci/step.sh wasm:license-check cargo deny check
+    - sh ../../scripts/ci/step.sh --finish
 
 scheduler:snapshot-regression:
   # Renamed from `wasm:conformance` (#3366): it runs ONLY the Python engine, so
@@ -4625,7 +4209,7 @@ scheduler:snapshot-regression:
   # look like it froze this job too. It does not: it is the Python engine's own
   # snapshot regression test and keeps firing on every `packages/scheduler/**`
   # change. The WASM engine is frozen until the 0.6 decision (ADR-0015); its
-  # Rust jobs (wasm:lint, wasm:build, wasm:test, wasm:license-check) run on path change and on the nightly schedule only.
+  # Rust checks (wasm:lint, wasm:build, wasm:test, wasm:license-check, all in the wasm:check job) run on path change and on the nightly schedule only.
   #
   # The PYTHON half of cross-engine conformance: run the Python scheduler against
   # the shared `packages/wasm-scheduler/fixtures/` corpus and its committed
@@ -4633,9 +4217,9 @@ scheduler:snapshot-regression:
   #
   # This job alone does NOT prove the two engines agree: it exercises one
   # engine. The Rust half is `tests/conformance.rs` +
-  # `tests/invalid_conformance.rs`, run by `wasm:test` (`cargo test --all-targets`
+  # `tests/invalid_conformance.rs`, run by the `wasm:test` check of the `wasm:check` job (`cargo test --all-targets`
   # picks up both integration-test binaries). Agreement is the conjunction of the
-  # two jobs against one shared oracle: the `expected/` snapshots, generated from
+  # two halves against one shared oracle: the `expected/` snapshots, generated from
   # Python (the source of record) and asserted byte-for-byte by both sides.
   #
   # The split rules are deliberate, not a coverage hole (#2602). A
@@ -4643,7 +4227,7 @@ scheduler:snapshot-regression:
   # which is sufficient: with the Rust source and the fixtures both untouched, the
   # Rust half would be a no-op re-run. If the Python change moves output, this job
   # fails against the committed snapshots — and regenerating them touches
-  # `packages/wasm-scheduler/fixtures/`, which pulls `wasm:test` back into the
+  # `packages/wasm-scheduler/fixtures/`, which pulls `wasm:check` back into the
   # pipeline to re-check Rust against the new oracle. `main` runs everything.
   # Runs `pytest` inside packages/scheduler, so it belongs on the scheduler
   # template like every other scheduler:* job. It sat on a stock python image,
@@ -4657,21 +4241,19 @@ scheduler:snapshot-regression:
   extends: .scheduler
   stage: test
   needs:
-    # scheduler:lint and wasm:lint are optional: this job fires on scheduler OR
-    # wasm-scheduler changes, but scheduler:lint only fires on scheduler changes
-    # and wasm:lint only fires on wasm-scheduler changes. A wasm-scheduler-only
-    # MR schedules conformance + wasm:lint but not scheduler:lint (and vice
-    # versa for a scheduler-only MR). Without optional on both, GitLab fails
-    # the whole pipeline with "needs job does not exist" the moment either
-    # side is scheduled without the other. Re-stated here rather than inherited
+    # scheduler:lint is optional: this job fires on scheduler OR
+    # wasm-scheduler changes, but scheduler:lint only fires on scheduler changes.
+    # A wasm-scheduler-only MR schedules conformance but not scheduler:lint.
+    # Without optional, GitLab fails the whole pipeline with "needs job does
+    # not exist" the moment the job is scheduled without it. There is no need on
+    # wasm:check: it was an ordering hint only, and it made this Python half
+    # wait on `cargo deny`. Re-stated here rather than inherited
     # because a job's own `needs` list REPLACES the template's, so
     # ci:build-scheduler-image has to be named explicitly -- same pattern as
     # scheduler:bench and scheduler:notebooks.
     - job: ci:build-scheduler-image
       optional: true
     - job: scheduler:lint
-      optional: true
-    - job: wasm:lint
       optional: true
   rules:
     - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
@@ -4803,6 +4385,21 @@ api:test:
   # (.coverage.<index>); api:coverage combines them into coverage.xml for the
   # diff-coverage gate and the package soft floor. Mirrors the web:e2e shard →
   # web:e2e:report stitch pattern.
+  #
+  # Shard count re-checked for #5097 (MR pipeline 3099804965, shards 193 / 651 /
+  # 445 / 562s). The split is NOT what made those uneven: run against the
+  # committed .test_durations (16,685 entries, 2,556 serial-seconds, refreshed
+  # 2026-11-20), pytest-split's default duration_based_chunks gives 643 / 641 /
+  # 640 / 633 serial-seconds per group (~160s each across 4 xdist workers), and
+  # least_duration gives no better. Placement did it. Shard 1 ran alone on
+  # nuc-runner-2, and its pytest phase took 139s, matching the estimate. Shards 2,
+  # 3 and 4 co-tenanted on gitlab-runner-3-new (12 xdist workers plus 3 postgres
+  # services, and web:test 5/6 on the same host) and took 571 / 362 / 482s. So
+  # neither a fresh baseline nor a different algorithm moves the max. Three shards
+  # would be ~213s of pytest each on a quiet host, but at the observed 3.6x
+  # co-tenancy factor that is ~830s with collection, which is above today's 652s
+  # max. So this stays at 4. The lever for this job's tail is host placement and
+  # the runner fleet (#1040), not the split.
   parallel: 4
   # Explicit ceiling so a wedged shard cannot hold a runner slot for the project
   # default of 60 minutes (#3390). Because api:coverage `needs` all four shards,
@@ -5124,20 +4721,33 @@ api:test-durations:
     expire_in: 30 days
     when: always
 
-web:test-integrity:
-  # Guards issue #1657: web:test's only vitest call is `npm run test:coverage`, and
-  # a positional path filter in that script silently drops whole directories of
-  # specs from CI (src/workers, src/utils, src/styles, App.test.tsx, scripts/*)
-  # without failing anything. check-all-tests-run.mjs fails if any test file on
-  # disk is not collected by that command. `needs: []` runs it as soon as the
-  # pipeline starts (independent of the slow shards) so a re-introduced allowlist
-  # fails fast.
+web:static:
+  # web:knip and web:test-integrity as checks in one job (#5097). Both run on
+  # .web with rules-web, and neither has a dependant. Neither is folded into
+  # web:lint: web:build, web:type-check and web:test all `needs:` web:lint, so
+  # anything appended there would run in front of every other web job.
+  #
+  # web:knip is the dead-surface regrowth gate (#3375). It is BLOCKING, not
+  # allow_failure. The ratchet lives in knip's own per-rule severity (`rules` in
+  # packages/web/knip.jsonc): rules that are clean today are `error`, and rules
+  # with a backlog are `warn`, which prints every finding without failing (#3434
+  # promotes each one as it reaches zero). A failing allow_failure job renders as
+  # a GREEN pipeline, so do not wrap it in `|| true` or reach for allow_failure to
+  # admit a new backlog. Downgrade the specific rule in knip.jsonc, on the record.
+  #
+  # web:test-integrity guards #1657. web:test's only vitest call is `npm run
+  # test:coverage`, and a positional path filter in that script once silently
+  # dropped whole directories of specs from CI. check-all-tests-run.mjs fails if
+  # any test file on disk is not collected by that command. `needs: []` runs it
+  # as soon as the pipeline starts.
   extends: [.web, .fast-job]
-  stage: test
+  stage: lint
   needs: []
   <<: *rules-web
   script:
-    - node scripts/check-all-tests-run.mjs
+    - sh ../../scripts/ci/step.sh web:knip npm run knip:strict
+    - sh ../../scripts/ci/step.sh web:test-integrity node scripts/check-all-tests-run.mjs
+    - sh ../../scripts/ci/step.sh --finish
 
 web:test:
   extends: .web
@@ -5171,6 +4781,14 @@ web:test:
   # here — most of the max-vs-ideal gap is fleet contention, not assignment (the
   # same shard index swings 229s–447s run to run). Do not re-tune shard count off
   # the old numbers.
+  #
+  # Re-checked for #5097 (MR pipeline 3099804965): each shard ran 191–192 files,
+  # and vitest's own Duration was 192–196s on the dell runners, 264–287s on
+  # nuc-runner-2 and 384s on gitlab-runner-3-new, which was co-tenanted with three
+  # api:test shards. The spread is placement, as above, not assignment. Five shards
+  # would average 1,914 / 5 = ~383s on the 8-pipeline mean above. With the observed
+  # swing that reaches ~536s, which is over today's 405s max and puts web back on
+  # the critical path. So this stays at 6.
   #
   # needs lists only web:test's true data dependencies (#3277), mirroring the
   # same fix applied to api:test in #1121. web:test consumed neither of the two
@@ -6303,33 +5921,6 @@ security:scorecard:
       - scorecard-remote.json
     expire_in: 30 days
 
-security:gitleaks:
-  # Secret scanning across the whole working tree (#1251). The one scanner the
-  # suite was missing: bandit/semgrep cover insecure code, osv covers
-  # vulnerable deps, trivy covers IaC — none of them catch a committed
-  # credential. Runs on every MR and on main (a secret can appear in ANY file,
-  # so unlike the dep scanners this carries no `changes:` filter), and is also
-  # wired as a pre-commit hook for the earliest catch.
-  #
-  # `gitleaks dir` scans the checked-out tree (not git history) — fast, and
-  # robust to GitLab's shallow clone; it catches anything currently in the tree,
-  # including a secret slipped past the local hook via `git push --no-verify`.
-  # Scoped, documented allowlists live in .gitleaks.toml (extends the upstream
-  # default ruleset). Pinned static binary download, matching the osv/trivy jobs.
-  stage: security
-  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
-  needs: []
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
-  before_script:
-    - apk add --no-cache wget
-    - wget -q -O /tmp/gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz"
-    - tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks
-    - chmod +x /usr/local/bin/gitleaks
-  script:
-    - gitleaks dir . --config .gitleaks.toml --no-banner --redact --exit-code 1
-
 security:gitleaks:history:
   # Full-history secret scan on main (#942). security:gitleaks scans the checked-out
   # TREE, which catches anything present now but is blind to a secret that was
@@ -6458,6 +6049,43 @@ security:trivy:config:
       tar xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy
   script:
     - trivy config --severity HIGH,CRITICAL --exit-code 1 --ignorefile .trivyignore.yaml --skip-dirs '**/node_modules' packages/
+
+security:static:
+  timeout: 8m  # the 8m .fast-job limit demo-nginx-allowlist had before the fold
+  # Two always-on alpine security gates as checks in one job (#5097). The check
+  # names are unchanged (`=== CHECK security:gitleaks`).
+  #
+  # security:gitleaks scans the whole working tree for committed secrets (#1251).
+  # bandit and semgrep cover insecure code, osv covers vulnerable deps and trivy
+  # covers IaC, but none of them catch a credential. A secret can appear in ANY
+  # file, so this carries no `changes:` filter. `gitleaks dir` scans the
+  # checked-out tree, not git history: it is fast and survives GitLab's shallow
+  # clone. Scoped allowlists live in .gitleaks.toml. The binary download is
+  # pinned, matching the osv and trivy jobs. It is also a pre-commit hook.
+  #
+  # security:demo-nginx-allowlist (#1763, extended #4356). The hosted read-only
+  # demo is reachable only through the anonymous, tokenized share link. A blanket
+  # `location /api/ { proxy_pass … }` in nginx/demo.conf.template (the production
+  # posture) would expose the full authenticated API to the public internet. The
+  # check fails if that template, or either demo branch the Helm chart's web
+  # ConfigMap renders (the share-link demo and the interactive demo, ADR-1197),
+  # proxies anything beyond its vetted allowlist or method fence.
+  stage: lint
+  image: alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+  needs: []
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+  before_script:
+    - apk add --no-cache bash grep sed helm yq wget
+    - wget -q -O /tmp/gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz"
+    - tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks
+    - chmod +x /usr/local/bin/gitleaks
+  script:
+    - bash scripts/ci/step.sh security:gitleaks gitleaks dir . --config .gitleaks.toml --no-banner --redact --exit-code 1
+    - bash scripts/ci/step.sh security:demo-nginx-allowlist bash scripts/check-demo-nginx-allowlist.sh
+    - bash scripts/ci/step.sh security:demo-nginx-allowlist bash scripts/check-demo-nginx-allowlist.sh --self-test
+    - bash scripts/ci/step.sh --finish
 
 security:semgrep:
   # SAST for the application source: JS/TS/React (web) + Python/Django
@@ -6880,25 +6508,6 @@ license:check:mcp:
     - /tmp/mcp-venv/bin/pip-licenses --order=license --format=plain-vertical
     - bash scripts/ci/check-python-licenses.sh /tmp/mcp-venv/bin/pip-licenses
     - bash scripts/ci/check-python-licenses.sh --self-test /tmp/mcp-venv/bin/pip-licenses
-
-wasm:license-check:
-  # Verify no copyleft-licensed Rust dependency has been introduced, and that no
-  # crate carries an unignored RustSec advisory or has been yanked, and that every
-  # crate comes from crates.io (no git or alternate-registry sources).
-  # Uses cargo-deny to run all checks (licenses, advisories, bans, sources) against deny.toml.
-  extends: .wasm
-  stage: security
-  # git + the pinned cargo-deny 0.19.9 are baked into the ci-wasm image (0.19.x
-  # is required to parse CVSS 4.0 entries in the live RustSec DB); the job just
-  # runs the check. Re-add the optional ci:build-wasm-image need (extends
-  # replaces the template's needs list); before_script falls back to .wasm's cd.
-  needs:
-    - wasm:test
-    - job: ci:build-wasm-image
-      optional: true
-  <<: *rules-wasm
-  script:
-    - cargo deny check
 
 # ---------------------------------------------------------------------------
 # PUBLISH — tag-triggered release jobs.

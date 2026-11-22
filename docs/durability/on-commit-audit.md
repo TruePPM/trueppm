@@ -99,7 +99,7 @@ orphaned rows. `enqueue_sprint_close` is a registered outbox helper.
 ## How to keep this audit true
 
 The gate is `scripts/check-on-commit-durability.py` (`make on-commit-durability-check`,
-CI job `lint:on-commit-durability`, part of `make pre-push`). Details, the ratchet and its
+CI check `lint:on-commit-durability` in the `api:static` job, part of `make pre-push`). Details, the ratchet and its
 blind spots are in `docs/harness/on-commit-durability.md`.
 
 When you add a `transaction.on_commit` callback:

@@ -57,4 +57,24 @@ case "$out" in *"  - one"*"  - two"*) ok "multiple failures all listed" ;; *) ba
 # Case 5: bad usage is rejected.
 if bash "$STEP" onlyname >/dev/null 2>&1; then bad "usage error accepted"; else ok "missing command is a usage error"; fi
 
+# Case 6: the per-package aggregates (#5097) call `sh step.sh` on images with no
+# bash (node:alpine for web:static and mobile:static). So the script must keep
+# working under a strict POSIX shell. Run cases 2 and 4 under dash when it is
+# installed, and skip with a note otherwise. Alpine's sh is BusyBox ash, which
+# dash approximates far better than macOS's bash-as-sh does.
+if command -v dash >/dev/null 2>&1; then
+  export CI_STEP_STATE="$TMP/s6"
+  dash "$STEP" check-a true >/dev/null
+  dash "$STEP" check-broken sh -c 'exit 3' >/dev/null
+  dash "$STEP" check-after true >/dev/null
+  out="$(dash "$STEP" --finish 2>&1)"; rc=$?
+  case "$rc:$out" in
+    1:*"  - check-broken"*) ok "runs under POSIX sh (dash): failure recorded, later step ran" ;;
+    *) bad "under dash: rc=$rc out=$out" ;;
+  esac
+  case "$out" in *check-after*) bad "under dash: a passing step was listed as failed" ;; esac
+else
+  echo "skip - dash not installed; POSIX-sh case not exercised"
+fi
+
 exit "$fail"
