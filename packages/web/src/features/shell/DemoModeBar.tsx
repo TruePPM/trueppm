@@ -2,6 +2,7 @@ import { Link } from 'react-router';
 import { Tooltip } from '@/components/Tooltip';
 import { useDemoMode } from '@/hooks/useDemoMode';
 import { parseDemoResetLine } from './demoResetSchedule';
+import { DemoInstallLinkAnchor } from './DemoInstallLink';
 import { DemoForecastChip } from './DemoForecastChip';
 import { DemoProjectSwitcher } from './DemoProjectSwitcher';
 import { DemoTipsHint } from './DemoTipsHint';
@@ -93,23 +94,13 @@ export function DemoModeBar() {
         >
           What&apos;s included
         </a>
-        <span aria-hidden="true"> · </span>
-        {/* The evaluator's next step (#4116). Text weight, not a CTA: the visitor
-            asked a question ("what would I run?"), this answers it. Lives here and
-            not only on the login page because a share-link visit (#3911) never
-            sees the login page and a signed-in evaluator is past it. */}
-        <a
-          href="https://docs.trueppm.com/getting-started/installation/"
-          target="_blank"
-          rel="noopener noreferrer"
-          data-testid="demo-install-link"
-          className="font-semibold underline underline-offset-2 hover:no-underline rounded
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-            focus-visible:ring-offset-1"
-        >
-          Install your own
-        </a>
       </span>
+
+      {/* The evaluator's next step (#4116). Outside the `sm`-collapsed span above so
+          it is visible at every width, not just focusable-but-invisible on a phone.
+          Lives here and not only on the login page because a share-link visit (#3911)
+          never sees the login page and a signed-in evaluator is past it. */}
+      <DemoInstallLinkAnchor />
 
       <DemoProjectSwitcher />
 

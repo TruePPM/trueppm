@@ -122,6 +122,56 @@ test.describe('Public schedule share viewer', () => {
     await expect(page.getByRole('button', { name: /add|create|new task|edit/i })).toHaveCount(0);
   });
 
+  test('demo mode: the share page links to the installation guide, at phone width too (#4116)', async ({
+    page,
+  }) => {
+    await setupCatchAll(page);
+    await page.setViewportSize({ width: 375, height: 800 });
+    // Real /edition/ shape; registered after the catch-all so it wins.
+    await page.route('**/api/v1/edition/', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          edition: 'community',
+          demo_read_only: true,
+          demo_login_hint: null,
+          demo_reset_schedule: null,
+        }),
+      }),
+    );
+    await page.route(SHARE_URL, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(SCHEDULE),
+      }),
+    );
+
+    await page.goto('/share/schedule/tok123');
+
+    const link = page.getByRole('link', { name: 'Install your own' });
+    await expect(link).toBeVisible();
+    await expect(link).toHaveAttribute(
+      'href',
+      'https://docs.trueppm.com/getting-started/installation/',
+    );
+  });
+
+  test('a normal install share page has no install link (#4116)', async ({ page }) => {
+    await setupCatchAll(page);
+    await page.route(SHARE_URL, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(SCHEDULE),
+      }),
+    );
+    await page.goto('/share/schedule/tok123');
+    await expect(page.getByText('Read-only shared view')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Install your own' })).toHaveCount(0);
+  });
+
   test('an end-of-day milestone sits where its predecessor bar ends (#4079)', async ({
     page,
   }) => {

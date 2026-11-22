@@ -11,6 +11,7 @@ import { buildDependencyPaths, type DepAnchor, type DepSegment } from './schedul
 import { useNoReferrer } from './useNoReferrer';
 import { MCP_EXAMPLE_PROMPTS } from '@/lib/mcpExamplePrompts';
 import { MilestoneIcon } from '@/components/Icons';
+import { DemoInstallLink } from '@/features/shell/DemoInstallLink';
 
 // Fixed geometry so the label column, timeline column, and the SVG dependency
 // overlay share one coordinate space (rows never wrap — labels are truncated).
@@ -374,9 +375,12 @@ function Schedule({ schedule }: { schedule: PublicSchedule }) {
               </span>
             ) : null}
           </div>
-          <span className="shrink-0 rounded-chip border border-neutral-border bg-neutral-surface px-2 py-0.5 text-xs font-medium text-neutral-text-secondary">
-            Read-only shared view
-          </span>
+          <div className="flex shrink-0 items-center gap-3">
+            <DemoInstallLink className="text-xs text-brand-primary" />
+            <span className="shrink-0 rounded-chip border border-neutral-border bg-neutral-surface px-2 py-0.5 text-xs font-medium text-neutral-text-secondary">
+              Read-only shared view
+            </span>
+          </div>
         </div>
       </header>
 

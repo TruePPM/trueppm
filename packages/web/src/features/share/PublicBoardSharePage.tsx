@@ -8,6 +8,7 @@ import {
   type PublicBoardErrorKind,
 } from './shareApi';
 import { useNoReferrer } from './useNoReferrer';
+import { DemoInstallLink } from '@/features/shell/DemoInstallLink';
 
 /**
  * Public, unauthenticated, read-only board viewer (#283, ADR-0245). Standalone —
@@ -77,9 +78,12 @@ function Board({ board }: { board: PublicBoard }) {
               </span>
             ) : null}
           </div>
-          <span className="shrink-0 rounded-chip border border-neutral-border bg-neutral-surface px-2 py-0.5 text-xs font-medium text-neutral-text-secondary">
-            Read-only shared view
-          </span>
+          <div className="flex shrink-0 items-center gap-3">
+            <DemoInstallLink className="text-xs text-brand-primary" />
+            <span className="shrink-0 rounded-chip border border-neutral-border bg-neutral-surface px-2 py-0.5 text-xs font-medium text-neutral-text-secondary">
+              Read-only shared view
+            </span>
+          </div>
         </div>
       </header>
 

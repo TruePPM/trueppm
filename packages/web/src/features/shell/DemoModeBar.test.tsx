@@ -118,6 +118,17 @@ describe('DemoModeBar', () => {
     expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
   });
 
+  it('keeps the install link visible below the sm breakpoint (#4116)', () => {
+    asDemo();
+    window.innerWidth = 375;
+    render(<DemoModeBar />);
+    const link = screen.getByRole('link', { name: 'Install your own' });
+    // The edition span collapses to `sr-only` below sm (focusable but invisible);
+    // the install link must not live inside it.
+    expect(link.closest('.sr-only')).toBeNull();
+    expect(link.className).not.toMatch(/sr-only/);
+  });
+
   it('renders no edition disclosure or install link on a normal install', () => {
     render(<DemoModeBar />);
     expect(screen.queryByRole('link', { name: "What's included" })).toBeNull();
