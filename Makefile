@@ -739,7 +739,7 @@ package-licenses-check: ## Run the lint:package-licenses check (in the lint:repo
 	@bash scripts/check-package-licenses.sh --self-test
 	@bash scripts/check-package-licenses.sh
 
-scheduler-sdist-check: ## Run the scheduler:sdist-check CI job locally (#4520)
+scheduler-sdist-check: ## Run the scheduler:sdist-check CI check locally (scheduler:lock-sdist job) (#4520)
 	@# Builds the trueppm-scheduler sdist from a copy of the package with dev
 	@# artifacts planted in it, and fails if any leak or a required file is missing.
 	@bash scripts/check-scheduler-sdist.sh --self-test

@@ -5,8 +5,11 @@
 # Why this exists. GitLab caps the jobs active across open pipelines, and ~48
 # single-script lint gates were each paying a container slot for seconds of
 # work; 15 of 24 failed MR pipelines in one audit window ran ZERO jobs because
-# of that cap. The static gates now run as a few aggregate jobs
-# (`lint:repo-static`, `docs:static`). A plain `script:` list stops at the
+# of that cap. The static gates now run as aggregate jobs
+# (`lint:repo-static`, `docs:static`, `api:static`, `api:analyze`,
+# `scheduler:lint`, `scheduler:post-test`, `scheduler:lock-sdist`,
+# `wasm:check`, `mobile:static`, `web:static`, `security:static`,
+# `helm:template`, `mcp:test`). A plain `script:` list stops at the
 # first failing line, so one red check would hide every later one. This wrapper
 # turns each check into a step that:
 #

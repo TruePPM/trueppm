@@ -1484,7 +1484,7 @@ tracker:drift-report:
 
 ci:build-api-image:
   # Rebuild and push the custom ci-api image used by the .api / .api-no-db
-  # job templates and by mcp:typecheck / mcp:test. Pre-bakes libpq-dev + gcc +
+  # job templates and by the mcp:test job (its mcp:typecheck and mcp:test checks). Pre-bakes libpq-dev + gcc +
   # all dev-dep wheels (scheduler + api + mcp) so the downstream api:* jobs skip
   # ~3min of cold install on every run (kaizen #640 item 3) and the mcp:* jobs
   # skip their cold mcp[dev] install.
@@ -3076,45 +3076,33 @@ api:image-lock-check:
         -e SECRET_KEY=ci-image-lock-check-smoke \
         "$IMAGE" /venv/bin/python manage.py check
 
-scheduler:uv-lock-check:
+scheduler:lock-sdist:
   extends: .fast-job
-  # Verify packages/scheduler/uv.lock stays in sync with the scheduler's
-  # pyproject.toml (#1153 scheduler OSV migration). The scheduler now commits a
-  # resolved lock — not to pin the published wheel (it still ships version ranges
-  # from pyproject.toml) but to give security:osv a scannable dependency surface
-  # (OSV can audit a lockfile; it cannot audit a range). This gate fails if
-  # pyproject changed without re-locking; refresh with
+  # Two scheduler package gates as checks in one job (#5097). Each keeps its old
+  # job name as its check name (`=== CHECK scheduler:uv-lock-check`).
+  #
+  # scheduler:uv-lock-check verifies packages/scheduler/uv.lock stays in sync
+  # with the scheduler's pyproject.toml (#1153 scheduler OSV migration). The
+  # scheduler commits a resolved lock, not to pin the published wheel (it still
+  # ships version ranges from pyproject.toml) but to give security:osv a
+  # scannable dependency surface (OSV can audit a lockfile; it cannot audit a
+  # range). It fails if pyproject changed without re-locking; refresh with
   # `cd packages/scheduler && uv lock`. uv is pinned so the committed lock's
-  # revision stays stable across CI runs and Renovate's lockFileMaintenance owns
-  # the routine refreshes. Mirrors api:uv-lock-check; kept as its own job so a
-  # scheduler-only change does not pull in the api manifests and vice versa.
-  stage: analyze
-  image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
-  needs: []
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
-      changes:
-        - packages/scheduler/pyproject.toml
-        - packages/scheduler/uv.lock
-        - .gitlab-ci.yml
-  before_script:
-    - !reference [.pip-floor, before_script]
-    - pip install uv==0.9.5 --quiet
-  script:
-    - cd packages/scheduler
-    - uv lock --check
-
-scheduler:sdist-check:
-  extends: .fast-job
-  # The trueppm-scheduler sdist ships only its allow-listed files and no developer
-  # artifacts (#4520). Before the [tool.hatch.build.targets.sdist] allow-list, a
-  # local `python -m build` after a test run packed `.coverage` (absolute paths
-  # from the developer's machine) and `.hypothesis/`. scheduler:build builds
-  # from a clean checkout, so it was never affected; this guards a manual or
-  # fallback release. The script plants dev artifacts in a COPY of the package,
-  # builds the sdist, asserts on its members, then builds a wheel from it. Its
-  # --self-test runs first, in this job, so a gate that stopped being able to fail
-  # is itself caught.
+  # revision stays stable and Renovate's lockFileMaintenance owns the routine
+  # refreshes. Mirrors api:uv-lock-check.
+  #
+  # scheduler:sdist-check asserts the trueppm-scheduler sdist ships only its
+  # allow-listed files and no developer artifacts (#4520). Before the
+  # [tool.hatch.build.targets.sdist] allow-list, a local `python -m build` after
+  # a test run packed `.coverage` (absolute paths from the developer's machine)
+  # and `.hypothesis/`. scheduler:build builds from a clean checkout, so it was
+  # never affected; this guards a manual or fallback release. The script plants
+  # dev artifacts in a COPY of the package, builds the sdist, asserts on its
+  # members, then builds a wheel from it. Its --self-test runs first, in this
+  # job, so a gate that stopped being able to fail is itself caught.
+  #
+  # The rules are sdist-check's, a superset of the lock check's, so the lock
+  # check also runs on any other packages/scheduler change.
   stage: analyze
   image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
   needs: []
@@ -3129,14 +3117,16 @@ scheduler:sdist-check:
     - !reference [.pip-floor, before_script]
     - pip install uv==0.9.5 --quiet
   script:
-    - bash scripts/check-scheduler-sdist.sh --self-test
-    - bash scripts/check-scheduler-wheel-smoke.sh --self-test
-    - bash scripts/check-scheduler-sdist.sh
+    - bash scripts/ci/step.sh scheduler:uv-lock-check sh -c 'cd packages/scheduler && uv lock --check'
+    - bash scripts/ci/step.sh scheduler:sdist-check bash scripts/check-scheduler-sdist.sh --self-test
+    - bash scripts/ci/step.sh scheduler:sdist-check bash scripts/check-scheduler-wheel-smoke.sh --self-test
+    - bash scripts/ci/step.sh scheduler:sdist-check bash scripts/check-scheduler-sdist.sh
+    - bash scripts/ci/step.sh --finish
 
 mcp:uv-lock-check:
   extends: .fast-job
   # Verify packages/mcp/uv.lock stays in sync with packages/mcp/pyproject.toml.
-  # Mirrors api:/scheduler:uv-lock-check, and became load-bearing when mcp:build
+  # Mirrors api:uv-lock-check and the scheduler:uv-lock-check check, and became load-bearing when mcp:build
   # landed (#2809): that job materializes its CycloneDX SBOM with
   # `uv sync --frozen`, which HARD-FAILS on a stale lock. Without this gate the
   # first symptom of a forgotten `uv lock` would be a red mcp:build job on an
@@ -4219,7 +4209,7 @@ scheduler:snapshot-regression:
   # look like it froze this job too. It does not: it is the Python engine's own
   # snapshot regression test and keeps firing on every `packages/scheduler/**`
   # change. The WASM engine is frozen until the 0.6 decision (ADR-0015); its
-  # Rust jobs (wasm:lint, wasm:build, wasm:test, wasm:license-check) run on path change and on the nightly schedule only.
+  # Rust checks (wasm:lint, wasm:build, wasm:test, wasm:license-check, all in the wasm:check job) run on path change and on the nightly schedule only.
   #
   # The PYTHON half of cross-engine conformance: run the Python scheduler against
   # the shared `packages/wasm-scheduler/fixtures/` corpus and its committed
@@ -4227,9 +4217,9 @@ scheduler:snapshot-regression:
   #
   # This job alone does NOT prove the two engines agree: it exercises one
   # engine. The Rust half is `tests/conformance.rs` +
-  # `tests/invalid_conformance.rs`, run by `wasm:test` (`cargo test --all-targets`
+  # `tests/invalid_conformance.rs`, run by the `wasm:test` check of the `wasm:check` job (`cargo test --all-targets`
   # picks up both integration-test binaries). Agreement is the conjunction of the
-  # two jobs against one shared oracle: the `expected/` snapshots, generated from
+  # two halves against one shared oracle: the `expected/` snapshots, generated from
   # Python (the source of record) and asserted byte-for-byte by both sides.
   #
   # The split rules are deliberate, not a coverage hole (#2602). A
@@ -4237,7 +4227,7 @@ scheduler:snapshot-regression:
   # which is sufficient: with the Rust source and the fixtures both untouched, the
   # Rust half would be a no-op re-run. If the Python change moves output, this job
   # fails against the committed snapshots — and regenerating them touches
-  # `packages/wasm-scheduler/fixtures/`, which pulls `wasm:test` back into the
+  # `packages/wasm-scheduler/fixtures/`, which pulls `wasm:check` back into the
   # pipeline to re-check Rust against the new oracle. `main` runs everything.
   # Runs `pytest` inside packages/scheduler, so it belongs on the scheduler
   # template like every other scheduler:* job. It sat on a stock python image,
@@ -4251,21 +4241,19 @@ scheduler:snapshot-regression:
   extends: .scheduler
   stage: test
   needs:
-    # scheduler:lint and wasm:lint are optional: this job fires on scheduler OR
-    # wasm-scheduler changes, but scheduler:lint only fires on scheduler changes
-    # and wasm:lint only fires on wasm-scheduler changes. A wasm-scheduler-only
-    # MR schedules conformance + wasm:lint but not scheduler:lint (and vice
-    # versa for a scheduler-only MR). Without optional on both, GitLab fails
-    # the whole pipeline with "needs job does not exist" the moment either
-    # side is scheduled without the other. Re-stated here rather than inherited
+    # scheduler:lint is optional: this job fires on scheduler OR
+    # wasm-scheduler changes, but scheduler:lint only fires on scheduler changes.
+    # A wasm-scheduler-only MR schedules conformance but not scheduler:lint.
+    # Without optional, GitLab fails the whole pipeline with "needs job does
+    # not exist" the moment the job is scheduled without it. There is no need on
+    # wasm:check: it was an ordering hint only, and it made this Python half
+    # wait on `cargo deny`. Re-stated here rather than inherited
     # because a job's own `needs` list REPLACES the template's, so
     # ci:build-scheduler-image has to be named explicitly -- same pattern as
     # scheduler:bench and scheduler:notebooks.
     - job: ci:build-scheduler-image
       optional: true
     - job: scheduler:lint
-      optional: true
-    - job: wasm:check
       optional: true
   rules:
     - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
@@ -6063,6 +6051,7 @@ security:trivy:config:
     - trivy config --severity HIGH,CRITICAL --exit-code 1 --ignorefile .trivyignore.yaml --skip-dirs '**/node_modules' packages/
 
 security:static:
+  timeout: 8m  # the 8m .fast-job limit demo-nginx-allowlist had before the fold
   # Two always-on alpine security gates as checks in one job (#5097). The check
   # names are unchanged (`=== CHECK security:gitleaks`).
   #
