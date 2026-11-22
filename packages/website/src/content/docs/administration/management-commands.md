@@ -376,6 +376,69 @@ user-facing guide.
   `Program.code`) to the canonical JSON seed format, to `--out` or stdout. The
   output round-trips: re-importing it reproduces the program.
 
+## Bundled starter templates (`projects.0145`)
+
+A fresh install ships with three starter project templates so the **Template** way in
+is never empty. They are written by a data migration, not a command, so there is
+nothing to run: `migrate` seeds them. Operators reviewing what an upgrade does to the
+database should know exactly what it touches.
+
+| | |
+|---|---|
+| Migration | `projects.0145_seed_bundled_templates`. Fresh installs reach it through the 0.4 squash, `projects.0106_squashed_0158_release_0_4`, which replays the same operation. |
+| Table | `projects_project_template` (the `ProjectTemplate` model) |
+| Rows | Three, matched by `name`: **Scrum product team**, **Stage-gate delivery** and **Regulated release** |
+| Values | `source_kind = 'community'` (shown as **Bundled** in the gallery), `is_published = true`, no `owner`, no `published_by`, no `program` (workspace-wide), and the starter's task structure in `structure` |
+
+The user-facing description of each starter is on [Project templates](/features/project-templates/#what-ships-with-the-install).
+
+### Upgrade semantics: create-only
+
+The migration uses `get_or_create` on `name`, with the starter's content as `defaults`.
+That has three consequences:
+
+- **It never updates an existing row.** If a later release improves a starter, such as
+  more gates or a corrected dependency, an instance that already has the old row keeps
+  the old content after upgrading. A fresh install on the newer version gets the new
+  content, so the two can differ.
+- **The migration runs once.** Django records it as applied, so a later `migrate` does
+  not re-seed. The seed content is also a frozen copy inside the migration, deliberately
+  not kept in sync with the application code, so editing a starter in a later release does
+  not change what this migration writes.
+- **A row you removed does not come back**, because the migration has already run. A
+  row you renamed or edited is left as you made it. Matching is by name only, whether or
+  not the row is published.
+
+If you want the newer content of a starter on an existing instance, delete the old row
+as below, then publish a template of your own from a project, or recreate it by hand.
+There is no command that re-seeds the bundled rows.
+
+### Removing the starters
+
+The API exposes templates read-only, and there is no UI to delete one, so removal is a
+database operation. Delete only starters that no project was created from. A template
+that seeded a project is the target of a `TemplateApplication` adoption record, and
+deleting it would leave that record with a null template pointer (the record keeps the
+template name).
+
+```bash
+docker compose exec -T api python manage.py shell <<'EOF'
+from trueppm_api.apps.projects.models import ProjectTemplate
+
+untouched = ProjectTemplate.objects.filter(
+    name__in=["Scrum product team", "Stage-gate delivery", "Regulated release"],
+    source_kind="community",
+    applications__isnull=True,
+)
+print(untouched.count(), "rows")
+untouched.delete()
+EOF
+```
+
+The migration's own reverse step does the same thing (it deletes only starters with no
+adoption record), but reversing it also reverses every later `projects` migration, so use
+the snippet above rather than a reverse migrate.
+
 ## Maintenance commands
 
 These exist for specific operational situations and are not part of routine use:
