@@ -4,7 +4,12 @@
  * a 5xx (possibly transient) still does.
  */
 import { renderHook, waitFor } from '@testing-library/react';
-import { QueryClient, QueryClientProvider, useMutation } from '@tanstack/react-query';
+import {
+  QueryClient,
+  QueryClientProvider,
+  onlineManager,
+  useMutation,
+} from '@tanstack/react-query';
 import { AxiosError, type AxiosResponse } from 'axios';
 import { afterEach, describe, it, expect } from 'vitest';
 import type { ReactNode } from 'react';
@@ -135,7 +140,7 @@ describe('getPendingWriteCount — the real count behind the chunk-reload guard 
     await waitFor(() => expect(getPendingWriteCount(qc)).toBe(0));
   });
 
-  it('does not count a settled 4xx rejection or a settled success', async () => {
+  it('does not count a settled rejection or a settled success', async () => {
     const qc = makeQC();
     const rejected = qc.getMutationCache().build(qc, {
       mutationFn: () => Promise.reject(axiosError(400)),
@@ -144,6 +149,46 @@ describe('getPendingWriteCount — the real count behind the chunk-reload guard 
     const ok = qc.getMutationCache().build(qc, { mutationFn: () => Promise.resolve('ok') });
     await ok.execute(undefined);
     expect(getPendingWriteCount(qc)).toBe(0);
+  });
+
+  it('does not count a pending mutation that carries a 4xx rejection', () => {
+    // A settled mutation is never pending, so only a pending state that still holds a
+    // client-rejection error exercises the `isClientRejection` skip: removing it makes
+    // this count 1. (Mirrors usePendingWriteCount.)
+    const qc = makeQC();
+    qc.getMutationCache().build(
+      qc,
+      { mutationFn: () => new Promise<void>(() => undefined) },
+      {
+        context: undefined,
+        data: undefined,
+        error: axiosError(400),
+        failureCount: 0,
+        failureReason: null,
+        isPaused: false,
+        status: 'pending',
+        variables: undefined,
+        submittedAt: Date.now(),
+      },
+    );
+    expect(getPendingWriteCount(qc)).toBe(0);
+  });
+
+  it('counts an offline-paused write, then drops it once back online and resumed', async () => {
+    const qc = makeQC();
+    onlineManager.setOnline(false);
+    try {
+      const m = qc.getMutationCache().build(qc, { mutationFn: () => Promise.resolve('ok') });
+      void m.execute(undefined).catch(() => undefined);
+      await waitFor(() => expect(m.state.isPaused).toBe(true));
+      expect(getPendingWriteCount(qc)).toBe(1);
+
+      onlineManager.setOnline(true);
+      await qc.resumePausedMutations();
+      await waitFor(() => expect(getPendingWriteCount(qc)).toBe(0));
+    } finally {
+      onlineManager.setOnline(true);
+    }
   });
 
   it('agrees with the live badge projection while a write is pending', async () => {
