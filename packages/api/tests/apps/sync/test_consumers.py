@@ -1839,3 +1839,56 @@ async def test_membership_revoked_while_connected_closes_the_live_socket_4003(
         assert close_frame == {"type": "websocket.close", "code": 4003}
         await communicator.send_input({"type": "websocket.disconnect", "code": 4003})
         await communicator.wait(timeout=2)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("in_memory_channel_layer")
+async def test_revoke_api_tokens_user_sweep_closes_the_live_socket_4003(
+    user: object, project: Project
+) -> None:
+    """#4625: ``revoke_api_tokens --user`` kills the account's already-open socket.
+
+    The socket authenticates by single-use ticket (ADR-0141), not by the PAT itself, so
+    "token revoked while connected" means the off-boarding command's live-socket sweep:
+    nothing past authentication is stubbed — the real command runs, ``on_commit`` pushes a
+    real ``connection.evict`` through the channel layer, and the consumer closes 4003.
+    """
+    from io import StringIO
+
+    from asgiref.testing import ApplicationCommunicator
+    from django.core.management import call_command
+
+    await database_sync_to_async(ProjectMembership.objects.create)(
+        project=project, user=user, role=Role.MEMBER
+    )
+    path = f"/ws/v1/projects/{project.pk}/"
+    scope = {
+        "type": "websocket",
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"ticket=t",
+        "headers": [],
+        "subprotocols": [],
+    }
+    with patch(
+        "trueppm_api.apps.sync.consumers.authenticate_scope",
+        new=AsyncMock(return_value=WsAuthResult(user=user, via="ticket")),
+    ):
+        communicator = ApplicationCommunicator(_ws_app(), scope)
+        await communicator.send_input({"type": "websocket.connect"})
+        first = await communicator.receive_output(timeout=2)
+        assert first["type"] == "websocket.accept", first
+        await asyncio.sleep(0.2)
+        assert communicator.future.done() is False
+
+        out = StringIO()
+        await database_sync_to_async(call_command)(
+            "revoke_api_tokens", "--user", "ws_user", "--commit", "--yes", stdout=out
+        )
+        close_frame = await _drain_until_close(communicator)
+
+        assert close_frame == {"type": "websocket.close", "code": 4003}
+        assert "live project connection" in out.getvalue()
+        await communicator.send_input({"type": "websocket.disconnect", "code": 4003})
+        await communicator.wait(timeout=2)
