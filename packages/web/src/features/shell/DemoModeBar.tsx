@@ -59,11 +59,14 @@ export function DemoModeBar() {
       data-testid="demo-mode-bar"
       // h-11 = 44px desktop, h-12 = 48px on a phone (design section 7 — the bar
       // carries two items there and its controls are 44px touch targets).
-      // `flex-nowrap` + `min-w-0` children is what makes the hint truncate
-      // instead of wrapping the bar onto a second line.
-      className="flex h-12 lg:h-11 flex-shrink-0 flex-nowrap items-center gap-3 overflow-hidden
-        border-b border-brand-primary/30 bg-brand-primary/10 px-3 text-xs
-        text-brand-primary sm:px-4"
+      // From `md` up `flex-nowrap` + `min-w-0` children make the hint truncate instead
+      // of wrapping onto a second line. Below `md` the bar WRAPS: at 375px the mode
+      // chip, edition link, install link and switcher alone exceed the width, and a
+      // nowrap + overflow-hidden bar clipped trailing items while they stayed focusable
+      // (#4116). Nothing is hidden, so nothing is clipped.
+      className="flex min-h-12 flex-shrink-0 flex-wrap items-center gap-x-3 gap-y-1 overflow-hidden
+        border-b border-brand-primary/30 bg-brand-primary/10 px-3 py-1 text-xs
+        text-brand-primary sm:px-4 md:h-11 md:flex-nowrap md:py-0 lg:h-11"
     >
       {/* The mode, stated first and never abbreviated. The shared Tooltip carries
           the consequence — the sentence the two-line banner used to spend a whole
@@ -104,13 +107,14 @@ export function DemoModeBar() {
 
       <DemoProjectSwitcher />
 
-      {/* Entry to the static admin-screens preview (#3973). A plain link, not a
+      {/* Entry to the static admin-screens preview (#3973). Hidden (display:none, so out of the tab order too) below `sm`
+          so the 375px bar never clips a focusable item (#4116). A plain link, not a
           role switch: the visitor stays a Member and the page makes no API call. */}
       <Link
         to="/demo/admin-preview"
         data-testid="demo-admin-preview-link"
-        className="flex-shrink-0 whitespace-nowrap font-semibold underline underline-offset-2
-          hover:no-underline rounded focus-visible:outline-none focus-visible:ring-2
+        className="hidden flex-shrink-0 whitespace-nowrap font-semibold underline underline-offset-2
+          hover:no-underline rounded sm:inline focus-visible:outline-none focus-visible:ring-2
           focus-visible:ring-brand-primary focus-visible:ring-offset-1"
       >
         Admin screens

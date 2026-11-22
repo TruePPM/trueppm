@@ -229,6 +229,41 @@ test.describe('Demo landing — the merged bar (#4050 A1)', () => {
     );
   });
 
+  test('no link or control in the bar is clipped at 375px (#4116)', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 800 });
+    await page.goto(URL);
+    const bar = page.getByRole('complementary', { name: 'Demo mode' });
+    await expect(bar.getByRole('link', { name: 'Install your own' })).toBeVisible();
+    const barBox = await bar.boundingBox();
+    expect(barBox).not.toBeNull();
+    console.log(
+      'CS',
+      JSON.stringify(
+        await bar.evaluate((el) =>
+          [...el.children].map((c) => [
+            getComputedStyle(c).display,
+            getComputedStyle(c).position,
+            window.innerWidth,
+          ]),
+        ),
+      ),
+    );
+    const items = bar.locator('a, button, [role="combobox"], select');
+    const count = await items.count();
+    expect(count).toBeGreaterThan(0);
+    for (let i = 0; i < count; i++) {
+      const item = items.nth(i);
+      if (!(await item.isVisible())) continue;
+      const box = await item.boundingBox();
+      const label = (await item.textContent())?.trim() ?? `item ${i}`;
+      expect(box, label).not.toBeNull();
+      expect(box!.x, `${label} left`).toBeGreaterThanOrEqual(barBox!.x - 0.5);
+      expect(box!.x + box!.width, `${label} right`).toBeLessThanOrEqual(
+        barBox!.x + barBox!.width + 0.5,
+      );
+    }
+  });
+
   test('the switcher lists the program’s other sample projects', async ({ page }) => {
     await page.goto(URL);
     const trigger = page.getByTestId('demo-project-switcher');

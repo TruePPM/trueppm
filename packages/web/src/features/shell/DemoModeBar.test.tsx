@@ -50,7 +50,12 @@ describe('DemoModeBar', () => {
 
   it('renders nothing while the edition query is unsettled', () => {
     // No flash of a banner the next tick takes back.
-    demoMode.value = { isDemoReadOnly: true, loginHint: null, resetSchedule: null, isLoading: true };
+    demoMode.value = {
+      isDemoReadOnly: true,
+      loginHint: null,
+      resetSchedule: null,
+      isLoading: true,
+    };
     const { container } = render(<DemoModeBar />);
     expect(container).toBeEmptyDOMElement();
   });
@@ -80,7 +85,9 @@ describe('DemoModeBar', () => {
     // than wrapping the bar onto a second line and moving the Gantt under the
     // pointer. Asserted as classes because jsdom has no layout.
     expect(bar.className).toContain('h-11');
-    expect(bar.className).toContain('flex-nowrap');
+    expect(bar.className).toContain('md:flex-nowrap');
+    // Below `md` it wraps so a 375px phone clips no focusable item (#4116).
+    expect(bar.className).toMatch(/(^|\s)flex-wrap(\s|$)/);
   });
 
   it('carries no live region — the bar never changes during a session', () => {
