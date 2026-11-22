@@ -192,3 +192,10 @@ now that the cap is a request-path guard rather than a tier limit. The endpoint
 
 Tracking (follow-up): the deferred `Project.p50_finish/p80_finish/p95_finish` caching is
 tracked by #753 (persistent Monte Carlo result store — unblocks p80 completion rollup).
+
+## Superseded (2026-11-22, #4652)
+
+The cap is no longer an OSS "tier" and the refusal is no longer HTTP 402. The run and
+task caps are operator-set resource limits (`TRUEPPM_MC_*`); exceeding one answers
+**400** with `code: simulation_cap_exceeded` plus `max_runs` / `max_tasks`, and no
+`tier` field. The 402 and tier framing above is retained as the original decision record.

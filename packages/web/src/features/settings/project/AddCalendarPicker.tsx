@@ -38,7 +38,7 @@ function CheckGlyph() {
 /**
  * Multi-select calendar picker (#906). Desktop renders an inline popover;
  * mobile (`variant="sheet"`) renders a drag-handle bottom sheet over a scrim.
- * Both share the same list, search, and Enterprise-gated section.
+ * Both share the same list and search.
  *
  * Focus is trapped while open and restored to the trigger on close (WCAG
  * 2.4.3). Escape, the scrim tap (sheet), the header close button (sheet), and
