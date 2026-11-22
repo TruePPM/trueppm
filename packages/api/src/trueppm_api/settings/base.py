@@ -1779,6 +1779,10 @@ REST_FRAMEWORK = {
         # see administration/probes.md for the numbers this assumes — while
         # still bounding an outright flood from an unauthenticated source.
         "readyz": env("TRUEPPM_THROTTLE_READYZ_RATE", default="2000/min"),
+        # OpenAPI schema route (#4315). Anonymous by design, and rendered once per
+        # process (core/schema_views.py), so a hit is cheap; this bounds the rest of the
+        # per-request cost per client IP. Stacked with "anon"/"user", not a replacement.
+        "schema": env("TRUEPPM_THROTTLE_SCHEMA_RATE", default="30/min"),
         "login": _STRICT_RATE,
         # Per-account login lockout (#1717). The "login" scope above keys on the
         # client IP, so it only bounds guesses per source address; a distributed
