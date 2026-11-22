@@ -86,14 +86,23 @@ class TaskRunSerializer(_ErrorDetailAdminOnlyMixin, serializers.ModelSerializer[
 class SchedulerRunResultSummarySerializer(serializers.Serializer[Any]):
     """Typed view over TaskRun.result_summary when task_name='scheduling.recalculate'.
 
-    The tracker writes ``{"project_finish": "YYYY-MM-DD", "critical_path": [uuid, ...],
-    "status_date": "YYYY-MM-DD"}`` from ``_run_schedule``. Fields are optional
-    because failed runs may never reach ``set_result()``.
+    The tracker writes ``{"project_finish": "YYYY-MM-DD", "critical_count": N,
+    "status_date": "YYYY-MM-DD"}`` from ``_run_schedule`` (the id list moved to the
+    webhook payload in #4656; rows written before that still carry ``critical_path``).
+    Fields are optional because failed runs may never reach ``set_result()``.
     """
 
     project_finish = serializers.DateField(required=False, allow_null=True)
     critical_path = serializers.ListField(
-        child=serializers.CharField(), required=False, allow_null=True
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text="Legacy: present only on runs recorded before critical_count (#4656).",
+    )
+    critical_count = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text="How many tasks were on the critical path.",
     )
     # The data date this run was actually computed against (ADR-0752 §4) — a
     # REST fallback for a client that missed the live cpm_complete/

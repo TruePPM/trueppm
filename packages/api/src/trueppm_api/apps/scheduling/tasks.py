@@ -10,7 +10,7 @@ import uuid
 from collections.abc import Iterable, Mapping
 from datetime import date, timedelta
 from functools import partial
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, cast
 
 import redis as redis_lib
 from celery.exceptions import SoftTimeLimitExceeded
@@ -1661,7 +1661,7 @@ def _run_schedule(
         frontend also clears on any completed scheduling run; this keeps the
         result_summary a non-null object for audit and other API consumers."""
         if tracker is not None:
-            tracker.set_result({"project_finish": None, "critical_path": []})  # type: ignore[attr-defined]
+            tracker.set_result({"project_finish": None, "critical_count": 0})  # type: ignore[attr-defined]
 
     _update(10, "Loading project data…")
 
@@ -2002,9 +2002,13 @@ def _run_schedule(
         result.project_finish,
     )
 
-    # Store CPM result summary for audit / frontend access.
+    # Store CPM result summary for audit / frontend access. The list is replaced by
+    # its count: TaskRun.result_summary is persisted and re-broadcast in
+    # task_run_completed to every socket, and an all-critical 5k-task network made
+    # that ~200 KB per recalc (#4656). Integrators read the full list from the
+    # webhook payload below, which keeps it.
     if tracker is not None:
-        tracker.set_result(cpm_payload)  # type: ignore[attr-defined]
+        tracker.set_result(_ws_cpm_summary(cpm_payload))  # type: ignore[attr-defined]
 
     # Dispatch schedule.recalculated webhook to external subscribers. Fired after
     # the transaction so subscribers are only notified of committed results.
@@ -2018,11 +2022,23 @@ def _run_schedule(
     return False
 
 
+def _ws_cpm_summary(cpm_payload: dict[str, object]) -> dict[str, object]:
+    """The WebSocket/``TaskRun`` form of the CPM payload: ``critical_count``, not the list.
+
+    ``critical_path`` is one UUID per critical task, uncapped. It stays in the
+    ``schedule.recalculated`` webhook payload, where integrators read it; the live
+    channel and the persisted ``TaskRun.result_summary`` carry only how many (#4656).
+    """
+    summary = {k: v for k, v in cpm_payload.items() if k != "critical_path"}
+    summary["critical_count"] = len(cast("list[str]", cpm_payload["critical_path"]))
+    return summary
+
+
 def _broadcast_cpm_complete(
     *,
     project_id: str,
     project_finish: str | None,
-    critical_path: list[str],
+    critical_count: int,
     status_date: str | None,
     dates_changed: bool = False,
 ) -> None:
@@ -2037,6 +2053,10 @@ def _broadcast_cpm_complete(
     which is exactly what let the drift go undetected). The literal dict below
     is what makes this call site — now the *only* ``cpm_complete`` call site —
     scannable by that gate instead of contributing two entries to it.
+
+    ``critical_count`` replaces the old ``critical_path`` id list (#4656): the list
+    was persisted to ``BoardEvent`` and fanned out to every socket on every recalc,
+    and no client read it.
 
     Call from inside a ``transaction.on_commit()`` registration (via
     ``functools.partial`` to pin the arguments at registration time, matching
@@ -2071,7 +2091,7 @@ def _broadcast_cpm_complete(
             event_type="cpm_complete",
             payload={
                 "project_finish": project_finish,
-                "critical_path": critical_path,
+                "critical_count": critical_count,
                 "status_date": status_date,
                 "dates_changed": True,
             },
@@ -2082,7 +2102,7 @@ def _broadcast_cpm_complete(
         event_type="cpm_complete",
         payload={
             "project_finish": project_finish,
-            "critical_path": critical_path,
+            "critical_count": critical_count,
             "status_date": status_date,
         },
     )
@@ -2124,7 +2144,6 @@ def _finalize_status_date_floor_arming(
     (and, for ``cpm_complete``, ``functools.partial``) pins each payload
     against late mutation.
     """
-    from typing import cast
 
     from django.db import transaction
     from django.utils import timezone
@@ -2152,7 +2171,7 @@ def _finalize_status_date_floor_arming(
             _broadcast_cpm_complete,
             project_id=project_id,
             project_finish=cast("str", cpm_payload["project_finish"]),
-            critical_path=cast("list[str]", cpm_payload["critical_path"]),
+            critical_count=len(cast("list[str]", cpm_payload["critical_path"])),
             status_date=cast("str", cpm_payload["status_date"]),
             # The arming run withholds the delta below; tell peers to re-read
             # instead (#4659). Only when something actually moved — an arming run
@@ -2415,7 +2434,7 @@ def _register_program_broadcasts(
                 _broadcast_cpm_complete,
                 project_id=pid,
                 project_finish=project_finish.isoformat() if project_finish else None,
-                critical_path=project_crit,
+                critical_count=len(project_crit),
                 status_date=None,
                 dates_changed=p.id in (status_changed_projects or ()),
             )

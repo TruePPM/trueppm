@@ -295,7 +295,7 @@ def test_cpm_complete_payload_shape_matches_between_single_and_program_pass(
         if call.kwargs.get("event_type") == "cpm_complete"
     )
 
-    expected_keys = {"project_finish", "critical_path", "status_date"}
+    expected_keys = {"project_finish", "critical_count", "status_date"}
     assert set(program_payload.keys()) == expected_keys
     assert set(single_payload.keys()) == expected_keys
 
@@ -305,3 +305,47 @@ def test_cpm_complete_payload_shape_matches_between_single_and_program_pass(
     # than fabricating a value. The single-project pass always resolves one.
     assert program_payload["status_date"] is None
     assert single_payload["status_date"] is not None
+
+
+@pytest.mark.django_db
+def test_recalc_ships_a_critical_count_not_the_id_list_on_the_live_channel(
+    calendar: Calendar, django_capture_on_commit_callbacks: object
+) -> None:
+    """``cpm_complete`` and ``TaskRun.result_summary`` carry ``critical_count`` (#4656).
+
+    A serial chain is all-critical, the worst case for the old uncapped list. The
+    ``schedule.recalculated`` webhook is where integrators read the ids, so it must
+    keep the full list.
+    """
+    import json
+    from itertools import pairwise
+    from unittest.mock import Mock
+
+    n = 60
+    project = Project.objects.create(name="Chain", start_date=START, calendar=calendar)
+    tasks = [Task.objects.create(project=project, name=f"T{i}", duration=1) for i in range(n)]
+    for a, b in pairwise(tasks):
+        Dependency.objects.create(predecessor=a, successor=b)
+    tracker = Mock()
+
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as bcast,
+        patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks") as webhook,
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        _run_schedule(str(project.pk), tracker)
+
+    payload = next(
+        c.kwargs["payload"]
+        for c in bcast.call_args_list
+        if c.kwargs.get("event_type") == "cpm_complete"
+    )
+    assert payload["critical_count"] == n
+    assert "critical_path" not in payload
+    assert len(json.dumps(payload)) < 400
+
+    summary = tracker.set_result.call_args.args[0]
+    assert summary["critical_count"] == n
+    assert "critical_path" not in summary
+
+    assert len(webhook.call_args.kwargs["payload"]["critical_path"]) == n

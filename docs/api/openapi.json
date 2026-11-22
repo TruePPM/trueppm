@@ -82522,7 +82522,7 @@
             },
             "SchedulerRunResultSummary": {
                 "type": "object",
-                "description": "Typed view over TaskRun.result_summary when task_name='scheduling.recalculate'.\n\nThe tracker writes ``{\"project_finish\": \"YYYY-MM-DD\", \"critical_path\": [uuid, ...],\n\"status_date\": \"YYYY-MM-DD\"}`` from ``_run_schedule``. Fields are optional\nbecause failed runs may never reach ``set_result()``.",
+                "description": "Typed view over TaskRun.result_summary when task_name='scheduling.recalculate'.\n\nThe tracker writes ``{\"project_finish\": \"YYYY-MM-DD\", \"critical_count\": N,\n\"status_date\": \"YYYY-MM-DD\"}`` from ``_run_schedule`` (the id list moved to the\nwebhook payload in #4656; rows written before that still carry ``critical_path``).\nFields are optional because failed runs may never reach ``set_result()``.",
                 "properties": {
                     "project_finish": {
                         "type": "string",
@@ -82534,7 +82534,13 @@
                         "items": {
                             "type": "string"
                         },
-                        "nullable": true
+                        "nullable": true,
+                        "description": "Legacy: present only on runs recorded before critical_count (#4656)."
+                    },
+                    "critical_count": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "How many tasks were on the critical path."
                     },
                     "status_date": {
                         "type": "string",
