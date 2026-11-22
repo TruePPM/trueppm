@@ -38,6 +38,7 @@ it:
 | `TRUEPPM_THROTTLE_ANON_RATE` | `60/min` | Unauthenticated requests, bucketed per client IP |
 | `TRUEPPM_THROTTLE_USER_RATE` | `1000/min` | Authenticated requests, bucketed per account |
 | `TRUEPPM_THROTTLE_READYZ_RATE` | `2000/min` | The readiness probe (`/api/v1/readyz`) only, bucketed per client IP — see below |
+| `TRUEPPM_THROTTLE_SCHEMA_RATE` | `30/min` | The OpenAPI schema route (`/api/schema/`) only, bucketed per client IP (ships in 0.5) |
 
 Both use Django REST Framework's `<count>/<period>` syntax, where `period` is
 `sec`, `min`, `hour`, or `day` (for example `120/min` or `5000/hour`).

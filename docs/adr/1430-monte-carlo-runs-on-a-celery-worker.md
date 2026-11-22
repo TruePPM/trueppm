@@ -101,3 +101,11 @@ connections the waiting requests hold.
   if it lands while the run is still queued and the worker picks it up within the
   cancel flag's 300 s TTL; a cancel of a `RUNNING` simulation does nothing, because
   the engine is one uninterruptible call bounded by `MC_WALL_CLOCK_BUDGET_SECONDS`.
+
+---
+
+**Superseded 2026-11-22 (#4652):** the cap refusals described above as `402` (the static
+`MC_SIMULATION_CAP` check and the task-count cap, decision points 1 and 4) now answer HTTP
+`400` with `code: "simulation_cap_exceeded"`; the `tier` key is gone and the caps are
+operator-configurable (`TRUEPPM_MC_SIMULATION_CAP`, `TRUEPPM_MC_TASK_CAP`). Where this
+record says 402 for those refusals, read 400. The queue-first sequencing is unchanged.
