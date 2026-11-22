@@ -603,6 +603,23 @@ class TestWhatIfErrors:
         )
         assert r.status_code == 400
         assert r.data["error"] == "simulation_cap_exceeded"
+        assert r.data["max_runs"] == 100
+        assert "max_tasks" in r.data
+        assert "tier" not in r.data
+
+    def test_raising_the_cap_admits_the_same_whatif(
+        self,
+        member_client: APIClient,
+        project: Project,
+        long_task: Task,
+        settings: object,
+    ) -> None:
+        """#4652: raising the operator cap lets the refused what-if through."""
+        params = {"task_id": str(long_task.pk), "duration_delta": 1, "n_simulations": 150}
+        settings.MC_SIMULATION_CAP = 100  # type: ignore[attr-defined]
+        assert member_client.get(_url(project), params).status_code == 400
+        settings.MC_SIMULATION_CAP = 200  # type: ignore[attr-defined]
+        assert member_client.get(_url(project), params).status_code == 200
 
     def test_cap_envelope_carries_both_vocabularies(
         self,
@@ -621,6 +638,9 @@ class TestWhatIfErrors:
         assert r.data["code"] == r.data["error"] == "simulation_cap_exceeded"
         assert r.data["detail"] == r.data["message"]
         assert r.data["detail"]
+        assert r.data["max_runs"] == 100
+        assert "max_tasks" in r.data
+        assert "tier" not in r.data
 
     def test_cell_cap_400_envelope_carries_both_vocabularies(
         self,

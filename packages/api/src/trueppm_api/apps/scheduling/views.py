@@ -211,6 +211,8 @@ _DATE_RANGE_EXCEEDED_DETAIL = "Project schedule exceeds the representable date r
 # which one fired, so the message prefix is the only discriminator. Pinned by
 # test_monte_carlo.py's sample-cell test against the engine's real message.
 _SAMPLE_CELL_CAP_PREFIX = "Monte Carlo sampled durations would exceed"
+# Only these two engine messages are the operator-set run/task caps; see sampling.py.
+_OPERATOR_CAP_PREFIXES = ("Requested runs (", "Project task count (")
 
 
 def _cap_refusal(message: str) -> Response:
@@ -247,9 +249,12 @@ def _simulation_cap_response(exc: Exception) -> Response:
     if is_time_exceeded(exc):
         return time_exceeded_response()
     message = str(exc)
-    if message.startswith(_SAMPLE_CELL_CAP_PREFIX):
-        return Response({"detail": message}, status=status.HTTP_400_BAD_REQUEST)
-    return _cap_refusal(message)
+    if message.startswith(_OPERATOR_CAP_PREFIXES):
+        return _cap_refusal(message)
+    # Every other SimulationCapExceeded (sample-cell cap, team capacity past the
+    # date range, working-day index cells) is a property of the request, not of the
+    # TRUEPPM_MC_* caps, so it must not advertise a max_runs/max_tasks remedy.
+    return Response({"detail": message}, status=status.HTTP_400_BAD_REQUEST)
 
 
 @extend_schema(

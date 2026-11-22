@@ -716,8 +716,8 @@ def monte_carlo(
     time instead of held, byte-identically, at the price of drawing each sampled column
     three times. Below that it is held whole (8 bytes a cell). The
     ``max_runs`` / ``max_tasks`` knobs exist for an *embedding* layer that needs
-    to bound work on a synchronous request path (the TruePPM API passes its own caps and returns
-    ``SimulationCapExceeded`` as a 402); a standalone caller leaves them ``None``.
+    to bound work on a synchronous request path (the TruePPM API passes its own caps and maps
+    ``SimulationCapExceeded`` to a client-error response); a standalone caller leaves them ``None``.
 
     Percentile precision (#4540): P50/P80/P95 are ``numpy.percentile``'s linear
     interpolation over all ``runs``, so with ``n`` runs a P*q* reading has more than

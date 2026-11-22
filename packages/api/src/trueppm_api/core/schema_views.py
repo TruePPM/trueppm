@@ -20,7 +20,7 @@ from rest_framework.throttling import AnonRateThrottle
 
 
 class SchemaRateThrottle(AnonRateThrottle):
-    """Per-client-IP bucket for the schema route, stacked with the global defaults.
+    """Per-client-IP bucket for unauthenticated schema callers, stacked with the global defaults.
 
     Its own scope (``DEFAULT_THROTTLE_RATES["schema"]``) rather than the shared ``anon``
     one so a client polling the schema cannot spend an interactive user's budget, and so
