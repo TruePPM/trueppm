@@ -186,3 +186,28 @@ stays zero).
 - **Follow-ups filed:** offline/WASM composition parity (#1661); single-project
   per-resource PTO calendars (#1662 — OSS, per enterprise-check; the cross-portfolio
   variant is the Enterprise boundary).
+
+## Classification note (#4102)
+
+Per-resource calendars (`Resource.calendar`, #540) are OSS: one PM needs them to model who
+is available. Cross-program resource leveling against those calendars stays Enterprise.
+The disabled "Resource & PTO calendars", "External holiday feeds" and "Cross-program
+calendar governance" teaser tiles were removed from the OSS settings UI (rule 231(c)); the
+"Per-resource calendars OUT" line in section 5 is a scope fence for the original slice, not an
+Enterprise ruling.
+
+### External holiday feeds (iCal) — OSS verdict (#4102)
+
+Importing holidays from an iCal source into a working calendar is **OSS**. It passes the
+adoption test (a PM needs correct holidays to get correct CPM dates), and it is one-way,
+read-only inbound data with no writeback, the same shape as the ADR-0097 personal-source
+carve-out. Gating it would be the "SSO tax" pattern.
+
+The Enterprise line is *governance*, not import: an org-wide holiday calendar an admin
+publishes and enforces across programs, centrally managed calendar policy, and cross-program
+leveling that consumes calendars. One team importing a feed is OSS; the org pushing a
+governed calendar to every program is Enterprise.
+
+Build constraint: subscribing to a feed URL makes the server fetch a user-supplied URL, an
+SSRF surface and so a trust-boundary change. `.ics` file upload ships first; URL
+subscription ships behind an SSRF guard and a `threat-model` pass.

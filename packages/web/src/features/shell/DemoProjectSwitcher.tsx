@@ -56,7 +56,9 @@ export function DemoProjectSwitcher() {
           : `Sample project: ${project.name}. Switch project`
       }
       triggerLabel={
-        <span className="max-w-[10rem] truncate lg:max-w-[14rem]">{project.name}</span>
+        <span className="max-w-[6rem] truncate sm:max-w-[10rem] lg:max-w-[14rem]">
+          {project.name}
+        </span>
       }
       triggerClassName="text-brand-primary"
       width={280}

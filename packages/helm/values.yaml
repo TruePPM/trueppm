@@ -1249,6 +1249,13 @@ env:
   # each triggers a CPM or Monte Carlo recompute. Widen for a trusted agent fleet or tighten under load.
   TRUEPPM_THROTTLE_MCP_READ_RATE: "120/min"
   TRUEPPM_THROTTLE_MCP_READ_COMPUTE_RATE: "12/min"
+  # Monte Carlo resource-safety caps (#4652). Largest run count one request may ask
+  # for, and the largest project (by committed tasks) a simulation will run on. Over
+  # either, the API answers HTTP 400 `simulation_cap_exceeded`. "0" or "" removes the
+  # cap. Memory scales with runs x tasks, so keep these inside what the pod can hold
+  # (see MC_CELL_CAP and MC_MAX_CONCURRENT in administration/configuration/limits).
+  TRUEPPM_MC_SIMULATION_CAP: "1000"
+  TRUEPPM_MC_TASK_CAP: "5000"
   # Reaching a self-hosted integration host on a PRIVATE / in-cluster address
   # (Jira Data Center, GitHub Enterprise, GitLab CE) needs BOTH of the next two
   # allow-lists — they are different gates and neither implies the other:

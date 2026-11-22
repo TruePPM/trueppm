@@ -232,7 +232,9 @@ task row's `baseline_finish_variance_days`. See
 :::
 
 The run endpoint accepts an optional `n_simulations` in the body; it must not
-exceed the OSS simulation cap or the request returns `402`. See
+exceed the operator-set simulation cap (`MC_SIMULATION_CAP`, `TRUEPPM_MC_SIMULATION_CAP`)
+or the request is refused. From 0.5 the refusal is HTTP `400` with
+`code: "simulation_cap_exceeded"`; in 0.4 it is `402`. See
 [Monte Carlo](/features/monte-carlo/) and the `MC_*` caps in
 [Configuration](/administration/configuration/).
 

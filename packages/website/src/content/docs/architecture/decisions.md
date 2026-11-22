@@ -36,7 +36,7 @@ If you are evaluating TruePPM, these six records explain the shape of the whole 
 
 ### Scheduling engine & the hybrid bridge
 
-- [ADR-0012](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0012-monte-carlo-api-and-oss-cap.md) — [Monte Carlo](/features/monte-carlo/) API endpoint and the OSS-tier simulation cap
+- [ADR-0012](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0012-monte-carlo-api-and-oss-cap.md) — [Monte Carlo](/features/monte-carlo/) API endpoint and the operator-configurable simulation cap
 - [ADR-0015](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0015-wasm-cpm-engine.md) — WASM CPM engine (Rust + wasm-pack) — accepted with deferral: conformance reference today, browser/on-device wiring is future work; the web drag preview runs a TypeScript worker
 - [ADR-0027](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0027-incremental-cpm-recompute.md) — Incremental CPM recompute — subgraph delta strategy
 - [ADR-0599](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/0599-api-first-boundary-scheduling-compute.md) — The API-first boundary — authoritative schedule is server-side over the API; the interactive drag preview, future offline recompute, and the engine-as-library run outside it, bounded by "the server always has the last word"

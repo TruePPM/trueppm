@@ -211,12 +211,11 @@ slated to fold into the single envelope with the rest of the 1.0 contract cleanu
 | `simulation_busy` | 503 | The API process is already running its maximum number of concurrent simulations. Retry after the `Retry-After` header | — |
 | `simulation_time_exceeded` | 503 | The simulation ran past the server's wall-clock budget (`MC_WALL_CLOCK_BUDGET_SECONDS`) and was stopped. No `Retry-After`: retry with a smaller `n_simulations` | — |
 | `simulation_queue_unavailable` | 503 | The simulation could not be queued because the task broker refused it. Delivered on the failed task run's `result_summary` (with `status_code`), not as the `POST` response; run again shortly | `status_code` |
-| `simulation_cap_exceeded` | 402 | The simulation count or task count is above the community-edition cap | `tier` |
+| `simulation_cap_exceeded` | 400 | The simulation count or task count is above the operator-set `MC_SIMULATION_CAP` / `MC_TASK_CAP` (`TRUEPPM_MC_SIMULATION_CAP`, `TRUEPPM_MC_TASK_CAP`). Before 0.5 this was `402` with `tier: "team"` | `max_runs`, `max_tasks` |
 
-`simulation_cap_exceeded` is a **known deviation**: it answers `402 Payment
-Required` with `tier: "team"` (a deliberate choice recorded in ADR-0012), where
-every other refusal on this page uses `400`, `403` or `409`. Integrators should
-branch on `code`, not on the status class alone.
+`simulation_cap_exceeded` ships in 0.5 answering `400` like the other Monte Carlo
+size refusals; it used to answer `402 Payment Required` with `tier: "team"`.
+Integrators should branch on `code`, not on the status alone.
 
 The task-write refusals — `progress_requires_anchor`, `milestone_rollup_locked`,
 `zero_duration_not_milestone`, `guardrail_blocked` and (from 0.5)

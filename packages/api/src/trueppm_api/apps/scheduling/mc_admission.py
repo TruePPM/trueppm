@@ -16,7 +16,7 @@ the threaded API serving what-ifs. A prefork Celery child runs one task at a tim
 and never contends for it; there, worker concurrency is the bound.
 
 Both are memory-safety bounds, not edition gates: refusals here are 400 / 503,
-never the 402 the per-dimension OSS caps return.
+as are the per-dimension run/task caps (400, #4652).
 """
 
 from __future__ import annotations
@@ -91,7 +91,7 @@ def admit_runs(n_tasks: int, requested: int | None) -> McAdmission:
       computed from fewer while believing it got N.
 
     Two cases are deliberately passed through to the engine unchanged, so their
-    existing 402 refusal (and its message) stays exactly what it was: a project
+    existing 400 refusal (and its message) stays exactly what it was: a project
     over ``MC_TASK_CAP``, and a request above ``MC_SIMULATION_CAP``.
     """
     sim_cap: int | None = settings.MC_SIMULATION_CAP

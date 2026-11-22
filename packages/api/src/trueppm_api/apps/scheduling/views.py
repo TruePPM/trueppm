@@ -211,32 +211,50 @@ _DATE_RANGE_EXCEEDED_DETAIL = "Project schedule exceeds the representable date r
 # which one fired, so the message prefix is the only discriminator. Pinned by
 # test_monte_carlo.py's sample-cell test against the engine's real message.
 _SAMPLE_CELL_CAP_PREFIX = "Monte Carlo sampled durations would exceed"
+# Only these two engine messages are the operator-set run/task caps; see sampling.py.
+_OPERATOR_CAP_PREFIXES = ("Requested runs (", "Project task count (")
+
+
+def _cap_refusal(message: str) -> Response:
+    """The 400 a run or task count above the operator-set Monte Carlo caps gets.
+
+    ``max_runs`` / ``max_tasks`` echo the effective ``MC_SIMULATION_CAP`` /
+    ``MC_TASK_CAP`` (``null`` when unset) so a client can tell the operator-tunable
+    limit from the request it sent. Same ``{error, code, message, detail}`` family as
+    the ``MC_CELL_CAP`` refusal. It is a resource-safety limit an operator raises with
+    ``TRUEPPM_MC_SIMULATION_CAP`` / ``TRUEPPM_MC_TASK_CAP``, never a pricing tier, so
+    it is not a 402 and carries no ``tier``.
+    """
+    return Response(
+        {
+            "error": "simulation_cap_exceeded",
+            "code": "simulation_cap_exceeded",
+            "max_runs": settings.MC_SIMULATION_CAP,
+            "max_tasks": settings.MC_TASK_CAP,
+            "message": message,
+            "detail": message,
+        },
+        status=status.HTTP_400_BAD_REQUEST,
+    )
 
 
 def _simulation_cap_response(exc: Exception) -> Response:
     """Map an engine ``SimulationCapExceeded`` to its HTTP response.
 
-    The run and task caps are the OSS tier limits (``max_runs`` / ``max_tasks``), so
-    they answer 402 with ``tier: "team"``. The sampled-duration cell cap (#1829) is a
-    hard memory ceiling no tier raises: answering it with an upsell would sell a
-    remedy that does not exist. It is a request the engine cannot serve at this size,
-    so it is a 400 carrying the engine's message, like the API's own ``MC_CELL_CAP``.
+    The run and task caps are operator-set resource limits (``max_runs`` /
+    ``max_tasks``) and answer 400 with ``max_runs`` / ``max_tasks``. The
+    sampled-duration cell cap (#1829) is a hard memory ceiling; it answers 400 with
+    the engine's message only, like the API's own ``MC_CELL_CAP``.
     """
     if is_time_exceeded(exc):
         return time_exceeded_response()
     message = str(exc)
-    if message.startswith(_SAMPLE_CELL_CAP_PREFIX):
-        return Response({"detail": message}, status=status.HTTP_400_BAD_REQUEST)
-    return Response(
-        {
-            "error": "simulation_cap_exceeded",
-            "code": "simulation_cap_exceeded",
-            "tier": "team",
-            "message": message,
-            "detail": message,
-        },
-        status=status.HTTP_402_PAYMENT_REQUIRED,
-    )
+    if message.startswith(_OPERATOR_CAP_PREFIXES):
+        return _cap_refusal(message)
+    # Every other SimulationCapExceeded (sample-cell cap, team capacity past the
+    # date range, working-day index cells) is a property of the request, not of the
+    # TRUEPPM_MC_* caps, so it must not advertise a max_runs/max_tasks remedy.
+    return Response({"detail": message}, status=status.HTTP_400_BAD_REQUEST)
 
 
 @extend_schema(
@@ -674,7 +692,7 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
                 "carries {run_id, n_simulations, last_run_at}; run_id is null when the "
                 "caller is below Scheduler, which refreshes the forecast but records no "
                 "attributed history row (#1502). On failed, result_summary carries the "
-                "refusal body below plus status_code (400, 402 or 503), exactly as this "
+                "refusal body below plus status_code (400 or 503), exactly as this "
                 "endpoint returned it before the move: a cyclic graph, MC_CELL_CAP, "
                 "the engine caps, a busy worker slot or the wall-clock budget."
             ),
@@ -693,7 +711,12 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
                 "size: it runs max_runs iterations and the 200 body's `runs` reports "
                 "the count actually simulated. Also the engine's own sampled-duration "
                 "cell cap (body {detail}), reachable only when an operator raises or "
-                "unsets MC_CELL_CAP; no tier raises it, so it is never a 402."
+                "unsets MC_CELL_CAP. Also {error/code: simulation_cap_exceeded, "
+                "message/detail, max_runs, max_tasks}: too many committed tasks "
+                "(synchronous), or n_simulations above MC_SIMULATION_CAP (synchronous); "
+                "max_runs/max_tasks echo the operator-set MC_SIMULATION_CAP / MC_TASK_CAP "
+                "(TRUEPPM_MC_SIMULATION_CAP / TRUEPPM_MC_TASK_CAP), null when unset. "
+                "Formerly HTTP 402 with a `tier` key (#4652)."
             ),
             examples=[
                 OpenApiExample(
@@ -707,23 +730,15 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
                         "task_count": 5000,
                     },
                 ),
-            ],
-        ),
-        402: OpenApiResponse(
-            response=OpenApiTypes.OBJECT,
-            description=(
-                "OSS simulation cap exceeded (too many committed tasks, synchronous; or "
-                "n_simulations above MC_SIMULATION_CAP, asynchronous via the task run)."
-            ),
-            examples=[
                 OpenApiExample(
                     "simulation_cap_exceeded",
                     value={
                         "error": "simulation_cap_exceeded",
                         "code": "simulation_cap_exceeded",
-                        "tier": "team",
-                        "message": "Simulation count exceeds the community-edition cap.",
-                        "detail": "Simulation count exceeds the community-edition cap.",
+                        "max_runs": 1000,
+                        "max_tasks": 5000,
+                        "message": "Project has more than 5000 committed tasks.",
+                        "detail": "Project has more than 5000 committed tasks.",
                     },
                 ),
             ],
@@ -789,10 +804,10 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
             explicit value is honored exactly or refused; it must not exceed
             either cap.
 
-    Returns 202 when queued; 400 for an invalid ``n_simulations`` or too many
-    dependencies; 402 for too many committed tasks; 404 if the project does not
-    exist; 403 if the caller lacks access or the project is archived. Every other
-    refusal arrives on the failed task run (see the 202 description).
+    Returns 202 when queued; 400 for an invalid ``n_simulations``, too many
+    dependencies, too many committed tasks, or an ``n_simulations`` above the cap;
+    404 if the project does not exist; 403 if the caller lacks access or the project
+    is archived. Every other refusal arrives on the failed task run (see the 202 description).
     """
     from trueppm_api.apps.taskruns.models import TaskRun, TaskRunStatus
 
@@ -844,7 +859,7 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
             status=status.HTTP_400_BAD_REQUEST,
         )
     # The static run cap is one comparison, so it is answered here rather than
-    # through a task run that is certain to fail. Same 402 body and message the
+    # through a task run that is certain to fail. Same body and message the
     # engine's SimulationCapExceeded produced when the check ran in the request.
     if n_explicit and cap is not None and n_simulations > cap:
         run_cap_msg = (
@@ -852,16 +867,7 @@ def run_monte_carlo(request: Request, pk: str) -> Response:
             f"(max_runs={cap}); raise max_runs (or pass None to disable the "
             "cap) to allow more iterations."
         )
-        return Response(
-            {
-                "error": "simulation_cap_exceeded",
-                "code": "simulation_cap_exceeded",
-                "tier": "team",
-                "message": run_cap_msg,
-                "detail": run_cap_msg,
-            },
-            status=status.HTTP_402_PAYMENT_REQUIRED,
-        )
+        return _cap_refusal(run_cap_msg)
     # Refused before anything is queued, so the caller learns about an oversized
     # project synchronously rather than through a task run that cannot succeed.
     size_refusal = _mc_size_refusal(project)
@@ -1000,7 +1006,7 @@ def mc_worker_authorization(project_id: str, user_id: Any, persist: bool) -> Res
 
 
 def _mc_size_refusal(project: Project) -> Response | None:
-    """The 402/400 a project too large to simulate gets, from two cheap COUNTs.
+    """The 400 a project too large to simulate gets, from two cheap COUNTs.
 
     Bounds the row materialization BEFORE it happens (#1563). The engine enforces
     MC_TASK_CAP / MAX_DEPENDENCIES, but only after both lists have been loaded and
@@ -1013,19 +1019,10 @@ def _mc_size_refusal(project: Project) -> Response | None:
     pk = project.pk
     task_cap = settings.MC_TASK_CAP
     if task_cap is not None and Task.committed.filter(project=project).count() > task_cap:
-        # Same 402 body the engine's SimulationCapExceeded produces below, so the
+        # Same body the engine's SimulationCapExceeded produces below, so the
         # contract is unchanged -- only the cost of reaching it is.
         task_msg = f"Project has more than {task_cap} committed tasks."
-        return Response(
-            {
-                "error": "simulation_cap_exceeded",
-                "code": "simulation_cap_exceeded",
-                "tier": "team",
-                "message": task_msg,
-                "detail": task_msg,
-            },
-            status=status.HTTP_402_PAYMENT_REQUIRED,
-        )
+        return _cap_refusal(task_msg)
     if Dependency.live.filter(predecessor__project_id=pk).count() > MAX_DEPENDENCIES:
         return Response(
             {"detail": f"Project has more than {MAX_DEPENDENCIES} dependencies; cannot simulate."},
@@ -1610,8 +1607,8 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                     "project's size admits: MC_SIMULATION_CAP, or fewer under "
                     "MC_CELL_CAP (runs x tasks) on a large project — `runs` in the "
                     "response reports the count simulated. An explicit value is "
-                    "honored exactly or refused (402 above MC_SIMULATION_CAP, 400 "
-                    "above the size-derived maximum)."
+                    "honored exactly or refused (400 above MC_SIMULATION_CAP or above "
+                    "the size-derived maximum)."
                 ),
             ),
         ],
@@ -1652,12 +1649,10 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                     "body {error/code: simulation_cell_cap_exceeded, message/detail, max_runs, "
                     "task_count}; or the engine's own sampled-duration cell cap (body "
                     "{detail}), reachable only when an operator raises or unsets "
-                    "MC_CELL_CAP; no tier raises it, so it is never a 402."
+                    "MC_CELL_CAP; or {error/code: simulation_cap_exceeded, message/detail, "
+                    "max_runs, max_tasks} for n_simulations or a task count above the "
+                    "operator-set MC_SIMULATION_CAP / MC_TASK_CAP (formerly 402, #4652)."
                 ),
-            ),
-            402: OpenApiResponse(
-                response=OpenApiTypes.OBJECT,
-                description="OSS simulation cap exceeded (n_simulations or task count too high).",
             ),
             404: OpenApiResponse(
                 response=OpenApiTypes.OBJECT,
@@ -1743,7 +1738,7 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
             )
 
         # Milestone and completed refusals; checked before admission so the 400 wins over run
-        # admission (402/413) and a busy slot (503); see `_target_kind_refusal`.
+        # admission (400/413) and a busy slot (503); see `_target_kind_refusal`.
         if (refusal := _target_kind_refusal(target_db)) is not None:
             return refusal
 

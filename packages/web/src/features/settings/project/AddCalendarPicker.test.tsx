@@ -4,12 +4,6 @@ import { describe, it, expect, vi } from 'vitest';
 import { AddCalendarPicker } from './AddCalendarPicker';
 import type { Calendar } from '@/hooks/useProjectCalendars';
 
-// EnterpriseBadge reads the edition via a query hook; stub it so the picker can
-// render without a QueryClientProvider (the badge itself is not under test here).
-vi.mock('@/hooks/useEdition', () => ({
-  useEdition: () => ({ edition: 'community', isLoading: false }),
-}));
-
 function cal(id: string, name: string, exceptionCount = 0): Calendar {
   return {
     id,
@@ -52,6 +46,15 @@ function renderPicker(overrides: Partial<ComponentProps<typeof AddCalendarPicker
 }
 
 describe('AddCalendarPicker', () => {
+  it('renders no disabled Enterprise rows (rule 231(c), #4102)', () => {
+    renderPicker();
+    expect(screen.queryByText(/Enterprise/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/PTO/i)).not.toBeInTheDocument();
+    // Only the already-applied library calendar is disabled; no non-option lock rows.
+    expect(screen.getAllByRole('option')).toHaveLength(LIBRARY.length);
+    expect(document.querySelectorAll('[aria-disabled="true"]')).toHaveLength(1);
+  });
+
   it('lists library calendars and flags already-applied ones as disabled', () => {
     renderPicker();
     // The applied calendar is present but disabled and labeled "Applied".

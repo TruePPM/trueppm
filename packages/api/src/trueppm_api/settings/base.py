@@ -1387,18 +1387,34 @@ TRUEPPM_EXTERNAL_SYNC_ON_OPEN_STALE_SECONDS: int = env.int(
 )
 
 # ---------------------------------------------------------------------------
-# Monte Carlo simulation caps (OSS tier)
-# Set to None for unlimited (Enterprise overrides these in enterprise settings).
+# Monte Carlo simulation caps (resource-safety limits, not edition gates)
+# Operators raise or lower them with TRUEPPM_MC_SIMULATION_CAP / TRUEPPM_MC_TASK_CAP;
+# an empty value or 0 removes the cap. Over-cap requests answer 400 (#4652).
 # ---------------------------------------------------------------------------
 
-MC_SIMULATION_CAP: int | None = 1_000
+
+def _optional_cap(name: str, default: int) -> int | None:
+    """Read a positive-integer cap from the environment; empty or 0 means no cap."""
+    raw = env.str(name, default=str(default)).strip()
+    if raw == "":
+        return None
+    try:
+        value = int(raw)
+    except ValueError:
+        raise ImproperlyConfigured(f"{name} must be a non-negative integer, got {raw!r}") from None
+    if value < 0:
+        raise ImproperlyConfigured(f"{name} must be a non-negative integer, got {raw!r}")
+    return value or None
+
+
+MC_SIMULATION_CAP: int | None = _optional_cap("TRUEPPM_MC_SIMULATION_CAP", 1_000)
 # Raised 500 -> 5000 (#823): the OSS scaling story is "10k tasks", but the MC
-# endpoint returned HTTP 402 for any project over 500 tasks, so Monte Carlo was
+# endpoint refused any project over 500 tasks, so Monte Carlo was
 # silently unavailable for realistic large projects. The vectorised numpy path
 # (trueppm_scheduler.engine.montecarlo) is O(runs x tasks x edges) and handles a
 # 5000-task x 1000-run simulation in a few seconds. Operators on constrained hardware can
-# lower this; Enterprise overrides it in enterprise settings.
-MC_TASK_CAP: int | None = 5_000
+# lower this.
+MC_TASK_CAP: int | None = _optional_cap("TRUEPPM_MC_TASK_CAP", 5_000)
 
 # Request-path ceiling on the Monte Carlo lag-delta table (#4129):
 # (distinct dependency type/lag/calendar-pair keys) x (working-day span) cells, each a
@@ -1766,6 +1782,10 @@ REST_FRAMEWORK = {
         # see administration/probes.md for the numbers this assumes — while
         # still bounding an outright flood from an unauthenticated source.
         "readyz": env("TRUEPPM_THROTTLE_READYZ_RATE", default="2000/min"),
+        # OpenAPI schema route (#4315). Anonymous by design, and rendered once per
+        # process (core/schema_views.py), so a hit is cheap; this bounds the rest of the
+        # per-request cost per client IP. Stacked with "anon"/"user", not a replacement.
+        "schema": env("TRUEPPM_THROTTLE_SCHEMA_RATE", default="30/min"),
         "login": _STRICT_RATE,
         # Per-account login lockout (#1717). The "login" scope above keys on the
         # client IP, so it only bounds guesses per source address; a distributed

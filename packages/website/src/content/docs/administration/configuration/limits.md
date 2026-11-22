@@ -38,6 +38,7 @@ it:
 | `TRUEPPM_THROTTLE_ANON_RATE` | `60/min` | Unauthenticated requests, bucketed per client IP |
 | `TRUEPPM_THROTTLE_USER_RATE` | `1000/min` | Authenticated requests, bucketed per account |
 | `TRUEPPM_THROTTLE_READYZ_RATE` | `2000/min` | The readiness probe (`/api/v1/readyz`) only, bucketed per client IP — see below |
+| `TRUEPPM_THROTTLE_SCHEMA_RATE` | `30/min` | The OpenAPI schema route (`/api/schema/`) only, unauthenticated callers only, bucketed per client IP (ships in 0.5) |
 
 Both use Django REST Framework's `<count>/<period>` syntax, where `period` is
 `sec`, `min`, `hour`, or `day` (for example `120/min` or `5000/hour`).
@@ -420,16 +421,29 @@ rejected with a `400` naming the field.
 
 ## Monte Carlo simulation caps
 
-The Community (OSS) tier bounds [Monte Carlo risk analysis](/features/monte-carlo/)
-with the caps below. Like the email settings above, these are **Django settings
-constants, not environment variables** — override them in a Django settings
-module; setting bare env vars of the same name has no effect. The Enterprise
-edition raises or removes them.
+These caps bound [Monte Carlo risk analysis](/features/monte-carlo/). They are
+resource-safety limits, not edition gates: you can raise or remove them on any
+install. `MC_SIMULATION_CAP` and `MC_TASK_CAP` are read from the environment as
+`TRUEPPM_MC_SIMULATION_CAP` and `TRUEPPM_MC_TASK_CAP` (an empty value or `0`
+removes the cap; Helm: set them under `env:`). The other caps below are Django
+settings constants, not environment variables — override them in a Django
+settings module; setting bare env vars of the same name has no effect.
 
-| Setting | Default (OSS) | What it bounds |
+A request over `MC_SIMULATION_CAP` or `MC_TASK_CAP` is refused with HTTP 400
+`simulation_cap_exceeded`, with `max_runs` and `max_tasks` in the body. Raising
+either one raises the memory a single simulation can use, so check the result
+against `MC_CELL_CAP` (the ceiling on runs × tasks) and `MC_MAX_CONCURRENT`: a raised
+run cap can still be reduced by `MC_CELL_CAP` on a large project.
+
+:::note[Ships in 0.5]
+The environment variables and the HTTP 400 refusal ship in 0.5. On 0.4 both caps are
+Django settings only, and an over-cap request answers HTTP 402 with `tier: "team"`.
+:::
+
+| Setting | Default | What it bounds |
 |---------|---------------|----------------|
-| `MC_SIMULATION_CAP` | `1000` | Maximum simulation runs (iterations) per request. The Monte Carlo run endpoint rejects an `n_simulations` above this. |
-| `MC_TASK_CAP` | `5000` | Largest project — by task count — Monte Carlo will run on. The vectorized NumPy path handles 5000 tasks × 1000 runs in a few seconds; a larger project is refused rather than run unbounded. |
+| `TRUEPPM_MC_SIMULATION_CAP` (`MC_SIMULATION_CAP`) | `1000` | Maximum simulation runs (iterations) per request. The Monte Carlo run endpoint rejects an `n_simulations` above this. |
+| `TRUEPPM_MC_TASK_CAP` (`MC_TASK_CAP`) | `5000` | Largest project — by task count — Monte Carlo will run on. The vectorized NumPy path handles 5000 tasks × 1000 runs in a few seconds; a larger project is refused rather than run unbounded. |
 | `MC_LAG_DELTA_CELL_CAP` | `5000000` | Ceiling on the lag-delta table one Monte Carlo simulation may build: distinct dependency type/lag combinations × the project's working-day span, at 4 bytes per cell (5M cells is about 20 MB). A project with too many distinct lag values for its span is refused with HTTP 400 rather than allowed to spike worker memory. Set to `None` to fall back to the scheduler library's 50M-cell default. |
 | `MC_CELL_CAP` | `2500000` | Ceiling on **runs × tasks** for one simulation. The two caps above bound each dimension, but memory and run time follow their product: a 5,000-task × 1,000-run simulation (5M cells) peaks around 234 MB of NumPy working set (about 336 MB of process memory) in the process that runs it — the API process in 0.4, which also serves every WebSocket; from 0.5, a Celery worker for a forecast run and still the API process for a what-if, which runs two in a row. At 2.5M cells, a project of up to 2,500 tasks still gets the full 1,000 runs, and a 5,000-task project gets 500. When `n_simulations` is omitted, the run uses the largest count that fits, and the response's `n_simulations` field reports the count actually simulated (`runs` carries the same value and is deprecated). An explicit `n_simulations` above that count is refused with HTTP 400 (`simulation_cell_cap_exceeded`, carrying `max_runs`; on the failed task run for a forecast run from 0.5, in the response for a what-if), never quietly reduced. Set to `None` for no product cap. |
 | `MC_MAX_CONCURRENT` | `2` | Monte Carlo simulations one process runs at once. Concurrent requests run on separate threads, so without a bound their memory stacks. A request waits up to 10 seconds for a free slot, then gets HTTP 503 (`simulation_busy`) with a `Retry-After` header. The limit applies per process, so N API workers admit up to N × this value. Ships in 0.5: the forecast run moves to a Celery worker, where a prefork child runs one simulation at a time and never waits on this slot; there the worker's own concurrency (`--concurrency`, shared with CPM recalculation, imports and email) is what bounds simultaneous simulations, and this setting will bind only the what-if, which still runs in the API process. Set to `None` for no limit. |
@@ -443,10 +457,8 @@ rows) were added in 0.3. `MC_SIMULATION_CAP` and `MC_TASK_CAP` have applied sinc
 Monte Carlo engine landed in 0.1.
 :::
 
-Set any cap to `None` for unlimited — the Enterprise default, where unbounded
-forecast history plus cross-program rollup is part of the portfolio tier.
-`MC_CELL_CAP` and `MC_MAX_CONCURRENT` are the exception. They protect the API
-worker's memory rather than gating a tier, so size them to your hardware. In the
+Set any cap to `None` for unlimited. `MC_CELL_CAP` and `MC_MAX_CONCURRENT` protect
+the API worker's memory, so size them to your hardware. In the
 measured 5M-cell run, the NumPy working set was about 234 MB (about 47 bytes per
 cell), and the process's peak resident memory was about 336 MB (about 67 bytes per
 cell). Container memory limits
@@ -456,7 +468,7 @@ leaving room for everything else the worker holds.
 Operators on constrained hardware can lower `MC_TASK_CAP` to keep simulations
 cheap.
 
-```python
-# settings override — raise the task ceiling for a large-project deployment.
-MC_TASK_CAP = 10_000
+```bash
+# Raise the task ceiling for a large-project deployment.
+TRUEPPM_MC_TASK_CAP=10000
 ```

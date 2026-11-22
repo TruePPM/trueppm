@@ -50,7 +50,12 @@ describe('DemoModeBar', () => {
 
   it('renders nothing while the edition query is unsettled', () => {
     // No flash of a banner the next tick takes back.
-    demoMode.value = { isDemoReadOnly: true, loginHint: null, resetSchedule: null, isLoading: true };
+    demoMode.value = {
+      isDemoReadOnly: true,
+      loginHint: null,
+      resetSchedule: null,
+      isLoading: true,
+    };
     const { container } = render(<DemoModeBar />);
     expect(container).toBeEmptyDOMElement();
   });
@@ -80,7 +85,9 @@ describe('DemoModeBar', () => {
     // than wrapping the bar onto a second line and moving the Gantt under the
     // pointer. Asserted as classes because jsdom has no layout.
     expect(bar.className).toContain('h-11');
-    expect(bar.className).toContain('flex-nowrap');
+    expect(bar.className).toContain('md:flex-nowrap');
+    // Below `md` it wraps so a 375px phone clips no focusable item (#4116).
+    expect(bar.className).toMatch(/(^|\s)flex-wrap(\s|$)/);
   });
 
   it('carries no live region — the bar never changes during a session', () => {
@@ -109,9 +116,30 @@ describe('DemoModeBar', () => {
     expect(bar).not.toHaveTextContent(/Enterprise/);
   });
 
-  it('renders no edition disclosure on a normal install', () => {
+  it('offers an "Install your own" link to the installation guide in demo mode (#4116)', () => {
+    asDemo();
+    render(<DemoModeBar />);
+    const link = screen.getByRole('link', { name: 'Install your own' });
+    expect(link).toHaveAttribute('href', 'https://docs.trueppm.com/getting-started/installation/');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
+  });
+
+  it('keeps the install link visible below the sm breakpoint (#4116)', () => {
+    asDemo();
+    window.innerWidth = 375;
+    render(<DemoModeBar />);
+    const link = screen.getByRole('link', { name: 'Install your own' });
+    // The edition span collapses to `sr-only` below sm (focusable but invisible);
+    // the install link must not live inside it.
+    expect(link.closest('.sr-only')).toBeNull();
+    expect(link.className).not.toMatch(/sr-only/);
+  });
+
+  it('renders no edition disclosure or install link on a normal install', () => {
     render(<DemoModeBar />);
     expect(screen.queryByRole('link', { name: "What's included" })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Install your own' })).toBeNull();
   });
 });
 

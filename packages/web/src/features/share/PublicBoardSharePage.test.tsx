@@ -12,6 +12,9 @@ vi.mock('./shareApi', () => ({
   classifyShareError: classifyMock,
 }));
 
+const demoMode = vi.hoisted(() => ({ value: { isDemoReadOnly: false, isLoading: false } }));
+vi.mock('@/hooks/useDemoMode', () => ({ useDemoMode: () => demoMode.value }));
+
 function renderAt(token = 'tok123') {
   return render(
     <MemoryRouter initialEntries={[`/share/board/${token}`]}>
@@ -48,6 +51,21 @@ const board: PublicBoard = {
 
 describe('PublicBoardSharePage', () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it('offers the install link on a demo share link and not on a normal install (#4116)', async () => {
+    fetchMock.mockResolvedValue(board);
+    demoMode.value = { isDemoReadOnly: false, isLoading: false };
+    const first = renderAt();
+    await screen.findByText('Read-only shared view');
+    expect(screen.queryByRole('link', { name: 'Install your own' })).toBeNull();
+    first.unmount();
+
+    demoMode.value = { isDemoReadOnly: true, isLoading: false };
+    renderAt();
+    const link = await screen.findByRole('link', { name: 'Install your own' });
+    expect(link).toHaveAttribute('href', 'https://docs.trueppm.com/getting-started/installation/');
+    expect(link).toHaveAttribute('target', '_blank');
+  });
 
   it('renders the read-only board (golden path)', async () => {
     fetchMock.mockResolvedValueOnce(board);

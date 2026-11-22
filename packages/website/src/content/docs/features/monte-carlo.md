@@ -145,7 +145,7 @@ counting as active.
 :::
 
 The endpoint also enforces a **task cap** (`MC_TASK_CAP`, 5,000 on OSS): a project
-with more tasks than the cap returns HTTP 402 rather than running an unbounded
+with more tasks than the cap returns HTTP 400 rather than running an unbounded
 simulation. The vectorized engine handles a 5,000-task × 1,000-run simulation in a
 few seconds; operators on constrained hardware can lower the cap, and self-hosted
 operators can raise or remove it.
@@ -807,17 +807,24 @@ not 1.2× M.
 | Max tasks per project (`MC_TASK_CAP`) | 5,000 |
 | Max run history per project (`MC_HISTORY_CAP`, added in 0.3) | 100 |
 
-Both settings can be changed in `settings/base.py` (or a local override). Self-hosted OSS operators may set any integer or `None` for the run and task caps — the cap is advisory, not license-enforced. The run-history default is different: `MC_HISTORY_CAP = None` does not remove the limit in OSS, it falls back to 100, and a per-workspace limit is clamped to 500 (see [Retention](#retention)).
+Self-hosted operators can change the run and task caps with the `TRUEPPM_MC_SIMULATION_CAP` and `TRUEPPM_MC_TASK_CAP` environment variables (an empty value or `0` removes the cap); see [Rate limits and import caps](/administration/configuration/limits/#monte-carlo-simulation-caps). The caps are resource-safety limits, not license-enforced. The run-history default is different: `MC_HISTORY_CAP = None` does not remove the limit in OSS, it falls back to 100, and a per-workspace limit is clamped to 500 (see [Retention](#retention)).
 
-Exceeding either cap returns HTTP 402 with a structured error body:
+Exceeding either cap returns HTTP 400 with a structured error body; `max_runs` and `max_tasks` echo the configured caps:
 
 ```json
 {
   "error": "simulation_cap_exceeded",
-  "tier": "team",
-  "message": "Simulation count exceeds the community-edition cap."
+  "code": "simulation_cap_exceeded",
+  "max_runs": 1000,
+  "max_tasks": 5000,
+  "message": "Requested runs (2000) exceeds the configured maximum (max_runs=1000); raise max_runs (or pass None to disable the cap) to allow more iterations.",
+  "detail": "Requested runs (2000) exceeds the configured maximum (max_runs=1000); raise max_runs (or pass None to disable the cap) to allow more iterations."
 }
 ```
+
+:::note[Ships in 0.5]
+In 0.4 an over-cap request answers HTTP 402 with `"tier": "team"` and no `max_runs` / `max_tasks`, and the caps are not environment-configurable.
+:::
 
 The engine also has a hard memory ceiling that no setting or edition raises: a run
 whose sampled durations (runs × tasks) would exceed 250,000,000 cells is refused

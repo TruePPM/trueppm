@@ -2,15 +2,8 @@ import { useMemo, useState } from 'react';
 import type { Calendar } from '@/hooks/useProjectCalendars';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { SearchIcon, CloseIcon } from '@/components/Icons';
-import { EnterpriseBadge } from '@/features/settings/components/EnterpriseBadge';
 import { UnsavedChangesDialog, useUnsavedChangesGuard } from '@/components/dialog';
 import { summarizeCalendar } from './calendarDisplay';
-
-/** Enterprise-only picker affordances — rendered disabled, never functional. */
-const ENTERPRISE_PICKER_ITEMS = [
-  { name: 'Import from public-holiday feed (iCal)', sum: 'Sync national holidays automatically' },
-  { name: 'Resource PTO calendars', sum: 'Per-person availability' },
-] as const;
 
 interface AddCalendarPickerProps {
   /** The shared org calendar library (already-applied ones are flagged). */
@@ -42,24 +35,10 @@ function CheckGlyph() {
   );
 }
 
-function LockGlyph() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path
-        d="M4.5 7V5a3.5 3.5 0 017 0v2M3.5 7h9v6h-9z"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 /**
  * Multi-select calendar picker (#906). Desktop renders an inline popover;
  * mobile (`variant="sheet"`) renders a drag-handle bottom sheet over a scrim.
- * Both share the same list, search, and Enterprise-gated section.
+ * Both share the same list and search.
  *
  * Focus is trapped while open and restored to the trigger on close (WCAG
  * 2.4.3). Escape, the scrim tap (sheet), the header close button (sheet), and
@@ -163,31 +142,6 @@ export function AddCalendarPicker({
           </button>
         );
       })}
-
-      {/* Enterprise-gated affordances — visible but never functional in OSS. */}
-      <div className="px-2 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wide text-neutral-text-disabled">
-        Available in TruePPM Enterprise
-      </div>
-      {ENTERPRISE_PICKER_ITEMS.map((item) => (
-        <div
-          key={item.name}
-          className="flex items-center gap-3 rounded-control px-2.5 py-2.5 opacity-60"
-          aria-disabled="true"
-        >
-          <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded border border-neutral-border text-neutral-text-disabled">
-            <LockGlyph />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="flex items-center text-[13px] font-medium text-neutral-text-primary">
-              {item.name}
-              <EnterpriseBadge />
-            </span>
-            <span className="block truncate text-[11.5px] text-neutral-text-secondary">
-              {item.sum}
-            </span>
-          </span>
-        </div>
-      ))}
     </div>
   );
 

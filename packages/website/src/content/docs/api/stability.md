@@ -473,6 +473,19 @@ and is unchanged.
 `POST .../monte-carlo/` now declares its request body (`n_simulations`, optional) instead
 of a free-form object. That is documentation of what the endpoint already accepted.
 
+### Monte Carlo cap refusal is 400, not 402 (#4652)
+
+An over-cap Monte Carlo request (an explicit `n_simulations` above `MC_SIMULATION_CAP`,
+or a project with more committed tasks than `MC_TASK_CAP`) answers HTTP `400` with
+`{error, code: "simulation_cap_exceeded", message, detail, max_runs, max_tasks}`, on
+both `POST .../monte-carlo/` and the what-if `GET`. It used to answer `402 Payment
+Required` with `"tier": "team"`; the `tier` key is gone. No `402` is declared on either
+operation any more. This is **Breaking** by the table above and ships without a
+deprecation window as a pre-1.0 exception: the `402`/`tier` shape described a pricing
+tier no edition has, and the earlier it moves the fewer integrators have coded against
+it. Branch on `code`, not on the status. The caps are now operator-configurable
+(`TRUEPPM_MC_SIMULATION_CAP`, `TRUEPPM_MC_TASK_CAP`).
+
 ### Monte Carlo run answers 202 instead of the forecast (#2273)
 
 From 0.5, `POST /api/v1/projects/{id}/monte-carlo/` will no longer answer `200` with the
@@ -495,7 +508,7 @@ the first read rather than as a stale value. The refusals the request can still 
 (an invalid or too-large `n_simulations`, too many committed tasks or dependencies, no
 membership, an archived project, the throttle) keep their bodies and, with one exception,
 their status codes: the static run cap is now checked first, so an explicit `n_simulations`
-above `MC_SIMULATION_CAP` answers `402` even where the project is also over the task or
+above `MC_SIMULATION_CAP` answers the cap refusal even where the project is also over the task or
 dependency cap, or where runs × tasks exceeds `MC_CELL_CAP` (previously `400`). The
 rest arrive on the failed task run with the same body plus `status_code`. The MCP
 server only reads `latest/` and is unaffected.

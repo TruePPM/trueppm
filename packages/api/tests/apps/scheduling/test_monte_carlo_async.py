@@ -152,7 +152,7 @@ class TestQueueing:
         settings.MC_TASK_CAP = 0
         client, _ = _client(project, "mc_member", Role.MEMBER)
         resp = client.post(_url(project), {}, format="json")
-        assert resp.status_code == 402
+        assert resp.status_code == 400
         assert resp.data["error"] == "simulation_cap_exceeded"
         assert not TaskRun.objects.filter(project=project).exists()
 
@@ -193,9 +193,10 @@ class TestQueueing:
         client, _ = _client(project, "mc_member", Role.MEMBER)
         with mock.patch(_APPLY_ASYNC) as apply_async:
             resp = client.post(_url(project), {"n_simulations": 11}, format="json")
-        assert resp.status_code == 402
+        assert resp.status_code == 400
         assert resp.data["error"] == "simulation_cap_exceeded"
-        assert resp.data["tier"] == "team"
+        assert "tier" not in resp.data
+        assert resp.data["max_runs"] == 10
         assert "max_runs=10" in resp.data["message"]
         apply_async.assert_not_called()
         assert not TaskRun.objects.filter(project=project).exists()
@@ -207,20 +208,20 @@ class TestQueueing:
     def test_static_run_cap_is_checked_before_the_size_and_cell_caps(
         self, mc_async: None, project: Project, settings: Any
     ) -> None:
-        # Pins the order: an explicit count over MC_SIMULATION_CAP is a 402 even
+        # Pins the order: an explicit count over MC_SIMULATION_CAP is the cap refusal even
         # when the project is also over the task cap, or when n x tasks exceeds
-        # the cell cap (which would otherwise answer 400).
+        # the cell cap (which would otherwise answer simulation_cell_cap_exceeded).
         settings.MC_SIMULATION_CAP = 10
         settings.MC_TASK_CAP = 0
         client, _ = _client(project, "mc_member", Role.MEMBER)
         resp = client.post(_url(project), {"n_simulations": 11}, format="json")
-        assert resp.status_code == 402
+        assert resp.status_code == 400
         assert resp.data["error"] == "simulation_cap_exceeded"
         assert "max_runs=10" in resp.data["message"]
         settings.MC_TASK_CAP = 10_000
         settings.MC_CELL_CAP = 5
         resp = client.post(_url(project), {"n_simulations": 11}, format="json")
-        assert resp.status_code == 402
+        assert resp.status_code == 400
         assert resp.data["error"] == "simulation_cap_exceeded"
         assert not TaskRun.objects.filter(project=project).exists()
 
@@ -302,10 +303,10 @@ class TestWorker:
 
         run.refresh_from_db()
         assert run.status == TaskRunStatus.FAILED
-        assert run.result_summary["status_code"] == 402
+        assert run.result_summary["status_code"] == 400
         assert run.result_summary["error"] == "simulation_cap_exceeded"
         polled = client.get(f"/api/v1/projects/{project.pk}/task-runs/{run.pk}/")
-        assert polled.data["result_summary"]["status_code"] == 402
+        assert polled.data["result_summary"]["status_code"] == 400
         # The raw exception text stays Admin-only; the refusal body is the public answer.
         assert polled.data["error_detail"] == ""
 

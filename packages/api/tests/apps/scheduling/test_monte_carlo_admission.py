@@ -107,8 +107,8 @@ class TestAdmitRuns:
         settings.MC_CELL_CAP = 2_500_000  # type: ignore[attr-defined]
         assert admit_runs(5_000, 500).runs == 500
 
-    def test_per_dimension_caps_keep_their_402_path(self, settings: object) -> None:
-        """Over MC_SIMULATION_CAP or MC_TASK_CAP passes through to the engine's 402."""
+    def test_per_dimension_caps_keep_their_engine_path(self, settings: object) -> None:
+        """Over MC_SIMULATION_CAP or MC_TASK_CAP passes through to the engine's cap refusal."""
         settings.MC_SIMULATION_CAP = 100  # type: ignore[attr-defined]
         settings.MC_TASK_CAP = 10  # type: ignore[attr-defined]
         settings.MC_CELL_CAP = 50  # type: ignore[attr-defined]
@@ -381,7 +381,7 @@ class TestWallClockBudget:
 
 
 def test_openapi_declares_code_and_detail_on_mc_refusals() -> None:
-    """#4609: the published 400/402 examples carry both envelope key pairs."""
+    """#4609: the published 400 examples carry both envelope key pairs."""
     import json
     from pathlib import Path
 
@@ -389,7 +389,7 @@ def test_openapi_declares_code_and_detail_on_mc_refusals() -> None:
         (Path(__file__).resolve().parents[5] / "docs" / "api" / "openapi.json").read_text()
     )
     op = spec["paths"]["/api/v1/projects/{id}/monte-carlo/"]["post"]
-    for status_code in ("400", "402"):
+    for status_code in ("400",):
         example = next(
             iter(op["responses"][status_code]["content"]["application/json"]["examples"].values())
         )["value"]

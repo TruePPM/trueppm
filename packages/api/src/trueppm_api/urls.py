@@ -6,7 +6,7 @@ from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
 from drf_spectacular.utils import extend_schema, inline_serializer
-from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerSplitView
+from drf_spectacular.views import SpectacularSwaggerSplitView
 from rest_framework import serializers
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
@@ -23,6 +23,7 @@ from trueppm_api.core.password_reset import (
     PasswordResetConfirmView,
     PasswordResetRequestView,
 )
+from trueppm_api.core.schema_views import CachedSpectacularAPIView
 
 
 @extend_schema(
@@ -164,7 +165,7 @@ urlpatterns = [
     # <script>, which script-src 'self' would otherwise block (the page rendered
     # blank — #1603). Asset bundles are served from drf-spectacular-sidecar
     # ('self') via SWAGGER_UI_DIST=SIDECAR in settings.
-    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    path("api/schema/", CachedSpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerSplitView.as_view(url_name="schema"), name="swagger-ui"),
     path(
         "api/schema/swagger-ui/",
