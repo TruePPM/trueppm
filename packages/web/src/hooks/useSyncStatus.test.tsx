@@ -9,7 +9,7 @@ import { AxiosError, type AxiosResponse } from 'axios';
 import { afterEach, describe, it, expect } from 'vitest';
 import type { ReactNode } from 'react';
 import { createElement } from 'react';
-import { useSyncStatus } from './useSyncStatus';
+import { getPendingWriteCount, useSyncStatus } from './useSyncStatus';
 import { useWsConnectionStore } from '@/stores/wsConnectionStore';
 
 function axiosError(status: number): AxiosError {
@@ -99,5 +99,55 @@ describe('useSyncStatus — read-only demo has no socket by design (#4048)', () 
     useWsConnectionStore.setState({ state: 'failed' });
     const { result } = renderHook(() => useSyncStatus(), { wrapper: wrapper(qc) });
     expect(result.current.status.kind).toBe(expected);
+  });
+});
+
+describe('getPendingWriteCount — the real count behind the chunk-reload guard (ADR-1249)', () => {
+  /** A mutation that stays pending until `release()` is called. */
+  function pendingMutation(qc: QueryClient) {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const m = qc.getMutationCache().build(qc, { mutationFn: () => gate });
+    void m.execute(undefined).catch(() => undefined);
+    return { release };
+  }
+
+  it('is 0 for an empty queue', () => {
+    expect(getPendingWriteCount(makeQC())).toBe(0);
+  });
+
+  it('counts every in-flight write, and drops them once they settle', async () => {
+    const qc = makeQC();
+    const a = pendingMutation(qc);
+    const b = pendingMutation(qc);
+    const c = pendingMutation(qc);
+    expect(getPendingWriteCount(qc)).toBe(3);
+
+    a.release();
+    b.release();
+    await waitFor(() => expect(getPendingWriteCount(qc)).toBe(1));
+    c.release();
+    await waitFor(() => expect(getPendingWriteCount(qc)).toBe(0));
+  });
+
+  it('does not count a settled 4xx rejection or a settled success', async () => {
+    const qc = makeQC();
+    const rejected = qc.getMutationCache().build(qc, {
+      mutationFn: () => Promise.reject(axiosError(400)),
+    });
+    await rejected.execute(undefined).catch(() => undefined);
+    const ok = qc.getMutationCache().build(qc, { mutationFn: () => Promise.resolve('ok') });
+    await ok.execute(undefined);
+    expect(getPendingWriteCount(qc)).toBe(0);
+  });
+
+  it('agrees with the live badge projection while a write is pending', async () => {
+    const qc = makeQC();
+    const { result } = renderHook(() => useSyncStatus(), { wrapper: wrapper(qc) });
+    pendingMutation(qc);
+    await waitFor(() => expect(result.current.pendingWrites.length).toBe(1));
+    expect(getPendingWriteCount(qc)).toBe(1);
   });
 });
