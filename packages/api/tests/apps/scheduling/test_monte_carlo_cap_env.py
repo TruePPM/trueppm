@@ -26,3 +26,11 @@ class TestOptionalCap:
         monkeypatch.setenv("TRUEPPM_MC_TASK_CAP", "-1")
         with pytest.raises(ImproperlyConfigured):
             _optional_cap("TRUEPPM_MC_TASK_CAP", 5_000)
+
+    @pytest.mark.parametrize("raw", ["abc", "1.5", "1,000"])
+    def test_non_integer_fails_loud_with_the_variable_name(
+        self, monkeypatch: pytest.MonkeyPatch, raw: str
+    ) -> None:
+        monkeypatch.setenv("TRUEPPM_MC_TASK_CAP", raw)
+        with pytest.raises(ImproperlyConfigured, match="TRUEPPM_MC_TASK_CAP"):
+            _optional_cap("TRUEPPM_MC_TASK_CAP", 5_000)

@@ -1398,7 +1398,10 @@ def _optional_cap(name: str, default: int) -> int | None:
     raw = env.str(name, default=str(default)).strip()
     if raw == "":
         return None
-    value = int(raw)
+    try:
+        value = int(raw)
+    except ValueError:
+        raise ImproperlyConfigured(f"{name} must be a non-negative integer, got {raw!r}") from None
     if value < 0:
         raise ImproperlyConfigured(f"{name} must be a non-negative integer, got {raw!r}")
     return value or None

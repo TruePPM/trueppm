@@ -179,6 +179,29 @@ class TestMonteCarloEndpoint:
         assert r.data["max_tasks"] == settings.MC_TASK_CAP  # type: ignore[attr-defined]
         assert r.data["detail"] == r.data["message"]
 
+    def test_raising_the_cap_admits_a_request_the_default_refuses(
+        self,
+        member_client: APIClient,
+        project: Project,
+        pert_task: Task,
+        settings: object,
+    ) -> None:
+        """#4652: the cap is operator-set, so raising it changes what the endpoint admits.
+
+        The default (1,000) refuses 1,001 runs; the same request with the setting raised
+        (what ``TRUEPPM_MC_SIMULATION_CAP`` does at import) is accepted.
+        """
+        url = f"/api/v1/projects/{project.pk}/monte-carlo/"
+        settings.MC_SIMULATION_CAP = 1_000  # type: ignore[attr-defined]
+        refused = member_client.post(url, {"n_simulations": 1_001}, format="json")
+        assert refused.status_code == 400
+        assert refused.data["code"] == "simulation_cap_exceeded"
+        assert refused.data["max_runs"] == 1_000
+
+        settings.MC_SIMULATION_CAP = 2_000  # type: ignore[attr-defined]
+        accepted = member_client.post(url, {"n_simulations": 1_001}, format="json")
+        assert accepted.status_code in (200, 202)
+
     def test_engine_sample_cell_cap_returns_400_not_an_upsell(
         self,
         member_client: APIClient,
