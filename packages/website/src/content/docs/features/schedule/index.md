@@ -153,7 +153,7 @@ drag-to-plan stay on the desktop canvas.
 This section describes the redesigned Schedule page that ships in 0.5 behind the `shell_v2` preview flag (add `?ff=shell_v2` to the URL). The current release uses the toolbar described in [Schedule toolbar](/features/schedule-toolbar/), with a show/hide **Legend** button and a forecast strip docked under the chart.
 :::
 
-In 0.5 the redesigned Schedule page will cut the toolbar down to the controls you reach for most:
+In 0.5 the redesigned Schedule page will put a smaller set of controls in its toolbar. It does not yet offer every action the current toolbar has; the ones it leaves out are listed under [Not in the redesigned toolbar yet](#not-in-the-redesigned-toolbar-yet). With the preview flag on, those actions are not reachable from the Schedule page at all. The redesigned toolbar will hold:
 
 - **Filter**, **Zoom** and **Add task** will always stay in the bar.
 - **Today**, **Baseline** and **Critical only** will sit in the bar when the window has room, and move into the **More** menu as it narrows. **Baseline** will only appear when the project has an active baseline.
@@ -165,18 +165,34 @@ The toolbar will be a single stop for the `Tab` key. Use the left and right arro
 
 ### Legend and the critical path
 
-The legend will always be on screen. It names four marks, each with a swatch and a symbol so that none of them depends on color alone:
+The legend will always be on screen on the desktop chart. It names up to four marks, each as a swatch drawn the way the chart draws it, plus a word, so that none of them depends on color alone:
 
-| Mark | Looks like | Symbol |
-|---|---|---|
-| Critical | A bar with a solid red outline | ▲ |
-| Near-critical | A bar with a dashed amber outline: its total float is at or under the project's near-critical threshold | ◆ |
-| Baseline | The pale bar behind a task, shown only while baseline bars are on | ▭ |
-| Today | A vertical line | │ |
+| Mark | Looks like |
+|---|---|
+| Critical | A solid red outline around the bar. The bar's fill still shows its status. |
+| Near-critical | A dashed orange outline (amber in dark mode) around the bar: its total float is more than zero and at or under the project's near-critical threshold |
+| Baseline | The pale bar behind a task, shown only while baseline bars are on |
+| Today | A vertical line |
 
-The near-critical threshold is the one set in project settings (10 working days unless changed). A selected bar will get a dotted ring, so you can still tell it apart from a critical one.
+The near-critical threshold is the one set in project settings (10 working days unless changed). Near-critical outlines will appear once the project's settings have loaded, never from a guessed threshold. A selected bar will get a dotted ring, so you can still tell it apart from a critical one.
 
 The forecast strip under the chart will go away in the redesigned page. The P80 date in the project header will be the one forecast shown at rest.
+
+### Not in the redesigned toolbar yet
+
+The redesigned toolbar is a first pass. These are not part of it yet, and no release is promised for any of them. Until they are, turn the preview flag off to use them:
+
+- **Import** from Microsoft Project or CSV, and **Share**.
+- **Capture baseline**, the **baseline manager**, and **Trash** (deleted tasks).
+- **Undo** for structural changes, and **Bulk edit**.
+- The **Read** / **Author** mode toggle.
+- **Add milestone**, **Add phase** and **Ungroup**.
+- **Focus mode** and the critical-path-only view (**CP only**).
+- Display options: where task names sit on the bar, **progress pills** and **sprint bands**.
+- Filters other than **Milestones only**. The **Filter** menu holds that one filter for now.
+- The ▲ (critical) and ◆ (near-critical) symbols the design gives the **Float** column. The chart and the column do not draw them yet, so the legend does not list them.
+- Grouping recurring tasks under one row. Each occurrence is stored per task already; the plan is to group them for display in the browser from what the server sends, but nothing is built.
+- An as-of date beside the commitment and the P50 / P80 forecast dates, which depends on the server reporting when each was computed ([#4760](https://gitlab.com/trueppm/trueppm/-/issues/4760)).
 
 ## Canvas renderer
 
