@@ -117,6 +117,7 @@ class TestCrossProjectSum:
         assert body["scope"] == {
             "project_count": 2,
             "withheld_project_count": 0,
+            "capacity_withheld_project_count": 0,
             "program_id": None,
         }
         assert body["reason"] is None
@@ -214,6 +215,7 @@ class TestScope:
         # The Member-role project is one the viewer has a role in but cannot read
         # per-person load on; a non-member project and a draft are not in scope.
         assert body["scope"]["withheld_project_count"] == 1
+        assert body["scope"]["capacity_withheld_project_count"] == 0
 
     def test_a_project_whose_capacity_signal_audience_excludes_the_viewer_is_withheld(
         self, client: APIClient, viewer: object, cal: Calendar
@@ -241,6 +243,23 @@ class TestScope:
         assert _week(body, "Erin")[0]["load_pct"] == 50  # only the readable project
         assert body["scope"]["project_count"] == 1
         assert body["scope"]["withheld_project_count"] == 1
+        assert body["scope"]["capacity_withheld_project_count"] == 1
+
+    def test_role_withheld_and_capacity_withheld_are_counted_separately(
+        self, client: APIClient, viewer: object, cal: Calendar
+    ) -> None:
+        """Owner on two gated projects plus Member on a third: 3 withheld, 2 by capacity."""
+        erin = Resource.objects.create(name="Erin", max_units="1.0", calendar=cal)
+        for name in ("Gated A", "Gated B"):
+            p = _project(name, cal, viewer, role=Role.OWNER)
+            _book(p, erin, "0.5", MONDAY, MONDAY + timedelta(days=4))
+        _project("Member only", cal, viewer, role=Role.MEMBER)
+
+        body = client.get(URL, {"week_start": MONDAY.isoformat(), "weeks": 1}).json()
+
+        assert body["reason"] == "all_withheld"
+        assert body["scope"]["withheld_project_count"] == 3
+        assert body["scope"]["capacity_withheld_project_count"] == 2
 
     def test_every_schedulable_project_withheld_is_all_withheld_not_no_projects(
         self, client: APIClient, viewer: object, cal: Calendar
@@ -261,6 +280,7 @@ class TestScope:
         assert body["reason"] == "all_withheld"
         assert body["scope"]["project_count"] == 0
         assert body["scope"]["withheld_project_count"] == 2
+        assert body["scope"]["capacity_withheld_project_count"] == 2
 
     def test_only_member_role_projects_stays_no_projects(
         self, client: APIClient, viewer: object, cal: Calendar
@@ -270,6 +290,7 @@ class TestScope:
         body = client.get(URL, {"week_start": MONDAY.isoformat()}).json()
         assert body["reason"] == "no_projects"
         assert body["scope"]["withheld_project_count"] == 1
+        assert body["scope"]["capacity_withheld_project_count"] == 0
 
     def test_a_person_booked_only_outside_scope_is_not_listed(
         self, client: APIClient, viewer: object, cal: Calendar

@@ -491,7 +491,10 @@ The projects counted are the viewer's live, non-draft project memberships at
 ADR-0104 `capacity` signal audience, the gate on the sprint panel's member rows.
 `?program=` narrows to one program. A program role alone adds no projects
 (ADR-0070, explicit grants only). Projects the viewer has a role in but fails a
-gate on are counted in `scope.withheld_project_count`. Nothing is org-wide or
+gate on are counted in `scope.withheld_project_count`; the ones dropped by the
+capacity gate alone are also in `scope.capacity_withheld_project_count`, which the
+UI copy and the `all_withheld` reason rest on (role-withheld projects are not
+capacity-withheld). Nothing is org-wide or
 cross-portfolio; that heat map stays Enterprise.
 
 ### Not computable (rule 119)
@@ -512,7 +515,8 @@ read as this figure.
 - **enterprise-check:** OSS. Projects the viewer already reads per-person load on,
   one at a time; no org-wide or portfolio scope, no upsell on the empty state.
 - **ai-review:** each figure has a definition and an as_of a client can cite, and
-  `scope.withheld_project_count` says what the figure leaves out. Read-only. The
+  `scope.withheld_project_count` says what the figure leaves out, and
+  `scope.capacity_withheld_project_count` the part the team can fix by sharing its signal. Read-only. The
   endpoint is not exposed to `mcp:read` tokens in this change.
 - **threat-model:** n/a. No new trust boundary: the two existing gates are applied
   at this sink, so it exposes nothing a viewer could not read through

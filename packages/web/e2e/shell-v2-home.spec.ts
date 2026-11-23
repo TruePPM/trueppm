@@ -65,7 +65,12 @@ async function setup(page: Page, home: Home, opts: { flag: boolean }): Promise<v
         as_of: '2026-03-02T09:00:00Z',
         window: { start: '2026-03-02', end: '2026-04-26' },
         weeks: [],
-        scope: { project_count: 0, withheld_project_count: 0, program_id: null },
+        scope: {
+          project_count: 0,
+          withheld_project_count: 0,
+          capacity_withheld_project_count: 0,
+          program_id: null,
+        },
         people: [],
         over_allocated_count: 0,
         reason: 'no_projects',

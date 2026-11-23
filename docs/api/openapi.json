@@ -8458,7 +8458,7 @@
         "/api/v1/me/people-load/": {
             "get": {
                 "operationId": "v1_me_people_load_retrieve",
-                "description": "``GET /api/v1/me/people-load/`` — weekly load per person across your projects.\n\n**Scope is the viewer's own project roles, and nothing wider.** The projects\ncounted are the live, non-draft projects the requester holds a live\n``ProjectMembership`` on, narrowed to one program with ``?program=``. A program\nrole alone adds no projects: program membership does not grant project access\n(ADR-0070 \"explicit grants only\"), and a load figure is project data. Nothing\nhere is org-wide or cross-portfolio; that heat map is Enterprise.\n\n**A project counts only where the viewer may already read per-person load on\nit**: Scheduler or above, the gate on ``/projects/{id}/utilization/``. And **the\nper-person breakdown is the ADR-0104 ``capacity`` signal**, the same one\nthe sprint capacity panel's member rows sit behind. A project whose policy keeps\nper-person capacity from this reader is dropped from the scope before anything\nis computed, and counted in ``scope.withheld_project_count`` so the figure says\nwhat it leaves out. Gating at every sink keeps this lens from being a side\nchannel around the panel's suppression.\n\nDrafts are excluded for the reason the My Work aggregates exclude them: a\nhalf-built plan's bookings would put someone over capacity on paper.",
+                "description": "``GET /api/v1/me/people-load/`` — weekly load per person across your projects.\n\n**Scope is the viewer's own project roles, and nothing wider.** The projects\ncounted are the live, non-draft projects the requester holds a live\n``ProjectMembership`` on, narrowed to one program with ``?program=``. A program\nrole alone adds no projects: program membership does not grant project access\n(ADR-0070 \"explicit grants only\"), and a load figure is project data. Nothing\nhere is org-wide or cross-portfolio; that heat map is Enterprise.\n\n**A project counts only where the viewer may already read per-person load on\nit**: Scheduler or above, the gate on ``/projects/{id}/utilization/``. And **the\nper-person breakdown is the ADR-0104 ``capacity`` signal**, the same one\nthe sprint capacity panel's member rows sit behind. A project whose policy keeps\nper-person capacity from this reader is dropped from the scope before anything\nis computed. Both gates' drops are counted in ``scope.withheld_project_count``;\nthe capacity-gated ones alone in ``scope.capacity_withheld_project_count``, so the\nfigure says what it leaves out and the UI states only the cause that is true.\nGating at every sink keeps this lens from being a side channel around the\npanel's suppression.\n\nDrafts are excluded for the reason the My Work aggregates exclude them: a\nhalf-built plan's bookings would put someone over capacity on paper.",
                 "summary": "A person's weekly load across the projects you have a role in",
                 "parameters": [
                     {
@@ -72367,7 +72367,7 @@
                     },
                     "reason": {
                         "nullable": true,
-                        "description": "Why `people` is empty (rule 119): `no_projects` when no project is in scope, `no_people` when the scoped projects have nobody on their roster and nobody booked in the range, `all_withheld` when you hold Scheduler or above on at least one project but every such project's team has not shared its capacity signal with your role band (see `scope.withheld_project_count`). Null otherwise.\n\n* `no_projects` - no_projects\n* `no_people` - no_people\n* `all_withheld` - all_withheld",
+                        "description": "Why `people` is empty (rule 119): `no_projects` when no project is in scope, `no_people` when the scoped projects have nobody on their roster and nobody booked in the range, `all_withheld` when you hold Scheduler or above on at least one project but every such project's team has not shared its capacity signal with your role band (see `scope.capacity_withheld_project_count`). Null otherwise.\n\n* `no_projects` - no_projects\n* `no_people` - no_people\n* `all_withheld` - all_withheld",
                         "oneOf": [
                             {
                                 "$ref": "#/components/schemas/PeopleLoadReasonEnum"
@@ -93357,6 +93357,10 @@
                         "type": "integer",
                         "description": "Projects you have a role in but whose per-person load you may not read (below Scheduler, the gate on /projects/{id}/utilization/, or outside the ADR-0104 `capacity` signal audience); their bookings are not counted."
                     },
+                    "capacity_withheld_project_count": {
+                        "type": "integer",
+                        "description": "The subset of withheld projects dropped only by the ADR-0104 `capacity` signal gate: you hold Scheduler or above on them, but their team has not shared its capacity signal with your role band. Projects withheld for your role (below Scheduler) are in `withheld_project_count` only."
+                    },
                     "program_id": {
                         "type": "string",
                         "format": "uuid",
@@ -93364,6 +93368,7 @@
                     }
                 },
                 "required": [
+                    "capacity_withheld_project_count",
                     "program_id",
                     "project_count",
                     "withheld_project_count"

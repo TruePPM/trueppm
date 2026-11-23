@@ -10,7 +10,12 @@ function payload(over: Partial<PeopleLoadResponse> = {}): PeopleLoadResponse {
     as_of: new Date().toISOString(),
     window: { start: '2026-03-02', end: '2026-03-15' },
     weeks: ['2026-03-02', '2026-03-09'],
-    scope: { project_count: 2, withheld_project_count: 0, program_id: null },
+    scope: {
+      project_count: 2,
+      withheld_project_count: 0,
+      capacity_withheld_project_count: 0,
+      program_id: null,
+    },
     people: [
       {
         resource_id: 'r1',
@@ -112,7 +117,12 @@ describe('LoadHeatMap', () => {
           people: [],
           over_allocated_count: 0,
           reason: 'all_withheld',
-          scope: { project_count: 0, withheld_project_count: 2, program_id: null },
+          scope: {
+            project_count: 0,
+            withheld_project_count: 3,
+            capacity_withheld_project_count: 2,
+            program_id: null,
+          },
         })}
       />,
     );
@@ -128,12 +138,34 @@ describe('LoadHeatMap', () => {
       <LoadHeatMap
         {...props}
         data={payload({
-          scope: { project_count: 2, withheld_project_count: 1, program_id: null },
+          scope: {
+            project_count: 2,
+            withheld_project_count: 2,
+            capacity_withheld_project_count: 1,
+            program_id: null,
+          },
         })}
       />,
     );
     expect(screen.getByText(/1 project withheld/)).toBeInTheDocument();
     rerender(<LoadHeatMap {...props} data={payload()} />);
+    expect(screen.queryByText(/withheld/)).toBeNull();
+  });
+
+  it('shows no capacity note for projects withheld only for role', () => {
+    render(
+      <LoadHeatMap
+        {...props}
+        data={payload({
+          scope: {
+            project_count: 1,
+            withheld_project_count: 1,
+            capacity_withheld_project_count: 0,
+            program_id: null,
+          },
+        })}
+      />,
+    );
     expect(screen.queryByText(/withheld/)).toBeNull();
   });
 });

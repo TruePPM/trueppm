@@ -32,7 +32,7 @@ export function rmHomeState({ data, isLoading, isError }: RmHomeQuery): RmHomeSt
     overAllocated: data.over_allocated_count,
     people: data.people.length,
     projects: data.scope.project_count,
-    withheldProjects: data.scope.withheld_project_count,
+    withheldProjects: data.scope.capacity_withheld_project_count,
   };
 }
 

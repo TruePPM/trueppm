@@ -85,6 +85,14 @@ class _PeopleLoadScopeSerializer(serializers.Serializer[dict[str, Any]]):
             "the ADR-0104 `capacity` signal audience); their bookings are not counted."
         )
     )
+    capacity_withheld_project_count = serializers.IntegerField(
+        help_text=(
+            "The subset of withheld projects dropped only by the ADR-0104 `capacity` "
+            "signal gate: you hold Scheduler or above on them, but their team has not "
+            "shared its capacity signal with your role band. Projects withheld for "
+            "your role (below Scheduler) are in `withheld_project_count` only."
+        )
+    )
     program_id = serializers.UUIDField(allow_null=True)
 
 
@@ -108,7 +116,7 @@ class PeopleLoadSerializer(serializers.Serializer[dict[str, Any]]):
             "and nobody booked in the range, `all_withheld` when you hold Scheduler or "
             "above on at least one project but every such project's team has not "
             "shared its capacity signal with your role band (see "
-            "`scope.withheld_project_count`). Null otherwise."
+            "`scope.capacity_withheld_project_count`). Null otherwise."
         ),
     )
     definitions = definitions_field_by_field("PeopleLoadDefinitions", PEOPLE_LOAD_DEFINED)
@@ -166,9 +174,11 @@ class MePeopleLoadView(APIView):
     per-person breakdown is the ADR-0104 ``capacity`` signal**, the same one
     the sprint capacity panel's member rows sit behind. A project whose policy keeps
     per-person capacity from this reader is dropped from the scope before anything
-    is computed, and counted in ``scope.withheld_project_count`` so the figure says
-    what it leaves out. Gating at every sink keeps this lens from being a side
-    channel around the panel's suppression.
+    is computed. Both gates' drops are counted in ``scope.withheld_project_count``;
+    the capacity-gated ones alone in ``scope.capacity_withheld_project_count``, so the
+    figure says what it leaves out and the UI states only the cause that is true.
+    Gating at every sink keeps this lens from being a side channel around the
+    panel's suppression.
 
     Drafts are excluded for the reason the My Work aggregates exclude them: a
     half-built plan's bookings would put someone over capacity on paper.
@@ -251,6 +261,9 @@ class MePeopleLoadView(APIView):
                 "scope": {
                     "project_count": len(project_ids),
                     "withheld_project_count": len(candidate_ids) - len(project_ids),
+                    # Only the projects dropped by gate 2: the one cause the viewer's
+                    # team can fix by sharing its signal. The UI copy rests on this.
+                    "capacity_withheld_project_count": len(schedulable) - len(project_ids),
                     "program_id": str(program) if program else None,
                 },
                 "definitions": definitions_by_field(PEOPLE_LOAD_DEFINED),

@@ -15,7 +15,12 @@ const data = {
   as_of: new Date().toISOString(),
   window: { start: '2026-03-02', end: '2026-03-08' },
   weeks: ['2026-03-02'],
-  scope: { project_count: 1, withheld_project_count: 0, program_id: null },
+  scope: {
+    project_count: 1,
+    withheld_project_count: 0,
+    capacity_withheld_project_count: 0,
+    program_id: null,
+  },
   people: [
     {
       resource_id: 'r1',

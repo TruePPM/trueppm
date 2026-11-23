@@ -250,7 +250,7 @@ date; snapped to its Monday, default this week), `weeks` (1 to 26, default 8) an
 the parameter.
 
 The response carries `as_of`, `window`, `weeks` (the Mondays), `scope`
-(`project_count`, `withheld_project_count`, `program_id`), `people` (most loaded
+(`project_count`, `withheld_project_count` for projects dropped by either gate, `capacity_withheld_project_count` for those dropped only because the team has not shared its capacity signal, `program_id`), `people` (most loaded
 first; each with `cells[]` of `week_start`, `load_pct`, `overallocated` and
 `reason`), `over_allocated_count`, a payload `reason` (`no_projects`,
 `no_people` or `all_withheld` when `people` is empty) and `definitions`. A week with no working time

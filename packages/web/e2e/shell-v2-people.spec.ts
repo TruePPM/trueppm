@@ -17,7 +17,12 @@ const LOAD = {
   as_of: '2026-03-02T09:00:00Z',
   window: { start: '2026-03-02', end: '2026-03-15' },
   weeks: ['2026-03-02', '2026-03-09'],
-  scope: { project_count: 2, withheld_project_count: 0, program_id: null },
+  scope: {
+    project_count: 2,
+    withheld_project_count: 0,
+    capacity_withheld_project_count: 0,
+    program_id: null,
+  },
   people: [
     {
       resource_id: '00000000-0000-0000-0000-0000000000a1',
@@ -57,7 +62,12 @@ const EMPTY = { ...LOAD, people: [], over_allocated_count: 0, reason: 'no_projec
 // server shape (reason `all_withheld`, count in scope), not the no-role `no_projects`.
 const ALL_WITHHELD = {
   ...EMPTY,
-  scope: { project_count: 0, withheld_project_count: 2, program_id: null },
+  scope: {
+    project_count: 0,
+    withheld_project_count: 3,
+    capacity_withheld_project_count: 2,
+    program_id: null,
+  },
   reason: 'all_withheld',
 };
 

@@ -158,8 +158,8 @@ no backing data is left out of `signals` rather than sent as `null`. A missing
 `GET /me/people-load/` says why a figure is missing at two levels. The
 payload's `reason` is `no_projects` when no project is in scope, `all_withheld`
 when you hold Scheduler or above on a project but every such project's team has
-not shared its capacity signal with your role band (`scope.withheld_project_count`
-says how many), and `no_people` when the projects in scope have nobody on their
+not shared its capacity signal with your role band (`scope.capacity_withheld_project_count`
+says how many; `scope.withheld_project_count` also counts projects withheld for your role), and `no_people` when the projects in scope have nobody on their
 roster and nobody booked in the range. A week's `reason` is `no_capacity` when the person has no working time
 that week, for example a week of time off; its `load_pct` is then null rather
 than 0%.

@@ -30,7 +30,8 @@ const projectsWord = (n: number) => `${n} ${n === 1 ? 'project' : 'projects'}`;
 
 /**
  * The sentence for projects whose load the viewer may not read through this lens,
- * or null when none were withheld. The cause is the team's `capacity` signal
+ * or null when none were withheld by the capacity signal (a project withheld for
+ * role is not counted: the sentence would be false for it). The cause is the team's `capacity` signal
  * audience (ADR-0104), so the fix is the team sharing it with the viewer's role
  * band, not the viewer asking for a role (rule 231: no upsell).
  */
@@ -104,7 +105,7 @@ export function LoadHeatMap({ data, isLoading, isError, onRetry, label }: LoadHe
     return <LoadingSkeleton label="Loading team load…" variant="rows" rows={5} />;
   }
   if (data.people.length === 0) {
-    const copy = emptyCopy(data.reason, data.scope.withheld_project_count);
+    const copy = emptyCopy(data.reason, data.scope.capacity_withheld_project_count);
     return <EmptyState icon={ResourcesIcon} title={copy.title} description={copy.description} />;
   }
   return <HeatGrid data={data} label={label} />;
@@ -114,7 +115,7 @@ function HeatGrid({ data, label }: { data: PeopleLoadResponse; label: string }) 
   const [active, setActive] = useState<[number, number]>([0, 0]);
   const cellRefs = useRef(new Map<string, HTMLDivElement>());
   const rows = data.people.length;
-  const withheld = withheldNote(data.scope.withheld_project_count);
+  const withheld = withheldNote(data.scope.capacity_withheld_project_count);
   const cols = data.weeks.length;
   const [ar, ac] = [Math.min(active[0], rows - 1), Math.min(active[1], cols - 1)];
   // Every row shares one column template, so the header lines up with the cells.

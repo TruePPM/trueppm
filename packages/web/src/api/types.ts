@@ -1108,7 +1108,13 @@ export interface PeopleLoadResponse {
   window: { start: string; end: string };
   /** Week-start Mondays (YYYY-MM-DD). */
   weeks: string[];
-  scope: { project_count: number; withheld_project_count: number; program_id: string | null };
+  scope: {
+    project_count: number;
+    withheld_project_count: number;
+    /** Subset of withheld projects dropped only by the team's capacity signal (ADR-0104). */
+    capacity_withheld_project_count: number;
+    program_id: string | null;
+  };
   /** Most loaded first. */
   people: PeopleLoadPerson[];
   over_allocated_count: number;

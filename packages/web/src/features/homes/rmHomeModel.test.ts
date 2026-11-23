@@ -6,7 +6,12 @@ const payload = (over: Partial<PeopleLoadResponse> = {}): PeopleLoadResponse => 
   as_of: '2026-03-02T09:00:00Z',
   window: { start: '2026-03-02', end: '2026-03-15' },
   weeks: ['2026-03-02', '2026-03-09'],
-  scope: { project_count: 3, withheld_project_count: 1, program_id: null },
+  scope: {
+    project_count: 3,
+    withheld_project_count: 2,
+    capacity_withheld_project_count: 1,
+    program_id: null,
+  },
   people: [
     {
       resource_id: 'r1',
@@ -56,6 +61,7 @@ describe('rmHomeState', () => {
       projects: 3,
       withheldProjects: 1,
     });
-    if (state.kind === 'ready') expect(rmScopeLine(state)).toBe('1 person · 3 projects · 1 withheld');
+    if (state.kind === 'ready')
+      expect(rmScopeLine(state)).toBe('1 person · 3 projects · 1 withheld');
   });
 });
