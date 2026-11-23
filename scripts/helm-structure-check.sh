@@ -2617,6 +2617,42 @@ heavy_replicas="$(helm template trueppm "$CHART" --set image.tag=latest --set he
 [ "$heavy_replicas" = "null" ] \
   || fail "heavy Deployment sets replicas=$heavy_replicas while KEDA owns the count — every helm upgrade would fight the scaler (#2276)"
 
+# 4c. PgBouncer pooling path (#2275). Off by default; refuses the bundled
+# database (its URL is chart-generated, so the pooler could never be wired in);
+# needs an upstream, a database and an auth Secret; sets the pooling switch on
+# api/worker/beat exactly once, and yields to an operator-set value.
+pgb_base=(--set image.tag=latest --set postgresql.enabled=false --set valkey.enabled=false
+  --set env.DATABASE_URL=postgres://u:p@h/d --set env.REDIS_URL=redis://v:6379)
+pgb_on=(--set pgbouncer.enabled=true --set pgbouncer.upstream.host=db.example
+  --set pgbouncer.upstream.database=trueppm --set pgbouncer.auth.existingSecret=pgb-auth)
+pgb_off_render="$(helm template trueppm "$CHART" "${pgb_base[@]}")"
+grep -q 'component: pgbouncer' <<<"$pgb_off_render" \
+  && fail "pgbouncer objects rendered with pgbouncer.enabled=false (#2275)"
+grep -q 'TRUEPPM_DB_TRANSACTION_POOLING' <<<"$pgb_off_render" \
+  && fail "TRUEPPM_DB_TRANSACTION_POOLING set with pgbouncer.enabled=false (#2275)"
+if helm template trueppm "$CHART" --set image.tag=latest --set pgbouncer.enabled=true "${pgb_on[@]:2}" >/dev/null 2>&1; then
+  fail "pgbouncer.enabled with the bundled postgresql rendered — DATABASE_URL would silently bypass the pooler (#2275)"
+fi
+# Each required key refuses the render on its own.
+pgb_need() { # $1 = key to omit
+  helm template trueppm "$CHART" "${pgb_base[@]}" --set pgbouncer.enabled=true \
+    --set pgbouncer.upstream.host=db.example --set pgbouncer.upstream.database=trueppm \
+    --set pgbouncer.auth.existingSecret=pgb-auth --set "$1=" >/dev/null 2>&1
+}
+for key in pgbouncer.upstream.host pgbouncer.upstream.database pgbouncer.auth.existingSecret; do
+  if pgb_need "$key"; then
+    fail "pgbouncer.enabled rendered with $key empty (#2275)"
+  fi
+done
+pgb_on_render="$(helm template trueppm "$CHART" "${pgb_base[@]}" "${pgb_on[@]}")"
+grep -q 'edoburu/pgbouncer@sha256:' <<<"$pgb_on_render" \
+  || fail "pgbouncer image is not pinned by digest (#2275)"
+[ "$(grep -c 'name: TRUEPPM_DB_TRANSACTION_POOLING' <<<"$pgb_on_render")" = "3" ] \
+  || fail "pgbouncer.enabled must set TRUEPPM_DB_TRANSACTION_POOLING on exactly api, worker and beat (#2275)"
+grep -q "connect_query='SET jit = off'" <<<"$pgb_on_render" \
+  || fail "PgBouncer config lost the per-connection 'SET jit = off' (#3829 behind a pooler)"
+grep -q 'pool_mode = transaction' <<<"$pgb_on_render" \
+  || fail "PgBouncer is not in transaction pooling mode by default (#2275)"
 echo "helm structure check GREEN:"
 echo "  - init order: migrate -> bootstrap"
 echo "  - operator envFrom secret reaches all $env_checked containers that import settings.prod"
@@ -2659,3 +2695,4 @@ echo "  - values-prod.yaml's Ingress overlay routes /api and /ws to the api Serv
 echo "  - web readinessProbe.httpGet.path is not '/' (the SPA fallback answers it unconditionally), and all three rendered ConfigMap branches (production, share-link demo, interactive demo) give that path its own non-SPA-falling-back, '=404'-on-a-miss location (#4359)"
 
 echo "  - celery queues (#2276): the default worker consumes --queues=celery,heavy until heavyWorker.enabled splits it (then celery vs heavy, no overlap); the heavy Deployment and the KEDA ScaledObject are absent by default, KEDA needs a redisAddress, and KEDA leaves replicas unset"
+echo "  - pgbouncer (#2275): absent by default; refuses the bundled database and a missing upstream; digest-pinned image, transaction pool_mode, per-connection jit=off; TRUEPPM_DB_TRANSACTION_POOLING set on api/worker/beat only when enabled"

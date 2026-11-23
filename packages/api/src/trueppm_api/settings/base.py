@@ -257,6 +257,24 @@ DATABASES["default"]["CONN_MAX_AGE"] = 60
 # callbacks to after commit rather than firing immediately in autocommit mode.
 DATABASES["default"]["ATOMIC_REQUESTS"] = True
 
+# Transaction-pooling mode (#2275). Set TRUEPPM_DB_TRANSACTION_POOLING=true when
+# DATABASE_URL points at PgBouncer (or RDS Proxy) in transaction-pooling mode. A
+# transaction pooler hands the server connection to another client between
+# transactions, so anything that lives on the *session* stops being yours:
+#   * server-side cursors (QuerySet.iterator() uses a named cursor) are declared
+#     on one server connection and fetched from another -> "cursor does not
+#     exist". Django's own switch for this is DISABLE_SERVER_SIDE_CURSORS;
+#     iterator() then falls back to client-side chunking.
+#   * CONN_HEALTH_CHECKS pings a reused persistent connection before the request
+#     uses it, so a pooler restart costs one retried ping instead of a 500.
+# CONN_MAX_AGE stays as configured: it governs the client<->pooler connection,
+# which is cheap to keep open and is what ATOMIC_REQUESTS holds per request.
+# Session advisory locks (migrate_locked) and session-scoped SETs are handled at
+# their own call sites; see DATABASE_DIRECT_URL in migrate_locked.
+if env.bool("TRUEPPM_DB_TRANSACTION_POOLING", default=False):
+    DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
+    DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
+
 # ---------------------------------------------------------------------------
 # File / object storage (#775)
 # ---------------------------------------------------------------------------

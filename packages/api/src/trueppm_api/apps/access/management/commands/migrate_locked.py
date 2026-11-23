@@ -24,12 +24,41 @@ in exactly the situation where surprises are expensive.
 
 from __future__ import annotations
 
+import contextlib
+import os
 import time
+from collections.abc import Iterator
 from typing import Any
 
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
+
+#: Env var naming a direct (non-pooled) PostgreSQL URL for the lock connection.
+#: A session-level advisory lock only means something if every statement of the
+#: session runs on ONE server connection. Behind a transaction pooler
+#: (``TRUEPPM_DB_TRANSACTION_POOLING``, #2275) the lock call and the later unlock
+#: can land on different server connections: the lock is then held by a pooled
+#: connection some other client reuses, and never released. ``migrate`` itself is
+#: fine through the pooler (each DDL statement runs in a transaction); only the
+#: lock needs the real database.
+DIRECT_URL_ENV = "DATABASE_DIRECT_URL"
+
+
+@contextlib.contextmanager
+def _lock_cursor() -> Iterator[Any]:
+    """Yield a cursor on a connection that is safe to hold a session lock on."""
+    direct_url = os.environ.get(DIRECT_URL_ENV, "").strip()
+    if not direct_url:
+        with connection.cursor() as cursor:
+            yield cursor
+        return
+    import psycopg
+
+    # autocommit: the lock must not sit inside a transaction a rollback could end.
+    with psycopg.connect(direct_url, autocommit=True) as direct, direct.cursor() as cursor:
+        yield cursor
+
 
 #: Arbitrary but FIXED 64-bit key. Every TruePPM process must use the same one or
 #: the lock arbitrates nothing; it is namespaced by the database, so two
@@ -65,7 +94,7 @@ class Command(BaseCommand):
         timeout = int(options["lock_timeout"])
         deadline = time.monotonic() + timeout if timeout else None
 
-        with connection.cursor() as cursor:
+        with _lock_cursor() as cursor:
             acquired = False
             while not acquired:
                 # try_advisory_lock, not advisory_lock: blocking inside the

@@ -325,3 +325,22 @@ class TestWsInstruments:
         metrics.record_ws_connection_opened()
         metrics.record_ws_connection_closed()
         metrics.record_ws_broadcast()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_db_probe_statement_timeout_does_not_outlive_the_probe() -> None:
+    """#2275: behind a transaction pooler a session-level SET leaks to the next client.
+
+    transaction=True: inside the default test transaction the probe's own atomic block
+    is only a savepoint, so a transaction-local setting would (correctly) still be live.
+    """
+    from django.db import connection
+
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW statement_timeout")
+        before = cursor.fetchone()
+    metrics._db_connection_rows()
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW statement_timeout")
+        after = cursor.fetchone()
+    assert after == before

@@ -707,6 +707,51 @@ processes:
     # order after the flags above — e.g. ["--queues=exports", "--prefetch-multiplier=1"].
     extraArgs: []
 
+# PgBouncer connection pooler (#2275). OFF by default. The API holds one server
+# connection per in-flight request (ATOMIC_REQUESTS), so PostgreSQL connections
+# grow with replicaCount x processes.api.workers (+ worker concurrency); past a
+# few replicas max_connections is the first wall. Enabling this renders a
+# transaction-pooling PgBouncer Deployment + Service in front of an EXTERNAL
+# PostgreSQL (postgresql.enabled=false is required). The chart does not rewrite
+# DATABASE_URL: set env.DATABASE_URL to the `<release>-trueppm-pgbouncer:6432`
+# Service and env.DATABASE_DIRECT_URL to the real database (migrate_locked takes
+# its session advisory lock there; a pooler cannot hold one). The chart sets
+# TRUEPPM_DB_TRANSACTION_POOLING=true for you, which turns off server-side
+# cursors and enables connection health checks. The connection math and a
+# managed-pooler alternative (RDS Proxy etc.) are in the sizing guide.
+# https://docs.trueppm.com/administration/sizing/#database-connections
+pgbouncer:
+  enabled: false
+  image:
+    repository: edoburu/pgbouncer
+    tag: ""
+    # PgBouncer 1.26.1 (ISC). Pinned by digest, not by the mutable `latest` tag.
+    digest: sha256:8638aa563607256d3c7440437534195f1066a92b68015d89ae9d6b935b444a6d
+  replicas: 2
+  # transaction pooling is what multiplexes connections. `session` is accepted
+  # for diagnosis only: it pools nothing a persistent connection does not.
+  poolMode: transaction
+  # Server connections per (database, user) pair, PER pgbouncer replica.
+  defaultPoolSize: 20
+  maxClientConn: 500
+  upstream:
+    host: ""
+    port: 5432
+    database: ""
+    sslmode: require
+  auth:
+    # Secret carrying PgBouncer's auth file (userlist.txt: lines of
+    # "user" "SCRAM-SHA-256$..." or "user" "plaintext-password"). Required.
+    existingSecret: ""
+    userlistKey: userlist.txt
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
 # Dedicated heavy-queue worker (#2276). OFF by default: a stock install runs ONE
 # worker Deployment that consumes both queues (`--queues=celery,heavy`), exactly
 # the old single-queue behavior. Enable this to give the long-running tasks —

@@ -1,0 +1,66 @@
+{{- if .Values.pgbouncer.enabled }}
+{{- $pb := .Values.pgbouncer }}
+{{- $secret := $pb.auth.existingSecret }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "trueppm.fullname" . }}-pgbouncer
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: pgbouncer
+spec:
+  replicas: {{ $pb.replicas }}
+  selector:
+    matchLabels:
+      {{- include "trueppm.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: pgbouncer
+  template:
+    metadata:
+      labels:
+        {{- include "trueppm.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: pgbouncer
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/pgbouncer/configmap.yaml") . | sha256sum | trunc 16 }}
+    spec:
+      automountServiceAccountToken: false
+      {{- include "trueppm.podPlacement" (dict "root" $ "component" "pgbouncer") | nindent 6 }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "trueppm.fullname" . }}-pgbouncer
+        - name: auth
+          secret:
+            secretName: {{ $secret | quote }}
+      containers:
+        - name: pgbouncer
+          image: "{{ $pb.image.repository }}{{ if $pb.image.digest }}@{{ $pb.image.digest }}{{ else }}:{{ required "pgbouncer.image.tag or pgbouncer.image.digest is required" $pb.image.tag }}{{ end }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # Bypass the image's entrypoint (it regenerates pgbouncer.ini from env
+          # vars into a writable /etc/pgbouncer); the config here is mounted.
+          command: ["/usr/bin/pgbouncer", "/etc/pgbouncer/pgbouncer.ini"]
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          ports:
+            - name: pgbouncer
+              containerPort: 6432
+          volumeMounts:
+            - name: config
+              mountPath: /etc/pgbouncer
+              readOnly: true
+            - name: auth
+              mountPath: /etc/pgbouncer-auth
+              readOnly: true
+          readinessProbe:
+            tcpSocket:
+              port: pgbouncer
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: pgbouncer
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            {{- toYaml $pb.resources | nindent 12 }}
+{{- end }}

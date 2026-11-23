@@ -485,6 +485,46 @@
       "description": "Rendered wholesale with toYaml into every container spec. Open for the same reason as podSecurityContext.",
       "type": "object"
     },
+    "pgbouncer": {
+      "description": "Optional PgBouncer transaction pooler in front of an external PostgreSQL (#2275).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": { "type": "string" },
+            "tag": { "type": "string" },
+            "digest": { "type": "string" }
+          }
+        },
+        "replicas": { "type": "integer", "minimum": 1 },
+        "poolMode": { "type": "string" },
+        "defaultPoolSize": { "type": "integer", "minimum": 1 },
+        "maxClientConn": { "type": "integer", "minimum": 1 },
+        "upstream": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "host": { "type": "string" },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "database": { "type": "string" },
+            "sslmode": { "type": "string", "enum": ["disable", "allow", "prefer", "require", "verify-ca", "verify-full"] }
+          }
+        },
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "existingSecret": { "type": "string" },
+            "userlistKey": { "type": "string" }
+          }
+        },
+        "resources": { "type": "object" }
+      }
+    },
     "heavyWorker": {
       "description": "Optional dedicated worker for the heavy Celery queue (#2276), with optional KEDA queue-depth autoscaling.",
       "type": "object",
