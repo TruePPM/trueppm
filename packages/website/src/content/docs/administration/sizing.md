@@ -254,13 +254,15 @@ Items 1 and 2 are measured; items 3, 4 and 5 are reasoned from the deployment sh
 Separate queues and the heavy worker ship in 0.5. In 0.4 all tasks share one queue.
 :::
 
-Background work runs on two Celery queues. The `celery` queue carries latency-sensitive work: outbox drains (every 30 seconds), notification and invite email, webhook delivery. The `heavy` queue carries MS Project, Jira and CSV import, project, program and workspace export, Monte Carlo and CPM recalculation, which run for seconds to minutes.
+Background work runs on two Celery queues. The `celery` queue carries latency-sensitive work: outbox drains (every 30 seconds), notification and invite email, webhook delivery. The `heavy` queue carries MS Project, Jira and CSV import, project, program and workspace export, template application, Monte Carlo, CPM recalculation (per project and program-wide), the child cascade after a project is deleted, and the nightly retention purge, which run for seconds to minutes.
 
 | Install size | Recommended topology |
 |---|---|
 | Team of 25 | One worker on both queues (the chart default). Nothing to configure. |
 | Team of 250, or regular large imports | Set `heavyWorker.enabled: true`. Imports queue behind other imports rather than in front of email and drains. Give `resources.heavyWorker` the memory the largest project needs (see [Toward 100,000 tasks](#toward-100000-tasks)). |
 | Bursty imports | Add `heavyWorker.keda.enabled: true` to scale the heavy worker on queue depth. CPU alone does not see a backlog while the tasks wait, so a CPU HPA scales too late. |
+
+**With a dedicated heavy worker, schedule recalculation waits behind imports.** CPM recalculation runs on `heavy`, so when every heavy slot is busy with a multi-minute import or export, a task edit's recalculated dates (and the critical path) appear only once a slot frees up. The split moves the head-of-line delay from email to schedule freshness; it does not remove it. Keep recalculation fresh by leaving headroom: set `heavyWorker.concurrency` (or `replicas`) above the number of imports you expect at once, or turn on KEDA so a backlog adds replicas. Recalculation stays on `heavy` because a large project's recalculation holds a worker for tens of seconds, which on the default worker would compete with the 30-second outbox drains.
 
 Scale the two on different signals: the default worker on CPU (`autoscaling.worker.enabled`), the heavy worker on `heavy` list length. Keep `lifecycle.worker.terminationGracePeriodSeconds` above your longest heavy task. See [Heavy-queue worker](/administration/helm-values/#heavy-queue-worker) for every key. To run a single queue everywhere, set `TRUEPPM_CELERY_HEAVY_QUEUE=celery` on the API and workers; `celery` is the only supported value, because the shipped worker commands hardcode `celery,heavy`. A `kubectl exec` into any worker and `celery -A trueppm_api.celery inspect active_queues` shows which queues it consumes.
 

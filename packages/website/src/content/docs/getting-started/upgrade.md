@@ -147,6 +147,12 @@ already do this. To keep a single queue instead, set
 [Sizing](/administration/sizing/) and
 [Helm values](/administration/helm-values/#heavy-queue-worker).
 
+**Rolling back to 0.4 strands queued heavy work.** A 0.4 worker never reads the
+`heavy` queue, so any task already waiting there is never run after a rollback.
+Before you roll back, stop new imports and exports and keep the 0.5 workers (or
+one started with `-Q heavy`) running until the `heavy` queue is empty:
+`redis-cli -n <db> LLEN heavy` reads `0`.
+
 ### Successors of weekend actuals move on recalculation
 
 A non-working `actual_start` or `actual_finish` (a Saturday, Sunday, or calendar

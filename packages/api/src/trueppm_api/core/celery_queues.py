@@ -22,9 +22,28 @@ DEFAULT_QUEUE = "celery"
 DEFAULT_HEAVY_QUEUE = "heavy"
 
 #: Tasks that run for minutes or hold large buffers. Light tasks (outbox
-#: drains, notification/invite email, webhook delivery, purges, WebSocket
+#: drains, notification/invite email, webhook delivery, the small per-table
+#: periodic sweeps such as ``scheduling.purge_old_schedule_requests``, WebSocket
 #: fan-out) are deliberately absent: an unrouted task lands on the default
 #: queue, which is also where enterprise-registered tasks go.
+#:
+#: Heavy by the same test (a multi-minute ``soft_time_limit`` whose length
+#: grows with project size, and no user waiting on it within seconds):
+#: the program-wide merged CPM pass, the soft-delete child cascade (every task,
+#: edge, sprint, risk and baseline of a project) and the nightly retention
+#: coordinator, which hard-deletes trashed projects across six tables.
+#:
+#: Per-edit CPM (``recalculate_schedule``) is heavy too, and that is a trade-off
+#: rather than a free win: with a dedicated heavy worker, a recalc queued behind
+#: a multi-minute import waits for it, so the head-of-line delay moves from
+#: email to schedule freshness. It stays here because a 10,000-task recalc
+#: holds a worker child for tens of seconds — on the light queue a burst of them
+#: (a bulk edit across projects) would occupy the few children the 30-second
+#: outbox drains and email need — and because
+#: the program pass it escalates to must share its queue, or a project with
+#: cross-program edges would refresh on a different clock from one without.
+#: The operator-side mitigation (heavy-worker headroom, KEDA) is in the sizing
+#: guide, "Worker topology and queue-depth autoscaling".
 HEAVY_TASKS: tuple[str, ...] = (
     "msproject.import_file",
     "jira.import_file",
@@ -37,6 +56,10 @@ HEAVY_TASKS: tuple[str, ...] = (
     "templates.apply",
     # layering-ok: a Celery task NAME (this task has no short name=), not an import
     "trueppm_api.apps.scheduling.tasks.recalculate_schedule",
+    # layering-ok: a Celery task NAME (this task has no short name=), not an import
+    "trueppm_api.apps.scheduling.tasks.recalculate_program_schedule",
+    "projects.cascade_project_soft_delete",
+    "retention.run_purge",
 )
 
 

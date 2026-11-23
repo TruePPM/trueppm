@@ -24,11 +24,20 @@ def test_heavy_tasks_resolve_to_heavy_queue_and_light_to_default() -> None:
     router = celery_app.amqp.router
     for name in HEAVY_TASKS:
         assert router.route({}, name)["queue"].name == "heavy", name
+    # Named explicitly so dropping one from HEAVY_TASKS fails here, not silently.
+    for name in (
+        "trueppm_api.apps.scheduling.tasks.recalculate_schedule",
+        "trueppm_api.apps.scheduling.tasks.recalculate_program_schedule",
+        "projects.cascade_project_soft_delete",
+        "retention.run_purge",
+    ):
+        assert router.route({}, name)["queue"].name == "heavy", name
     for light in (
         "scheduling.drain_schedule_queue",
         "notifications.drain_notification_emails",
         "webhooks.drain_webhook_queue",
         "workspace.drain_invite_emails",
+        "scheduling.purge_old_schedule_requests",
     ):
         assert router.route({}, light)["queue"].name == DEFAULT_QUEUE, light
 
