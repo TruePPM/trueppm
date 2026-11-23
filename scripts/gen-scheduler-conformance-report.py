@@ -4,8 +4,9 @@
 An external assessment of 0.4.0 rated "independent verification" 7.5/10 and asked for a
 scheduler-only conformance and benchmark report. The oracles, fuzzers and parity suites it
 asked for already exist under ``packages/scheduler/tests/``; nothing published them. This
-generates the page from the repo and from CI artifacts rather than from prose, so it cannot
-claim a cell the tests do not have.
+generates the page from the repo and from CI artifacts rather than from prose. The refusal
+list, budgets, corpora and mutation scope are read from the tree; the coverage matrix cells
+are hand-declared (see below) and only checked for the existence of the tests they cite.
 
 Two parts, with different lifetimes:
 
@@ -61,24 +62,34 @@ SCOPES = ("project calendar", "per-task calendars")
 REF, PAR, NOT = "reference-checked", "parity-only", "not generated"
 
 # (link, state, scope) -> (status, cited tests). Anything absent is NOT generated.
-# A completed milestone with recorded actuals is refused by the reference on every link;
-# the metamorphic test pins it instead. FF/SF across two calendars is refused (#4639).
+# Verified by hand against ``progress_projects(modeled=True)``: ``_on_one_calendar`` rewrites an
+# FF/SF link to FS/SS only when its two tasks sit on DIFFERENT calendars (a task with none
+# counts as its own value), so an FF/SF link between two tasks on the same per-task calendar,
+# or both on the project calendar, is still drawn and reference-checked in every state.
+# Cross-calendar FF/SF is refused by the reference (#4639) and so is never generated. A
+# completed milestone with recorded actuals is refused too: the generator drops its actuals.
 _NET = ("test_python_engine_matches_reference_on_networks_of_work",)
 _PROG = ("test_python_engine_matches_reference_with_progress",)
-_PERT = ("test_slipping_a_predecessor_never_moves_work_earlier",)
 MATRIX: dict[tuple[str, str, str], tuple[str, tuple[str, ...]]] = {}
 for _l in LINKS:
     MATRIX[(_l, STATES[0], SCOPES[0])] = (REF, _NET)
     MATRIX[(_l, STATES[1], SCOPES[0])] = (REF, _PROG)
     MATRIX[(_l, STATES[2], SCOPES[0])] = (REF, _PROG)
-for _l in ("FS", "SS"):
     for _s in STATES:
         MATRIX[(_l, _s, SCOPES[1])] = (REF, _PROG)
-for _l in (
-    "SF",
-    "FF",
-):  # cross-calendar FF/SF are refused; the slip oracle still covers them
-    MATRIX[(_l, STATES[0], SCOPES[1])] = (PAR, _PERT)
+
+# Footnote markers appended to a cell's status.
+_X_CAL, _X_MS = "\u2020", "\u2021"
+
+
+def _marks(link: str, state: str, scope: str) -> str:
+    out = ""
+    if scope == SCOPES[1] and link in ("SF", "FF"):
+        out += _X_CAL
+    if state == STATES[2]:
+        out += _X_MS
+    return out
+
 
 CITED = sorted({t for _, ts in MATRIX.values() for t in ts})
 
@@ -188,7 +199,7 @@ def static_block() -> str:
         row = [link]
         for s in STATES:
             for c in SCOPES:
-                row.append(MATRIX.get((link, s, c), (NOT, ()))[0])
+                row.append(MATRIX.get((link, s, c), (NOT, ()))[0] + _marks(link, s, c))
         lines.append("| " + " | ".join(row) + " |")
     lines += [
         "",
@@ -196,9 +207,17 @@ def static_block() -> str:
         f"reference implementation (`tests/oracle/reference_cpm.py`). *{PAR}*: no reference "
         "comparison, but a property over the engine's own output (the slip oracle) or a "
         f"Python/Rust comparison covers it. *{NOT}*: no generator draws that shape. "
-        "Cells cite these properties, each checked to still exist when this page is built: "
+        "Cell values are declared by hand in the generator and reviewed against the "
+        "oracle's strategies; the build checks only that each cited property still exists: "
         + ", ".join(f"`{t}`" for t in CITED)
         + ".",
+        "",
+        f"{_X_CAL} On per-task calendars an FF/SF link is drawn only between two tasks on the "
+        "same calendar (or two with none). An FF/SF link across two different calendars is "
+        "refused by the reference (#4639), so it is rewritten to FS/SS and not generated.",
+        "",
+        f"{_X_MS} A completed milestone with recorded actuals is refused by the reference; the "
+        "generator drops its actuals, so that shape is not generated.",
         "",
         "**What the reference refuses, verbatim from the oracle's own documentation:**",
         "",
