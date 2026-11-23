@@ -330,6 +330,8 @@ Production refuses to start when `DATABASE_URL` has no `sslmode` parameter. That
 - **TLS on** is the recommended setting. The certificate's name should be the Service name (`<release>-trueppm-pgbouncer`, plus `.<namespace>.svc` if you want), for example one issued by cert-manager. `sslmode=require` encrypts the connection but does not check the certificate. With TLS on, PgBouncer rejects any client that tries plaintext.
 - **TLS off** keeps the app-to-PgBouncer hop **unencrypted inside the cluster**. Database queries and results cross the pod network in the clear. The password does not, because PgBouncer authenticates with SCRAM. `sslmode=require` does not work in this setting: the connection fails with `server does not support SSL, but SSL was required`. Use `prefer`, and accept the plaintext hop only where the pod network is trusted. With `networkPolicy.enabled` (the default), the chart allows only the TruePPM API, workers, beat, backup and demo-seed pods to reach PgBouncer on 6432. That limits who can connect. It does not encrypt anything.
 
+**Certificate renewal needs a restart.** PgBouncer reads `client_tls_cert_file` and `client_tls_key_file` at startup or on `RELOAD`, and nothing restarts the pod when the Secret changes. After a renewal (cert-manager included), run `kubectl rollout restart deployment/<release>-trueppm-pgbouncer`. Clients using `sslmode=require` keep working against the old certificate because they do not check it. Clients using `verify-ca` or `verify-full` break when the old certificate expires.
+
 `DATABASE_DIRECT_URL` goes straight to the database and keeps `sslmode=require`, whichever setting you choose.
 
 ### A managed pooler instead
