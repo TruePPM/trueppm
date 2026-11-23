@@ -9,9 +9,9 @@ const base: CurrentUser['landing'] = {
 };
 
 describe('resolveHomeSurface', () => {
-  it('maps each server home onto the page /home renders in place', () => {
-    expect(resolveHomeSurface({ ...base, home: 'contributor' })).toEqual({ kind: 'my-work' });
-    expect(resolveHomeSurface({ ...base, home: 'pm' })).toEqual({ kind: 'programs' });
+  it('maps each server home onto the surface /home renders', () => {
+    expect(resolveHomeSurface({ ...base, home: 'contributor' })).toEqual({ kind: 'contributor' });
+    expect(resolveHomeSurface({ ...base, home: 'pm' })).toEqual({ kind: 'pm' });
     expect(resolveHomeSurface({ ...base, home: 'rm' })).toEqual({ kind: 'resources' });
     expect(
       resolveHomeSurface({
@@ -19,17 +19,18 @@ describe('resolveHomeSurface', () => {
         home: 'exec',
         home_program: { id: 'pg-1', code: 'PG', name: 'Program' },
       }),
-    ).toEqual({ kind: 'program-overview', programId: 'pg-1' });
+    ).toEqual({ kind: 'exec', programId: 'pg-1' });
   });
 
-  it('an exec home without a program falls back to the programs list', () => {
+  it('an exec home without a program carries no program id (switcher empty state)', () => {
     expect(resolveHomeSurface({ ...base, home: 'exec', home_program: null })).toEqual({
-      kind: 'programs',
+      kind: 'exec',
+      programId: null,
     });
   });
 
   it('a missing home (older server, no user yet) reads as the contributor home', () => {
-    expect(resolveHomeSurface(base)).toEqual({ kind: 'my-work' });
-    expect(resolveHomeSurface(undefined)).toEqual({ kind: 'my-work' });
+    expect(resolveHomeSurface(base)).toEqual({ kind: 'contributor' });
+    expect(resolveHomeSurface(undefined)).toEqual({ kind: 'contributor' });
   });
 });

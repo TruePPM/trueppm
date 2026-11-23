@@ -297,6 +297,12 @@ function ProjectContextHeader({ projectId }: { projectId: string }) {
         <HealthSlot />
         <span className="flex-1" />
         <ForecastStamp projectId={projectId} />
+        <Link
+          to={`${basePath}/forecast`}
+          className="relative hidden h-8 items-center text-xs text-p1-brand underline before:absolute before:-inset-y-1.5 before:inset-x-0 before:content-[''] focus:outline-none focus:ring-2 focus:ring-p1-focus md:inline-flex"
+        >
+          Forecast
+        </Link>
       </div>
       <div className="mt-1.5">
         <TabRow

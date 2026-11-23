@@ -7,34 +7,32 @@ export const HOME_PATH = '/home';
 export type HomeKind = 'contributor' | 'pm' | 'rm' | 'exec';
 
 /**
- * What `/home` renders in place until each home's own issue ships (#4768–#4771).
- * `exec-program` carries the program the server chose; the client selects nothing.
+ * What `/home` renders. `rm` still shows the Resources page in place until its own
+ * home ships (#4770). The Executive home carries the program the server chose (or
+ * none); the client selects nothing, and its switcher changes only the view.
  */
 export type HomeSurface =
-  | { kind: 'my-work' }
-  | { kind: 'programs' }
+  | { kind: 'contributor' }
+  | { kind: 'pm' }
   | { kind: 'resources' }
-  | { kind: 'program-overview'; programId: string };
+  | { kind: 'exec'; programId: string | null };
 
 /**
- * Map the server-resolved home onto the existing page `/home` renders.
+ * Map the server-resolved home onto the surface `/home` renders.
  *
- * Pure: no role logic lives here — `landing.home` already encodes the precedence.
+ * Pure: no role logic lives here: `landing.home` already encodes the precedence.
  * An unknown or missing value (an older server) reads as the contributor home, the
- * same fail-open default the server resolver uses. An Executive with no program
- * (`home_program` null) gets the programs list rather than an empty overview.
+ * same fail-open default the server resolver uses.
  */
 export function resolveHomeSurface(landing: CurrentUser['landing'] | undefined): HomeSurface {
   switch (landing?.home) {
     case 'pm':
-      return { kind: 'programs' };
+      return { kind: 'pm' };
     case 'rm':
       return { kind: 'resources' };
     case 'exec':
-      return landing.home_program
-        ? { kind: 'program-overview', programId: landing.home_program.id }
-        : { kind: 'programs' };
+      return { kind: 'exec', programId: landing.home_program?.id ?? null };
     default:
-      return { kind: 'my-work' };
+      return { kind: 'contributor' };
   }
 }

@@ -88,19 +88,63 @@ async function setup(page: Page, home: Home, opts: { flag: boolean }): Promise<v
       }),
     }),
   );
+  // The PM and exec homes read the program list, the roster, the health summary and
+  // the awaiting decisions: real shapes, never the catch-all's list shape.
+  await page.route('**/api/v1/programs/', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({
+        count: 1,
+        next: null,
+        previous: null,
+        results: [{ id: GID, name: 'Exec Program', code: 'EX', my_role: 1 }],
+      }),
+    }),
+  );
+  await page.route(`**/api/v1/programs/${GID}/projects/`, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
+  );
+  await page.route('**/api/v1/me/work/**', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({
+        count: 0,
+        next: null,
+        previous: null,
+        results: [],
+        due_today_count: 0,
+        active_sprints: [],
+        retro_action_items: [],
+        external_items: [],
+        external_sources: [],
+      }),
+    }),
+  );
+  await page.route('**/api/v1/projects/health-summary/', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
+  );
+  await page.route(`**/api/v1/programs/${GID}/decisions/**`, (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({ count: 0, next: null, previous: null, results: [] }),
+    }),
+  );
 }
 
 test.describe('shell v2 role homes (flag on)', () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
   // Each home's "rendered" signal: something only that home has — My Work's
-  // landmark (its h1 is a time-based greeting), the Programs h1, the resources
-  // search box, the exec program's h1.
+  // landmark (its h1 is a time-based greeting), the program forecast hero, the
+  // resources search box.
   const cases: Array<[Home, (page: Page) => ReturnType<Page['getByRole']>]> = [
     ['contributor', (p) => p.getByRole('region', { name: 'My Work', exact: true })],
-    ['pm', (p) => p.getByRole('heading', { level: 1, name: 'Programs' })],
+    ['pm', (p) => p.getByRole('heading', { name: 'Forecast · Exec Program' })],
     ['rm', (p) => p.getByRole('searchbox', { name: 'Search resources' })],
-    ['exec', (p) => p.getByRole('heading', { level: 1, name: 'Exec Program' })],
+    ['exec', (p) => p.getByRole('heading', { name: 'Forecast · Exec Program' })],
   ];
 
   for (const [home, rendered] of cases) {
@@ -109,10 +153,8 @@ test.describe('shell v2 role homes (flag on)', () => {
       await page.goto('/');
       await expect(page).toHaveURL(/\/home$/);
       await expect(rendered(page).first()).toBeVisible();
-      // Only the PM home is the Programs list; no other home may render it.
-      if (home !== 'pm') {
-        await expect(page.getByRole('heading', { level: 1, name: 'Programs' })).toHaveCount(0);
-      }
+      // The v1 Programs list is no longer any home's surface.
+      await expect(page.getByRole('heading', { level: 1, name: 'Programs' })).toHaveCount(0);
       const destinations = page.getByRole('navigation', { name: 'Destinations' });
       await expect(destinations.getByRole('link', { name: /Home/ })).toHaveAttribute(
         'aria-current',

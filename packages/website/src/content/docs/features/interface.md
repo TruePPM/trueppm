@@ -388,24 +388,40 @@ Other changes you will notice with the flag on:
   assigned to you, you get the contributor home; if you only view projects and
   have nothing assigned, you get the executive home, which shows one program at
   a time. A **My Work** or **A project's Dashboard** preference you saved picks
-  the contributor or delivery home instead. Until each home is redesigned it
-  shows an existing page in place: My Work, the Programs list, the Resource
-  Catalog, or the program's Overview. The executive home opens on a program
-  you are a member of; if you belong to none, it shows the Programs list.
-  Nothing in the app sets the resource manager home yet: it is reachable only by
-  setting `home_override` to `"rm"` on `PATCH /api/v1/auth/me/profile/`, and saving a
-  landing preference clears it. With the flag off, `/home` sends you to your
-  usual landing page.
+  the contributor or delivery home instead. Each home shows its own page:
+  - **Contributor home**: your assigned work grouped Today, This Sprint and
+    Upcoming, with a greeting, a blocked filter and the time you logged today.
+    It has no schedule health, forecast or critical-path figures.
+  - **Delivery home**: the program's P80 finish date with its "as of" and how
+    many working days it sits past or inside the commitment, the finish-date
+    curve of the project driving that date, a **Biggest slip** card, a
+    **Blocked** card (both cover only the project driving the program's P80
+    date, not a maximum across the whole program), the decisions waiting on an answer, and a table of the
+    program's projects with the server's health word and at-risk and overdue
+    task counts. It opens on the first program the server lists for you; when you
+    see more than one, a **Program** switcher changes what is shown.
+  - **Executive home**: the same forecast, decisions and projects for **one
+    program at a time**. It opens on the program the server chose, and the
+    **Program** switcher lists the programs you can see and changes only the
+    view. If the server chose no program it opens on a "Choose a program"
+    message. There is no view across programs. Sharing a status link from this
+    home is planned for a later release.
+  - **Resource manager home**: still shows the Resource Catalog in place. Turn
+    it on under **Settings > Preferences > Home screen**
+    (**Open on the Resource Manager home**); turning it off returns you to the
+    home that fits your role. Saving a **Default landing screen** also turns it
+    off. With the flag off, `/home` sends you to your usual landing page.
 - **A forecast view.** `/projects/<project>/forecast` shows the project's
   Monte Carlo finish-date curve with its P50, P80 and P95 dates, when the
   forecast was run, and a **Run forecast** button. A project that has never been
   forecast says **Not run yet**. When the project has changed since the last
   run, the view says so in place of the "as of" time and asks you to run it
   again. With the flag off the address sends you to the project's Overview.
-  Two things are not there yet: the view draws the cumulative curve only, not
-  the histogram bars of how many runs finished in each week, and nothing in the
-  navigation links to it, so you open it by its address. Both are planned for a
-  later release.
+  Below the curve, a weekly histogram shows how many runs finished in each
+  week, and marks the weeks that hold P50, P80 and P95. Open the view from the
+  **Forecast** link in the project's header, next to the P80 stamp. The link
+  appears at desktop widths; on a phone, reach the forecast view from the
+  **Why this date?** link on the home.
 - **One breadcrumb.** Program / project / view, with a single separator, is the
   only place the app states where you are.
 - **One status pill** in the top bar replaces the stacked status banners: it
