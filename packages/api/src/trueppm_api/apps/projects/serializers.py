@@ -6976,7 +6976,12 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             user = getattr(request, "user", None) if request else None
             if not can_read_blocker_reason(instance, user):
                 data.pop("blocked_reason", None)
-        return data
+        # Capability scope (#4814): an agent without Resources read gets the task
+        # without its resource assignments and load flags. The keys are DROPPED, as
+        # above, so "no assignments" is never asserted by an empty list.
+        from trueppm_api.apps.projects.agent_scope import strip_resource_task_fields
+
+        return strip_resource_task_fields(data, self.context.get("request"))
 
     def create(self, validated_data: dict[str, Any]) -> Task:
         """Create the task, auto-shifting the project start earlier when needed.

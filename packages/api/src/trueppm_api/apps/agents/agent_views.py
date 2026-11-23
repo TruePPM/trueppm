@@ -12,6 +12,7 @@ Visibility and management rules live in :mod:`trueppm_api.apps.agents.control`.
 
 from __future__ import annotations
 
+import time
 from collections import defaultdict
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
@@ -43,6 +44,7 @@ from trueppm_api.apps.agents.serializers import (
 from trueppm_api.apps.agents.services import verify_chain
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.agent_scope import (
+    AGENT_AREA_COVERS,
     AGENT_AREA_LABELS,
     AGENT_AREAS,
     AGENT_LEVELS,
@@ -64,6 +66,15 @@ AUDIT_VERIFY_TTL_SECONDS = 600
 
 #: The one cache key the verification is stored under. Fixed, so the TTL alone bounds it.
 AUDIT_VERIFY_CACHE_KEY = "agents:audit_verify"
+
+#: Single-flight lock for a cache miss: one request walks the chain, the rest wait.
+AUDIT_VERIFY_LOCK_KEY = "agents:audit_verify:lock"
+
+#: How long the lock is held at most (a crashed walker cannot wedge the line forever).
+AUDIT_VERIFY_LOCK_SECONDS = 120
+
+#: How long a request that lost the lock waits for the winner's result before a 503.
+AUDIT_VERIFY_WAIT_SECONDS = 5.0
 
 #: Most agents one list response carries; ``truncated`` is true when more exist.
 MAX_AGENTS_LISTED = 200
@@ -270,8 +281,12 @@ class AgentListView(_AgentsBase):
             # that is not one of the paginated envelope shapes.
             "agents": rows,
             "truncated": truncated,
-            "areas": [{"key": a, "label": AGENT_AREA_LABELS[a]} for a in AGENT_AREAS],
+            "areas": [
+                {"key": a, "label": AGENT_AREA_LABELS[a], "covers": AGENT_AREA_COVERS[a]}
+                for a in AGENT_AREAS
+            ],
             "grantable_levels": [lvl for lvl in AGENT_LEVELS if lvl in GRANTABLE_LEVELS],
+            "can_verify_log": control.is_workspace_admin(request.user),
         }
         return Response(AgentListResponseSerializer(payload).data)
 
@@ -379,30 +394,72 @@ class AgentRevokeView(_AgentObjectView):
         return Response(AgentDetailSerializer(_rows([token], request.user, detail=True)[0]).data)
 
 
+class IsWorkspaceAdminPerson(BasePermission):
+    """Workspace Admins only: the chain verification is a workspace-wide fact."""
+
+    message = "Only a workspace Admin can verify the agent action log."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        return control.is_workspace_admin(request.user)
+
+
 class AgentAuditVerifyView(_AgentsBase):
     """The "Action log verified" line: ``audit_verify`` over the whole chain.
+
+    Workspace Admins only (#4814): ``record_count`` and ``break_sequence`` describe the
+    whole workspace's chain, not the caller's agents, and a miss walks every row. Anyone
+    else gets a 403, and the Agents page omits the line for them
+    (``can_verify_log`` on the list response).
 
     Reused for :data:`AUDIT_VERIFY_TTL_SECONDS` under one fixed key, so a page load
     cannot turn into a full-chain walk. The key is deliberately not the chain head:
     every agent call advances the head, so a head-keyed entry missed on almost every
     load and the cache bought nothing. The line therefore says "as of" its
     ``checked_at``, and may trail the newest records by up to the TTL.
+
+    A miss is single-flight: ``cache.add`` on :data:`AUDIT_VERIFY_LOCK_KEY` is atomic,
+    so exactly one concurrent request walks the chain while the others poll for its
+    result, and answer 503 if it does not land within :data:`AUDIT_VERIFY_WAIT_SECONDS`.
     """
 
+    permission_classes = [  # noqa: RUF012
+        permissions.IsAuthenticated,
+        IsSignedInPerson,
+        IsWorkspaceAdminPerson,
+    ]
+
     @extend_schema(
-        summary="Verify the agent-action hash chain", responses={200: AgentAuditVerifySerializer}
+        summary="Verify the agent-action hash chain",
+        description="Workspace Admins only. Cached for ten minutes; a miss is single-flight.",
+        responses={200: AgentAuditVerifySerializer, 403: None, 503: None},
     )
     def get(self, request: Request) -> Response:
         key = AUDIT_VERIFY_CACHE_KEY
         cached = cache.get(key)
-        if cached is None:
-            result = verify_chain()
-            cached = {
-                "ok": result.ok,
-                "record_count": result.record_count,
-                "checked_at": timezone.now(),
-                "anchor": result.anchor,
-                "break_sequence": result.break_sequence,
-            }
-            cache.set(key, cached, AUDIT_VERIFY_TTL_SECONDS)
+        if cached is None and cache.add(AUDIT_VERIFY_LOCK_KEY, "1", AUDIT_VERIFY_LOCK_SECONDS):
+            try:
+                cached = cache.get(key)  # a walker may have finished between get and add
+                if cached is None:
+                    result = verify_chain()
+                    cached = {
+                        "ok": result.ok,
+                        "record_count": result.record_count,
+                        "checked_at": timezone.now(),
+                        "anchor": result.anchor,
+                        "break_sequence": result.break_sequence,
+                    }
+                    cache.set(key, cached, AUDIT_VERIFY_TTL_SECONDS)
+            finally:
+                cache.delete(AUDIT_VERIFY_LOCK_KEY)
+        elif cached is None:
+            deadline = time.monotonic() + AUDIT_VERIFY_WAIT_SECONDS
+            while cached is None and time.monotonic() < deadline:
+                time.sleep(0.2)
+                cached = cache.get(key)
+            if cached is None:
+                return Response(
+                    {"detail": "The action log is being verified. Try again shortly."},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    headers={"Retry-After": "5"},
+                )
         return Response(AgentAuditVerifySerializer(cached).data)

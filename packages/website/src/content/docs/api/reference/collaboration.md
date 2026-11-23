@@ -337,13 +337,13 @@ Ships in 0.5.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/v1/agents/` | Agents you can see, with the scope vocabulary (`agents`, `truncated`, `areas`, `grantable_levels`); at most 200 agents, `truncated` is true when more exist; `?program=` narrows to agents that acted in one program |
+| GET | `/api/v1/agents/` | Agents you can see, with the scope vocabulary (`agents`, `truncated`, `areas` with each area's `key`, `label` and `covers`, `grantable_levels`) and `can_verify_log` (true for a workspace Admin); at most 200 agents, `truncated` is true when more exist; `?program=` narrows to agents that acted in one program |
 | GET | `/api/v1/agents/{id}/` | One agent with its 20 most recent actions, redacted by project membership |
 | POST | `/api/v1/agents/{id}/pause/` | Pause the agent: every call it makes is refused (`agent_paused`) until resumed |
 | POST | `/api/v1/agents/{id}/resume/` | Resume a paused agent |
-| PATCH | `/api/v1/agents/{id}/scope/` | Set `read` / `propose` (Dry run) per area; `write` is refused (400 `write_not_grantable`), and a level above the person the agent acts for is refused (400 `above_principal`) |
+| PATCH | `/api/v1/agents/{id}/scope/` | Set `read` / `propose` (Dry run) per area; `write` is refused (400 `write_not_grantable`), and raising an area above what the person the agent acts for can do now is refused (400 `above_principal`); lowering any area, or keeping a stored level, is always accepted |
 | POST | `/api/v1/agents/{id}/revoke/` | Revoke the agent's token, effective on its next call |
-| GET | `/api/v1/agents/audit-verify/` | The `audit_verify` result for the whole chain: `ok`, `record_count`, `checked_at`; reused for up to ten minutes |
+| GET | `/api/v1/agents/audit-verify/` | Workspace Admins only (403 otherwise). The `audit_verify` result for the whole chain: `ok`, `record_count`, `checked_at`; reused for up to ten minutes. A cache miss is computed once; a concurrent request waits for it and answers 503 with `Retry-After` if it does not finish in time |
 
 An agent is a personal token carrying `mcp:read` and not the full scope. You see your
 own agents, agents that acted in a project you belong to, and every agent if you are

@@ -191,7 +191,7 @@
 -++++++  GET api/v1/agent-actions/<uuid:pk>/::retrieve
 -++++++  GET api/v1/agents/::get
 -++++++  GET api/v1/agents/<uuid:pk>/::get
--++++++  GET api/v1/agents/audit-verify/::get
+-------  GET api/v1/agents/audit-verify/::get
 -++++++  GET api/v1/assets/::get
 -++++++  GET api/v1/auth/me/::get
 -++++++  GET api/v1/auth/me/pinned/::get

@@ -403,10 +403,18 @@ def test_full_scope_tokens_are_not_listed_as_agents(world: dict[str, Any]) -> No
     assert names == ["Claude"]
 
 
+def _ws_admin(name: str = "wsadmin") -> Any:
+    admin = _user(name)
+    WorkspaceMembership.objects.create(
+        workspace=Workspace.load(), user=admin, role=WorkspaceRole.ADMIN
+    )
+    return admin
+
+
 @pytest.mark.django_db
 def test_audit_verify_line(world: dict[str, Any]) -> None:
     _bearer(world["raw"]).get(_overview(world["project"]))
-    data = _as(world["principal"]).get("/api/v1/agents/audit-verify/").data
+    data = _as(_ws_admin()).get("/api/v1/agents/audit-verify/").data
     assert data["ok"] is True
     assert data["record_count"] == AgentAction.objects.count()
     assert data["checked_at"]
@@ -604,7 +612,7 @@ def test_audit_verify_is_reused_across_new_agent_calls(
         return real()
 
     monkeypatch.setattr(agent_views, "verify_chain", counting)
-    client = _as(world["principal"])
+    client = _as(_ws_admin())
     first = client.get("/api/v1/agents/audit-verify/").data
     _bearer(world["raw"]).get(_overview(world["project"]))  # advances the chain head
     second = client.get("/api/v1/agents/audit-verify/").data
@@ -627,3 +635,218 @@ def test_agent_list_is_capped(world: dict[str, Any], monkeypatch: pytest.MonkeyP
     data = client.get("/api/v1/agents/").data
     assert data["truncated"] is True
     assert [r["name"] for r in data["agents"]] == ["Claude"]
+
+
+# ---------------------------------------------------------------------------
+# Round 2: every area governs real endpoints; coalescing key; narrowing; verify gate
+# ---------------------------------------------------------------------------
+
+
+def _routed_mcp_view_areas() -> dict[str, set[str]]:
+    """Area -> routes, from the REAL URL resolver (every routed MCP view and action)."""
+    from django.urls import get_resolver
+
+    from trueppm_api.apps.access.permissions import McpReadableViewMixin
+
+    out: dict[str, set[str]] = {}
+
+    def walk(patterns: Any, prefix: str = "") -> None:
+        for p in patterns:
+            if hasattr(p, "url_patterns"):
+                walk(p.url_patterns, prefix + str(p.pattern))
+                continue
+            cls = getattr(p.callback, "cls", None) or getattr(p.callback, "view_class", None)
+            if cls is None or not issubclass(cls, McpReadableViewMixin):
+                continue
+            actions = getattr(p.callback, "actions", None) or {"get": None}
+            for method, act in actions.items():
+                if method != "get":
+                    continue
+                view = cls()
+                view.action = act
+                area = agent_scope.area_for_view(view)
+                if area is not None:
+                    out.setdefault(area, set()).add(f"{prefix}{p.pattern} [{act}]")
+
+    walk(get_resolver().url_patterns)
+    return out
+
+
+def test_every_area_governs_a_routed_mcp_view() -> None:
+    """A scope area that governs no routed view is a toggle that refuses nothing."""
+    areas = _routed_mcp_view_areas()
+    for area in agent_scope.AGENT_AREAS:
+        assert areas.get(area), f"no routed MCP view is governed by {area!r}"
+    joined = {a: " ".join(sorted(r)) for a, r in areas.items()}
+    assert "cost/" in joined["resources"]
+    assert "[resource_allocation]" in joined["resources"]
+    assert "[heatmap]" in joined["resources"]
+    assert "[utilization]" in joined["resources"]
+    assert "schedule/driving-chain/" in joined["dependencies"]
+    assert "schedule/derivation/" in joined["dependencies"]
+    assert "baselines/" in joined["baselines"]
+    assert set(agent_scope.AGENT_AREA_COVERS) == set(agent_scope.AGENT_AREAS)
+
+
+def _set_scope(world: dict[str, Any], **levels: str) -> None:
+    resp = _as(world["principal"]).patch(
+        f"/api/v1/agents/{world['token'].pk}/scope/", {"scope": levels}, format="json"
+    )
+    assert resp.status_code == 200, resp.data
+
+
+@pytest.mark.django_db
+def test_resources_none_refuses_cost_and_resource_reads(world: dict[str, Any]) -> None:
+    agent = _bearer(world["raw"])
+    pk = world["project"].id
+    cost = f"/api/v1/projects/{pk}/cost/"
+    assert agent.get(cost).status_code == 200
+
+    _set_scope(world, resources="none")
+    for path in (
+        cost,
+        f"/api/v1/projects/{pk}/utilization/",
+        f"/api/v1/projects/{pk}/resource-allocation/",
+        f"/api/v1/projects/{pk}/resources/heatmap/",
+        f"/api/v1/projects/{pk}/resources/summary/",
+    ):
+        refused = agent.get(path)
+        assert refused.status_code == 403, path
+        assert refused.data["refusal"]["constraint"] == RefusalConstraint.CAPABILITY_SCOPE
+        assert "resources" in str(refused.data["detail"]).lower()
+    # The rest of the project stays readable: Schedule is still granted.
+    assert agent.get(_overview(world["project"])).status_code == 200
+
+
+@pytest.mark.django_db
+def test_dependencies_none_refuses_driving_chain_and_derivation(world: dict[str, Any]) -> None:
+    agent = _bearer(world["raw"])
+    pk = world["project"].id
+    _set_scope(world, dependencies="none")
+    for path in (
+        f"/api/v1/projects/{pk}/schedule/driving-chain/",
+        f"/api/v1/projects/{pk}/schedule/derivation/",
+        f"/api/v1/dependencies/?project={pk}",
+    ):
+        refused = agent.get(path)
+        assert refused.status_code == 403, path
+        assert refused.data["refusal"]["constraint"] == RefusalConstraint.CAPABILITY_SCOPE
+
+
+@pytest.mark.django_db
+def test_task_assignments_follow_the_resources_area(world: dict[str, Any]) -> None:
+    from decimal import Decimal
+
+    from trueppm_api.apps.projects.models import Task
+    from trueppm_api.apps.resources.models import Resource, TaskResource
+
+    task = Task.objects.create(project=world["project"], name="Wire", duration=1)
+    TaskResource.objects.create(
+        task=task, resource=Resource.objects.create(name="Ana"), units=Decimal("1.00")
+    )
+    agent = _bearer(world["raw"])
+    path = f"/api/v1/tasks/{task.id}/"
+
+    at_read = agent.get(path)
+    assert at_read.status_code == 200
+    assert at_read.data["assignments"][0]["resource_name"] == "Ana"
+    assert "assignee_is_overallocated" in at_read.data
+
+    _set_scope(world, resources="none")
+    stripped = agent.get(path)
+    assert stripped.status_code == 200
+    for field in agent_scope.RESOURCE_TASK_FIELDS:
+        assert field not in stripped.data
+    assert stripped.data["name"] == "Wire"
+    listed = agent.get(f"/api/v1/tasks/?project={world['project'].id}")
+    rows = listed.data["results"] if isinstance(listed.data, dict) else listed.data
+    assert rows and all("assignments" not in r for r in rows)
+
+    # A person is never affected by an agent's scope.
+    assert "assignments" in _as(world["principal"]).get(path).data
+
+
+@pytest.mark.django_db
+def test_two_same_name_agents_get_separate_inbox_items(world: dict[str, Any]) -> None:
+    from django.utils import timezone
+
+    from trueppm_api.apps.agents.control import notify_refusal
+
+    other, _ = _mint(world["principal"], name="Claude")
+    for token in (world["token"], other):
+        token.agent_paused_at = timezone.now()
+        token.save(update_fields=["agent_paused_at"])
+    notify_refusal(record_agent_action(**_refusal_payload(world)))
+    notify_refusal(record_agent_action(**_refusal_payload(world)))
+    notify_refusal(record_agent_action(**{**_refusal_payload(world), "actor_token": other}))
+
+    items = Notification.objects.filter(recipient=world["principal"], event_type="agent.refused")
+    assert items.count() == 2
+    by_prefix = {
+        t.token_prefix: items.get(subject__contains=f"tppm_{t.token_prefix}")
+        for t in (world["token"], other)
+    }
+    assert "2 times" in by_prefix[world["token"].token_prefix].body
+    assert "once" in by_prefix[other.token_prefix].body
+
+
+@pytest.mark.django_db
+def test_narrowing_is_allowed_after_the_principal_is_demoted(world: dict[str, Any]) -> None:
+    client = _as(world["principal"])
+    url = f"/api/v1/agents/{world['token'].pk}/scope/"
+    assert (
+        client.patch(url, {"scope": {"dependencies": "propose"}}, format="json").status_code == 200
+    )
+    ProjectMembership.objects.filter(user=world["principal"]).update(role=Role.MEMBER)
+
+    # Narrowing another area while Dependencies sits above the new ceiling: allowed.
+    resp = client.patch(url, {"scope": {"schedule": "none"}}, format="json")
+    assert resp.status_code == 200, resp.data
+    assert resp.data["scope"]["dependencies"] == "propose"  # stored, untouched
+    # The UI sends the whole draft; an unchanged above-ceiling area is not a raise.
+    full = {"schedule": "none", "dependencies": "propose", "resources": "read", "baselines": "read"}
+    assert client.patch(url, {"scope": full}, format="json").status_code == 200
+    # Lowering the above-ceiling area itself: allowed.
+    resp = client.patch(url, {"scope": {"dependencies": "read"}}, format="json")
+    assert resp.status_code == 200
+    assert resp.data["scope"]["dependencies"] == "read"
+    # Raising it back above the ceiling: refused.
+    resp = client.patch(url, {"scope": {"dependencies": "propose"}}, format="json")
+    assert resp.status_code == 400
+    assert resp.data["code"] == "above_principal"
+
+
+@pytest.mark.django_db
+def test_audit_verify_is_workspace_admin_only(world: dict[str, Any]) -> None:
+    person = _as(world["principal"])
+    assert person.get("/api/v1/agents/audit-verify/").status_code == 403
+    assert person.get("/api/v1/agents/").data["can_verify_log"] is False
+    admin = _as(_ws_admin())
+    assert admin.get("/api/v1/agents/").data["can_verify_log"] is True
+    assert admin.get("/api/v1/agents/audit-verify/").status_code == 200
+    areas = person.get("/api/v1/agents/").data["areas"]
+    assert all(a["covers"] for a in areas)
+
+
+@pytest.mark.django_db
+def test_audit_verify_miss_is_single_flight(
+    world: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A request that loses the lock waits for the winner instead of walking the chain."""
+    from django.core.cache import cache
+
+    from trueppm_api.apps.agents import agent_views
+
+    cache.delete(agent_views.AUDIT_VERIFY_CACHE_KEY)
+    calls: list[int] = []
+    monkeypatch.setattr(agent_views, "verify_chain", lambda: calls.append(1))
+    monkeypatch.setattr(agent_views, "AUDIT_VERIFY_WAIT_SECONDS", 0.3)
+    cache.add(agent_views.AUDIT_VERIFY_LOCK_KEY, "1", 60)  # another request is walking
+    try:
+        resp = _as(_ws_admin()).get("/api/v1/agents/audit-verify/")
+        assert resp.status_code == 503
+        assert resp["Retry-After"] == "5"
+        assert calls == []
+    finally:
+        cache.delete(agent_views.AUDIT_VERIFY_LOCK_KEY)
+        cache.delete(agent_views.AUDIT_VERIFY_CACHE_KEY)

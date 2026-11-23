@@ -108,7 +108,7 @@ const EVENT_LABELS: Record<string, { title: string; example: string }> = {
   // #4814: one of my agents was refused because it is paused or outside its scope.
   'agent.refused': {
     title: 'When one of your agents is refused',
-    example: '“Refused: agent Claude is paused”',
+    example: '“Refused: agent Claude (tppm_ab12cd34) is paused”',
   },
 };
 

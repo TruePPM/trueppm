@@ -15,10 +15,10 @@ type Page = import('@playwright/test').Page;
 
 const AGENT_ID = '7d1c9b3e-0000-4000-8000-000000004814';
 const AREAS = [
-  { key: 'schedule', label: 'Schedule & tasks' },
-  { key: 'dependencies', label: 'Dependencies' },
-  { key: 'resources', label: 'Resources' },
-  { key: 'baselines', label: 'Baselines' },
+  { key: 'schedule', label: 'Schedule & tasks', covers: 'Projects, tasks and forecasts.' },
+  { key: 'dependencies', label: 'Dependencies', covers: 'Dependency links and the driving chain.' },
+  { key: 'resources', label: 'Resources', covers: 'Project cost and task assignments.' },
+  { key: 'baselines', label: 'Baselines', covers: 'Baselines and their task snapshots.' },
 ];
 const READ_ALL = { schedule: 'read', dependencies: 'read', resources: 'read', baselines: 'read' };
 
@@ -96,6 +96,7 @@ async function setup(page: Page, { agents = true }: { agents?: boolean } = {}) {
           truncated: false,
           areas: AREAS,
           grantable_levels: ['none', 'read', 'propose'],
+          can_verify_log: true,
         }),
       ),
   );
@@ -161,7 +162,7 @@ test.describe('Workspace Agents page', () => {
       recipient: 1,
       mention: null,
       event_type: 'agent.refused',
-      subject: 'Refused: agent Claude is paused',
+      subject: 'Refused: agent Claude (tppm_ab12cd34) is paused',
       body:
         'It is paused, so every call it makes is refused until it is resumed.\n' +
         'Attempted: GET projects:project-overview.\n' +
@@ -186,10 +187,14 @@ test.describe('Workspace Agents page', () => {
       r.fulfill(json({ ...refusal, is_read: true, read_at: new Date().toISOString() })),
     );
     await page.goto('/me/notifications');
-    const item = page.getByRole('article', { name: /Refused: agent Claude is paused/ });
+    const item = page.getByRole('article', {
+      name: /Refused: agent Claude \(tppm_ab12cd34\) is paused/,
+    });
     await expect(item).toBeVisible();
     await expect(item.getByText(/Nothing changed in the schedule/)).toBeVisible();
-    await item.getByRole('button', { name: /Refused: agent Claude is paused/ }).click();
+    await item
+      .getByRole('button', { name: /Refused: agent Claude \(tppm_ab12cd34\) is paused/ })
+      .click();
     await expect(page).toHaveURL(/\/agents$/);
   });
 });

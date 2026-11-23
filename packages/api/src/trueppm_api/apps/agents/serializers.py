@@ -156,6 +156,12 @@ class AgentListResponseSerializer(serializers.Serializer[Any]):
     )
     areas = serializers.ListField(child=serializers.DictField(child=serializers.CharField()))
     grantable_levels = serializers.ListField(child=serializers.CharField())
+    can_verify_log = serializers.BooleanField(
+        help_text=(
+            "True for a workspace Admin, who may call GET /agents/audit-verify/. The page "
+            "omits the action-log verified line for everyone else."
+        )
+    )
 
 
 class AgentActionSummarySerializer(serializers.Serializer[Any]):

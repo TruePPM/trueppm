@@ -162,6 +162,9 @@ class ProjectCostView(McpReadableViewMixin, APIView):
     """
 
     mcp_scope = McpScope.PATH
+    # Rates and per-person cost are resource data (#4814): an agent without Resources
+    # read is refused here, even though the route is a project route.
+    agent_area = "resources"
     project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectAdmin, IsProjectNotArchived]  # noqa: RUF012
 

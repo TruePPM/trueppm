@@ -37,7 +37,10 @@ export function useAgent(id: string | null) {
   });
 }
 
-/** The "Action log verified" line. The server caches the chain walk. */
+/**
+ * The "Action log verified" line. Workspace Admins only: the page mounts it only when the
+ * list response says `can_verify_log`. The server caches the chain walk.
+ */
 export function useAgentAuditVerify() {
   return useQuery({
     queryKey: agentKeys.verify,

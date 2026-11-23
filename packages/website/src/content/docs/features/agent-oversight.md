@@ -123,10 +123,28 @@ see. Select a row to open its panel:
   the server refuses a write grant whatever the page sends.
 - **Revoke token** ends the agent for good, on its next call.
 
+**What each area covers.** The server decides which area every read falls in, and
+the matrix shows the same list under each area's name:
+
+| Area | What an agent without **Read** here is refused |
+|---|---|
+| Schedule & tasks | Projects, programs, tasks, phases, sprints, risks, labels, custom fields, acceptance criteria, history, status updates, forecasts, Monte Carlo, My Work and search. Task-level summaries such as a task's predecessor count and readiness belong here. |
+| Dependencies | Dependency links between tasks, the schedule's driving chain, and the derivation that explains a computed date. |
+| Resources | Project cost and rates, utilization, resource allocation, the resource heat map and resource summary. A task read still works, but leaves out the task's resource assignments and its overallocation flags. |
+| Baselines | Baselines and their task snapshots. |
+
+A refused read is answered with the area's name, never with the data. The resource
+list endpoints themselves are not on the agent read surface at all, so no agent can
+read them whatever its scope.
+
 An agent can never do more than the person it acts for. The server checks the
 agent's scope against that person's **current** project roles on every call, so
 removing the person from a project, or lowering their role, narrows the agent at
-once. A workspace Admin who edits someone else's agent is held to the same limit.
+once. A workspace Admin who edits someone else's agent is held to the same limit:
+an edit that **raises** an area above what the person can do now is refused. After a
+person's role is lowered, their agent's stored scope can sit above their new limit;
+the matrix still shows the stored level, and you can always lower it or change any
+other area.
 
 Only the person an agent acts for, or a workspace Admin, can pause, resume, edit or
 revoke it, and only from a signed-in session: the endpoints refuse every API token,
@@ -138,16 +156,19 @@ beside the agent's calls — and names the person who made the change. Revoking 
 token elsewhere, such as under **Settings › API tokens**, is not written to this
 chain yet.
 
-The line under the page title — **Action log verified · N records · as of …** — is
-the result of the same check as `audit_verify`, run by the server and reused for up
-to ten minutes, so it can trail the newest records by that long; the "as of" time
-says when it ran.
+For a workspace Admin, the line under the page title — **Action log verified · N
+records · as of …** — is the result of the same check as `audit_verify`, run by the
+server and reused for up to ten minutes, so it can trail the newest records by that
+long; the "as of" time says when it ran. The check covers the whole workspace's chain,
+so only workspace Admins see the line; everyone else sees the same page without it.
 
 ### Refused agents in your Inbox
 
 When one of your agents is refused because it is paused or outside its scope, you
 get an Inbox item. It leads with the reason, then names what the agent attempted
-and the agent, and ends with "Nothing changed in the schedule." Repeats from the
+and the agent, and ends with "Nothing changed in the schedule." The title names the
+agent and its token prefix, such as "Refused: agent Claude (tppm_ab12cd34) is paused",
+so two agents with the same name get separate items. Repeats from the
 same agent for the same reason within 15 minutes update one item with a count, so a
 looping agent cannot fill your Inbox. Opening the item takes you to the Agents page.
 You can turn these items off with **When one of your agents is refused** in your

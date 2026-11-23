@@ -22,6 +22,14 @@ from django.dispatch import Signal
 #: and re-read the durable row; ``action`` is DEPRECATED (#3807) and is retained only
 #: until Enterprise has moved off it, then withdrawn in a coordinated, announced
 #: release (step 2, still tracked by the open #3807).
+#:
+#: Rows of ``actor_kind="person"`` (#4814, ADR-0112 amendment of 2026-11-23) also reach
+#: receivers: a person paused, resumed, re-scoped or revoked an agent. On those rows
+#: ``actor_token`` is the agent acted on (not the caller's credential), ``principal`` is
+#: its owner, ``capability_used`` is ``"agent:control"``, ``action`` is ``agent.pause`` /
+#: ``agent.resume`` / ``agent.scope_edit`` / ``agent.revoke``, and the acting person is
+#: named only in the hashed ``summary``. ``SCHEMA_VERSION`` is unchanged; a receiver must
+#: branch on ``actor_kind`` rather than read every row as an agent's own action.
 agent_action_recorded = Signal()
 
 #: The OSS legal-hold seam for chain-aware pruning (ADR-0361). Dispatched with plain

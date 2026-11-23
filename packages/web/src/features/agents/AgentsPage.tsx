@@ -28,7 +28,7 @@ const FOCUS =
   'focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-2';
 const BTN = `inline-flex min-h-11 items-center justify-center rounded-control border border-neutral-border px-3 text-sm font-medium text-neutral-text-primary hover:bg-neutral-surface-sunken disabled:opacity-50 ${FOCUS}`;
 
-type Area = { key: string; label: string };
+type Area = { key: string; label: string; covers?: string };
 
 function serverMessage(error: unknown): string {
   const data = (error as { response?: { data?: unknown } })?.response?.data;
@@ -200,6 +200,11 @@ function ScopeMatrix({
             <tr key={a.key} className="border-t border-neutral-border">
               <th scope="row" className="px-2 py-2 text-sm font-normal text-neutral-text-primary">
                 {a.label}
+                {a.covers && (
+                  <span className="mt-0.5 block text-xs text-neutral-text-secondary">
+                    {a.covers}
+                  </span>
+                )}
               </th>
               {cell(a.key, 'read', a.label)}
               {cell(a.key, 'propose', a.label)}
@@ -411,7 +416,7 @@ export function AgentsPage() {
       header={
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold text-neutral-text-primary">Agents</h1>
-          <VerifiedLine />
+          {data?.can_verify_log && <VerifiedLine />}
         </div>
       }
     >

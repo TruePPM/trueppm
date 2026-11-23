@@ -218,7 +218,8 @@ def edit_scope(
 
     ``requested`` is merged over the current grant (areas left out keep their level),
     then validated against the **principal** — never the editor — so a workspace Admin
-    cannot grant above the person the agent acts for.
+    cannot grant above the person the agent acts for. Only an area the edit raises is
+    checked against that ceiling, so narrowing is always allowed after a demotion.
 
     Raises:
         ScopeGrantError: the request is malformed, asks for ``write``, or exceeds the
@@ -231,7 +232,7 @@ def edit_scope(
         before = grant_of(row)
         if not isinstance(requested, dict):
             raise ScopeGrantError("scope must be an object of area → level.", code="invalid_scope")
-        after = validate_grant({**before, **requested}, row.owner)
+        after = validate_grant({**before, **requested}, row.owner, current=before)
         if after != before:
             row.agent_scope = after
             row.save(update_fields=["agent_scope", "server_version"])
@@ -331,20 +332,26 @@ def notify_refusal(action: AgentAction) -> None:
     # item and the refresh of a coalesced one.
     if not event_in_app_enabled(action.principal_id, AGENT_REFUSED_EVENT):
         return
+    # The coalescing key is the token (its prefix) and the constraint, never the name:
+    # two agents can share a name ("Claude"), and the count below is per token, so a
+    # name-keyed lookup folded one agent's refusals into the other's item. The key is
+    # the subject's tail so it survives a long name being truncated at the front.
     if constraint == RefusalConstraint.AGENT_PAUSED:
-        subject = f"Refused: agent {token.name} is paused"
+        key = f"(tppm_{token.token_prefix}) is paused"
         why = "It is paused, so every call it makes is refused until it is resumed."
     else:
-        subject = f"Refused: agent {token.name} is outside its capability scope"
+        key = f"(tppm_{token.token_prefix}) is outside its capability scope"
         why = "Its capability scope does not include what it asked for."
-    subject = subject[:255]
+    head = "Refused: agent "
+    name = token.name[: max(0, 255 - len(head) - len(key) - 1)]
+    subject = f"{head}{name} {key}"
 
     now = timezone.now()
     existing = (
         Notification.objects.filter(
             recipient_id=action.principal_id,
             event_type=AGENT_REFUSED_EVENT,
-            subject=subject,
+            subject__endswith=key,
             is_archived=False,
             created_at__gte=now - REFUSAL_COALESCE_WINDOW,
         )
@@ -366,10 +373,11 @@ def notify_refusal(action: AgentAction) -> None:
         "Nothing changed in the schedule."
     )
     if existing is not None:
+        existing.subject = subject  # follows a rename of the agent
         existing.body = body
         existing.is_read = False
         existing.read_at = None
-        existing.save(update_fields=["body", "is_read", "read_at"])
+        existing.save(update_fields=["subject", "body", "is_read", "read_at"])
         return
     create_event_notifications(
         event_type=AGENT_REFUSED_EVENT,

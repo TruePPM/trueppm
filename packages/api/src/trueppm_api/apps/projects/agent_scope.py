@@ -23,9 +23,11 @@ Two properties carry the threat model on #4814:
    memberships every time it runs, so demoting the principal shrinks the agent on the
    next call. For ``read`` the intersection is also structural — the token resolves
    ``request.user`` to its owner, so every view's own RBAC still applies.
-2. **A grant can never exceed the principal.** :func:`validate_grant` caps an edit at
-   the principal's ceiling at edit time, whoever makes the edit — a workspace admin
-   editing someone else's agent cannot grant above that person.
+2. **An edit can never raise a grant above the principal.** :func:`validate_grant`
+   caps every raised area at the principal's ceiling at edit time, whoever makes the
+   edit — a workspace admin editing someone else's agent cannot grant above that
+   person. A stored level left above the ceiling by a later demotion stays stored (and
+   capped by property 1) until someone lowers it.
 """
 
 from __future__ import annotations
@@ -88,10 +90,42 @@ _PROPOSE_FLOOR: dict[str, int] = {
     "baselines": 300,
 }
 
+#: What each area governs on the MCP read surface, in words the Agents page shows next
+#: to the matrix. Kept beside the enforcement so the two change together, and pinned
+#: against the real URL resolver by ``test_every_area_governs_a_routed_mcp_view``.
+AGENT_AREA_COVERS: dict[str, str] = {
+    "schedule": (
+        "Projects, programs, tasks, phases, sprints, risks, labels, custom fields, "
+        "acceptance criteria, history, status updates, forecasts, Monte Carlo, My Work "
+        "and search. Task-level summaries such as predecessor counts and readiness stay "
+        "here."
+    ),
+    "dependencies": (
+        "Dependency links between tasks, the driving chain, and the derivation that "
+        "explains a computed date."
+    ),
+    "resources": (
+        "Project cost and rates, utilization, resource allocation, the resource heat map "
+        "and summary, and the resource assignments and overallocation flags on each task "
+        "(left out of task reads without this area)."
+    ),
+    "baselines": "Baselines and their task snapshots.",
+}
+
+#: Task fields that carry resource data. A task read by an agent without ``resources``
+#: read drops them (:func:`strip_resource_task_fields`), the way the blocker reason is
+#: dropped for an unauthorized reader: the rest of the task is schedule data.
+RESOURCE_TASK_FIELDS: tuple[str, ...] = (
+    "assignments",
+    "assignee_is_overallocated",
+    "assignee_load_includes_estimate",
+)
+
 # Model names whose reads belong to an area other than the default ``schedule``. Every
-# MCP-readable view resolves to an area through its queryset model; a view with no model
-# and no declared ``agent_area`` falls into ``schedule``, the broadest area, so a new view
-# is governed by the scope rather than escaping it.
+# MCP-readable view resolves to an area through ``agent_action_areas`` (per viewset
+# action), ``agent_area`` (per view), or its queryset model; a view with none of those
+# falls into ``schedule``, the broadest area, so a new view is governed by the scope
+# rather than escaping it.
 _MODEL_AREA: dict[str, str] = {
     "Dependency": "dependencies",
     "Resource": "resources",
@@ -225,10 +259,16 @@ def can_read_area(token: ApiToken, area: str) -> bool:
 def area_for_view(view: Any) -> str | None:
     """The scope area a view's reads fall in, or ``None`` when it reads no project data.
 
-    A view may declare ``agent_area`` explicitly. Otherwise a view declaring
+    A viewset may map individual actions to an area with ``agent_action_areas``
+    (``ProjectViewSet``'s utilization and resource actions are resource reads on a
+    project route), and a view may declare ``agent_area``. Otherwise a view declaring
     ``McpScope.NO_PROJECT_DATA`` (the identity echo, the calendar library) has no area;
     anything else resolves through its queryset model, defaulting to ``schedule``.
     """
+    by_action = getattr(view, "agent_action_areas", None)
+    action = getattr(view, "action", None)
+    if isinstance(by_action, dict) and action in by_action and by_action[action] in AGENT_AREAS:
+        return str(by_action[action])
     declared = getattr(view, "agent_area", None)
     if declared in AGENT_AREAS:
         return str(declared)
@@ -241,6 +281,25 @@ def area_for_view(view: Any) -> str | None:
     return "schedule"
 
 
+def agent_lacks_read(request: Any, area: str) -> bool:
+    """Whether ``request`` is a controlled agent whose scope excludes reading ``area``.
+
+    For field-level withholding inside a view that is itself in another area (the
+    resource fields on a task read). Always ``False`` for a person or any token the
+    capability scope does not govern.
+    """
+    token = getattr(request, "auth", None) if request is not None else None
+    return is_controlled_agent(token) and not can_read_area(token, area)
+
+
+def strip_resource_task_fields(data: dict[str, Any], request: Any) -> dict[str, Any]:
+    """Drop :data:`RESOURCE_TASK_FIELDS` from a task payload for an agent without them."""
+    if agent_lacks_read(request, "resources"):
+        for field in RESOURCE_TASK_FIELDS:
+            data.pop(field, None)
+    return data
+
+
 class ScopeGrantError(ValueError):
     """A requested grant is malformed, above the principal, or not grantable yet."""
 
@@ -249,11 +308,20 @@ class ScopeGrantError(ValueError):
         self.code = code
 
 
-def validate_grant(requested: object, principal: Any) -> dict[str, str]:
+def validate_grant(
+    requested: object, principal: Any, current: dict[str, str] | None = None
+) -> dict[str, str]:
     """Validate a requested grant and return it normalized over every area.
 
     Areas left out keep no implicit level: the caller merges the request over the
     current grant before calling this, so a missing key here means ``none``.
+
+    ``current`` is the stored grant being edited. Only an area the request **raises**
+    above the principal's ceiling is refused: after the principal is demoted, the
+    stored grant can sit above the ceiling (the effective scope is capped per call
+    anyway), and refusing every edit then would block the person from narrowing the
+    agent, which is the edit a demotion calls for. An area kept at, or lowered from, a
+    stored level above the ceiling is accepted as is.
 
     Raises:
         ScopeGrantError: ``code="invalid_scope"`` for an unknown area or level,
@@ -280,7 +348,12 @@ def validate_grant(requested: object, principal: Any) -> dict[str, str]:
             )
         grant[area] = level
     ceiling = principal_ceiling(principal)
-    over = [a for a in AGENT_AREAS if level_rank(grant[a]) > level_rank(ceiling[a])]
+    over = [
+        a
+        for a in AGENT_AREAS
+        if level_rank(grant[a]) > level_rank(ceiling[a])
+        and (current is None or level_rank(grant[a]) > level_rank(current.get(a, LEVEL_NONE)))
+    ]
     if over:
         labels = ", ".join(AGENT_AREA_LABELS[a] for a in over)
         raise ScopeGrantError(

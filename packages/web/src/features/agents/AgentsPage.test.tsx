@@ -21,10 +21,10 @@ vi.mock('./useAgents', () => ({
 }));
 
 const AREAS = [
-  { key: 'schedule', label: 'Schedule & tasks' },
-  { key: 'dependencies', label: 'Dependencies' },
-  { key: 'resources', label: 'Resources' },
-  { key: 'baselines', label: 'Baselines' },
+  { key: 'schedule', label: 'Schedule & tasks', covers: 'Projects, tasks and forecasts.' },
+  { key: 'dependencies', label: 'Dependencies', covers: 'Dependency links and the driving chain.' },
+  { key: 'resources', label: 'Resources', covers: 'Project cost and task assignments.' },
+  { key: 'baselines', label: 'Baselines', covers: 'Baselines and their task snapshots.' },
 ];
 const READ_ALL = {
   schedule: 'read',
@@ -97,6 +97,7 @@ beforeEach(() => {
       truncated: false,
       areas: AREAS,
       grantable_levels: ['none', 'read', 'propose'],
+      can_verify_log: true,
     },
     isLoading: false,
     isError: false,
@@ -140,6 +141,49 @@ describe('AgentsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save scope' }));
     expect(m.scope.mock.calls[0][0]).toEqual({
       scope: { schedule: 'read', dependencies: 'propose', resources: 'none', baselines: 'read' },
+    });
+  });
+
+  it('omits the verified line for a viewer who is not a workspace Admin', () => {
+    m.agents.mockReturnValue({
+      data: {
+        agents: [row()],
+        truncated: false,
+        areas: AREAS,
+        grantable_levels: ['none', 'read', 'propose'],
+        can_verify_log: false,
+      },
+      isLoading: false,
+      isError: false,
+    });
+    renderWithRouter(<AgentsPage />);
+    expect(screen.queryByTestId('agents-verified')).toBeNull();
+    expect(m.verify).not.toHaveBeenCalled();
+  });
+
+  it('says what each area covers, in the server words', () => {
+    renderWithRouter(<AgentsPage />);
+    expect(
+      screen.getByRole('rowheader', { name: /Resources\s*Project cost and task assignments/ }),
+    ).toBeTruthy();
+  });
+
+  it('keeps a stored level above the ceiling and lets the person lower it', () => {
+    const scope = { ...READ_ALL, dependencies: 'propose' as const };
+    m.agent.mockReturnValue({
+      data: detail({ scope, effective_scope: { ...READ_ALL } }),
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
+    renderWithRouter(<AgentsPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit scope' }));
+    const dry = screen.getByRole('checkbox', { name: 'Dependencies: Dry run' });
+    expect(dry).toBeChecked();
+    fireEvent.click(dry);
+    fireEvent.click(screen.getByRole('button', { name: 'Save scope' }));
+    expect(m.scope.mock.calls[0][0]).toEqual({
+      scope: { ...READ_ALL, dependencies: 'read' },
     });
   });
 

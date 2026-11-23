@@ -66,14 +66,14 @@ describe('NotificationRow', () => {
         notification={row({
           mention: null,
           event_type: 'agent.refused',
-          subject: 'Refused: agent Claude is paused',
+          subject: 'Refused: agent Claude (tppm_ab12cd34) is paused',
           body: 'It is paused, so every call it makes is refused until it is resumed.\nNothing changed in the schedule.',
           project: null,
           task_id: null,
         })}
       />,
     );
-    fireEvent.click(screen.getByText('Refused: agent Claude is paused'));
+    fireEvent.click(screen.getByText('Refused: agent Claude (tppm_ab12cd34) is paused'));
     expect(navigateMock).toHaveBeenCalledWith('/agents');
   });
 

@@ -1013,8 +1013,11 @@ export interface AgentListResponse {
   agents: AgentRow[];
   /** True when the server capped the list and more agents exist. */
   truncated: boolean;
-  areas: { key: string; label: string }[];
+  /** Each scope area, its label, and the endpoint families it governs (server words). */
+  areas: { key: string; label: string; covers: string }[];
   grantable_levels: AgentScopeLevel[];
+  /** True for a workspace Admin: only they may call `GET /agents/audit-verify/`. */
+  can_verify_log: boolean;
 }
 
 /** `GET /agents/audit-verify/` — the "Action log verified" line. */
