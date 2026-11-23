@@ -91,8 +91,7 @@ export function templateCardFields(template: ProjectTemplate): TemplateCardField
   return {
     label: template.name,
     detail:
-      template.description ||
-      `${template.task_count} row${template.task_count === 1 ? '' : 's'}`,
+      template.description || `${template.task_count} row${template.task_count === 1 ? '' : 's'}`,
     chip: template.provenance,
     methodology: template.methodology,
     taskCount: template.task_count,
@@ -252,8 +251,8 @@ export function TemplateOutlineDisclosure({
           // Not an alert: the counts above still describe the template, and
           // choosing it remains safe — only the preview of its names is missing.
           <p role="status" className="text-xs text-neutral-text-secondary">
-            Couldn&rsquo;t load the row names. The counts above still describe what this
-            template writes.
+            Couldn&rsquo;t load the row names. The counts above still describe what this template
+            writes.
           </p>
         )}
         {open && data && (
@@ -263,6 +262,15 @@ export function TemplateOutlineDisclosure({
             // is unreadable past its fold (WCAG 2.1.1): focusable, on the same
             // roving stop as the toggle that opened it.
             tabIndex={tabIndex}
+            // The gallery's radiogroup roves on these keys and preventDefaults
+            // them for any target; stop them here so the arrows scroll the list.
+            onKeyDown={(e) => {
+              if (
+                ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)
+              ) {
+                e.stopPropagation();
+              }
+            }}
             className="flex max-h-48 flex-col gap-0.5 overflow-y-auto rounded-control text-xs
                        focus:outline-none focus:ring-2 focus:ring-brand-primary"
           >

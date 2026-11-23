@@ -1,11 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/utils';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { carriesLine, usageLine, TemplateCardBody, TemplateOutlineDisclosure } from './TemplateCard';
+import {
+  carriesLine,
+  usageLine,
+  TemplateCardBody,
+  TemplateOutlineDisclosure,
+} from './TemplateCard';
 
 const getMock = vi.hoisted(() => vi.fn());
 vi.mock('@/api/client', () => ({ apiClient: { get: getMock } }));
@@ -66,7 +71,13 @@ describe('usageLine', () => {
 
 describe('TemplateCardBody', () => {
   it('states the complement — the reassurance is what a template never brings', () => {
-    render(<TemplateCardBody label="Scrum product team" detail="For a feature team" carriesLine="carries 2 phases" />);
+    render(
+      <TemplateCardBody
+        label="Scrum product team"
+        detail="For a feature team"
+        carriesLine="carries 2 phases"
+      />,
+    );
     expect(
       screen.getByText(/carries 2 phases — never owners, dates, or progress\./),
     ).toBeInTheDocument();
@@ -125,6 +136,29 @@ describe('TemplateOutlineDisclosure (#3084)', () => {
     expect(toggle.getAttribute('aria-controls')).toBe(list.parentElement?.id);
     // A scroll region a keyboard cannot reach is unreadable past its fold.
     expect(list).toHaveAttribute('tabindex', '0');
+  });
+
+  it('keeps arrow keys for scrolling: the roving handler above never sees them', async () => {
+    const roving = vi.fn((e: React.KeyboardEvent) => e.preventDefault());
+    renderWithProviders(
+      // Stand-in for the gallery radiogroup, which preventDefaults arrows for any target.
+      // eslint-disable-next-line jsx-a11y/no-static-element-interactions
+      <div onKeyDown={roving}>
+        <TemplateOutlineDisclosure templateId="tpl1" templateName="Stage-gate" rowCount={4} />
+      </div>,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /show the 4 row names/i }));
+    const list = await screen.findByRole('list', { name: 'Rows Stage-gate writes' });
+    list.focus();
+    // fireEvent returns false when the default was prevented.
+    expect(fireEvent.keyDown(list, { key: 'ArrowDown' })).toBe(true);
+    expect(roving).not.toHaveBeenCalled();
+    expect(list).toHaveFocus();
+    // The toggle still lets the group rove.
+    fireEvent.keyDown(screen.getByRole('button', { name: /hide the 4 row names/i }), {
+      key: 'ArrowDown',
+    });
+    expect(roving).toHaveBeenCalledTimes(1);
   });
 
   it('collapses again without refetching', async () => {
