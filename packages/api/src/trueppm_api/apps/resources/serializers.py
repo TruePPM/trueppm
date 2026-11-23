@@ -370,6 +370,10 @@ class ProjectResourceSerializer(serializers.ModelSerializer[ProjectResource]):
             "units_override",
             "effective_max_units",
             "notes",
+            "engaged_from",
+            "engaged_to",
+            "availability_percent",
+            "ramp_state",
         ]
         read_only_fields = ["id", "server_version", "resource_detail", "effective_max_units"]
 
@@ -388,6 +392,15 @@ class ProjectResourceSerializer(serializers.ModelSerializer[ProjectResource]):
             raise serializers.ValidationError(
                 {"project": "A roster entry cannot be moved to another project."}
             )
+        # ADR-0190: validate the window against the MERGED values, since a PATCH may
+        # send only one bound against a stored other bound. Either bound may be null
+        # (open-ended); equal bounds are a valid one-day engagement.
+        engaged_from = attrs.get(
+            "engaged_from", self.instance.engaged_from if self.instance else None
+        )
+        engaged_to = attrs.get("engaged_to", self.instance.engaged_to if self.instance else None)
+        if engaged_from is not None and engaged_to is not None and engaged_from > engaged_to:
+            raise serializers.ValidationError({"engaged_to": "Must be on or after engaged_from."})
         return attrs
 
     def get_effective_max_units(self, obj: ProjectResource) -> str:

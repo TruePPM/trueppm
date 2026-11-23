@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, ClassVar, TypeVar
 
 from django.conf import settings
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from trueppm_api.apps.projects.models import Calendar, Project, Task, VersionedModel
@@ -180,6 +180,14 @@ class ResourceSkill(VersionedModel):
         return f"{self.resource} — {self.skill} ({self.get_proficiency_display()})"
 
 
+class RampState(models.TextChoices):
+    """Advisory ramp label on a roster entry (ADR-0190)."""
+
+    RAMPING = "ramping", "Ramping up"
+    FULL = "full", "Full"
+    WINDING_DOWN = "winding_down", "Winding down"
+
+
 class ProjectResource(VersionedModel):
     """A resource's explicit membership in a project's roster.
 
@@ -211,6 +219,19 @@ class ProjectResource(VersionedModel):
     # importer, a management command, a data repair, or a future soft-delete path
     # left behind. Restore states what it reverses instead of inferring it.
     deactivated_with_resource = models.BooleanField(default=False)
+    # Engagement window + availability profile (ADR-0190 Phase 1, #3840). Per-project,
+    # not on WorkspaceMembership: a contractor on two projects has two windows.
+    # "External/contractor" is expressed ONLY as "has an engaged_to" — there is
+    # deliberately no employment-type flag (ADR-0190 §2, dignity constraint). The
+    # window is an advisory overlay for warnings/utilization, never a CPM constraint.
+    engaged_from = models.DateField(null=True, blank=True)
+    engaged_to = models.DateField(null=True, blank=True)
+    availability_percent = models.PositiveSmallIntegerField(
+        default=100,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+    )
+    # Advisory label only; a single value, not a time-varying ramp curve.
+    ramp_state = models.CharField(max_length=16, choices=RampState.choices, default=RampState.FULL)
 
     objects: ClassVar[ProjectResourceManager] = ProjectResourceManager()
 
@@ -221,7 +242,14 @@ class ProjectResource(VersionedModel):
                 fields=["project", "resource"], name="uniq_project_resource_project_resource"
             ),
         ]
-        indexes = [models.Index(fields=["project", "is_deleted"], name="proj_res_proj_del_idx")]
+        indexes = [
+            models.Index(fields=["project", "is_deleted"], name="proj_res_proj_del_idx"),
+            models.Index(
+                fields=["project", "engaged_to"],
+                condition=models.Q(is_deleted=False),
+                name="projres_engaged_to_idx",
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"{self.resource} on {self.project}"

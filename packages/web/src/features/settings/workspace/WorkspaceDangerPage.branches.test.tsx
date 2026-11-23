@@ -53,6 +53,10 @@ function makeMember(overrides: Partial<WorkspaceMember> = {}): WorkspaceMember {
     status: 'active',
     sso: false,
     twoFa: false,
+    availabilityPercent: 100,
+    availabilityEffectiveFrom: null,
+    availabilityEffectiveTo: null,
+    availabilityNotes: '',
     ...overrides,
   };
 }
