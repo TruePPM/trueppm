@@ -628,6 +628,14 @@ describe('drawTaskBar — critical path as a red border frame (#1699)', () => {
       expect(near[COLOR.barCritical]).toBeUndefined();
       const slack = strokeDash({ isCritical: false, totalFloat: 9 });
       expect(slack[COLOR.barNearCritical]).toBeUndefined();
+      // Float 0 on a non-critical row is the server's "critical" band, never
+      // near-critical: the drawer's predicate, shared (#4796 G4).
+      expect(strokeDash({ isCritical: false, totalFloat: 0 })[COLOR.barNearCritical]).toBeUndefined();
+      // Threshold not loaded yet: no frame from a guessed default.
+      setRendererChartOptions({ ...base, criticalAtRest: { nearCriticalDays: null } });
+      expect(strokeDash({ isCritical: false, totalFloat: 2 })[COLOR.barNearCritical]).toBeUndefined();
+      expect(strokeDash({ isCritical: true, totalFloat: 0 })[COLOR.barCritical]).toEqual([]);
+      setRendererChartOptions({ ...base, criticalAtRest: { nearCriticalDays: 5 } });
       // v1 (option absent) keeps #4397's dashed critical frame and no amber frame.
       // The solid critical frame no longer differs from the ring by pattern, so the
       // ring goes dotted: selected-vs-critical still differs by a non-hue property.

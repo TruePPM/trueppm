@@ -16,6 +16,7 @@
  *   arrows (no critical-red), summary rollups excluded as endpoints. SS/FF/SF Bézier.
  */
 
+import { isNearCriticalByFloat } from '../nearCritical';
 import type { DeliveryMode, ExternalLinkStatus, Task, TaskLink } from '@/types';
 import type { CadenceSegment, SprintBand } from '../sprintBands';
 import type { RowMode, SingleModeKind } from '../deliveryModePresentation';
@@ -465,9 +466,11 @@ export interface ChartRenderOptions {
    * SOLID red frame and a near-critical one (not critical, total float at or
    * under `nearCriticalDays` — the server's effective project threshold) a
    * DASHED amber frame, so the two differ by line pattern as well as hue and
-   * survive grayscale. Absent (v1), the dashed critical frame of #4397 stands.
+   * survive grayscale. `nearCriticalDays` is null until the project has loaded:
+   * no near-critical frame is drawn from a guessed threshold. Absent (v1), the
+   * dashed critical frame of #4397 stands.
    */
-  criticalAtRest?: { nearCriticalDays: number } | null;
+  criticalAtRest?: { nearCriticalDays: number | null } | null;
 }
 
 // Active chart options — swapped by GanttEngineImpl before each paint pass,
@@ -1827,14 +1830,15 @@ export function drawTaskBar(
   // a frame. The task-list red dot is a second COLOR cue in another pane and does
   // not satisfy 1.4.1 for the bar itself.
   const atRest = _chartOptions.criticalAtRest;
+  // The drawer's predicate, so a framed bar and the drawer's "Why critical?"
+  // agree on every row: float 0 is critical, never near-critical, and no frame
+  // is drawn until the project's threshold has loaded.
   const nearCriticalFrame =
     atRest != null &&
     !criticalFrame &&
     !task.isExternal &&
     !task.isSummary &&
-    task.totalFloat != null &&
-    task.totalFloat >= 0 &&
-    task.totalFloat <= atRest.nearCriticalDays;
+    isNearCriticalByFloat(task, atRest.nearCriticalDays);
   if (nearCriticalFrame) {
     ctx.strokeStyle = _palette.barNearCritical;
     ctx.lineWidth = 2;

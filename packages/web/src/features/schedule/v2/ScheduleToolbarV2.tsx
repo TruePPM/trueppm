@@ -7,11 +7,13 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
+import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
 import { ZoomControl } from '../ZoomControl';
 import { TOOLBAR_SPACER_ATTR } from '../toolbar/toolbarLadder';
 import {
-  ALWAYS_OVERFLOW,
   demotedCommands,
+  overflowCommandCount,
   overflowLabel,
   resolveV2Composition,
   SCHEDULE_V2_LADDER,
@@ -25,46 +27,71 @@ export type V2MenuItem =
   | { kind: 'item'; label: string; onSelect: () => void; disabled?: boolean; shortcut?: string }
   | { kind: 'checkbox'; label: string; checked: boolean; onSelect: () => void; disabled?: boolean };
 
-const BTN =
-  'inline-flex h-8 shrink-0 items-center gap-1 rounded-control border border-neutral-border px-3 text-xs font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:opacity-50';
+/**
+ * The 44x44 hit target of rule 5, built per rule 330: a `before:` box SIZED
+ * from explicit lengths and centered on the control, never `inset`-ed (an
+ * inset box resolves against the padding box and comes out `2×border` short).
+ * The control keeps its 32px visual height, so the measured ladder's widths
+ * are unchanged; the cushion only adds hit area above and below, and to the
+ * sides of a control narrower than 44px (the icon-only Add task).
+ */
+export const HIT_TARGET =
+  "relative before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-[max(100%,2.75rem)] before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']";
+
+/** Menu panel width; the anchored popover clamps it to the viewport. */
+const MENU_WIDTH = 256;
+
+const BTN = `${HIT_TARGET} inline-flex h-8 shrink-0 items-center gap-1 rounded-control border border-neutral-border px-3 text-xs font-medium text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary disabled:opacity-50`;
 const BTN_ON = 'bg-brand-primary/10 border-brand-primary';
 
 /**
  * A menu button whose popover is a `role="menu"`. Opening moves focus to the
- * first item; Arrow keys move; Escape and Tab close and hand focus back to the
- * trigger, so the toolbar's single tab stop is never lost inside a popover.
+ * first item; Arrow keys move; Escape closes and hands focus back to the
+ * trigger, and Tab closes and continues from the trigger, so the toolbar's
+ * single tab stop is never lost inside a popover.
+ *
+ * The panel is portaled to `document.body` and positioned by
+ * `useAnchoredPopover` (web-rule 253): rendered inside the 44px bar it was
+ * clipped by the bar's overflow, so its items were present and "visible" to
+ * Playwright but not hittable by a pointer.
  */
 function V2Menu({
   label,
   accessibleName,
   items,
   testId,
+  align,
 }: {
   label: ReactNode;
   accessibleName: string;
   items: V2MenuItem[];
   testId: string;
+  align: 'left' | 'right';
 }) {
   const [open, setOpen] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
+  // Roving tabindex inside the menu: the item holding focus is the one with
+  // tabIndex 0. It also keeps the scrollable panel keyboard-reachable for axe's
+  // scrollable-region-focusable, which does not count tabIndex -1 descendants.
+  const firstEnabled = items.find((it) => it.kind !== 'heading' && !it.disabled)?.label ?? null;
+  const [activeItem, setActiveItem] = useState<string | null>(null);
+  const rovingLabel = activeItem ?? firstEnabled;
+  const dismiss = useCallback(() => setOpen(false), []);
+  const { triggerRef, popoverRef, popoverStyle } = useAnchoredPopover<
+    HTMLButtonElement,
+    HTMLDivElement
+  >({ open, width: MENU_WIDTH, estimatedHeight: 320, align, onDismiss: dismiss });
 
   const focusables = () =>
     Array.from(
-      menuRef.current?.querySelectorAll<HTMLElement>(
+      popoverRef.current?.querySelectorAll<HTMLElement>(
         '[role^="menuitem"]:not([aria-disabled="true"])',
       ) ?? [],
     );
 
   useEffect(() => {
-    if (!open) return;
-    focusables()[0]?.focus();
-    const onDown = (e: MouseEvent) => {
-      const t = e.target as Node;
-      if (!menuRef.current?.contains(t) && !triggerRef.current?.contains(t)) setOpen(false);
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
+    if (!open) setActiveItem(null);
+    if (open) focusables()[0]?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const close = (refocus: boolean) => {
@@ -89,15 +116,32 @@ function V2Menu({
       e.stopPropagation();
       close(true);
     } else if (e.key === 'Tab') {
-      close(false);
+      // The portaled panel sits at the end of <body>, so the browser's own Tab
+      // would leave the page. Hand focus to the trigger first; the default
+      // action then moves on from there.
+      e.stopPropagation();
+      close(true);
     } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-      // Keep the toolbar's roving handler from stealing focus out of the menu.
+      // React events bubble through the portal: keep the toolbar's roving
+      // handler from stealing focus out of the menu.
       e.stopPropagation();
     }
   };
 
+  // The hook's maxHeight is the real gap to the viewport edge (web-rule 351);
+  // the design's own cap still applies on a tall window.
+  const panelStyle =
+    popoverStyle &&
+    ({
+      ...popoverStyle,
+      maxHeight:
+        typeof popoverStyle.maxHeight === 'number'
+          ? `min(${popoverStyle.maxHeight}px, 70vh, 28rem)`
+          : 'min(70vh, 28rem)',
+    } as const);
+
   return (
-    <div className="relative shrink-0">
+    <div className="shrink-0">
       <button
         ref={triggerRef}
         type="button"
@@ -110,60 +154,68 @@ function V2Menu({
       >
         {label}
       </button>
-      {open && (
-        <div
-          ref={menuRef}
-          role="menu"
-          tabIndex={-1}
-          aria-label={accessibleName}
-          onKeyDown={onMenuKey}
-          className="absolute right-0 top-full z-30 mt-1 max-h-[min(70vh,28rem)] min-w-[14rem] overflow-y-auto rounded-control border border-neutral-border bg-neutral-surface py-1 shadow-pop"
-        >
-          {items.map((it, idx) => {
-            if (it.kind === 'heading') {
+      {panelStyle &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            role="menu"
+            tabIndex={-1}
+            aria-label={accessibleName}
+            data-testid={`${testId}-menu`}
+            onKeyDown={onMenuKey}
+            style={panelStyle}
+            className="z-50 overflow-y-auto rounded-control border border-neutral-border bg-neutral-surface py-1 shadow-pop"
+          >
+            {items.map((it, idx) => {
+              if (it.kind === 'heading') {
+                return (
+                  <div
+                    key={`h-${idx}`}
+                    role="presentation"
+                    className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-neutral-text-secondary"
+                  >
+                    {it.label}
+                  </div>
+                );
+              }
+              const select = () => {
+                if (it.disabled) return;
+                it.onSelect();
+                close(true);
+              };
               return (
                 <div
-                  key={`h-${idx}`}
-                  role="presentation"
-                  className="px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-neutral-text-secondary"
+                  key={it.label}
+                  role={it.kind === 'checkbox' ? 'menuitemcheckbox' : 'menuitem'}
+                  aria-checked={it.kind === 'checkbox' ? it.checked : undefined}
+                  aria-disabled={it.disabled ? true : undefined}
+                  aria-keyshortcuts={it.kind === 'item' ? it.shortcut : undefined}
+                  tabIndex={it.label === rovingLabel ? 0 : -1}
+                  onFocus={() => setActiveItem(it.label)}
+                  onClick={select}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      select();
+                    }
+                  }}
+                  // Rows are 44px tall (rule 5), not 32px with a cushion:
+                  // stacked rows' cushions would overlap one another, so each
+                  // row would still own only a 32px band of the pointer.
+                  className="flex min-h-11 cursor-pointer items-center gap-2 px-3 text-sm text-neutral-text-primary hover:bg-neutral-surface-raised focus:bg-neutral-surface-raised focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
                 >
+                  {it.kind === 'checkbox' && (
+                    <span aria-hidden="true" className="w-3">
+                      {it.checked ? '✓' : ''}
+                    </span>
+                  )}
                   {it.label}
                 </div>
               );
-            }
-            const select = () => {
-              if (it.disabled) return;
-              it.onSelect();
-              close(true);
-            };
-            return (
-              <div
-                key={it.label}
-                role={it.kind === 'checkbox' ? 'menuitemcheckbox' : 'menuitem'}
-                aria-checked={it.kind === 'checkbox' ? it.checked : undefined}
-                aria-disabled={it.disabled ? true : undefined}
-                aria-keyshortcuts={it.kind === 'item' ? it.shortcut : undefined}
-                tabIndex={-1}
-                onClick={select}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    select();
-                  }
-                }}
-                className="flex min-h-[32px] cursor-pointer items-center gap-2 px-3 text-sm text-neutral-text-primary hover:bg-neutral-surface-raised focus:bg-neutral-surface-raised focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
-              >
-                {it.kind === 'checkbox' && (
-                  <span aria-hidden="true" className="w-3">
-                    {it.checked ? '✓' : ''}
-                  </span>
-                )}
-                {it.label}
-              </div>
-            );
-          })}
-        </div>
-      )}
+            })}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
@@ -311,9 +363,15 @@ export function ScheduleToolbarV2(props: ScheduleToolbarV2Props) {
     { kind: 'heading', label: 'Export' },
     ...props.exportItems.map<V2MenuItem>((x) => ({ kind: 'item', ...x })),
   ];
-  // The count names commands, not menu rows: the five that always live here
-  // plus whatever the ladder has demoted.
-  const overflowCount = ALWAYS_OVERFLOW.length + demoted.length;
+  // The count names commands, not menu rows, and only the commands this menu
+  // actually renders: Group is absent for a reader without edit rights, and a
+  // count that included it would name an item the reader cannot find.
+  const overflowCount = overflowCommandCount({
+    group: props.onGroup !== undefined,
+    columns: props.columns.length > 0,
+    exportItems: props.exportItems.length > 0,
+    demoted: demoted.length,
+  });
   const activeFilters = props.milestonesOnly ? 1 : 0;
 
   return (
@@ -325,10 +383,14 @@ export function ScheduleToolbarV2(props: ScheduleToolbarV2Props) {
       data-fit-step={step}
       onKeyDown={onKeyDown}
       onFocus={onFocus}
-      className="flex h-11 shrink-0 items-center gap-2 overflow-hidden border-b border-neutral-border bg-neutral-surface px-3"
+      // `overflow-x-clip`, not `overflow-hidden`: the bar must never spill
+      // sideways, but `hidden` also clipped the controls' 44px hit cushions
+      // (rule 330) at the bar's top and bottom edge. Menus are portaled.
+      className="flex h-11 shrink-0 items-center gap-2 overflow-x-clip border-b border-neutral-border bg-neutral-surface px-3"
     >
       <V2Menu
         testId="schedule-v2-filter"
+        align="left"
         label={activeFilters > 0 ? `Filter · ${activeFilters}` : 'Filter'}
         accessibleName={activeFilters > 0 ? `Filter, ${activeFilters} active` : 'Filter'}
         items={[
@@ -392,6 +454,7 @@ export function ScheduleToolbarV2(props: ScheduleToolbarV2Props) {
       {c.legend === 'bar' && props.legend('bar')}
       <V2Menu
         testId="schedule-v2-overflow"
+        align="right"
         label={
           <>
             More <span aria-hidden="true">· {overflowCount}</span>

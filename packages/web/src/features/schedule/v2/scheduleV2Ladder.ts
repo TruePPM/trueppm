@@ -145,6 +145,28 @@ export function demotedCommands(
   return out;
 }
 
+/**
+ * How many commands the overflow menu holds right now — counted from what it
+ * renders, never from `ALWAYS_OVERFLOW`'s length. Group is offered only with
+ * edit rights, and Columns and Export only when they have a row to show, so a
+ * fixed count would name items a reader cannot find. Expand all and
+ * Dependency links are always present.
+ */
+export function overflowCommandCount(present: {
+  group: boolean;
+  columns: boolean;
+  exportItems: boolean;
+  demoted: number;
+}): number {
+  return (
+    (present.group ? 1 : 0) +
+    (present.columns ? 1 : 0) +
+    2 +
+    (present.exportItems ? 1 : 0) +
+    present.demoted
+  );
+}
+
 /** The overflow trigger's accessible name — it carries the count (#4796). */
 export function overflowLabel(count: number): string {
   return `More schedule actions, ${count} ${count === 1 ? 'item' : 'items'}`;

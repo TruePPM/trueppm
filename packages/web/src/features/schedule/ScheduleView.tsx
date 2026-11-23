@@ -1500,7 +1500,7 @@ export function ScheduleView() {
       showSprintBands: chartPrefs.sprintBandsVisible,
       showBaselineBars: chartPrefs.baselineBarsVisible && baselineDrawable,
       criticalAtRest: shellV2
-        ? { nearCriticalDays: projectDetail?.effective_near_critical_threshold_days ?? 10 }
+        ? { nearCriticalDays: projectDetail?.effective_near_critical_threshold_days ?? null }
         : null,
     }),
     [

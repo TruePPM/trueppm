@@ -1,4 +1,5 @@
 import { ROW_VOCABULARY } from './rowVocabulary';
+import { isNearCriticalByFloat } from './nearCritical';
 import {
   useCallback,
   useEffect,
@@ -910,13 +911,7 @@ export function TaskDetailDrawer({
   // task is recognized from the project's threshold until the payload's own
   // band arrives (the band is what WhyCriticalSection reports back via onBand).
   const floatNearCritical =
-    task !== null &&
-    !task.isCritical &&
-    nearCriticalThresholdDays !== null &&
-    task.totalFloat !== null &&
-    task.totalFloat !== undefined &&
-    task.totalFloat > 0 &&
-    task.totalFloat <= nearCriticalThresholdDays;
+    task !== null && isNearCriticalByFloat(task, nearCriticalThresholdDays);
   const qualifiesForWhyCritical =
     showWhyCritical &&
     task !== null &&

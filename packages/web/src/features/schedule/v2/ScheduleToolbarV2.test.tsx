@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { ScheduleToolbarV2, type ScheduleToolbarV2Props } from './ScheduleToolbarV2';
+import { HIT_TARGET, ScheduleToolbarV2, type ScheduleToolbarV2Props } from './ScheduleToolbarV2';
 
 vi.mock('../ZoomControl', () => ({
   ZoomControl: ({ collapsed }: { collapsed?: boolean }) => (
@@ -110,5 +110,46 @@ describe('ScheduleToolbarV2 (#4796)', () => {
     render(<ScheduleToolbarV2 {...p} />);
     expect(p.onLegendPlacementChange).toHaveBeenCalledWith('bar');
     expect(screen.getByText('legend')).toBeInTheDocument();
+  });
+
+  it('counts only the commands it renders: no Group for a reader without edit rights', () => {
+    render(<ScheduleToolbarV2 {...props({ onGroup: undefined, canAddTask: false })} />);
+    const trigger = screen.getByRole('button', { name: 'More schedule actions, 4 items' });
+    fireEvent.click(trigger);
+    const menu = screen.getByRole('menu', { name: 'More schedule actions, 4 items' });
+    expect(menu).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Group' })).toBeNull();
+    // The four it names: Columns, Expand all, Dependency links, Export.
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Owner' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Expand all' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitemcheckbox', { name: 'Dependency links' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Export PDF…' })).toBeInTheDocument();
+  });
+
+  it('portals its menus out of the 44px bar so nothing clips them (web-rule 253)', () => {
+    render(<ScheduleToolbarV2 {...props()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Filter' }));
+    const menu = screen.getByRole('menu', { name: 'Filter' });
+    const toolbar = screen.getByRole('toolbar', { name: 'Schedule toolbar' });
+    expect(toolbar.contains(menu)).toBe(false);
+    expect(menu.parentElement).toBe(document.body);
+    expect(menu.style.position).toBe('fixed');
+    expect(toolbar.className).not.toMatch(/\boverflow-hidden\b/);
+  });
+
+  it('gives every bar control a sized 44px before: hit target, never an inset one (rules 5, 330)', () => {
+    // jsdom draws no pseudo-element, so this pins the mechanism; the e2e spec
+    // measures the box (rule 330 (c)).
+    expect(HIT_TARGET).toContain('before:h-11');
+    expect(HIT_TARGET).toContain('before:w-[max(100%,2.75rem)]');
+    expect(HIT_TARGET).not.toMatch(/before:-?inset/);
+    render(<ScheduleToolbarV2 {...props()} />);
+    for (const name of ['Filter', 'Add task', 'Today', 'Baseline', 'Critical only']) {
+      const btn = screen.getByRole('button', { name: new RegExp(`^${name}`) });
+      expect(btn.className, name).toContain('before:h-11');
+      expect(btn.className, name).toContain('h-8');
+    }
+    fireEvent.click(screen.getByRole('button', { name: /^More schedule actions/ }));
+    for (const row of screen.getAllByRole('menuitem')) expect(row.className).toContain('min-h-11');
   });
 });
