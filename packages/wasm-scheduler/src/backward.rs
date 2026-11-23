@@ -411,6 +411,29 @@ pub fn backward_pass(
                     continue;
                 }
                 let dep = &deps[*edge.weight()];
+                if !tasks[i].reads_instant(dep.dep_type) {
+                    // An SS/SF link from the start of work with nothing left
+                    // (ADR-1474): a recorded start bounds nothing (#4523); a derived
+                    // one is inverted as from work and moved onto the instant.
+                    // Mirrors the Python `_apply_milestone_late_date`.
+                    if tasks[i].start_fixed_link(dep.dep_type) {
+                        continue;
+                    }
+                    let (start_ref, finish_ref, seen) = late_refs(
+                        s,
+                        &tasks[s],
+                        (&late_instants, &inherit),
+                        cals,
+                        (dep, false, project_finish),
+                    )?;
+                    let span = if seen == DependencyType::SS {
+                        retreat_calendar_days(start_ref, dep.lag_days(), node_cal)?
+                    } else {
+                        sf_latest_start(finish_ref, dep.lag_days(), node_cal)?
+                    };
+                    bound = bound.min(window_start_bound(span, &tasks[i], node_cal)?);
+                    continue;
+                }
                 let (start_ref, finish_ref, seen) = late_refs(
                     s,
                     &tasks[s],
@@ -450,7 +473,10 @@ pub fn backward_pass(
             for edge in pg.graph.edges_directed(idx, Direction::Outgoing) {
                 let s = edge.target().index();
                 let dep = &deps[*edge.weight()];
-                if late_instants[s].is_some() && inherits_reading(dep.dep_type, dep.lag_days()) {
+                if late_instants[s].is_some()
+                    && inherits_reading(dep.dep_type, dep.lag_days())
+                    && tasks[i].reads_instant(dep.dep_type)
+                {
                     let kid_cal = cals.for_node(s);
                     let mut m = prev_working_day(project_finish, kid_cal)?;
                     if let Some(f) = inherit[s].floor {
@@ -566,7 +592,7 @@ pub fn backward_pass(
 /// on it is that many working days later on the window. `span_bound` is a working
 /// day (every backward bound is snapped), where `finish_from_start` and
 /// `start_from_finish` are inverses. The identity when nothing has elapsed.
-fn window_start_bound(
+pub(crate) fn window_start_bound(
     span_bound: NaiveDate,
     task: &Task,
     cal: &Calendar,

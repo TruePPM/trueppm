@@ -271,6 +271,18 @@ class Task:
             the TruePPM API does) passes it back; with ``None`` (the default) a
             closed milestone sits at the start of its recorded day. Ignored on any
             other task.
+        zero_remaining: Input. ``True`` says an open task with work has **no
+            remaining work** (ADR-1474, #4819) while ``duration`` and
+            ``percent_complete`` still describe the work that was done. It is how
+            :func:`~trueppm_scheduler.perturb_task_duration` expresses a what-if
+            pull-in that uses up all remaining work: the task is placed as an
+            instant, like a milestone, so finish-to-start and finish-to-finish
+            links out of it measure from that instant, but its start-to-start and
+            start-to-finish links keep measuring from its recorded
+            ``actual_start``, or, with progress and no recorded start, from its
+            derived span start ``elapsed`` working days before the instant. It
+            does not complete the task. Ignored on a completed task and on a
+            zero-duration milestone, which already has no remaining work.
         scheduled_start: Computed. Start of the task's whole span (ADR-0752): for
             an in-progress task this is where the work began, whereas
             ``early_start`` is where the remaining work begins. An input value is
@@ -386,6 +398,9 @@ class Task:
     # Input only; see ``live_day_end_on`` under Attributes (#4525). Appended last for
     # the same positional-order reason.
     live_day_end_on: date | None = None
+    # Input only; see ``zero_remaining`` under Attributes (ADR-1474, #4819). Appended
+    # last for the same positional-order reason.
+    zero_remaining: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize the task to a JSON-safe dict.
@@ -441,6 +456,7 @@ class Task:
             d["free_float"] = _parse_timedelta(d.get("free_float", 0))
             _require_bool(d, "is_critical")
             _require_bool(d, "milestone_at_day_end")
+            _require_bool(d, "zero_remaining")
             # Rust ``percent_complete: f64`` refuses an explicit null; Python used
             # to treat it as 0% (#4708). An absent key still defaults to 0.
             if "percent_complete" in d and d["percent_complete"] is None:
@@ -1708,7 +1724,7 @@ def _validate_task_fields(t: Task) -> None:
         value = getattr(t, name)
         if value is not None and type(value) is not date:
             _check_plain_date_field(value, f"Task {_short_repr(tid)} {name}")
-    for name in ("is_critical", "milestone_at_day_end"):
+    for name in ("is_critical", "milestone_at_day_end", "zero_remaining"):
         if type(getattr(t, name)) is not bool:
             _invalid(
                 f"Task {_short_repr(tid)} {name} must be a bool (got "

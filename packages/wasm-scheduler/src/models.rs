@@ -215,6 +215,14 @@ pub struct Task {
         deserialize_with = "date_serde::opt"
     )]
     pub live_day_end_on: Option<NaiveDate>,
+    /// Input: open work with **no remaining work** (ADR-1474, #4819), while
+    /// `duration` and `percent_complete` still describe the work done. Placed as an
+    /// instant like a milestone; FS/FF links measure from it, SS/SF links from the
+    /// recorded `actual_start` or the derived span start (`link_start`). Ignored on
+    /// a completed task and a zero-duration milestone. Mirrors the Python
+    /// `Task.zero_remaining`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub zero_remaining: bool,
 
     /// Total float in seconds (divide by 86400 for working days).
     #[serde(default)]
@@ -299,6 +307,10 @@ impl Task {
     /// agree bit-for-bit (the conformance contract). A completed task is laid out
     /// at full duration by the caller and never routed through here.
     pub fn effective_duration_days(&self) -> i32 {
+        if self.zero_remaining {
+            // Open work with nothing left to do (ADR-1474): placed as an instant.
+            return 0;
+        }
         let full = self.duration_days();
         let pct = self.percent_complete;
         if pct <= 0.0 {
@@ -327,7 +339,28 @@ impl Task {
         if self.actual_start.is_some() || self.duration_days() <= 0 || self.is_complete() {
             return 0;
         }
-        self.duration_days() - self.effective_duration_days()
+        if self.percent_complete <= 0.0 {
+            return 0;
+        }
+        // Read off `duration` and the percentage, not the remaining work, so a task
+        // with no remaining work keeps its elapsed days (ADR-1474).
+        elapsed_days(self.duration_days(), self.percent_complete)
+    }
+
+    /// Whether this task is placed as an instant but its SS/SF links measure from
+    /// its start (ADR-1474, #4819). Mirrors the Python `_detached_link_start`.
+    pub fn detached_link_start(&self) -> bool {
+        self.zero_remaining
+            && self.duration_days() > 0
+            && !self.is_complete()
+            && (self.actual_start.is_some() || self.elapsed_link_days() > 0)
+    }
+
+    /// Whether a `dep_type` link out of this task measures from its instant, when it
+    /// has one. False only for SS/SF out of a `detached_link_start` task (ADR-1474).
+    /// Mirrors the Python `_reads_instant`.
+    pub fn reads_instant(&self, dep_type: DependencyType) -> bool {
+        !matches!(dep_type, DependencyType::SS | DependencyType::SF) || !self.detached_link_start()
     }
 
     /// The start an SS or SF link out of this task measures from (ADR-0132 §2a).
@@ -653,6 +686,7 @@ mod tests {
             scheduled_start: None,
             milestone_at_day_end: false,
             live_day_end_on: None,
+            zero_remaining: false,
             total_float: 0.0,
             free_float: 0.0,
             is_critical: false,

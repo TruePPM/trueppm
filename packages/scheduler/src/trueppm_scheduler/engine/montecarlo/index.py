@@ -275,7 +275,7 @@ def _mc_pre_start_pad_days(
             continue
         if tid not in sf_linked:
             lo[tid] = _next_working_day(project.start_date, cal)
-            if task.duration.days == 0:
+            if task.duration.days == 0 or task.zero_remaining:
                 proposals = [
                     *_milestone_hard_floors(task, cal, project.status_date, project.start_date),
                     *_link_lower_bound(g, tid, link_lo, cal_of),

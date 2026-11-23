@@ -7,6 +7,7 @@ from collections.abc import (
 )
 from datetime import (
     date,
+    timedelta,
 )
 
 import networkx as nx
@@ -14,6 +15,7 @@ import networkx as nx
 from trueppm_scheduler.engine.calendar_math import (
     _advance_calendar_days,
     _effective_duration_days,
+    _elapsed_working_days,
     _finish_from_start,
     _is_complete,
     _next_working_day,
@@ -30,6 +32,7 @@ from trueppm_scheduler.engine.milestones import (
     _Instant,
     _link_start,
     _place_milestone,
+    _reads_instant,
     _start_reading,
 )
 from trueppm_scheduler.models import (
@@ -409,6 +412,17 @@ def _compute_scheduled_start(task: Task, cal: Calendar) -> date:
     if task.actual_start is not None:
         return task.actual_start
     full_days = task.duration.days
+    if task.zero_remaining and full_days > 0:
+        # No remaining work (ADR-1474): the elapsed days end at the instant the task
+        # is placed on, the close of its day when it follows work and the close of
+        # the working day before it when it is held at the start of its day.
+        last = (
+            task.early_finish
+            if task.milestone_at_day_end
+            else _prev_working_day(task.early_start - timedelta(days=1), cal)
+        )
+        elapsed = _elapsed_working_days(full_days, pct)
+        return _start_from_finish(last, elapsed, cal) if elapsed > 0 else task.early_start
     return _start_from_finish(task.early_finish, full_days, cal)
 
 
@@ -633,7 +647,9 @@ def _forward_edge_constraints(
             dep.dep_type,
             _link_start(pred),
             pred.early_finish,
-            instants[pred_id][0] if pred_id in instants else None,
+            instants[pred_id][0]
+            if pred_id in instants and _reads_instant(pred, dep.dep_type)
+            else None,
             cal_for(pred_id),
             dep.lag,
         )

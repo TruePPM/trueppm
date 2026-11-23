@@ -287,6 +287,8 @@ _EXPECTED_FIELD_ORDER: dict[str, list[str]] = {
         "milestone_at_day_end",
         # Appended (#4525) for the same reason.
         "live_day_end_on",
+        # Appended (ADR-1474, #4819) for the same reason.
+        "zero_remaining",
     ],
     "TaskSensitivity": ["task_id", "index"],
 }

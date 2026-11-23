@@ -267,6 +267,7 @@ def _engine_task(project: RefProject, tid: str, n: int) -> Task:
         actual_finish=progress.actual_finish,
         calendar_id=project.task_calendar.get(tid),
         live_day_end_on=project.live_day_end_on.get(tid),
+        zero_remaining=progress.zero_remaining,
     )
 
 
@@ -317,6 +318,8 @@ def _task_document(project: RefProject, tid: str, n: int) -> dict[str, Any]:
             row["actual_start"] = progress.actual_start.isoformat()
         if progress.actual_finish is not None:
             row["actual_finish"] = progress.actual_finish.isoformat()
+        if progress.zero_remaining:
+            row["zero_remaining"] = True
     if tid in project.task_calendar:
         row["calendar_id"] = project.task_calendar[tid]
     if tid in project.live_day_end_on:
@@ -1167,7 +1170,9 @@ def _on_one_calendar(link: RefLink, task_calendar: dict[str, str]) -> RefLink:
 
 
 @st.composite
-def progress_projects(draw: st.DrawFn, max_tasks: int = 6, modeled: bool = False) -> RefProject:
+def progress_projects(
+    draw: st.DrawFn, max_tasks: int = 6, modeled: bool = False, no_remaining: bool = False
+) -> RefProject:
     """A random DAG carrying progress, a data date, SNETs and per-task calendars.
 
     Per-task calendars are Monday-to-Friday, Monday-to-Thursday and seven-day weeks, each
@@ -1176,6 +1181,10 @@ def progress_projects(draw: st.DrawFn, max_tasks: int = 6, modeled: bool = False
     ``modeled`` keeps to what the reference models (:func:`reference_schedule`
     refuses the rest): per-task calendars only on a network of FS/SS links, and a
     completed milestone only without recorded actuals.
+
+    ``no_remaining`` also marks some open tasks with work as having no remaining
+    work (``Task.zero_remaining``, ADR-1474), with and without a recorded start or
+    elapsed days, so every link type leaves such a task in both readings.
     """
     n = draw(st.integers(1, max_tasks))
     # A project is either near-start (the narrow ranges the #4635 shape was found in:
@@ -1232,6 +1241,10 @@ def progress_projects(draw: st.DrawFn, max_tasks: int = 6, modeled: bool = False
         recorded = draw(_progress(start, dur))
         if modeled and dur == 0 and recorded is not None and recorded.complete:
             recorded = RefProgress(percent_complete=100.0)
+        if no_remaining and dur > 0 and draw(st.booleans()):
+            open_work = recorded is None or not recorded.complete
+            if open_work:
+                recorded = replace(recorded or RefProgress(), zero_remaining=True)
         if recorded is not None:
             progress[tid] = recorded
     # Monday-to-Friday, every day, and a scattered week with two holes in it.
@@ -3061,6 +3074,23 @@ def test_python_engine_matches_reference_with_progress(project: RefProject) -> N
 @given(project=progress_projects(modeled=True))
 @_with_progress_examples
 def test_rust_engine_matches_reference_with_progress(
+    rust_engine: RustRunner, project: RefProject
+) -> None:
+    assert_matches_reference(rust_engine.schedule(project), project)
+
+
+@pytest.mark.fuzz
+@given(project=progress_projects(modeled=True, no_remaining=True))
+def test_python_engine_matches_reference_with_no_remaining_work(project: RefProject) -> None:
+    """Open work with no remaining work (ADR-1474, #4819): placed as an instant, its
+    FS/FF links measured from it and its SS/SF links from its recorded or derived
+    start, against the reference, on every link type, progress shape and calendar."""
+    assert_matches_reference(python_engine(project), project)
+
+
+@pytest.mark.fuzz
+@given(project=progress_projects(modeled=True, no_remaining=True))
+def test_rust_engine_matches_reference_with_no_remaining_work(
     rust_engine: RustRunner, project: RefProject
 ) -> None:
     assert_matches_reference(rust_engine.schedule(project), project)

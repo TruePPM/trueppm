@@ -1,0 +1,39 @@
+{
+  "id": "p-zero-remaining",
+  "name": "Open work with no remaining work across every link type (ADR-1474, #4819)",
+  "start_date": "2027-03-01",
+  "status_date": "2027-03-08",
+  "tasks": [
+    {"id": "P1", "name": "Recorded: predecessor", "duration": 432000.0},
+    {"id": "M1", "name": "Recorded: no work left", "duration": 432000.0, "percent_complete": 40.0, "actual_start": "2027-03-05", "zero_remaining": true},
+    {"id": "SS1", "name": "Recorded: SS successor", "duration": 259200.0},
+    {"id": "SF1", "name": "Recorded: SF successor", "duration": 259200.0},
+    {"id": "FS1", "name": "Recorded: FS successor", "duration": 259200.0},
+    {"id": "FF1", "name": "Recorded: FF successor", "duration": 259200.0},
+    {"id": "G1", "name": "Recorded: SS milestone", "duration": 0.0},
+    {"id": "P2", "name": "Derived: predecessor", "duration": 432000.0},
+    {"id": "M2", "name": "Derived: no work left", "duration": 432000.0, "percent_complete": 40.0, "zero_remaining": true},
+    {"id": "SS2", "name": "Derived: SS successor", "duration": 259200.0},
+    {"id": "SF2", "name": "Derived: SF successor", "duration": 259200.0},
+    {"id": "G2", "name": "Derived: SF milestone", "duration": 0.0},
+    {"id": "M3", "name": "Derived, no data-date hold", "duration": 604800.0, "percent_complete": 50.0, "zero_remaining": true},
+    {"id": "SS3", "name": "Derived: SS successor of a held instant", "duration": 172800.0},
+    {"id": "M4", "name": "Recorded, no percentage", "duration": 259200.0, "actual_start": "2027-03-06", "zero_remaining": true},
+    {"id": "SS4", "name": "Recorded weekend start: SS successor", "duration": 86400.0}
+  ],
+  "dependencies": [
+    {"predecessor_id": "P1", "successor_id": "M1", "dep_type": "FS"},
+    {"predecessor_id": "M1", "successor_id": "SS1", "dep_type": "SS", "lag": 172800.0},
+    {"predecessor_id": "M1", "successor_id": "SF1", "dep_type": "SF", "lag": 172800.0},
+    {"predecessor_id": "M1", "successor_id": "FS1", "dep_type": "FS"},
+    {"predecessor_id": "M1", "successor_id": "FF1", "dep_type": "FF", "lag": 86400.0},
+    {"predecessor_id": "M1", "successor_id": "G1", "dep_type": "SS"},
+    {"predecessor_id": "P2", "successor_id": "M2", "dep_type": "FS"},
+    {"predecessor_id": "M2", "successor_id": "SS2", "dep_type": "SS", "lag": 86400.0},
+    {"predecessor_id": "M2", "successor_id": "SF2", "dep_type": "SF"},
+    {"predecessor_id": "M2", "successor_id": "G2", "dep_type": "SF", "lag": 86400.0},
+    {"predecessor_id": "P2", "successor_id": "M3", "dep_type": "SS"},
+    {"predecessor_id": "M3", "successor_id": "SS3", "dep_type": "SS"},
+    {"predecessor_id": "M4", "successor_id": "SS4", "dep_type": "SS", "lag": 86400.0}
+  ]
+}

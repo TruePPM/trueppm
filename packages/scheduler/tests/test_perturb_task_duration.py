@@ -269,7 +269,9 @@ def test_durations_and_story_points_floor_at_zero() -> None:
     baseline = _project(_velocity_task())
     target = next(t for t in perturb_task_duration(baseline, "A", -500).tasks if t.id == "A")
 
-    assert target.duration == timedelta(0)
+    # No remaining work is said explicitly (ADR-1474); the duration is the work done.
+    assert target.zero_remaining
+    assert target.duration == baseline.tasks[0].duration
     assert target.story_points == 0.0
 
 
@@ -450,10 +452,12 @@ def test_elapsed_working_days_are_held_constant(duration_days: int, pct: float, 
     remaining = duration_days - elapsed
     new_remaining = max(0, remaining + delta)
     if new_remaining == 0:
-        # Zero duration is how an open task says it has nothing left. Elapsed days are
-        # read off ``duration``, so they read zero here, and no recorded fact changes.
-        assert target.duration == timedelta(0)
+        # ``zero_remaining`` is how an open task says it has nothing left (ADR-1474).
+        # Duration and percentage still hold the elapsed days; no recorded fact changes.
+        assert target.zero_remaining
+        assert target.duration == task.duration
         assert target.percent_complete == pct
+        assert _elapsed_days(target) == elapsed
         assert target.actual_finish is None
     else:
         assert target.duration == timedelta(days=elapsed + new_remaining)
@@ -475,7 +479,8 @@ def test_pulling_in_all_remaining_work_leaves_the_task_open() -> None:
     baseline = _in_progress_chain()
     target = next(t for t in perturb_task_duration(baseline, "A", -50).tasks if t.id == "A")
 
-    assert target.duration == timedelta(0)
+    assert target.zero_remaining
+    assert target.duration == timedelta(days=5)
     assert target.percent_complete == 50.0
     assert target.actual_start == date(2027, 2, 24)
     assert target.actual_finish is None
@@ -781,7 +786,8 @@ def test_an_exhausting_pull_in_without_a_percentage_leaves_the_task_open(
     baseline = _milestone_chain(5, **fields)
     target = _milestone_of(perturb_task_duration(baseline, "M", delta))
 
-    assert target.duration == timedelta(0)
+    assert target.zero_remaining
+    assert target.duration == timedelta(days=5)
     assert not target.percent_complete
     assert target.actual_finish is None
     assert target.actual_start == fields.get("actual_start")
@@ -841,7 +847,8 @@ def test_an_exhausting_pull_in_keeps_the_task_on_its_open_predecessors_path(
     target = _milestone_of(perturbed)
     moved = schedule(perturbed)
 
-    assert target.duration == timedelta(0)
+    assert target.zero_remaining
+    assert target.duration == _milestone_of(baseline).duration
     assert target.actual_finish is None
     assert target.actual_start == fields.get("actual_start")
     assert target.percent_complete == fields.get("percent_complete", target.percent_complete)
@@ -887,9 +894,9 @@ def test_an_open_predecessors_risk_stays_in_the_bands(
 
 
 def test_the_last_day_of_a_pull_in_moves_a_risky_tasks_bands_by_one_day() -> None:
-    """Monte Carlo subtracts elapsed days off ``duration``, so that subtraction ends at
-    zero duration and the estimate has to absorb them. Otherwise the step from one
-    remaining day to none would add the two elapsed days back to the sampled work."""
+    """Monte Carlo sets the elapsed days aside at no remaining work too (ADR-1474), so
+    the estimate moves by the delta like any shift: the step from one remaining day to
+    none must not add the two elapsed days back to the sampled work."""
     baseline = _milestone_chain(
         5,
         actual_start=_STARTED,
@@ -902,9 +909,10 @@ def test_the_last_day_of_a_pull_in_moves_a_risky_tasks_bands_by_one_day() -> Non
     none_left = perturb_task_duration(baseline, "M", -3)
 
     target = _milestone_of(none_left)
-    assert target.optimistic_duration == timedelta(0)
-    assert target.most_likely_duration == timedelta(0)
-    assert target.pessimistic_duration == timedelta(days=6)
+    assert target.zero_remaining
+    assert target.optimistic_duration == timedelta(days=2)
+    assert target.most_likely_duration == timedelta(days=2)
+    assert target.pessimistic_duration == timedelta(days=8)
 
     before = monte_carlo(one_left, runs=RUNS, seed=SEED)
     after = monte_carlo(none_left, runs=RUNS, seed=SEED)
@@ -1049,12 +1057,12 @@ def test_a_slip_then_its_pull_in_returns_to_the_baseline_forecast(
 
 
 def test_a_pull_in_to_nothing_then_a_slip_restores_the_remaining_work() -> None:
-    """Elapsed days cannot be read back off zero duration, but they were never part of
-    the forecast: what comes back is the remaining work, so the finish returns too."""
+    """No remaining work keeps the elapsed days (ADR-1474), so a slip back restores the
+    task exactly, and the finish returns too."""
     baseline = _milestone_chain(5, actual_start=_STARTED, percent_complete=40.0)
     back = perturb_task_duration(perturb_task_duration(baseline, "M", -3), "M", 3)
 
-    assert _milestone_of(back).duration == timedelta(days=3)
+    assert _milestone_of(back) == _milestone_of(baseline)
     assert schedule(back).project_finish == schedule(baseline).project_finish
 
 
@@ -1128,7 +1136,6 @@ def test_without_a_data_date_a_recorded_start_can_hold_an_ff_pull_in_back(
         assert finishes[-1] >= recorded_start
 
 
-@pytest.mark.xfail(strict=True, reason="#4819")
 @pytest.mark.parametrize(
     ("lag_days", "status_date", "fields"),
     [
@@ -1141,8 +1148,8 @@ def test_without_a_data_date_a_recorded_start_can_hold_an_ff_pull_in_back(
 def test_a_growing_pull_in_across_a_start_to_start_link_never_finishes_later(
     lag_days: int, status_date: date | None, fields: dict[str, object]
 ) -> None:
-    """The correct behavior, not the current one: removing more work from M cannot move
-    the finish later. At zero duration the link stops reading the recorded start."""
+    """Removing more work from M cannot move the finish later (#4819): with no remaining
+    work the link still reads the recorded start, or the derived span start."""
     baseline = _chain_with_link_out(DependencyType.SS, lag_days, 5, status_date, **fields)
     finishes = [schedule(baseline).project_finish] + [
         schedule(perturb_task_duration(baseline, "M", delta)).project_finish

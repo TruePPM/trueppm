@@ -457,6 +457,9 @@ from trueppm_scheduler.engine.milestones import (
     _closed_milestone_link as _closed_milestone_link,
 )
 from trueppm_scheduler.engine.milestones import (
+    _detached_link_start as _detached_link_start,
+)
+from trueppm_scheduler.engine.milestones import (
     _edge_anchor as _edge_anchor,
 )
 from trueppm_scheduler.engine.milestones import (
@@ -518,6 +521,9 @@ from trueppm_scheduler.engine.milestones import (
 )
 from trueppm_scheduler.engine.milestones import (
     _place_milestone as _place_milestone,
+)
+from trueppm_scheduler.engine.milestones import (
+    _reads_instant as _reads_instant,
 )
 from trueppm_scheduler.engine.milestones import (
     _sf_latest_start as _sf_latest_start,

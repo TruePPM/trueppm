@@ -216,6 +216,9 @@ class RefProgress:
     percent_complete: float = 0.0
     actual_start: date | None = None
     actual_finish: date | None = None
+    # Open work with no remaining work (ADR-1474): placed as an instant, its SS/SF
+    # links measured from its recorded or derived start.
+    zero_remaining: bool = False
 
     @property
     def complete(self) -> bool:
@@ -266,6 +269,8 @@ class RefTask:
     shown_at: date | None = None
     # Completed (ADR-0136): pinned, zero float, never critical.
     complete: bool = False
+    # Live work with no remaining work (ADR-1474): an instant, like a milestone.
+    no_remaining: bool = False
 
     @property
     def is_critical(self) -> bool:
@@ -273,7 +278,7 @@ class RefTask:
 
     @property
     def is_milestone(self) -> bool:
-        return self.duration == 0
+        return self.duration == 0 or self.no_remaining
 
     @property
     def early_start(self) -> date:
@@ -523,16 +528,53 @@ def remaining_days(project: RefProject, tid: str) -> int:
     most 20 significant digits, inside ``Decimal``'s default 28, so the product, the
     shift by 100 and the distance to the nearest integer are all exact.
     """
+    if no_remaining(project, tid):
+        return 0
+    return project.durations[tid] - elapsed_days(project, tid)
+
+
+def elapsed_days(project: RefProject, tid: str) -> int:
+    """Working days of ``tid``'s work already done, read off its duration and percent."""
     n = project.durations[tid]
     pct = _progress(project, tid).percent_complete
     if pct <= 0:
-        return n
+        return 0
     x = n * Decimal(repr(min(pct, 100.0))) / 100
     nearest = x.to_integral_value(rounding=ROUND_HALF_EVEN)
     elapsed = int(nearest) if abs(x - nearest) <= _SNAP_TOLERANCE else int(x)
     if pct < 100:
         elapsed = min(elapsed, n - 1)
-    return n - elapsed
+    return elapsed
+
+
+def no_remaining(project: RefProject, tid: str) -> bool:
+    """Live work with nothing left to do (ADR-1474)."""
+    return (
+        _progress(project, tid).zero_remaining
+        and project.durations[tid] > 0
+        and not is_complete(project, tid)
+    )
+
+
+def is_instant(project: RefProject, tid: str) -> bool:
+    """Placed as one instant: a milestone, or live work with no remaining work."""
+    return project.durations[tid] == 0 or no_remaining(project, tid)
+
+
+def detached(project: RefProject, tid: str) -> bool:
+    """An instant whose SS/SF links measure from a recorded or derived start (ADR-1474)."""
+    return no_remaining(project, tid) and (
+        _progress(project, tid).actual_start is not None or elapsed_days(project, tid) > 0
+    )
+
+
+def pred_span(project: RefProject, link: RefLink, span: Span) -> Span:
+    """The span ``link`` measures its predecessor from: an SS/SF link out of a
+    :func:`detached` instant measures from the start of its work, read in working time."""
+    if link.kind in ("SS", "SF") and detached(project, link.pred):
+        start = link_start(project, link.pred, span)
+        return start, start + ONE_DAY
+    return span
 
 
 def _start_is_recorded(project: RefProject, tid: str) -> bool:
@@ -556,6 +598,10 @@ def link_start(project: RefProject, tid: str, span: Span) -> date:
         assert recorded is not None
         return recorded
     n = project.durations[tid]
+    if no_remaining(project, tid):
+        # The elapsed days end at the instant ``span`` is (ADR-1474).
+        elapsed = elapsed_days(project, tid)
+        return start_from_finish(span[1], elapsed, project.calendar_of(tid)) if elapsed else span[0]
     if n > 0 and not is_complete(project, tid) and remaining_days(project, tid) < n:
         return start_from_finish(span[1], n, project.calendar_of(tid))
     return span[0]
@@ -642,7 +688,14 @@ def _needs(
     start (:func:`link_start`) and its finish — for a milestone, its link instant.
     """
     return [
-        (link, link_need(link, links_from[link.pred], project.calendar_of(link.pred)))
+        (
+            link,
+            link_need(
+                link,
+                pred_span(project, link, links_from[link.pred]),
+                project.calendar_of(link.pred),
+            ),
+        )
         for link in incoming(project, tid)
     ]
 
@@ -679,11 +732,16 @@ def _proposal_reads_start(
     """
     if link.kind == "SF":
         base = False
-    elif link.lag == 0 and project.durations[link.pred] == 0:
+    elif link.lag == 0 and is_instant(project, link.pred) and not detached_link(project, link):
         base = reads_start[link.pred]
     else:
         base = link.kind == "SS"
     return base or not project.calendar_of(link.succ).is_working(need - ONE_DAY)
+
+
+def detached_link(project: RefProject, link: RefLink) -> bool:
+    """An SS/SF link out of a :func:`detached` instant (ADR-1474)."""
+    return link.kind in ("SS", "SF") and detached(project, link.pred)
 
 
 def _floor_link(
@@ -808,13 +866,13 @@ def _all_hold(
     project: RefProject, tid: str, span: Span, placed: dict[str, Span], links: list[RefLink]
 ) -> bool:
     pred_cal = project.calendar_of(tid)
-    pred = (link_start(project, tid, span), span[1])
+    pred = span if no_remaining(project, tid) else (link_start(project, tid, span), span[1])
     return all(
         link_holds(
             link,
-            pred,
+            pred_span(project, link, pred),
             placed[link.succ],
-            project.durations[link.succ] == 0,
+            is_instant(project, link.succ),
             pred_cal,
             project.calendar_of(link.succ),
         )
@@ -847,7 +905,7 @@ def _backward_task(
     reading as a late date before the early one."""
     cal = project.calendar_of(tid)
     links = _binding_links(project, tid)
-    if project.durations[tid] == 0:
+    if is_instant(project, tid):
         instant = project_finish
         while not _all_hold(project, tid, (instant, instant), late, links):
             instant -= ONE_DAY
@@ -910,11 +968,11 @@ def _project_finish(
     late dates for a start-of-day finish this oracle does not model (#4436).
     """
     cal = project.calendar
-    work = [early[t][1] for t, n in project.durations.items() if n > 0]
+    work = [early[t][1] for t in project.durations if not is_instant(project, t)]
     marks = [
         start_at_or_after(shown[t], project.calendar_of(t)) if reads_start[t] else shown[t]
-        for t, n in project.durations.items()
-        if n == 0
+        for t in project.durations
+        if is_instant(project, t)
     ]
     finish = max(work + marks)
     furthest = position_of(finish, project_start, cal)
@@ -941,7 +999,7 @@ def _feeds_a_milestone(project: RefProject, tid: str) -> bool:
     frontier, seen = [tid], set()
     while frontier:
         current = frontier.pop()
-        if project.durations[current] == 0:
+        if is_instant(project, current):
             return True
         seen.add(current)
         frontier += [ln.succ for ln in outgoing(project, current) if ln.succ not in seen]
@@ -1053,7 +1111,7 @@ def reference_schedule(project: RefProject) -> RefResult:
                 shown[tid] = early[tid][0]
                 reads_start[tid] = True  # the start of its pinned day
             continue
-        if project.durations[tid] == 0:
+        if is_instant(project, tid):
             instant, link, reads_start[tid] = _place_live_milestone(
                 project, tid, links_from, reads_start
             )
@@ -1098,6 +1156,7 @@ def reference_schedule(project: RefProject) -> RefResult:
             late_stated=stated,
             complete=complete,
             shown_at=shown.get(tid, early[tid][0]),
+            no_remaining=no_remaining(project, tid),
         )
     return RefResult(tasks=tasks, project_start_at=project_start, project_finish_at=project_finish)
 

@@ -1465,6 +1465,16 @@
       "provenance": "hand-verified",
       "issue": "#4539",
       "evidence": "#4539: regenerated with REGEN_EXPECTED=1, then checked by hand against the independent oracle: M (SNET Wed 03-18, data date Wed 03-11) is held at 03-11, so C starts 03-11 instead of the 03-18 week"
+    },
+    "expected/zero_remaining_links.json": {
+      "provenance": "hand-verified",
+      "issue": "#4819",
+      "evidence": "ADR-1474: produced with REGEN_EXPECTED=1, then every successor date checked by hand against the ADR's link-start rule (recorded actual_start; derived span start elapsed working days before the instant)"
+    },
+    "zero_remaining_links.json": {
+      "provenance": "unknown",
+      "issue": "#4819",
+      "evidence": "ADR-1474: input written by hand to cover SS/SF/FS/FF out of a task with no remaining work, recorded and derived starts"
     }
   }
 }

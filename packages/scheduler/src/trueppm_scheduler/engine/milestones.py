@@ -19,11 +19,12 @@ from datetime import (
 import networkx as nx
 
 from trueppm_scheduler.engine.calendar_math import (
-    _effective_duration_days,
+    _elapsed_working_days,
     _finish_from_start,
     _is_complete,
     _next_working_day,
     _prev_working_day,
+    _retreat_calendar_days,
     _safe_offset,
     _scan_for_working_day,
 )
@@ -181,7 +182,44 @@ def _elapsed_link_days(task: Task) -> int:
     """
     if task.actual_start is not None or task.duration.days <= 0 or _is_complete(task):
         return 0
-    return task.duration.days - _effective_duration_days(task)
+    pct = task.percent_complete
+    if not pct or pct <= 0:
+        return 0
+    # Read off ``duration`` and the percentage, not the remaining work: a task with
+    # no remaining work (``zero_remaining``, ADR-1474) keeps its elapsed days.
+    return _elapsed_working_days(task.duration.days, pct)
+
+
+def _detached_link_start(task: Task) -> bool:
+    """Whether ``task`` is placed as an instant but its SS/SF links measure elsewhere.
+
+    True for open work with no remaining work (``Task.zero_remaining``, ADR-1474,
+    #4819) whose start is recorded (:func:`_start_is_recorded`) or derived from
+    elapsed days (:func:`_elapsed_link_days`). The task is placed as an instant, like
+    a milestone, and its FS/FF links measure from that instant; its SS and SF links
+    measure from :func:`_link_start`, exactly as they did while it had work left.
+    Measuring them from the instant instead moved a successor *behind* the recorded
+    start, so pulling more work out of the task finished the project later. With no
+    recorded start and no elapsed days the start is the instant, and nothing
+    differs from a milestone.
+    """
+    return (
+        task.zero_remaining
+        and task.duration.days > 0
+        and not _is_complete(task)
+        and (task.actual_start is not None or _elapsed_link_days(task) > 0)
+    )
+
+
+def _reads_instant(task: Task, dep_type: DependencyType) -> bool:
+    """Whether a ``dep_type`` link out of ``task`` measures from its instant, when it has one.
+
+    False only for an SS or SF link out of a :func:`_detached_link_start` task, which
+    is measured like a link out of work, from :func:`_link_start` (ADR-1474).
+    """
+    return dep_type not in (DependencyType.SS, DependencyType.SF) or not (
+        _detached_link_start(task)
+    )
 
 
 def _link_start(task: Task) -> date:
@@ -426,6 +464,20 @@ def _milestone_free_instants(
                 continue
             dep: Dependency = g[node_id][succ_id]["dep"]
             succ_free = free.get(succ_id)
+            if not _reads_instant(task_map[node_id], dep.dep_type):
+                # Measured from the start of work with nothing left (ADR-1474).
+                detached = _detached_free_bound(
+                    task_map[node_id],
+                    succ,
+                    dep,
+                    succ_free,
+                    instants.get(succ_id),
+                    cal,
+                    cal_for(succ_id),
+                )
+                if detached is not None:
+                    bound = min(bound, detached)
+                continue
             if succ_free is None:
                 assert succ.early_start is not None and succ.early_finish is not None
                 # The same working-day snap _free_float_days reads a work successor
@@ -446,6 +498,40 @@ def _milestone_free_instants(
             bound = min(bound, _milestone_latest(dep.dep_type, dep.lag, *refs, cal))
         free[node_id] = max(link, bound)
     return free
+
+
+def _detached_free_bound(
+    task: Task,
+    succ: Task,
+    dep: Dependency,
+    succ_free: date | None,
+    succ_instant: _Instant | None,
+    cal: Calendar,
+    succ_cal: Calendar,
+) -> date | None:
+    """The latest instant an SS/SF link from a detached start lets ``task`` reach (ADR-1474).
+
+    ``None`` for a recorded start, which no slip of the instant moves (#4523). A
+    derived span start sits :func:`_elapsed_link_days` working days before the
+    instant, so the link is inverted as from work and moved onto the instant with
+    :func:`_window_start_bound`.
+    """
+    if _start_is_recorded(task):
+        return None
+    if succ_free is None:
+        assert succ.early_start is not None and succ.early_finish is not None
+        start_ref, finish_ref = _next_working_day(succ.early_start, succ_cal), succ.early_finish
+    else:
+        assert succ_instant is not None
+        start_ref = _free_start_ref(
+            (succ_free, succ_instant[1]), dep.dep_type, dep.lag, None, succ_cal
+        )
+        finish_ref = _milestone_refs(succ_free)[1]
+    if dep.dep_type == DependencyType.SS:
+        latest = _retreat_calendar_days(start_ref, dep.lag, cal)
+    else:
+        latest = _sf_latest_start(finish_ref, dep.lag, cal)
+    return _window_start_bound(latest, task, cal)
 
 
 def _milestone_latest(
@@ -1108,7 +1194,7 @@ def _link_proposal(
         dep.lag,
         _link_start(pred),
         pred.early_finish,
-        links.get(pred_id),
+        links.get(pred_id) if _reads_instant(pred, dep.dep_type) else None,
         cal_for(pred_id),
         cal,
     )

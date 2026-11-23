@@ -324,19 +324,26 @@ change between releases. Pin an exact version (e.g.
   from its predecessors: the critical path fell to its successors, and the Monte
   Carlo bands could move further than the pull-in (P80 by 4 working days on a
   1-day pull-in) because the predecessors' risk dropped out. A zero or negative
-  delta on a started milestone did the same. The task now stays open at zero
-  duration with `percent_complete`, `actual_start` and `actual_finish` as they
-  were. With no lag on finish-to-start or finish-to-finish links out of it, the
-  CPM finish moves by the days pulled in. Its three-point estimate and story
-  points are also lowered by its elapsed days, which Monte Carlo stops
-  subtracting at zero duration. This reverses the completion behavior added with
-  the #4432 fix. A zero delta now returns every task unchanged
-  ([#4536](https://gitlab.com/trueppm/trueppm/-/issues/4536)).
+  delta on a started milestone did the same. The task now stays open with
+  `duration`, `percent_complete`, `actual_start` and `actual_finish` as they
+  were and the new `Task.zero_remaining` set (ADR-1474): it is placed as an
+  instant, so with no lag on finish-to-start or finish-to-finish links out of it
+  the CPM finish moves by the days pulled in, and its start-to-start and
+  start-to-finish links keep measuring from its recorded `actual_start`, or its
+  derived span start, so a bigger pull-in never finishes later than a smaller
+  one on any link type. Its three-point estimate moves by the delta like any
+  other shift. This reverses the completion behavior added with the #4432 fix. A
+  zero delta now returns every task unchanged
+  ([#4536](https://gitlab.com/trueppm/trueppm/-/issues/4536),
+  [#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)).
 
-  Known limit of this behavior. On start-to-start and start-to-finish links out
-  of the task, the link stops reading the recorded start at zero duration, so a
-  bigger pull-in can finish later than a smaller one, even with no lag
-  ([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)).
+- **`Task.zero_remaining`**, a new input (appended last to `Task`): open work
+  with no remaining work, while `duration` and `percent_complete` still describe
+  the work done. Placed as an instant like a milestone; FS/FF links measure from
+  that instant and SS/SF links from the recorded `actual_start` or the derived
+  span start. `to_dict()` always emits it, so a document from this version needs a
+  Rust/WASM engine that knows the key (ADR-1474,
+  [#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)).
 
 - **A what-if pull-in no longer moves a sprint-delivered task's bands later at exhaustion.** When a
   pull-in used up the remaining work of a started velocity-sampled task, a band could

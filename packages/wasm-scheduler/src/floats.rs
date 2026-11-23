@@ -7,7 +7,7 @@ use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 use petgraph::Direction;
 
-use crate::backward::{milestone_latest, milestone_refs, sf_latest_start};
+use crate::backward::{milestone_latest, milestone_refs, sf_latest_start, window_start_bound};
 use crate::calendar::{
     advance_calendar_days, checked_offset_days, next_working_day, prev_working_day,
     retreat_calendar_days, working_days_between, PassCalendars, WorkingDayCounter,
@@ -129,6 +129,39 @@ fn milestone_free_instants(
                 continue;
             }
             let dep = &deps[*edge.weight()];
+            if !tasks[i].reads_instant(dep.dep_type) {
+                // Measured from the start of work with nothing left (ADR-1474): a
+                // recorded start bounds nothing; a derived one is inverted as from
+                // work and moved onto the instant. Mirrors the Python
+                // `_detached_free_bound`.
+                if tasks[i].start_is_recorded() {
+                    continue;
+                }
+                let (start_ref, finish_ref) = match free[s] {
+                    Some(x) => {
+                        let succ_shown = milestones.shown[s]
+                            .ok_or_else(|| "free instant implies a shown instant".to_string())?;
+                        let start_ref = free_start_ref(
+                            (x, succ_shown.1),
+                            (dep.dep_type, dep.lag_days()),
+                            None,
+                            cals.for_node(s),
+                        )?;
+                        (start_ref, milestone_refs(x)?.1)
+                    }
+                    None => (
+                        next_working_day(succ.early_start.unwrap(), cals.for_node(s))?,
+                        succ.early_finish.unwrap(),
+                    ),
+                };
+                let span = if dep.dep_type == DependencyType::SS {
+                    retreat_calendar_days(start_ref, dep.lag_days(), cal)?
+                } else {
+                    sf_latest_start(finish_ref, dep.lag_days(), cal)?
+                };
+                bound = bound.min(window_start_bound(span, &tasks[i], cal)?);
+                continue;
+            }
             // FF into a milestone is FS (#4272).
             let (start_ref, finish_ref, seen) = match free[s] {
                 Some(x) => {
@@ -346,6 +379,11 @@ pub fn compute_floats(
             }
             let dep = &deps[*edge.weight()];
             let s = edge.target().index();
+            // An SS/SF link out of work with nothing left measures from its start,
+            // like a link out of work (ADR-1474, `Task::reads_instant`).
+            let reads = tasks[i].reads_instant(dep.dep_type);
+            let own_instant = instants[i].filter(|_| reads);
+            let own_link = milestones.links[i].filter(|_| reads);
             // The arithmetic inverts the type a milestone successor sees — FF into
             // a milestone is FS (#4272) — while a driving edge keeps the link's own.
             let link = match free_instants[s] {
@@ -377,7 +415,7 @@ pub fn compute_floats(
                     free_start_ref(
                         (free_instants[s].unwrap(), start_display),
                         link,
-                        milestones.links[i],
+                        own_link,
                         cals.for_node(s),
                     )?,
                     raw_refs.1,
@@ -385,7 +423,7 @@ pub fn compute_floats(
                 None => raw_refs,
             };
             let slack_to = |(succ_start, succ_finish): (NaiveDate, NaiveDate)| {
-                Ok::<i32, String>(match instants[i] {
+                Ok::<i32, String>(match own_instant {
                     Some(own) => {
                         let latest =
                             milestone_latest(link.0, link.1, succ_start, succ_finish, node_cal)?;
@@ -435,7 +473,7 @@ pub fn compute_floats(
                 dep,
                 &tasks[i],
                 succ,
-                (milestones.links[i], instants[s]),
+                (own_link, instants[s]),
                 node_cal,
                 cals.for_node(s),
             )?;
