@@ -16,6 +16,8 @@ export interface BlankProjectCanvasProps {
   /** Omitted for read-only roles — the fill options all write. */
   onPasteRows?: () => void;
   onImportFile?: () => void;
+  /** Shell v2 only (#5106): start the plan with a phase. */
+  onAddPhase?: () => void;
   onApplyTemplate?: () => void;
 }
 
@@ -50,6 +52,7 @@ export function BlankProjectCanvas({
   facts,
   onPasteRows,
   onImportFile,
+  onAddPhase,
   onApplyTemplate,
 }: BlankProjectCanvasProps) {
   const weeks = useMemo(() => {
@@ -62,7 +65,7 @@ export function BlankProjectCanvas({
     });
   }, [facts.startDate]);
 
-  const canFill = [onPasteRows, onImportFile, onApplyTemplate].some(Boolean);
+  const canFill = [onPasteRows, onImportFile, onAddPhase, onApplyTemplate].some(Boolean);
 
   return (
     <div className="flex flex-1 min-w-0 overflow-hidden">
@@ -101,6 +104,7 @@ export function BlankProjectCanvas({
             <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-text-secondary">
               Other ways to fill it
             </h2>
+            {onAddPhase && <FillOption label="Add phase" onClick={onAddPhase} />}
             {onPasteRows && <FillOption label="Paste rows" onClick={onPasteRows} />}
             {onImportFile && <FillOption label="Import a file" onClick={onImportFile} />}
             {onApplyTemplate && <FillOption label="Apply a template" onClick={onApplyTemplate} />}

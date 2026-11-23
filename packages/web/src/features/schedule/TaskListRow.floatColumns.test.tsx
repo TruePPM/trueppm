@@ -7,7 +7,8 @@
  * two collisions the column set is capable of causing elsewhere.
  */
 import { screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { setFeatureFlag } from '@/lib/featureFlags';
 import { renderWithRouter } from '@/test/utils';
 import { TaskListRow, formatFloatCell, floatCellAriaLabel } from './TaskListRow';
 import type { Task } from '@/types';
@@ -109,5 +110,27 @@ describe('TaskListRow — float cells', () => {
     renderRow({ totalFloat: 5, freeFloat: 2 }, { ...visible, freeFloat: false });
     expect(screen.getByRole('gridcell', { name: /Total float/ })).toBeInTheDocument();
     expect(screen.queryByRole('gridcell', { name: /Free float/ })).toBeNull();
+  });
+});
+
+describe('shell v2 Total float glyphs (#5106)', () => {
+  afterEach(() => setFeatureFlag('shell_v2', false));
+
+  it('prints ▲ for critical and ◆ for near-critical, only under shell_v2', () => {
+    setFeatureFlag('shell_v2', true);
+    const { unmount } = renderRow({ isCritical: true, totalFloat: 0, freeFloat: 0 });
+    expect(screen.getByRole('gridcell', { name: 'Total float: 0 working days' })).toHaveTextContent(
+      '\u25B2 0d',
+    );
+    // Free float never wears a band glyph.
+    expect(screen.getByRole('gridcell', { name: 'Free float: 0 working days' })).toHaveTextContent(
+      /^0d$/,
+    );
+    unmount();
+    setFeatureFlag('shell_v2', false);
+    renderRow({ isCritical: true, totalFloat: 0 });
+    expect(screen.getByRole('gridcell', { name: 'Total float: 0 working days' })).toHaveTextContent(
+      /^0d$/,
+    );
   });
 });

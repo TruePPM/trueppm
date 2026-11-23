@@ -119,7 +119,11 @@ const BASELINE = {
 
 async function goto(
   page: Page,
-  { v2 = true, baseline = false }: { v2?: boolean; baseline?: boolean } = {},
+  {
+    v2 = true,
+    baseline = false,
+    failTasks = false,
+  }: { v2?: boolean; baseline?: boolean; failTasks?: boolean } = {},
 ) {
   await page.addInitScript((on: boolean) => {
     localStorage.setItem('trueppm.featureFlags', JSON.stringify({ shell_v2: on }));
@@ -167,6 +171,12 @@ async function goto(
       body: JSON.stringify(MC_RESULT),
     }),
   );
+  if (failTasks) {
+    // Registered after the store so the read fails: the page must say what it lost.
+    await page.route('**/api/v1/tasks/**', (route) =>
+      route.fulfill({ status: 500, contentType: 'application/json', body: '{"detail":"boom"}' }),
+    );
+  }
   await page.goto(BASE_URL);
 }
 
@@ -441,6 +451,37 @@ test.describe('shell v2 Schedule toolbar (#4796)', () => {
     // The same forecast mock renders v1's docked strip: the v2 absence above is
     // not an empty state.
     await expect(page.getByTestId('mc-details-btn')).toBeVisible({ timeout: 10_000 });
+  });
+  test('Total float prints ▲ for critical rows under v2 and stays bare on v1 (#5106)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await goto(page);
+    const critical = outline(page).getByRole('row', { name: /Profile data quality/ });
+    await expect(critical.getByRole('gridcell', { name: /Total float: 0 working day/ })).toHaveText(
+      '\u25B2 0d',
+    );
+  });
+
+  test('v1 Total float stays a bare number (#5106)', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await goto(page, { v2: false });
+    const critical = outline(page).getByRole('row', { name: /Profile data quality/ });
+    await expect(critical.getByRole('gridcell', { name: /Total float: 0 working day/ })).toHaveText(
+      '0d',
+    );
+  });
+
+  test('a failed load says the schedule could not be computed, with retry and a support code (#5106)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await goto(page, { failTasks: true });
+    await expect(page.getByText("The schedule couldn't be computed.")).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByRole('alert').getByRole('button', { name: /retry/i })).toBeVisible();
+    await expect(page.getByText('SCHEDULE-LOAD')).toBeVisible();
   });
 });
 

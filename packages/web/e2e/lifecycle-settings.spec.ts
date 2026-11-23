@@ -365,6 +365,24 @@ test.describe('Program lifecycle settings (#530)', () => {
     await expect.poll(() => captures.programClose).toBe(1);
   });
 
+  test('shell v2: Close program asks for the code first, then closes (#5102)', async ({ page }) => {
+    const captures: Captures = {};
+    await setupAuth(page);
+    await setupProgramRoutes(page, captures);
+    await page.goto(`/programs/${PROGRAM_ID}/settings/lifecycle?ff=shell_v2`);
+
+    await page.getByRole('button', { name: /Close program/i }).click();
+    const zone = page.getByTestId('close-confirm');
+    await expect(zone).toBeVisible();
+    expect(captures.programClose ?? 0).toBe(0);
+    const go = zone.getByRole('button', { name: 'Close program' });
+    await expect(go).toBeDisabled();
+    await zone.getByRole('textbox').fill('ARTEMIS');
+    await expect(go).toBeEnabled();
+    await go.click();
+    await expect.poll(() => captures.programClose).toBe(1);
+  });
+
   test('delete after typed-confirm sends DELETE and redirects', async ({ page }) => {
     const captures: Captures = {};
     await setupAuth(page);

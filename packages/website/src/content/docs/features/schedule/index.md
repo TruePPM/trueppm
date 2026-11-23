@@ -176,6 +176,8 @@ The legend will always be on screen on the desktop chart. It names up to four ma
 
 The near-critical threshold is the one set in project settings (10 working days unless changed). Near-critical outlines will appear once the project's settings have loaded, never from a guessed threshold. A selected bar will get a dotted ring, so you can still tell it apart from a critical one.
 
+The **Float** column will print the same two marks beside the same bands: **▲ 0d** for a critical task and **◆ 2d** for a near-critical one, so the band reads without color. A near-critical bar on the chart will carry a small ◆ at its left end, and a dependency between two critical tasks will be drawn as a solid red arrow, so the critical path reads as one connected line. On a touch screen the **Zoom** buttons will be 44 pixels square; with a mouse they stay compact so the toolbar keeps its room.
+
 The forecast strip under the chart will go away in the redesigned page. The P80 date in the project header will be the one forecast shown at rest.
 
 ### Not in the redesigned Schedule page yet
@@ -190,16 +192,12 @@ The redesigned page is a first pass, and so far it covers the toolbar, the legen
 - **Focus mode** and the critical-path-only view (**CP only**).
 - Display options: where task names sit on the bar, **progress pills** and **sprint bands**.
 - Filters other than **Milestones only**. The **Filter** menu holds that one filter for now.
-- The ▲ (critical) and ◆ (near-critical) symbols the design gives the **Float** column. The chart and the column do not draw them yet, so the legend does not list them.
 - Grouping recurring tasks under one row. Each occurrence is stored per task already; the plan is to group them for display in the browser from what the server sends, but nothing is built.
 - A phone layout for the toolbar. Below 768 pixels wide the redesigned toolbar is not shown at all; the phone's schedule list has no toolbar controls, as in the current release.
-- Touch-sized targets for the **Zoom** stepper buttons. The **Zoom** − and + buttons are 28 pixels square for now; the rest of the toolbar's controls and the **More** menu rows are 44 pixels.
-- The page's loading, empty and error states, redrawn to the new design.
+- The page's states are partly redrawn: the loading skeleton lays down the rows and the today line first, and the blank project offers **Add phase** beside **Import a file**. Naming the dependency loop in a failed load needs the server to report it, and does not yet.
 - The opening state of a project: a 448-pixel item list, a 12-week zoom, today's phase expanded, and a "N more" count for what is off screen.
 - The "one warning" items: a blocked-only pill, a footer summary, and a roll-up for phases with no committed start.
-- Solid red critical dependency arrows.
 - The **Commit** marker and the **P80** tick on the chart, with their definitions.
-- Plain-text **Float** values in the **Float** column, in the design's wording.
 - An as-of date beside the commitment and the P50 / P80 forecast dates, which depends on the server reporting when each was computed ([#4760](https://gitlab.com/trueppm/trueppm/-/issues/4760)).
 
 ## Canvas renderer

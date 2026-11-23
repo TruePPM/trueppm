@@ -1,6 +1,9 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useProgram } from '@/hooks/useProgram';
+import { useFeatureFlag } from '@/lib/featureFlags';
+import { FOCUS_RING, PAGE_BUTTON } from '@/components/page2/classes';
+import { Button } from '@/components/Button';
 import {
   useCloseProgram,
   useDeleteProgram,
@@ -131,8 +134,20 @@ export function ProgramArchivePage() {
   const closeError = errorMessage(isClosed ? reopen.error : close.error);
   const deleteError = errorMessage(remove.error);
 
+  // Shell v2: closing a program names its consequence and asks for the program code
+  // first, mirroring project archive (rule 462). Reopen stays one click: it restores.
+  const v2 = useFeatureFlag('shell_v2');
+  const closeConfirmId = useId();
+  const [closeArming, setCloseArming] = useState(false);
+  const [closeConfirmText, setCloseConfirmText] = useState('');
+  const closeConfirmed = confirmTarget !== '' && closeConfirmText === confirmTarget;
+
   const onToggleClose = () => {
     if (!programId) return;
+    if (!isClosed && v2) {
+      setCloseArming(true);
+      return;
+    }
     if (isClosed) {
       reopen.mutate(programId);
     } else {
@@ -178,6 +193,52 @@ export function ProgramArchivePage() {
           busy={close.isPending || reopen.isPending}
           error={closeError}
         />
+
+        {v2 && closeArming && !isClosed ? (
+          <div
+            data-testid="close-confirm"
+            className="rounded-card border border-neutral-border bg-neutral-surface-raised p-4"
+          >
+            <label htmlFor={closeConfirmId} className="block text-[13px] text-neutral-text-primary">
+              Type <span className="tppm-mono font-semibold">{confirmTarget || '…'}</span> to close
+              this program. Its members, settings, and ceremonies become read-only; member projects
+              stay active.
+            </label>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <input
+                id={closeConfirmId}
+                type="text"
+                value={closeConfirmText}
+                onChange={(e) => setCloseConfirmText(e.target.value)}
+                autoComplete="off"
+                disabled={!confirmTarget}
+                className={`h-9 w-full max-w-[420px] rounded-control border border-neutral-border bg-neutral-surface px-2.5 text-[13px] [@media(pointer:coarse)]:h-11 max-md:h-11 ${FOCUS_RING}`}
+              />
+              <Button
+                variant="danger"
+                disabled={!closeConfirmed || close.isPending}
+                onClick={() => {
+                  if (programId) close.mutate(programId);
+                  setCloseArming(false);
+                  setCloseConfirmText('');
+                }}
+                className={`${PAGE_BUTTON} max-md:w-full`}
+              >
+                Close program
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setCloseArming(false);
+                  setCloseConfirmText('');
+                }}
+                className={`${PAGE_BUTTON} max-md:w-full`}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : null}
 
         <LifecycleCard
           title="Transfer sponsorship"

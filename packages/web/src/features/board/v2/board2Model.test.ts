@@ -6,6 +6,7 @@ import {
   cardChips,
   columnHeads,
   groupIntoLanes,
+  groupIntoPersonLanes,
   splitDone,
   summarizeLane,
 } from './board2Model';
@@ -122,5 +123,38 @@ describe('filter and Done folding', () => {
     expect(splitDone([1, 2, 3, 4, 5], false)).toEqual({ shown: [1, 2], hidden: 3 });
     expect(splitDone([1, 2, 3], true).hidden).toBe(0);
     expect(splitDone([1, 2], false).hidden).toBe(0);
+  });
+});
+
+describe('groupIntoPersonLanes', () => {
+  const owner = (resourceId: string, name: string) => ({ resourceId, name, units: 100 });
+  const phase = task({ id: 'ph', isSummary: true, parentId: null } as Partial<Task> & { id: string });
+
+  it('makes one lane per first assignee, sorted by name, unassigned last', () => {
+    const lanes = groupIntoPersonLanes([
+      phase,
+      task({ id: 'a', parentId: 'ph', assignees: [owner('r2', 'Zed')] }),
+      task({ id: 'b', parentId: 'ph' }),
+      task({ id: 'c', parentId: 'ph', assignees: [owner('r1', 'Ana'), owner('r2', 'Zed')] }),
+      task({ id: 'd', parentId: 'ph', assignees: [owner('r1', 'Ana')] }),
+    ]);
+    expect(lanes.map((l) => [l.name, l.tasks.map((t) => t.id)])).toEqual([
+      ['Ana', ['c', 'd']],
+      ['Zed', ['a']],
+      ['Unassigned', ['b']],
+    ]);
+  });
+
+  it('never puts a container in a lane and honors the keep filter', () => {
+    const lanes = groupIntoPersonLanes(
+      [phase, task({ id: 'a', parentId: 'ph' }), task({ id: 'b', parentId: 'ph' })],
+      (t) => t.id === 'a',
+    );
+    expect(lanes).toHaveLength(1);
+    expect(lanes[0]?.tasks.map((t) => t.id)).toEqual(['a']);
+  });
+
+  it('is empty when nothing is a card', () => {
+    expect(groupIntoPersonLanes([phase])).toEqual([]);
   });
 });

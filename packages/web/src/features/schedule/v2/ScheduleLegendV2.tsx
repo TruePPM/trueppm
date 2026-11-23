@@ -15,8 +15,9 @@ import { COLOR, COLOR_DARK } from '../engine/GanttRenderer';
  * renderer's own constants (`COLOR.barCritical` / `barNearCritical` and the dark
  * palette's), passed as CSS custom properties so a palette change moves both.
  *
- * No glyph is keyed: the design gives ▲ and ◆ to a Float column that does not
- * print them yet, and the legend names only marks that are on screen.
+ * The Float column prints ▲ (critical) and ◆ (near-critical) beside the same
+ * bands, and the canvas draws ◆ on near-critical bars, so the words below name
+ * marks that are on screen in both places.
  *
  * `placement` is the ladder's relocation rung: the legend is information, not
  * a control, so the only concession it makes is moving into the timeline

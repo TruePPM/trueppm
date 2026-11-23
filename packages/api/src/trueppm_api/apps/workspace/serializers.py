@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from trueppm_api.apps.access.models import Role
@@ -97,6 +98,11 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
     # falls back to the letter-mark. The ``?v=`` cache-buster is the row's
     # updated_at epoch so a replace busts the browser/CDN cache.
     logo_url = serializers.SerializerMethodField()
+    # Number of memberships whose lifecycle status is "guest". Backs the
+    # "Enabled - N guests" readout on the Guest access toggle (#5102). An annotation,
+    # not a column: the membership rows are the source of truth, so a stored counter
+    # could drift from them. Read-only, and served only on this workspace-admin route.
+    guest_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Workspace
@@ -192,8 +198,14 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
             # Public serve-endpoint URL for the uploaded workspace logo (ADR-0149,
             # #969), or null when unset. Read-only; mutated via /workspace/logo/.
             "logo_url",
+            "guest_count",
         ]
-        read_only_fields = ["subdomain", "fiscal_year_start_display", "logo_url"]
+        read_only_fields = [
+            "subdomain",
+            "fiscal_year_start_display",
+            "logo_url",
+            "guest_count",
+        ]
         # An empty allow-list is a deliberate "no file types allowed" workspace
         # policy (ADR-0153, #976) — DRF maps the model ArrayField to allow_empty=
         # False by default, which would 400 a legitimate ``[]`` before
@@ -222,6 +234,11 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
                 )
             },
         }
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_guest_count(self, obj: Workspace) -> int:
+        """Count of this workspace's members with guest status (excludes deactivated)."""
+        return obj.memberships.filter(status=MemberStatus.GUEST).count()
 
     def get_logo_url(self, obj: Workspace) -> str | None:
         """Public serve-endpoint URL for the workspace logo, or ``None`` if unset."""

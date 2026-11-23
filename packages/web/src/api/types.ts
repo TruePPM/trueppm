@@ -688,6 +688,8 @@ export interface WorkspaceSettings {
   workWeek: boolean[];
   defaultProjectView: string;
   allowGuests: boolean;
+  /** Members with guest status; read-only, served on the workspace-admin `/workspace/` route (#5102). Optional so a pre-0.5 server reads as unknown. */
+  guestCount?: number;
   publicSharing: boolean;
   /** Cascade policy for `publicSharing` (ADR-0135, #978). `inherit`/`suggest`
    *  (OSS) let programs/projects narrow or widen freely; `enforce` is the

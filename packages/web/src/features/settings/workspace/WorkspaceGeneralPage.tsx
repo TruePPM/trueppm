@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useState } from 'react';
+import { useFeatureFlag } from '@/lib/featureFlags';
 import { DangerZoneLink } from '../components/DangerZoneLink';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
@@ -116,6 +117,15 @@ export function WorkspaceGeneralPage() {
   const [defaultProjectView, setDefaultProjectView] = useState('');
   const [workWeek, setWorkWeek] = useState<boolean[]>([true, true, true, true, true, false, false]);
   const [allowGuests, setAllowGuests] = useState(false);
+  // Shell v2 writes the state with its count ("Enabled - 3 guests"). The count is the
+  // server's saved fact, so it is shown only for the saved-on state: an unsaved flip
+  // to On has no guests yet to report, and a missing field (older server) stays bare.
+  const v2 = useFeatureFlag('shell_v2');
+  const guestCount = ws?.guestCount;
+  const guestOnLabel =
+    v2 && ws?.allowGuests && typeof guestCount === 'number'
+      ? `Enabled - ${guestCount} ${guestCount === 1 ? 'guest' : 'guests'}`
+      : undefined;
   const [publicSharing, setPublicSharing] = useState(false);
   const [publicSharingPolicy, setPublicSharingPolicy] =
     useState<PublicSharingOverridePolicy>('suggest');
@@ -663,7 +673,12 @@ export function WorkspaceGeneralPage() {
             />
           }
         >
-          <Toggle on={allowGuests} onChange={setAllowGuests} ariaLabel="Allow guest access" />
+          <Toggle
+            on={allowGuests}
+            onChange={setAllowGuests}
+            ariaLabel="Allow guest access"
+            onLabel={guestOnLabel}
+          />
         </FieldRow>
 
         <FieldRow

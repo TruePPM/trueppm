@@ -52,6 +52,39 @@ export function groupIntoLanes(
   return lanes;
 }
 
+/** Lane id for cards nobody owns when the board is swimlaned by person. */
+export const UNASSIGNED_LANE_ID = 'person:unassigned';
+
+/**
+ * Swimlanes by person: one lane per first assignee (the same owner the card shows),
+ * ordered by name, with unowned cards in a final "Unassigned" lane. Cards are the
+ * same set `groupIntoLanes` yields, so containers are never lanes' members.
+ */
+export function groupIntoPersonLanes(
+  tasks: readonly Task[],
+  keep: (t: Task) => boolean = () => true,
+): Board2Lane[] {
+  const cards = groupIntoLanes(tasks, undefined, false, keep).flatMap((l) => l.tasks);
+  const byPerson = new Map<string, Board2Lane>();
+  const unassigned: Task[] = [];
+  for (const t of cards) {
+    const owner = t.assignees[0];
+    if (!owner) {
+      unassigned.push(t);
+      continue;
+    }
+    const id = `person:${owner.resourceId}`;
+    const lane = byPerson.get(id) ?? { id, name: owner.name, tasks: [] };
+    lane.tasks.push(t);
+    byPerson.set(id, lane);
+  }
+  const lanes = [...byPerson.values()].sort((a, b) => a.name.localeCompare(b.name));
+  if (unassigned.length > 0) {
+    lanes.push({ id: UNASSIGNED_LANE_ID, name: 'Unassigned', tasks: unassigned });
+  }
+  return lanes;
+}
+
 export interface LaneSummary {
   count: number;
   critical: number;

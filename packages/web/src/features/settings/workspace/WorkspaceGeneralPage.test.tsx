@@ -2,7 +2,8 @@ import { axiosRefusal } from '@/test/axiosError';
 import { render, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { setFeatureFlag } from '@/lib/featureFlags';
 import { WorkspaceGeneralPage } from './WorkspaceGeneralPage';
 import type { WorkspaceSettings } from '../hooks/useWorkspaceSettings';
 
@@ -560,5 +561,37 @@ describe('WorkspaceGeneralPage — near-critical threshold (#4892)', () => {
     expect(mockState.mutateAsync).toHaveBeenCalledWith(
       expect.objectContaining({ nearCriticalThresholdDays: 15 }),
     );
+  });
+});
+
+describe('Guest access toggle state with a count (#5102)', () => {
+  afterEach(() => setFeatureFlag('shell_v2', false));
+
+  it('under shell_v2 writes the state with the saved guest count', () => {
+    setFeatureFlag('shell_v2', true);
+    mockState.ws = { ...WS, allowGuests: true, guestCount: 3 };
+    renderPage();
+    expect(screen.getByRole('switch', { name: 'Allow guest access' })).toHaveTextContent(
+      'Enabled - 3 guests',
+    );
+  });
+
+  it('singularizes one guest and stays bare when the server sends no count', () => {
+    setFeatureFlag('shell_v2', true);
+    mockState.ws = { ...WS, allowGuests: true, guestCount: 1 };
+    const { unmount } = renderPage();
+    expect(screen.getByRole('switch', { name: 'Allow guest access' })).toHaveTextContent(
+      'Enabled - 1 guest',
+    );
+    unmount();
+    mockState.ws = { ...WS, allowGuests: true, guestCount: undefined };
+    renderPage();
+    expect(screen.getByRole('switch', { name: 'Allow guest access' })).toHaveTextContent(/^Enabled$/);
+  });
+
+  it('flag off keeps the v1 label', () => {
+    mockState.ws = { ...WS, allowGuests: true, guestCount: 3 };
+    renderPage();
+    expect(screen.getByRole('switch', { name: 'Allow guest access' })).toHaveTextContent(/^Enabled$/);
   });
 });
