@@ -93431,10 +93431,15 @@
                         "nullable": true,
                         "description": "Public serve-endpoint URL for the workspace logo, or ``None`` if unset.",
                         "readOnly": true
+                    },
+                    "guest_count": {
+                        "type": "integer",
+                        "readOnly": true
                     }
                 },
                 "required": [
                     "fiscal_year_start_display",
+                    "guest_count",
                     "logo_url",
                     "subdomain"
                 ]

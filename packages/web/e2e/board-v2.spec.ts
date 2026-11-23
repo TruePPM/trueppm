@@ -172,6 +172,28 @@ test.describe('shell v2 board', () => {
       await expect(more).toBeFocused();
     });
 
+    test('swimlane by person regroups the lanes under each owner', async ({ page }) => {
+      await open(page, [
+        PHASE,
+        card(1, 'Write brief', 'NOT_STARTED', {
+          assignments: [{ resource_id: 'r1', resource_name: 'Ana Ruiz', units: 100 }],
+        }),
+        card(2, 'Interview users', 'IN_PROGRESS'),
+      ]);
+      await page.getByRole('button', { name: /More board options/ }).click();
+      await page.getByRole('menuitemcheckbox', { name: 'Swimlane by person' }).click();
+      await expect(page.getByRole('region', { name: 'Ana Ruiz lane' })).toBeVisible();
+      await expect(page.getByRole('region', { name: 'Unassigned lane' })).toBeVisible();
+    });
+
+    test('Export PDF downloads a file', async ({ page }) => {
+      await open(page);
+      await page.getByRole('button', { name: /More board options/ }).click();
+      const download = page.waitForEvent('download');
+      await page.getByRole('menuitem', { name: 'Export PDF' }).click();
+      expect((await download).suggestedFilename()).toMatch(/\.pdf$/);
+    });
+
     test('the empty backlog pane is open, quiet, and names the actions that fill it', async ({
       page,
     }) => {
@@ -229,6 +251,38 @@ test.describe('shell v2 board', () => {
       await expect(page.getByText('Interview users')).toBeVisible();
       await expect(page.getByText('Write brief')).toHaveCount(0);
     });
+    test('Move to… moves a card by touch and the write is the same PATCH', async ({ page }) => {
+      const store = await open(page);
+      const move = page.getByRole('button', { name: 'Move Write brief to…' });
+      expect((await move.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+      await move.click();
+      const list = page.getByRole('list', { name: 'Move Write brief to' });
+      for (const b of await list.getByRole('button').all()) {
+        expect((await b.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+      }
+      await list.getByRole('button', { name: 'In Progress' }).click();
+      await expect.poll(() => store.patches.length).toBe(1);
+      expect(store.patches[0]).toMatchObject({ status: 'IN_PROGRESS' });
+      await expect(page.getByRole('status').filter({ hasText: 'Moved Write brief' })).toBeVisible();
+    });
+
+    test('a move made offline is queued, then syncs once on reconnect', async ({ page }) => {
+      const store = await open(page);
+      await expect(page.getByText('Write brief')).toBeVisible();
+      await page.context().setOffline(true);
+      await expect(page.getByText(/Moves you make now are queued/)).toBeVisible();
+      await page.getByRole('button', { name: 'Move Write brief to…' }).click();
+      await page
+        .getByRole('list', { name: 'Move Write brief to' })
+        .getByRole('button', { name: 'In Progress' })
+        .click();
+      // Queued: nothing reached the server while offline.
+      expect(store.patches.length).toBe(0);
+      await page.context().setOffline(false);
+      await expect.poll(() => store.patches.length, { timeout: 10_000 }).toBe(1);
+      expect(store.patches[0]).toMatchObject({ status: 'IN_PROGRESS' });
+    });
+
     for (const theme of [undefined, 'dark'] as const) {
       test(`axe is clean on the phone layout (${theme ?? 'light'})`, async ({ page }, testInfo) => {
         await open(page, TASKS, theme);

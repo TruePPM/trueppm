@@ -1,8 +1,8 @@
-import type { KeyboardEvent } from 'react';
+import { useId, useState, type KeyboardEvent } from 'react';
 import { Avatar, UnassignedAvatar } from '@/components/page2/Avatar';
 import { StatusChip } from '@/components/page2/StatusChip';
 import { FOCUS_RING } from '@/components/page2/classes';
-import type { Task } from '@/types';
+import type { Task, TaskStatus } from '@/types';
 import { cardChips } from './board2Model';
 
 export interface Board2CardProps {
@@ -17,6 +17,13 @@ export interface Board2CardProps {
   onDragStart: (task: Task) => void;
   /** Click or Enter opens task detail. Space is reserved for picking the card up. */
   onOpen: (task: Task) => void;
+  /**
+   * Touch move: when set, the card carries a "Move to…" disclosure listing these
+   * destinations (the phone layout has no drag and no hardware keyboard). Absent on
+   * desktop, where drag and the Space-arrow pick-up already cover moving.
+   */
+  moveTargets?: { status: TaskStatus; label: string }[];
+  onMoveTo?: (task: Task, status: TaskStatus) => void;
 }
 
 /**
@@ -35,8 +42,13 @@ export function Board2Card({
   onKeyDown,
   onDragStart,
   onOpen,
+  moveTargets,
+  onMoveTo,
 }: Board2CardProps) {
   const chips = cardChips(task);
+  const [moveOpen, setMoveOpen] = useState(false);
+  const moveId = useId();
+  const destinations = (moveTargets ?? []).filter((t) => t.status !== task.status);
   const owner = task.assignees[0];
   return (
     <li className="list-none">
@@ -86,6 +98,38 @@ export function Board2Card({
           </span>
         )}
       </button>
+      {onMoveTo && destinations.length > 0 && (
+        <div className="mt-1">
+          <button
+            type="button"
+            aria-expanded={moveOpen}
+            aria-controls={moveId}
+            aria-label={`Move ${task.name} to…`}
+            onClick={() => setMoveOpen((o) => !o)}
+            className={`h-11 w-full rounded-md border border-p1-hairline bg-p1-surface-1 px-3 text-left text-sm text-p1-text-1 hover:bg-p1-surface-2 ${FOCUS_RING}`}
+          >
+            Move to…
+          </button>
+          {moveOpen && (
+            <ul id={moveId} aria-label={`Move ${task.name} to`} className="m-0 mt-1 flex flex-col gap-1 p-0">
+              {destinations.map((d) => (
+                <li key={d.status} className="list-none">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMoveOpen(false);
+                      onMoveTo(task, d.status);
+                    }}
+                    className={`h-11 w-full rounded-md border border-p1-hairline bg-p1-surface-2 px-3 text-left text-sm text-p1-text-1 ${FOCUS_RING}`}
+                  >
+                    {d.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </li>
   );
 }

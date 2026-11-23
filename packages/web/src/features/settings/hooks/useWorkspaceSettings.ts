@@ -30,6 +30,7 @@ interface WorkspaceSettingsRaw {
   work_week: boolean[];
   default_project_view: string;
   allow_guests: boolean;
+  guest_count?: number;
   public_sharing: boolean;
   public_sharing_override_policy: PublicSharingOverridePolicy;
   iteration_label: string;
@@ -68,6 +69,7 @@ function mapSettings(raw: WorkspaceSettingsRaw): WorkspaceSettings {
     workWeek: raw.work_week,
     defaultProjectView: raw.default_project_view,
     allowGuests: raw.allow_guests,
+    guestCount: raw.guest_count,
     publicSharing: raw.public_sharing,
     publicSharingOverridePolicy: raw.public_sharing_override_policy,
     iterationLabel: raw.iteration_label,

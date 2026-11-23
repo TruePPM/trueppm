@@ -238,6 +238,14 @@ With the new shell on, the Board page is rebuilt so the work is on screen first:
   live in the overflow, which is reachable by keyboard; its label lists what it holds.
 - **Phases are lanes.** Each phase is a full-width group with its dates, its card
   count and "▲ N critical". Collapsing a lane leaves one summary line.
+- **Overflow extras.** The **⋯** overflow also holds **Swimlane by person** (one lane
+  per first assignee, ordered by name, with unowned cards in an **Unassigned** lane;
+  **Lanes (Person)** then names the toolbar toggle) and **Export PDF**, which produces
+  the same PDF as the board above from the lanes and filters you are looking at.
+- **Moving a card by touch on a phone.** Every card on the phone layout has a
+  **Move to…** button, 44 pixels tall, that lists the other columns. Choosing one
+  makes the same write as a drag. A move made while offline is queued and syncs when
+  you reconnect. Viewers do not see the button.
 - **Four equal columns** that fit at 1440 and 1024 pixels wide with no sideways
   scroll. The column header stays in view and shows the name, the card count and
   the WIP limit; hover or focus **WIP** for its definition. A column over its limit
@@ -267,13 +275,10 @@ With the new shell on, the Board page is rebuilt so the work is on screen first:
 The redesigned board does not carry everything the board above does. These are
 missing from it for now, and the board above still has them:
 
-- **Export PDF** and **swimlane by person** are not in the overflow.
-- **Moving a card by touch on a phone.** On a phone the arrow keys and Space need a
-  hardware keyboard.
 - **Sprint scoping**, **saved views**, **search**, **grouping** and **density**.
 - The **standup** and **activity** panels.
 - **WIP-limit confirmation** dialogs when a move would pass a column's limit.
-- **Import tasks** in the empty Backlog pane currently links to project settings, not
+- **Import tasks** in the empty Backlog pane (still undecided: where import lives) currently links to project settings, not
   to an import flow of its own.
 
 ## Toolbar

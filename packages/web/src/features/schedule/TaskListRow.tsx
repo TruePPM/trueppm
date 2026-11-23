@@ -7,7 +7,10 @@ import { createPortal } from 'react-dom';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
-import { useEffectiveDurationPolicy, useProjectHoursPerDay } from '@/hooks/useProject';
+import { useEffectiveDurationPolicy, useProject, useProjectHoursPerDay } from '@/hooks/useProject';
+import { useFeatureFlag } from '@/lib/featureFlags';
+import { isNearCriticalByFloat } from './nearCritical';
+import { SCHEDULE_SHELL_V2_FLAG } from './v2/scheduleV2Columns';
 import { RecalcPercentChip } from './RecalcPercentChip';
 import { buildRecalcPrompt, type RecalcPromptState } from './recalcPercentPrompt';
 import {
@@ -1373,7 +1376,12 @@ function TaskDataCells({
       {/* ── Float columns (#3344) ───────────────────────────────────────────── */}
       {/* Rightmost, so rule 370's render clamp spends these before the dates. */}
       {!isEditing && visible.totalFloat && (
-        <TaskFloatCell value={task.totalFloat} label="Total float" widthPx={widths.totalFloat} />
+        <TaskFloatCell
+          value={task.totalFloat}
+          label="Total float"
+          widthPx={widths.totalFloat}
+          isCritical={task.isCritical}
+        />
       )}
       {!isEditing && visible.freeFloat && (
         <TaskFloatCell value={task.freeFloat} label="Free float" widthPx={widths.freeFloat} />
@@ -4345,11 +4353,18 @@ export function formatFloatCell(days: number | null | undefined): string {
  * because colour alone would make the one value that changes what the reader
  * does next a WCAG 1.4.1 failure (web rules 12/120).
  */
+export type FloatBand = 'critical' | 'near-critical' | null;
+
 export function floatCellAriaLabel(
   label: 'Total float' | 'Free float',
   days: number | null | undefined,
+  band: FloatBand = null,
 ): string {
   if (days === null || days === undefined) return `${label}: not computed yet`;
+  // Shell v2: the printed glyph is overridden by this label, so the band is spoken here.
+  if (band && days >= 0) {
+    return `${label}: ${band}, ${days} ${days === 1 ? 'day' : 'days'} float`;
+  }
   if (days < 0) return `${label}: ${Math.abs(days)} working days late`;
   return `${label}: ${days} working ${days === 1 ? 'day' : 'days'}`;
 }
@@ -4372,12 +4387,32 @@ function TaskFloatCell({
   value,
   label,
   widthPx,
+  isCritical = false,
 }: {
   value: number | null | undefined;
   label: 'Total float' | 'Free float';
   widthPx: number;
+  /** Total-float column only: lets shell v2 mark the critical / near-critical bands. */
+  isCritical?: boolean;
 }) {
   const late = typeof value === 'number' && value < 0;
+  // Shell v2 (#5106): the Total float cell wears the same glyph the canvas frame and
+  // the legend use — "▲ 0d" for critical, "◆ 2d" for near-critical — so the band reads
+  // without color and the grid agrees with the bar on the same row.
+  const v2 = useFeatureFlag(SCHEDULE_SHELL_V2_FLAG);
+  const { data: project } = useProject(useProjectId());
+  const band: FloatBand =
+    v2 && label === 'Total float' && value != null
+      ? isCritical || value === 0
+        ? 'critical'
+        : isNearCriticalByFloat(
+              { isCritical, totalFloat: value },
+              project?.effective_near_critical_threshold_days,
+            )
+          ? 'near-critical'
+          : null
+      : null;
+  const glyph = band === 'critical' ? '\u25B2 ' : band === 'near-critical' ? '\u25C6 ' : '';
   return (
     <div
       className={[
@@ -4387,8 +4422,9 @@ function TaskFloatCell({
       ].join(' ')}
       style={{ width: widthPx }}
       role="gridcell"
-      aria-label={floatCellAriaLabel(label, value)}
+      aria-label={floatCellAriaLabel(label, value, band)}
     >
+      {glyph}
       {formatFloatCell(value)}
     </div>
   );

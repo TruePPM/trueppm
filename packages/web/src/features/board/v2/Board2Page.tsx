@@ -19,6 +19,14 @@ import { QueryErrorState } from '@/components/QueryErrorState';
 import { Button } from '@/components/Button';
 import { useBoardConfig } from '@/hooks/useBoardConfig';
 import { useUpdateTaskStatus } from '@/hooks/useBoardTasks';
+import { useProject } from '@/hooks/useProject';
+import { useBoardOffline } from '../offline/useBoardOffline';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { toast } from '@/components/Toast/toast';
+import { fmtUtcLong } from '@/lib/formatUtcDate';
+import { BoardPrintLayout } from '../export/BoardPrintLayout';
+import { buildBoardPrintData } from '../export/boardPrintData';
+import { exportBoardPdf, boardPdfFileName } from '../export/exportBoardPdf';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useUserDateFormat } from '@/hooks/useUserDateFormat';
@@ -35,6 +43,7 @@ import {
   applyFilter,
   columnHeads,
   groupIntoLanes,
+  groupIntoPersonLanes,
   splitDone,
   summarizeLane,
   type Board2Filter,
@@ -180,6 +189,11 @@ function ColumnHeader({ head, showWip }: { head: ColumnHead; showWip: boolean })
 export function Board2Page() {
   const { projectId, projectIdOrNull, currentRole } = useBoardIdentity(useProjectId());
   const { columns: rawColumns } = useBoardConfig(projectIdOrNull);
+  // Owns the offline wiring: hydrates the durable move queue, seeds a cold offline open
+  // from the last snapshot and flushes queued moves on reconnect. Without it the banner's
+  // "moves you make now are queued and sync when you reconnect" would be a promise only
+  // the v1 board kept.
+  useBoardOffline(projectIdOrNull);
   const { tasks, isLoading, error, dataUpdatedAt } = useScheduleTasks();
   const [selectedTaskId, setSelectedTaskId] = useUrlSelectedId('task');
   const updateStatus = useUpdateTaskStatus();
@@ -191,6 +205,9 @@ export function Board2Page() {
 
   const [filter, setFilter] = useState<Board2Filter>({ criticalOnly: false, blockedOnly: false });
   const [lanesOn, setLanesOn] = useState(true);
+  const [lanesByPerson, setLanesByPerson] = useState(false);
+  const [exportRequested, setExportRequested] = useState(false);
+  const printRef = useRef<HTMLDivElement>(null);
   const [backlogOpen, setBacklogOpen] = useState(true);
   const [showWip, setShowWip] = useState(true);
   const [showFields, setShowFields] = useState(true);
@@ -245,8 +262,14 @@ export function Board2Page() {
         filter,
       ).map((t) => t.id),
     );
+    if (lanesOn && lanesByPerson) {
+      return groupIntoPersonLanes(
+        all.filter((t) => t.status !== 'BACKLOG'),
+        (t) => shown.has(t.id),
+      );
+    }
     return groupIntoLanes(all, undefined, lanesOn, (t) => shown.has(t.id));
-  }, [all, isCard, filter, lanesOn]);
+  }, [all, isCard, filter, lanesOn, lanesByPerson]);
 
   const targets: TaskStatus[] = useMemo(
     () => [
@@ -257,6 +280,57 @@ export function Board2Page() {
   );
   const labelOf = (s: TaskStatus) =>
     s === 'BACKLOG' ? 'Backlog' : (columns.find((c) => c.status === s)?.label ?? s);
+
+  // Export PDF reuses the v1 print surface (ADR-0159): it mounts off-screen only while
+  // an export runs, from the same filtered lanes the board shows, so the PDF honors
+  // the active filter and lane grouping with no second derivation.
+  const { data: projectDetail } = useProject(projectIdOrNull);
+  const { user: currentUser } = useCurrentUser();
+  const printData = useMemo(
+    () =>
+      exportRequested
+        ? buildBoardPrintData({
+            projectName: projectDetail?.name ?? 'Board',
+            sprintName: null,
+            columns: columns.map((c) => ({ status: c.status, label: c.label })),
+            lanes,
+            userName: currentUser?.display_name ?? null,
+            generatedAtLabel: fmtUtcLong(new Date().toISOString()),
+            filters: {
+              myTasks: false,
+              atRisk: false,
+              techDebt: false,
+              showCost: false,
+              searchQuery: '',
+              savedViewName: null,
+            },
+          })
+        : null,
+    [exportRequested, projectDetail?.name, columns, lanes, currentUser?.display_name],
+  );
+  useEffect(() => {
+    if (!exportRequested) return;
+    const node = printRef.current;
+    let canceled = false;
+    void (async () => {
+      try {
+        if (node) {
+          await exportBoardPdf(node, {
+            fileName: boardPdfFileName(projectDetail?.name ?? 'board', new Date().toISOString()),
+          });
+        }
+      } catch {
+        if (!canceled) toast.error("Couldn't generate the PDF — try again.");
+      } finally {
+        if (!canceled) setExportRequested(false);
+      }
+    })();
+    return () => {
+      canceled = true;
+    };
+    // The export runs once per request; the data it reads is already committed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exportRequested]);
 
   const move = useCallback(
     (task: Task, status: TaskStatus) => {
@@ -370,7 +444,7 @@ export function Board2Page() {
           aria-pressed={lanesOn}
           onClick={() => setLanesOn((v) => !v)}
         >
-          Lanes (Phase)
+          {lanesByPerson ? 'Lanes (Person)' : 'Lanes (Phase)'}
         </button>
       )}
       {isDesktop && (
@@ -397,6 +471,19 @@ export function Board2Page() {
         <MenuCheck checked={doneCollapsed} onChange={() => setDoneCollapsed((v) => !v)}>
           Collapse Done
         </MenuCheck>
+        <MenuCheck checked={lanesByPerson} onChange={() => setLanesByPerson((v) => !v)}>
+          Swimlane by person
+        </MenuCheck>
+        <button
+          type="button"
+          role="menuitem"
+          disabled={exportRequested}
+          onClick={() => setExportRequested(true)}
+          className={`flex h-11 w-full items-center gap-2 rounded px-3 text-left text-sm text-p1-text-1 hover:bg-p1-surface-2 disabled:opacity-60 md:h-9 ${FOCUS_RING}`}
+        >
+          <span aria-hidden="true" className="w-4" />
+          {exportRequested ? 'Generating PDF…' : 'Export PDF'}
+        </button>
       </Popover>
       {canCompose && (
         <Button
@@ -693,6 +780,8 @@ export function Board2Page() {
               onKeyDown={onCardKey}
               onDragStart={() => undefined}
               onOpen={(task) => setSelectedTaskId(task.id)}
+              moveTargets={readOnly ? undefined : columns.map((c) => ({ status: c.status, label: c.label }))}
+              onMoveTo={readOnly ? undefined : move}
             />
           ))}
         </ul>
@@ -736,6 +825,11 @@ export function Board2Page() {
         <div role="status" aria-live="polite" className="sr-only">
           {announce}
         </div>
+        {exportRequested && printData && (
+          <div aria-hidden="true" className="pointer-events-none absolute -left-[99999px] top-0">
+            <BoardPrintLayout ref={printRef} data={printData} />
+          </div>
+        )}
       </div>
       {projectIdOrNull && selectedTaskId && (
         <TaskDetailDrawer

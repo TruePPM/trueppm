@@ -1,7 +1,8 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import { setFeatureFlag } from '@/lib/featureFlags';
 import { ProgramArchivePage } from './ProgramArchivePage';
 
 // Transfer sponsorship and Split program are both wired (issue 967); the only
@@ -173,5 +174,73 @@ describe('ProgramArchivePage lifecycle (#967)', () => {
       ).not.toBeInTheDocument(),
     );
     expect(transferMutate).not.toHaveBeenCalled();
+  });
+});
+
+describe('ProgramArchivePage close confirmation under shell_v2 (#5102, rule 462)', () => {
+  afterEach(() => setFeatureFlag('shell_v2', false));
+
+  it('asks for the program code before closing, then closes', async () => {
+    setFeatureFlag('shell_v2', true);
+    const user = userEvent.setup();
+    mutation.mutate.mockClear();
+    renderPage();
+
+    await user.click(screen.getByRole('button', { name: 'Close program…' }));
+    // The click arms the confirmation; it does not close.
+    expect(mutation.mutate).not.toHaveBeenCalled();
+    const zone = screen.getByTestId('close-confirm');
+    expect(zone).toHaveTextContent('member projects stay active');
+
+    const confirm = within(zone).getByRole('button', { name: 'Close program' });
+    expect(confirm).toBeDisabled();
+    await user.type(within(zone).getByRole('textbox'), 'PH');
+    expect(confirm).toBeDisabled();
+    await user.type(within(zone).getByRole('textbox'), '2');
+    expect(confirm).toBeEnabled();
+    await user.click(confirm);
+    expect(mutation.mutate).toHaveBeenCalledWith('p-1');
+  });
+
+  it('Cancel disarms without closing', async () => {
+    setFeatureFlag('shell_v2', true);
+    const user = userEvent.setup();
+    mutation.mutate.mockClear();
+    renderPage();
+    await user.click(screen.getByRole('button', { name: 'Close program…' }));
+    await user.click(
+      within(screen.getByTestId('close-confirm')).getByRole('button', { name: 'Cancel' }),
+    );
+    expect(screen.queryByTestId('close-confirm')).toBeNull();
+    expect(mutation.mutate).not.toHaveBeenCalled();
+  });
+
+  it('moves focus into the code input on arming and back to Close on cancel and confirm', async () => {
+    setFeatureFlag('shell_v2', true);
+    const user = userEvent.setup();
+    mutation.mutate.mockClear();
+    renderPage();
+    const closeBtn = screen.getByRole('button', { name: 'Close program…' });
+    await user.click(closeBtn);
+    const zone = screen.getByTestId('close-confirm');
+    expect(within(zone).getByRole('textbox')).toHaveFocus();
+    await user.click(within(zone).getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByRole('button', { name: 'Close program…' })).toHaveFocus();
+
+    await user.click(screen.getByRole('button', { name: 'Close program…' }));
+    await user.type(within(screen.getByTestId('close-confirm')).getByRole('textbox'), 'PH2');
+    await user.click(
+      within(screen.getByTestId('close-confirm')).getByRole('button', { name: 'Close program' }),
+    );
+    expect(mutation.mutate).toHaveBeenCalledWith('p-1');
+    expect(screen.getByRole('button', { name: 'Close program…' })).toHaveFocus();
+  });
+
+  it('flag off: Close stays one click (v1 unchanged)', async () => {
+    const user = userEvent.setup();
+    mutation.mutate.mockClear();
+    renderPage();
+    await user.click(screen.getByRole('button', { name: 'Close program…' }));
+    expect(mutation.mutate).toHaveBeenCalledWith('p-1');
   });
 });

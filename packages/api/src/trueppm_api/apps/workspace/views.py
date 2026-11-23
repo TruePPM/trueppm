@@ -298,7 +298,7 @@ class WorkspaceSettingsView(IdempotencyMixin, APIView):
     @extend_schema(responses={200: WorkspaceSettingsSerializer})
     def get(self, request: Request) -> Response:
         workspace = Workspace.load()
-        return Response(WorkspaceSettingsSerializer(workspace).data)
+        return Response(WorkspaceSettingsSerializer(workspace, context={"request": request}).data)
 
     @extend_schema(
         request=WorkspaceSettingsSerializer, responses={200: WorkspaceSettingsSerializer}
@@ -311,7 +311,9 @@ class WorkspaceSettingsView(IdempotencyMixin, APIView):
         # recompute only when they actually change (a no-op PATCH must not recompute).
         old_calendar_id = workspace.calendar_id
         old_calendar_policy = workspace.calendar_override_policy
-        serializer = WorkspaceSettingsSerializer(workspace, data=request.data, partial=True)
+        serializer = WorkspaceSettingsSerializer(
+            workspace, data=request.data, partial=True, context={"request": request}
+        )
         serializer.is_valid(raise_exception=True)
         # The methodology default and its override policy are the root of the
         # methodology chain (ADR-0107): under INHERIT the workspace value wins for
@@ -1444,7 +1446,7 @@ class WorkspaceLogoView(IdempotencyMixin, APIView):
                 status=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             )
         workspace = services.set_workspace_logo(file=upload, mime=mime)
-        return Response(WorkspaceSettingsSerializer(workspace).data)
+        return Response(WorkspaceSettingsSerializer(workspace, context={"request": request}).data)
 
     @extend_schema(
         responses={
@@ -1456,7 +1458,7 @@ class WorkspaceLogoView(IdempotencyMixin, APIView):
     )
     def delete(self, request: Request) -> Response:
         workspace = services.clear_workspace_logo()
-        return Response(WorkspaceSettingsSerializer(workspace).data)
+        return Response(WorkspaceSettingsSerializer(workspace, context={"request": request}).data)
 
 
 # ---------------------------------------------------------------------------

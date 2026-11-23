@@ -4575,6 +4575,22 @@ export function ScheduleView() {
   // (#1671), so these desktop-only early returns are skipped below md — the
   // mobile branch in `mainView` renders the phone skeleton/error instead.
   if (error && !isMobile) {
+    // Shell v2 (#5106): the page-variant error says what the user lost (the schedule,
+    // not "tasks") and names what still works, with a support code. Naming the
+    // dependency loop that makes a schedule uncomputable needs a server fact the
+    // API does not carry yet — see the MR's undecided list.
+    if (shellV2) {
+      return (
+        <QueryErrorState
+          variant="page"
+          message="The schedule couldn't be computed."
+          stillWorks="Your tasks, the board and any queued changes are unaffected."
+          supportCode="SCHEDULE-LOAD"
+          error={error}
+          onRetry={() => window.location.reload()}
+        />
+      );
+    }
     return <QueryErrorState message="Couldn't load tasks." />;
   }
 
@@ -4601,7 +4617,17 @@ export function ScheduleView() {
             />
           ))}
         </div>
-        <div className="flex-1 bg-neutral-surface" />
+        {/* Shell v2 (#5106): the skeleton lays down the rows AND the today line first,
+            so the page's two anchors are in place before the bars arrive. */}
+        <div className="relative flex-1 bg-neutral-surface">
+          {shellV2 && (
+            <div
+              aria-hidden="true"
+              data-testid="schedule-skeleton-today"
+              className="absolute inset-y-0 left-[20%] w-0.5 bg-brand-primary"
+            />
+          )}
+        </div>
       </div>
     );
   }
@@ -4898,6 +4924,7 @@ export function ScheduleView() {
         buildModeActive={buildModeActive}
         handleCommitDraftRow={handleCommitDraftRow}
         handleImportFile={() => setCsvImportOpen(true)}
+        handleAddPhase={shellV2 ? handleAddPhase : undefined}
         blankProjectFacts={blankProjectFacts}
         canvasScrollRef={canvasScrollRef}
         handleCanvasScroll={handleCanvasScroll}
@@ -6851,6 +6878,8 @@ interface ScheduleMainAreaProps {
   buildModeActive: boolean;
   handleCommitDraftRow: (name: string) => void;
   handleImportFile: () => void;
+  /** Shell v2 only (#5106): "Add phase" on the blank canvas. Absent on v1. */
+  handleAddPhase?: () => void;
   blankProjectFacts: ComponentProps<typeof BlankProjectCanvas>['facts'];
   canvasScrollRef: RefObject<HTMLDivElement | null>;
   handleCanvasScroll: () => void;
@@ -6981,6 +7010,7 @@ function ScheduleMainAreaEmptyState({
   blankProjectFacts,
   readOnly,
   handleImportFile,
+  handleAddPhase,
   setShowAddForm,
 }: Pick<
   ScheduleMainAreaProps,
@@ -6991,6 +7021,7 @@ function ScheduleMainAreaEmptyState({
   | 'blankProjectFacts'
   | 'readOnly'
   | 'handleImportFile'
+  | 'handleAddPhase'
   | 'setShowAddForm'
 > & { itl: ReturnType<typeof useIterationLabel> }) {
   if (effectiveMethodology === 'AGILE') {
@@ -7032,6 +7063,7 @@ function ScheduleMainAreaEmptyState({
       <BlankProjectCanvas
         facts={blankProjectFacts}
         onImportFile={readOnly ? undefined : handleImportFile}
+        onAddPhase={readOnly ? undefined : handleAddPhase}
       />
     );
   }
@@ -7286,6 +7318,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
             blankProjectFacts={blankProjectFacts}
             readOnly={readOnly}
             handleImportFile={handleImportFile}
+            handleAddPhase={props.handleAddPhase}
             setShowAddForm={setShowAddForm}
           />
         ) : (

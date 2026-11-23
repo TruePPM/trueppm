@@ -1,3 +1,4 @@
+import type { Ref } from 'react';
 import { LearnMoreLink } from '../SettingsShell';
 
 export interface LifecycleCardProps {
@@ -15,6 +16,8 @@ export interface LifecycleCardProps {
   onClick?: () => void;
   busy?: boolean;
   error?: string | null;
+  /** Lets a page return focus to the action after a confirmation it armed closes. */
+  actionRef?: Ref<HTMLButtonElement>;
 }
 
 /**
@@ -34,6 +37,7 @@ export function LifecycleCard({
   onClick,
   busy,
   error,
+  actionRef,
 }: LifecycleCardProps) {
   const isWarning = tone === 'warning';
   return (
@@ -60,6 +64,7 @@ export function LifecycleCard({
         ))}
       </ul>
       <button
+        ref={actionRef}
         type="button"
         onClick={onClick}
         disabled={disabled || busy || !onClick}

@@ -658,6 +658,26 @@ describe('drawTaskBar — critical path as a red border frame (#1699)', () => {
     }
   });
 
+  it('shell v2 at rest: a near-critical bar carries the ◆ glyph, a critical or slack bar does not (#5106)', () => {
+    const glyphDrawn = (over: Partial<Parameters<typeof makeBarTask>[0]>) => {
+      const { ctx, calls } = makeCtxSpy();
+      drawTaskBar(ctx, makeBarTask({ progress: 40, ...over }), 0, scales, 0, false, VIEWPORT_W);
+      return calls.some((c) => c.name === 'fillText' && c.args[0] === '\u25C6');
+    };
+    const base = { taskNamePlacement: 'next' as const, showProgressPills: true, showSprintBands: true };
+    try {
+      setRendererChartOptions({ ...base, criticalAtRest: { nearCriticalDays: 5 } });
+      expect(glyphDrawn({ isCritical: false, totalFloat: 2 })).toBe(true);
+      expect(glyphDrawn({ isCritical: true, totalFloat: 0 })).toBe(false);
+      expect(glyphDrawn({ isCritical: false, totalFloat: 9 })).toBe(false);
+      // v1 draws no glyph.
+      setRendererChartOptions(base);
+      expect(glyphDrawn({ isCritical: false, totalFloat: 2 })).toBe(false);
+    } finally {
+      setRendererChartOptions(base);
+    }
+  });
+
   it('nests the selection ring inside the critical frame so both channels stay visible', () => {
     const { ctx, calls } = makeCtxSpy();
     const t = makeBarTask({ isCritical: true, progress: 40 });
@@ -1037,6 +1057,32 @@ describe('drawDependencyArrows — summary tasks are anchorable without plannedS
     ];
     drawDependencyArrows(ctx, tasks, links, scales, 0, 0);
     expect(calls.filter((c) => c.name === 'lineTo')).toHaveLength(0);
+  });
+
+  it('shell v2 at rest: a link between two critical tasks strokes critical-red; v1 never does (#5106)', () => {
+    const critical = (id: string, start: string, finish: string): Task =>
+      ({ ...leafTask(id, start), start, finish, isCritical: true }) as Task;
+    const tasks: Task[] = [
+      critical('a', '2026-04-08', '2026-04-10'),
+      critical('b', '2026-04-13', '2026-04-17'),
+    ];
+    const links = [
+      { id: 'l1', sourceId: 'a', targetId: 'b', type: 'FS' as const, lag: 0, isCritical: true },
+    ];
+    const base = { taskNamePlacement: 'next' as const, showProgressPills: true, showSprintBands: true };
+    const strokes = () => {
+      const { ctx, calls } = makeArrowCtxSpy();
+      drawDependencyArrows(ctx, tasks, links, scales, 0, 0);
+      return calls.filter((c) => c.name === 'strokeStyle').map((c) => c.args[0]);
+    };
+    try {
+      setRendererChartOptions({ ...base, criticalAtRest: { nearCriticalDays: 5 } });
+      expect(strokes()).toContain(COLOR.barCritical);
+      setRendererChartOptions(base);
+      expect(strokes()).not.toContain(COLOR.barCritical);
+    } finally {
+      setRendererChartOptions(base);
+    }
   });
 
   function schedLeaf(id: string, start: string, finish: string): Task {

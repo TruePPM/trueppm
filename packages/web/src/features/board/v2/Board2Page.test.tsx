@@ -12,6 +12,9 @@ const h = vi.hoisted(() => ({
   move: vi.fn(),
   create: vi.fn(),
   role: 3 as number | null,
+  desktop: true,
+  exportPdf: vi.fn(() => Promise.resolve()),
+  offline: vi.fn(),
 }));
 
 vi.mock('@/hooks/useScheduleTasks', () => ({
@@ -67,13 +70,22 @@ vi.mock('@/features/schedule/TaskDetailDrawer', () => ({
     <div data-testid="drawer">{task?.id}</div>
   ),
 }));
+vi.mock('../offline/useBoardOffline', () => ({ useBoardOffline: h.offline }));
+vi.mock('@/hooks/useProject', () => ({ useProject: () => ({ data: { name: 'Proj' } }) }));
+vi.mock('@/hooks/useCurrentUser', () => ({
+  useCurrentUser: () => ({ user: { display_name: 'Kay' } }),
+}));
+vi.mock('../export/exportBoardPdf', () => ({
+  exportBoardPdf: h.exportPdf,
+  boardPdfFileName: () => 'proj.pdf',
+}));
 vi.mock('@/hooks/useOnlineStatus', () => ({ useOnlineStatus: () => h.online }));
 vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => 'p1' }));
 vi.mock('../boardView/useBoardIdentity', () => ({
   useBoardIdentity: () => ({ projectId: 'p1', projectIdOrNull: 'p1', currentRole: h.role }),
   boardReadOnly: (role: number | null) => role == null || role < 2,
 }));
-vi.mock('@/features/shell2/useMinWidth', () => ({ useMinWidth: () => true }));
+vi.mock('@/features/shell2/useMinWidth', () => ({ useMinWidth: () => h.desktop }));
 
 function t(over: Partial<Task> & { id: string }): Task {
   return {
@@ -102,6 +114,7 @@ describe('Board2Page', () => {
     h.isLoading = false;
     h.online = true;
     h.role = 3;
+    h.desktop = true;
     h.move.mockClear();
     h.create.mockClear();
     seed([
@@ -292,5 +305,52 @@ describe('Board2Page', () => {
     expect(document.activeElement).toBe(c);
     fireEvent.keyDown(c, { key: 'ArrowUp' });
     expect(document.activeElement).toBe(b);
+  });
+  it('phone: every card carries a 44px "Move to…" that moves it through the same write', () => {
+    h.desktop = false;
+    renderWithRouter(<Board2Page />);
+    fireEvent.click(screen.getByRole('button', { name: 'Move Write brief to…' }));
+    const list = screen.getByRole('list', { name: 'Move Write brief to' });
+    // The card's own column is not a destination.
+    expect(within(list).queryByRole('button', { name: 'To Do' })).toBeNull();
+    fireEvent.click(within(list).getByRole('button', { name: 'Review' }));
+    expect(h.move).toHaveBeenCalledWith({ projectId: 'p1', taskId: 'Write brief', status: 'REVIEW' });
+    expect(screen.getByRole('status').textContent).toContain('Moved Write brief to Review');
+  });
+
+  it('mounts the offline queue driver for the project, so queued moves flush on reconnect', () => {
+    h.offline.mockClear();
+    renderWithRouter(<Board2Page />);
+    expect(h.offline).toHaveBeenCalledWith('p1');
+  });
+
+  it('phone: a viewer gets no "Move to…"', () => {
+    h.desktop = false;
+    h.role = 1;
+    renderWithRouter(<Board2Page />);
+    expect(screen.queryByRole('button', { name: /^Move .* to…$/ })).toBeNull();
+  });
+
+  it('desktop: cards have no "Move to…" (drag and the keyboard pick-up cover it)', () => {
+    renderWithRouter(<Board2Page />);
+    expect(screen.queryByRole('button', { name: /^Move .* to…$/ })).toBeNull();
+  });
+
+  it('swimlane by person: one lane per owner, unowned cards last', () => {
+    renderWithRouter(<Board2Page />);
+    fireEvent.click(screen.getByRole('button', { name: /More board options/ }));
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: /Swimlane by person/ }));
+    const lanes = screen.getAllByTestId('board2-lane').map((l) => l.getAttribute('aria-label'));
+    expect(lanes).toEqual(['Ana Ruiz lane', 'Unassigned lane']);
+    expect(screen.getByRole('button', { name: 'Lanes (Person)' })).toBeTruthy();
+  });
+
+  it('Export PDF rasterizes the print surface once and then unmounts it', async () => {
+    h.exportPdf.mockClear();
+    renderWithRouter(<Board2Page />);
+    fireEvent.click(screen.getByRole('button', { name: /More board options/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Export PDF' }));
+    await vi.waitFor(() => expect(h.exportPdf).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(document.querySelector('[data-print-text="masthead"]')).toBeNull());
   });
 });

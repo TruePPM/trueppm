@@ -1847,6 +1847,15 @@ export function drawTaskBar(
     ctx.roundRect(barLeft + 1, barTop + 1, barWidth - 2, BAR_HEIGHT - 2, 2);
     ctx.stroke();
     ctx.setLineDash([]);
+    // The legend's ◆ for near-critical: a second, non-hue cue on the bar itself so
+    // the state does not ride on the dash pattern alone (WCAG 1.4.1, #5106). Drawn
+    // only where the bar is wide enough to hold it without covering the fill.
+    if (barWidth >= NEAR_CRITICAL_GLYPH_MIN_BAR) {
+      ctx.font = canvasFont();
+      ctx.fillStyle = _palette.barNearCritical;
+      ctx.textBaseline = 'middle';
+      ctx.fillText('\u25C6', barLeft + 5, barTop + BAR_HEIGHT / 2);
+    }
   }
   if (criticalFrame) {
     ctx.strokeStyle = _palette.barCritical;
@@ -2162,6 +2171,9 @@ function drawSelectionRing(
 }
 
 const SELECTION_RING_AT_REST_DASH: number[] = [2, 2];
+
+/** Narrowest bar that carries the near-critical ◆ glyph (#5106). */
+const NEAR_CRITICAL_GLYPH_MIN_BAR = 24;
 
 /** Assignee initials, right-aligned inside the bar. */
 function drawAssigneeInitials(
@@ -3500,6 +3512,12 @@ interface DepPaintContext {
    */
   effectiveDriving: (link: TaskLink) => boolean;
   /**
+   * Shell v2 at rest (#5106): a link between two critical tasks is the critical path
+   * itself, so it draws as a solid critical-red connector. Always false on v1, where
+   * connector color carries no meaning (rule 73).
+   */
+  isCriticalLink: (link: TaskLink) => boolean;
+  /**
    * Project a cached canvas-origin node into screen space. Called only for tasks
    * touched by a link, so the paint stays O(visible) rather than rebuilding an
    * N-entry map per frame. The projected node is memoized per id for this
@@ -3684,6 +3702,10 @@ export function makeDepPaintContext(
     selectedTaskIds,
     hoverChain,
     effectiveDriving: (link) => !anyDriving || link.isDriving === true,
+    isCriticalLink: (link) =>
+      _chartOptions.criticalAtRest != null &&
+      nodes.get(link.sourceId)?.isCritical === true &&
+      nodes.get(link.targetId)?.isCritical === true,
     getScreen: (id) => {
       const cached = screenCache.get(id);
       if (cached) return cached;
@@ -3727,7 +3749,12 @@ function pushSingleFS(
 
   const isSelected = pc.selectedTaskIds.has(link.sourceId) || pc.selectedTaskIds.has(link.targetId);
   const role = arrowRole(link.sourceId, link.targetId, pc.hoverChain);
-  const { stroke, lineWidth, alpha } = arrowPen(isSelected, role, pc.effectiveDriving(link));
+  const { stroke, lineWidth, alpha } = arrowPen(
+    isSelected,
+    role,
+    pc.effectiveDriving(link),
+    pc.isCriticalLink(link),
+  );
   const arrowSize = 9;
   const tipX = tgt.isMilestone ? tgt.barLeft : tgt.barLeft - 1;
   const srcBox = boxFor(src, srcY, pc.milestoneHalfDiag);
@@ -3792,7 +3819,12 @@ function pushMergeJunction(
     const isSelected =
       pc.selectedTaskIds.has(link.sourceId) || pc.selectedTaskIds.has(link.targetId);
     const role = arrowRole(link.sourceId, link.targetId, pc.hoverChain);
-    const { stroke, lineWidth, alpha } = arrowPen(isSelected, role, pc.effectiveDriving(link));
+    const { stroke, lineWidth, alpha } = arrowPen(
+      isSelected,
+      role,
+      pc.effectiveDriving(link),
+      pc.isCriticalLink(link),
+    );
     const srcBox = boxFor(src, srcY, pc.milestoneHalfDiag);
     const tgtBox = boxFor(tgt, tgtY, pc.milestoneHalfDiag);
     const obstaclesForLink = pc.obstaclesFor(
@@ -4034,7 +4066,12 @@ function collectNonFSPaths(
     const isSelected =
       pc.selectedTaskIds.has(link.sourceId) || pc.selectedTaskIds.has(link.targetId);
     const role = arrowRole(link.sourceId, link.targetId, pc.hoverChain);
-    const { stroke, lineWidth, alpha } = arrowPen(isSelected, role, pc.effectiveDriving(link));
+    const { stroke, lineWidth, alpha } = arrowPen(
+      isSelected,
+      role,
+      pc.effectiveDriving(link),
+      pc.isCriticalLink(link),
+    );
     pendingPaths.push({
       pts: [
         { x: x1, y: srcY },
@@ -4236,8 +4273,10 @@ function arrowRole(
 /**
  * Pen settings (stroke color + line width + alpha) for an arrow.
  *
- * Critical-path arrows do NOT change color — critical state is conveyed by the
- * red BAR fill (rule 73), not the connector. Issue #466 gap analysis P0-1.
+ * Critical-path arrows do NOT change color on v1 — critical state is conveyed by the
+ * bar's frame (rule 73), not the connector. Issue #466 gap analysis P0-1. Under shell
+ * v2 at rest (`criticalLink`), a link whose two ends are both critical draws solid
+ * critical-red, so the path reads as one connected line (#5106).
  *
  * Hover-chain (#475): when a chain is supplied, in-chain arrows recolor to
  * blue (predecessors) or green (successors); out-of-chain arrows dim to 20%.
@@ -4253,12 +4292,15 @@ function arrowPen(
   isSelected: boolean,
   role: ArrowRole = 'normal',
   isDriving = true,
+  criticalLink = false,
 ): { stroke: string; lineWidth: number; alpha: number } {
   if (isSelected) return { stroke: _palette.selectionRing, lineWidth: 2.5, alpha: 1 };
   if (role === 'predecessor') return { stroke: CHAIN_ARROW_PREDECESSOR, lineWidth: 2, alpha: 1 };
   if (role === 'successor') return { stroke: CHAIN_ARROW_SUCCESSOR, lineWidth: 2, alpha: 1 };
   if (role === 'dim')
     return { stroke: _palette.arrowNormal, lineWidth: 2, alpha: CHAIN_ARROW_DIM_ALPHA };
+  if (criticalLink)
+    return { stroke: _palette.barCritical, lineWidth: DRIVING_ARROW_WIDTH, alpha: 1 };
   if (!isDriving)
     return {
       stroke: _palette.arrowNormal,

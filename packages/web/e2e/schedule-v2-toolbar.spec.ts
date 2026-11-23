@@ -119,16 +119,29 @@ const BASELINE = {
 
 async function goto(
   page: Page,
-  { v2 = true, baseline = false }: { v2?: boolean; baseline?: boolean } = {},
+  {
+    v2 = true,
+    baseline = false,
+    failTasks = false,
+    blank = false,
+    holdTasks = false,
+  }: {
+    v2?: boolean;
+    baseline?: boolean;
+    failTasks?: boolean;
+    blank?: boolean;
+    holdTasks?: boolean;
+  } = {},
 ) {
+  const rows = blank ? [] : TASKS;
   await page.addInitScript((on: boolean) => {
     localStorage.setItem('trueppm.featureFlags', JSON.stringify({ shell_v2: on }));
   }, v2);
   await setupAuth(page);
   await setupCatchAll(page);
-  await setupApiMocks(page, { projects: PROJECTS, projectId: PROJECT_ID, tasks: TASKS });
+  await setupApiMocks(page, { projects: PROJECTS, projectId: PROJECT_ID, tasks: rows });
   // Registered last so it wins over the default list mock: the reads echo writes.
-  await setupTaskStore(page, { tasks: TASKS });
+  await setupTaskStore(page, { tasks: rows });
   if (baseline) {
     // An active baseline makes the Baseline toggle (and the legend's Baseline
     // entry) exist, so the ladder is measured with its widest inventory.
@@ -167,6 +180,16 @@ async function goto(
       body: JSON.stringify(MC_RESULT),
     }),
   );
+  if (failTasks) {
+    // Registered after the store so the read fails: the page must say what it lost.
+    await page.route('**/api/v1/tasks/**', (route) =>
+      route.fulfill({ status: 500, contentType: 'application/json', body: '{"detail":"boom"}' }),
+    );
+  }
+  if (holdTasks) {
+    // Never answered: the page stays in its loading state so the skeleton is what is measured.
+    await page.route('**/api/v1/tasks/**', () => new Promise<void>(() => undefined));
+  }
   await page.goto(BASE_URL);
 }
 
@@ -441,6 +464,65 @@ test.describe('shell v2 Schedule toolbar (#4796)', () => {
     // The same forecast mock renders v1's docked strip: the v2 absence above is
     // not an empty state.
     await expect(page.getByTestId('mc-details-btn')).toBeVisible({ timeout: 10_000 });
+  });
+  test('Total float prints ▲ for critical rows under v2 and stays bare on v1 (#5106)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await goto(page);
+    const critical = outline(page).getByRole('row', { name: /Profile data quality/ });
+    await expect(
+      critical.getByRole('gridcell', { name: /Total float: critical, 0 days float/ }),
+    ).toHaveText('\u25B2 0d');
+  });
+
+  test('v1 Total float stays a bare number (#5106)', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await goto(page, { v2: false });
+    const critical = outline(page).getByRole('row', { name: /Profile data quality/ });
+    await expect(critical.getByRole('gridcell', { name: /Total float: 0 working day/ })).toHaveText(
+      '0d',
+    );
+  });
+
+  test('a blank project offers "Add phase" beside "Import a file" under v2 (#5106)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await goto(page, { blank: true });
+    const aside = page.getByLabel('Ways to fill this project');
+    await expect(aside.getByRole('button', { name: 'Add phase' })).toBeVisible({ timeout: 10_000 });
+    await expect(aside.getByRole('button', { name: 'Import a file' })).toBeVisible();
+  });
+
+  test('the loading skeleton draws the today line under v2 only (#5106)', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await goto(page, { holdTasks: true });
+    await expect(page.getByRole('status', { name: 'Loading Schedule' })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByTestId('schedule-skeleton-today')).toBeVisible();
+  });
+
+  test('the v1 loading skeleton has no today line (#5106)', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await goto(page, { v2: false, holdTasks: true });
+    await expect(page.getByRole('status', { name: 'Loading Schedule' })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByTestId('schedule-skeleton-today')).toHaveCount(0);
+  });
+
+  test('a failed load says the schedule could not be computed, with retry and a support code (#5106)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await goto(page, { failTasks: true });
+    await expect(page.getByText("The schedule couldn't be computed.")).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByRole('alert').getByRole('button', { name: /retry/i })).toBeVisible();
+    await expect(page.getByText('SCHEDULE-LOAD')).toBeVisible();
   });
 });
 

@@ -82,7 +82,7 @@ export function ZoomControl({ onFit, collapsed = false }: ZoomControlProps) {
   const zoomIn = () => setPxPerDay(pxPerDay * ZOOM_STEP_FACTOR);
 
   const stepperButton =
-    'w-7 h-7 flex items-center justify-center text-sm text-neutral-text-secondary ' +
+    'w-7 h-7 [@media(pointer:coarse)]:w-11 [@media(pointer:coarse)]:h-11 flex items-center justify-center text-sm text-neutral-text-secondary ' +
     'hover:bg-neutral-surface-raised transition-colors ' +
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-primary ' +
     'disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent';
@@ -134,7 +134,7 @@ export function ZoomControl({ onFit, collapsed = false }: ZoomControlProps) {
       <div
         role="group"
         aria-label="Timeline zoom"
-        className="flex items-center h-7 rounded-control border border-neutral-border overflow-hidden"
+        className="flex items-center h-7 [@media(pointer:coarse)]:h-11 rounded-control border border-neutral-border overflow-hidden"
       >
         <button
           type="button"
@@ -182,7 +182,7 @@ export function ZoomControl({ onFit, collapsed = false }: ZoomControlProps) {
         onClick={onFit}
         aria-label="Fit schedule to window"
         title={`Fit to project  ${MOD_GLYPH}0`}
-        className="border border-neutral-border rounded-control h-7 px-3 text-xs font-medium flex-shrink-0
+        className="border border-neutral-border rounded-control h-7 [@media(pointer:coarse)]:h-11 px-3 text-xs font-medium flex-shrink-0
           focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
           focus-visible:ring-offset-neutral-surface
           focus-visible:outline-none hover:border-brand-primary hover:text-brand-primary"
