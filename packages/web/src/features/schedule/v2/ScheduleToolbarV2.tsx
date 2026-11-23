@@ -222,6 +222,24 @@ function V2Menu({
   );
 }
 
+/** Every input that changes the bar's content width without changing its box (rule 343). */
+export function ladderSignature(
+  p: Pick<
+    ScheduleToolbarV2Props,
+    'baselineAvailable' | 'canAddTask' | 'baselineShown' | 'baselineBarsDrawn' | 'milestonesOnly'
+  >,
+  zoomLevel: string,
+): string {
+  return [
+    p.baselineAvailable,
+    p.canAddTask,
+    p.baselineShown,
+    p.baselineBarsDrawn,
+    p.milestonesOnly,
+    zoomLevel,
+  ].join('|');
+}
+
 export interface ScheduleToolbarV2Props {
   onFit: () => void;
   canAddTask: boolean;
@@ -231,6 +249,8 @@ export interface ScheduleToolbarV2Props {
   /** False when the project has no active baseline: the toggle is then absent. */
   baselineAvailable: boolean;
   baselineShown: boolean;
+  /** True once baseline bars are actually drawable (detail resolved); the legend's Baseline entry keys on it, so it changes the bar's content width. */
+  baselineBarsDrawn: boolean;
   onToggleBaseline: () => void;
   criticalOnly: boolean;
   onToggleCriticalOnly: () => void;
@@ -267,13 +287,7 @@ export function ScheduleToolbarV2(props: ScheduleToolbarV2Props) {
   // Everything that changes the bar's CONTENT width without changing its box
   // (rule 343): the legend gains/loses its Baseline entry, "Filter" becomes
   // "Filter · 1", and the collapsed Zoom trigger shows the tier name.
-  const signature = [
-    props.baselineAvailable,
-    props.canAddTask,
-    props.baselineShown,
-    props.milestonesOnly,
-    zoomLevel,
-  ].join('|');
+  const signature = ladderSignature(props, zoomLevel);
   const step = useLadderFit(ref, SCHEDULE_V2_LADDER, signature);
   const liveRef = useRef<HTMLSpanElement>(null);
   const overflowTriggerRef = useRef<HTMLElement | null>(null);

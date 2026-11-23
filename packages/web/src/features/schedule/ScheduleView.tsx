@@ -4662,6 +4662,7 @@ export function ScheduleView() {
           onToday={handleScrollToToday}
           baselineAvailable={hasActiveBaseline}
           baselineShown={chartPrefs.baselineBarsVisible}
+          baselineBarsDrawn={chartOptions.showBaselineBars === true}
           onToggleBaseline={() => setBaselineBarsVisible(!chartPrefs.baselineBarsVisible)}
           criticalOnly={showCriticalOnly}
           onToggleCriticalOnly={() => setShowCriticalOnly((v) => !v)}

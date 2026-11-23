@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import { HIT_TARGET, ScheduleToolbarV2, type ScheduleToolbarV2Props } from './ScheduleToolbarV2';
+import {
+  HIT_TARGET,
+  ladderSignature,
+  ScheduleToolbarV2,
+  type ScheduleToolbarV2Props,
+} from './ScheduleToolbarV2';
 
 vi.mock('../ZoomControl', () => ({
   ZoomControl: ({ collapsed }: { collapsed?: boolean }) => (
@@ -17,6 +22,7 @@ function props(over: Partial<ScheduleToolbarV2Props> = {}): ScheduleToolbarV2Pro
     onToday: vi.fn(),
     baselineAvailable: true,
     baselineShown: false,
+    baselineBarsDrawn: false,
     onToggleBaseline: vi.fn(),
     criticalOnly: false,
     onToggleCriticalOnly: vi.fn(),
@@ -151,5 +157,31 @@ describe('ScheduleToolbarV2 (#4796)', () => {
     }
     fireEvent.click(screen.getByRole('button', { name: /^More schedule actions/ }));
     for (const row of screen.getAllByRole('menuitem')) expect(row.className).toContain('min-h-11');
+  });
+});
+
+describe('ladderSignature (#4796)', () => {
+  const base = {
+    baselineAvailable: true,
+    canAddTask: true,
+    baselineShown: true,
+    baselineBarsDrawn: true,
+    milestonesOnly: false,
+  };
+  const sig = (o: Partial<typeof base> = {}, zoom = 'week') =>
+    ladderSignature({ ...base, ...o }, zoom);
+
+  it.each([
+    ['baselineAvailable', { baselineAvailable: false }],
+    ['canAddTask', { canAddTask: false }],
+    ['baselineShown', { baselineShown: false }],
+    ['baselineBarsDrawn', { baselineBarsDrawn: false }],
+    ['milestonesOnly', { milestonesOnly: true }],
+  ])('changes when %s changes', (_n, over) => {
+    expect(sig(over)).not.toBe(sig());
+  });
+
+  it('changes when the zoom level changes', () => {
+    expect(sig({}, 'month')).not.toBe(sig());
   });
 });

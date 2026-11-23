@@ -257,12 +257,14 @@ test.describe('shell v2 Schedule toolbar (#4796)', () => {
       expect(name).toBe(
         `More schedule actions, ${5 + (inMenu ? 1 : 0) + (await demotedOthers(page))} items`,
       );
+      // Whatever the bar has conceded, the legend never reaches the overflow
+      // (checked while the menu is open): it stays in the bar or relocates to
+      // the timeline header, and is visible in one of them.
+      await expect(page.getByRole('menuitem', { name: /legend/i })).toHaveCount(0);
+      await expect(page.getByRole('list', { name: 'Schedule legend' })).toBeVisible();
       await page.keyboard.press('Escape');
       await expect(page.getByRole('menu')).toHaveCount(0);
     }
-    // Whatever the bar has conceded by 768, the legend never reaches the
-    // overflow: it stays in the bar or relocates, it is not a menu row.
-    await expect(page.getByRole('menuitem', { name: /legend/i })).toHaveCount(0);
   });
 
   test('on a phone the v2 toolbar is absent and the phone schedule still renders', async ({
@@ -347,10 +349,7 @@ test.describe('shell v2 Schedule toolbar (#4796)', () => {
   test('every bar control has a 44x44 hit target without growing past 32px (rules 5, 330)', async ({
     page,
   }) => {
-    for (const width of [1440, 768]) {
-      await page.setViewportSize({ width, height: 900 });
-      await goto(page);
-      await expect(toolbar(page)).toBeVisible({ timeout: 10_000 });
+    const measure = async (label: string) => {
       await expect.poll(() => clipped(page)).toEqual([]);
       const controls = toolbar(page).locator('[data-testid^="schedule-v2-"]');
       const n = await controls.count();
@@ -369,11 +368,27 @@ test.describe('shell v2 Schedule toolbar (#4796)', () => {
             cushionHits: hit !== null && el.contains(hit),
           };
         });
-        expect(m.visualHeight, `${m.id} @${width}`).toBe(32);
-        expect(m.hitH, `${m.id} @${width}`).toBeGreaterThanOrEqual(44);
-        expect(m.hitW, `${m.id} @${width}`).toBeGreaterThanOrEqual(44);
-        expect(m.cushionHits, `${m.id} @${width}`).toBe(true);
+        expect(m.visualHeight, `${m.id} @${label}`).toBe(32);
+        expect(m.hitH, `${m.id} @${label}`).toBeGreaterThanOrEqual(44);
+        expect(m.hitW, `${m.id} @${label}`).toBeGreaterThanOrEqual(44);
+        expect(m.cushionHits, `${m.id} @${label}`).toBe(true);
       }
+    };
+    for (const width of [1440, 768]) {
+      await page.setViewportSize({ width, height: 900 });
+      await goto(page);
+      await expect(toolbar(page)).toBeVisible({ timeout: 10_000 });
+      await measure(`${width}`);
+    }
+    // No viewport >= 768 collapses anything with this fixture, so reach the
+    // collapsed Zoom trigger and icon-only Add task by narrowing the bar.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await goto(page);
+    await expect(toolbar(page)).toBeVisible({ timeout: 10_000 });
+    for (const px of [460, 340]) {
+      await narrowBar(page, px);
+      await expect.poll(() => step(page)).toBeGreaterThan(0);
+      await measure(`bar ${px}px`);
     }
   });
 
@@ -429,7 +444,7 @@ test.describe('shell v2 Schedule toolbar (#4796)', () => {
   });
 });
 
-/** Today and Baseline demoted alongside Critical only (Baseline absent: no baseline). */
+/** Today (menuitem) and Baseline (menuitemcheckbox) rows demoted alongside Critical only; each counts 0 while it is still inline in the bar. */
 async function demotedOthers(page: Page): Promise<number> {
   return (
     (await page.getByRole('menuitem', { name: 'Today', exact: true }).count()) +
