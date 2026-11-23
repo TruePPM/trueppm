@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import { useFeatureFlag } from '@/lib/featureFlags';
+import { SHELL_V2_FLAG } from '@/features/shell2/ShellGate';
+import { ProjectOverview2 } from '@/features/project/ProjectOverview2';
 import { fmtUtcMedium } from '@/lib/formatUtcDate';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router';
@@ -1437,6 +1440,12 @@ function CriticalPathSection({
  */
 export function ProjectOverviewPage() {
   const projectId = useProjectId();
+  const v2 = useFeatureFlag(SHELL_V2_FLAG);
+  if (v2 && projectId) return <ProjectOverview2 projectId={projectId} />;
+  return <ProjectOverviewV1 projectId={projectId} />;
+}
+
+function ProjectOverviewV1({ projectId }: { projectId: string | undefined }) {
 
   const {
     data: overview,
