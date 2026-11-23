@@ -1059,6 +1059,19 @@ backup:restore-drill:
         i=$((i+1)); [ "$i" -ge 90 ] && { echo "seaweedfs not ready" >&2; exit 1; }; sleep 1
       done
     - aws --endpoint-url "$DRILL_S3_ENDPOINT" s3 mb "s3://$DRILL_S3_BUCKET"
+    # Negative control (#4065): the special-character secret above proves the
+    # credential survives the round trip only if SeaweedFS checks it. If this
+    # digest ever fell back to anonymous allow-all, every positive step below
+    # would still pass, so a WRONG secret must be refused with SignatureDoesNotMatch.
+    - |
+      if out="$(AWS_SECRET_ACCESS_KEY=wrong-secret aws --endpoint-url "$DRILL_S3_ENDPOINT" s3 ls "s3://$DRILL_S3_BUCKET" 2>&1)"; then
+        echo "FAIL: a wrong secret listed the bucket; SeaweedFS is not enforcing credentials, so this drill would prove nothing" >&2
+        exit 1
+      fi
+      case "$out" in
+        *SignatureDoesNotMatch*) echo "negative control OK: wrong secret refused (SignatureDoesNotMatch)" ;;
+        *) echo "FAIL: wrong secret refused for an unexpected reason: $out" >&2; exit 1 ;;
+      esac
     # Back up straight to the bucket, then verify the object really landed.
     # Media rides along too (#4368) — same source fixture from leg 4, still on
     # disk (it is backup.sh's *input*, not an output artifact, so the cleanup

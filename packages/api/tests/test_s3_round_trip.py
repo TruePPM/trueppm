@@ -111,6 +111,31 @@ def test_unsigned_url_is_rejected(storage: Any) -> None:
     assert exc.value.code in (401, 403), f"unsigned GET returned {exc.value.code}, not a denial"
 
 
+def test_wrong_secret_is_refused(storage: Any, s3_options: dict[str, Any]) -> None:
+    """Negative control for every credential test here (#4065).
+
+    The drill's secret carries "/" "+" ":" to catch URL-roundtrip corruption, but
+    that only proves anything if the endpoint checks the secret at all. An S3
+    gateway that fell back to anonymous allow-all would pass every positive test
+    in this file; a wrong secret against the right key must be refused.
+    """
+    import boto3
+    import botocore.exceptions
+
+    wrong = boto3.client(
+        "s3",
+        endpoint_url=s3_options["endpoint_url"],
+        aws_access_key_id=s3_options["access_key"],
+        aws_secret_access_key=s3_options["secret_key"] + "-wrong",
+        region_name=s3_options["region_name"],
+    )
+    with pytest.raises(botocore.exceptions.ClientError) as exc:
+        wrong.list_objects_v2(Bucket=s3_options["bucket_name"])
+    err = exc.value.response
+    assert err["ResponseMetadata"]["HTTPStatusCode"] == 403, err
+    assert err["Error"]["Code"] == "SignatureDoesNotMatch", err
+
+
 def test_per_call_expiry_is_honored_by_the_server(storage: Any) -> None:
     """A URL signed with expire=1 must be REJECTED by the store once it lapses, proving
     the per-call TTL the signed_url action passes is enforced server-side and not
