@@ -290,7 +290,7 @@ the count simulated; `runs` is a deprecated alias). The response carries:
 | `whatif` | The same fields recomputed with your perturbation applied. |
 | `critical_path_changed` | `true` when the perturbation moved which tasks are on the critical path. |
 | `delta_vs_current` | Per-field signed calendar-day shift (`p50`/`p80`/`p95`/`cpm_finish`); positive = later/worse. All four are measured in working time: a finish shown at the start of a Monday counts as the end of the Friday before it, so a finish whose shown date only hops a weekend is `0` ([Scheduler Conventions](/features/scheduler-conventions/)). |
-| `applied` | The resolved perturbation (`base_duration_days`, `duration_delta_days`, `new_duration_days`). `new_duration_days` is the duration the forecast used, which is 0 once a pull-in uses up the remaining work. |
+| `applied` | The resolved perturbation (`base_duration_days`, `duration_delta_days`, `new_duration_days`). `new_duration_days` is the task's new duration, or 0 once a pull-in uses up the remaining work (the forecast then keeps the full duration with no remaining work, ADR-1474). |
 | `cpm_status_date` / `mc_status_date` | The resolved data dates fed to the deterministic CPM and Monte Carlo passes respectively — both floor a null project status date at today, so they always agree — see [Progress-aware forecasting](#progress-aware-forecasting) below. Shared by both `current` and `whatif`, since one call resolves each once. This endpoint never persists a run, so these are the only record of which data date produced the answer. |
 
 A perturbation target must be a real unit of work: a milestone (zero duration by

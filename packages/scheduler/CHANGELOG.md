@@ -341,8 +341,9 @@ change between releases. Pin an exact version (e.g.
   with no remaining work, while `duration` and `percent_complete` still describe
   the work done. Placed as an instant like a milestone; FS/FF links measure from
   that instant and SS/SF links from the recorded `actual_start` or the derived
-  span start. `to_dict()` always emits it, so a document from this version needs a
-  Rust/WASM engine that knows the key (ADR-1474,
+  span start. `to_dict()` emits it only when `True` (as the Rust engine does), so a
+  network that never sets it serializes exactly as before; only a document that
+  sets it needs an engine that knows the key (ADR-1474,
   [#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)).
 
 - **A what-if pull-in no longer moves a sprint-delivered task's bands later at exhaustion.** When a
