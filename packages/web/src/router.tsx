@@ -139,6 +139,9 @@ const HomeRoute = lazy(() =>
 const WorkPage = lazy(() =>
   import('@/features/shell2/WorkPage').then((m) => ({ default: m.WorkPage })),
 );
+const ForecastPage = lazy(() =>
+  import('@/features/shell2/ForecastPage').then((m) => ({ default: m.ForecastPage })),
+);
 const KitPage = lazy(() =>
   import('@/features/shell2/KitPage').then((m) => ({ default: m.KitPage })),
 );
@@ -645,6 +648,16 @@ export const routes: RouteObject[] = [
                   // Pass 2 page-kit fixture UNDER the project context header (#4795):
                   // the only place the "page starts at <= 191px" budget is measurable
                   // with the real header above it. Redirects home when shell_v2 is off.
+                  // Shell v2 Monte Carlo view; redirects to Overview when shell_v2 is off.
+                  {
+                    path: 'forecast',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ForecastPage />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Forecast' } satisfies RouteHandle,
+                  },
                   {
                     path: 'shell2-kit',
                     element: (

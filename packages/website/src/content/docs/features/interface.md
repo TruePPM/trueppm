@@ -392,6 +392,13 @@ Other changes you will notice with the flag on:
   shows an existing page in place: My Work, the Programs list, the Resource
   Catalog, or the program's Overview. With the flag off, `/home` sends you to
   your usual landing page.
+- **A forecast view.** `/projects/<project>/forecast` will show the project's
+  Monte Carlo finish-date curve with its P50, P80 and P95 dates, when the
+  forecast was run, and a **Run forecast** button. A project that has never been
+  forecast says **Not run yet**. When the project has changed since the last
+  run, the view says so in place of the "as of" time and asks you to run it
+  again. It has no tab yet; open it by URL. With the flag off the address sends
+  you to the project's Overview.
 - **One breadcrumb.** Program / project / view, with a single separator, is the
   only place the app states where you are.
 - **One status pill** in the top bar replaces the stacked status banners: it
