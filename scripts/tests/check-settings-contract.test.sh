@@ -2,8 +2,8 @@
 # scripts/tests/check-settings-contract.test.sh
 #
 # Unit test for scripts/check-settings-contract.py (#3248). Leads with the cases that
-# MUST fail: the built-in fixture rules, then the real tree against an EMPTY baseline
-# (every recorded finding becomes NEW) and against a baseline carrying a stale entry.
+# MUST fail: the built-in fixture rules, then the real tree against a baseline carrying a
+# stale entry. The real tree must also be clean against an EMPTY baseline (all findings fixed).
 # Then requires the committed tree to be clean against its committed baseline.
 #
 # Run: bash scripts/tests/check-settings-contract.test.sh
@@ -29,8 +29,9 @@ BASE="$TMP/packages/api/settings-contract-baseline.txt"
 python3 "$GATE" --self-test >/dev/null 2>&1; check "built-in self-test passes" $?
 
 : > "$BASE"
-if CI_MERGE_REQUEST_DIFF_BASE_SHA=HEAD python3 "$GATE" >/dev/null 2>&1; then rc=1; else rc=0; fi
-check "empty baseline: recorded findings are reported as NEW (must fail)" $rc
+# The real tree has no recorded finding left, so an empty baseline must be clean.
+CI_MERGE_REQUEST_DIFF_BASE_SHA=HEAD python3 "$GATE" >/dev/null 2>&1
+check "empty baseline: the real tree has no finding beyond it" $?
 
 cp "$REPO_ROOT/packages/api/settings-contract-baseline.txt" "$BASE"
 echo 'env-undocumented | TRUEPPM_NO_SUCH_VARIABLE | #1 | stale' >> "$BASE"
