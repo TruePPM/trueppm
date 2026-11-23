@@ -116,8 +116,17 @@ Rules for the description:
   untracked, forward-looking deferral and fails the job even though nothing is owed.
   Say what actually happened instead — "commit `<sha>`, on this branch, fixed …" — rather
   than reaching for `followup-ok` on a sentence that was never a deferral. Recurred twice
-  (!2841/#4186, then MR !3025/#4426) before this line was added; see
+  (!2841/#4186, then MR !3025/#4426) before this line was added, and a third time after
+  it (!3557, a completeness-check ledger line); see
   `scripts/check-mr-followups.sh`'s own header for the regex and its carve-out.
+- **The PreToolUse hook `.claude/hooks/pre-mr-followups.sh` runs that check before the
+  description leaves the session** (#5108). It blocks `glab mr create` / `glab mr update`
+  with a description, and `glab api` writes to a merge request's `description`, when
+  `scripts/check-mr-followups.sh --file` fails, and prints the flagged line. Fix the
+  wording and retry; do not route around it. It checks offline — that a reference is
+  present, not that the issue is open — so `lint:mr-followups` in CI still has the last
+  word. Before editing a live MR's description some other way, run
+  `scripts/check-mr-followups.sh --file <draft>` by hand.
 - Link closing issues with `Closes #N` on a line after the Notes section if applicable — **one `Closes #N` line per issue this diff actually resolves**. GitLab closes every issue number that follows a closing keyword (close, closes, closing, fix, fixes, resolve, …) **anywhere in the description**, in prose and table cells as well as on the `Closes` line, and it ignores negation. A requirements row reading "Do not fix #4293 here" closed #4293 (!3068), and the sentence "closing #604 does not close #3464" closed both (!2499). Nothing signals it at merge. So the only closing keyword in the body is on the intended `Closes` lines; write any other mention as `#N` with no keyword in front of it ("#4293 is out of scope", "Related: #N"). Before creating the MR, grep the drafted body with `grep -oPi '(clos|fix|resolv)\w*[^#]{0,40}#[0-9]+'` (`-P`, because `-E` reads `\n` inside a bracket as a backslash and the letter n, and `clos` so that "closing" matches) and confirm every hit is an issue this diff resolves `scripts/check-negated-closing-keywords.sh` (CI job `lint:negated-closing-keywords`, and `make pre-push` for commit messages) fails a negated keyword (`does not fix #N`) in the description or any branch commit, and names the issue; the safe spellings are `Refs #N` or `#N is out of scope` (#4926).
 - If it's a UI change, add a Screenshots section placeholder: `## Screenshots\n<!-- attach before/after -->`
 - If it's a UI change, add a Screenshots section placeholder: `## Screenshots\n<!-- attach before/after -->`
