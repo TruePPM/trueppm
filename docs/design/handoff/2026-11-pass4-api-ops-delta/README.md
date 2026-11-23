@@ -47,15 +47,17 @@ Decisions already taken (2026-11-22) that this doc assumes:
 | Model | App (layer) | Fields (summary) | Notes |
 |---|---|---|---|
 | `WorkspaceCapability` *(superseded: three `Workspace` columns plus `mcp_enabled`, ADR-1460)* | `workspace` (core) | `key` ∈ {agile, resources, time_cost, agents}, `enabled`, `changed_by`, `changed_at` | A missing row means enabled. That gives existing installs default-on with no data migration. |
-| `ResourcePool` | `resources` (core) | `name`, `workspace`, `managers` (M2M User), `members` (M2M Resource) | **New concept.** Today `resource_pool` is the per-project roster. Pick a name that doesn't collide (`CapacityPool`?) and record it in the ADR. Pools are scoped to one program for OSS, pending `enterprise-check` (Q2.3). |
-| `ResourceAsk` | `resources` | `pool`, `project`, `role`, `count`, `units`, `start`, `duration_wd`, `covered_tasks` (M2M Task, ≥1), `note`, `state` ∈ {draft, sent, seen, approved, countered, declined, withdrawn}, `requested_by`, `actor_kind` (human/agent), `decided_by`, `decided_at`, `decline_constraint` (JSON: name, value, limit, window, found_by, confirmed_by) | `draft` exists for agent-authored asks, and only a human sends. State transitions are server-enforced. |
+| `CapacityPool` | `resources` (core) | `name`, `program` (FK, required in OSS), `managers` (M2M User), `members` (M2M Resource) | **New concept** (ADR-1461). It avoids the name `resource_pool`, which is the per-project roster. It is scoped to one program; pools spanning programs are an Enterprise hook (enterprise-check ran 2026-11-22). |
+| `ResourceAsk` | `resources` | `pool`, `project`, `role`, `count`, `units`, `start`, `duration_wd`, `covered_tasks` (M2M Task, ≥1), `note`, `state` ∈ {draft, sent, seen, approved, approved_pending_sprint_ack, countered, declined, withdrawn}, `requested_by`, `actor_kind` (human/agent), `decided_by`, `decided_at`, `decline_constraint` (JSON: name, value, limit, window, found_by, confirmed_by) | `draft` exists for agent-authored asks, and only a human sends. State transitions are server-enforced. |
 | `AskOfferLine` | `resources` | `ask`, `resource`, `units`, `start`, `end`, `task` (nullable FK) | Counter-offer lines carry a proposed person→task mapping (Q2.9). |
 | `AskEvent` | `resources` | `ask`, `from_state`, `to_state`, `actor`, `at`, `run_id` (nullable) | Backs the status trail. Append-only. |
-| `Expense` | `projects` or a new `cost` app (core) | `project`, `category` ∈ {rental, cloud, license, agent_tokens, travel, other}, `kind` ∈ {one_time, recurring}, `amount` (Decimal), `currency`, `date` or `start` / `end` / `cadence`, `task` (nullable), `note` | Occurrences are **computed**, never stored (to-date and planned are server facts). |
+| `Expense` | `projects` (core) | `project`, `category` ∈ {rental, cloud, license, agent_tokens, travel, other}, `kind` ∈ {one_time, recurring}, `amount` (Decimal; in `Workspace.currency`, with no currency field — ADR-1462), `date` or `start` / `end` / `cadence`, `task` (nullable), `note` | Occurrences are **computed**, never stored (to-date and planned are server facts). |
 | `RateEditorGrant` | `access` (core) | `user`, `scope_all` (bool), `pools` (M2M), `granted_by`, `granted_at` | A grant, not a role. The 5-role matrix is unchanged. Changes go to workspace history. |
 | `PushSubscription` | `notifications` (core) | `user`, `endpoint`, `p256dh`, `auth`, `label` (UA summary), `created_at`, `last_delivered_at`, `failed_count` | Deleted on logout, on a 404/410 from the push service, and when the device is removed. |
 | `ImportReport` | `msproject` (satellite) | `project`, `source_name`, `created_by`, `rows` (JSON: task, constraint, date, outcome kept/converted/deadline/dropped), `dismissed_at` | Backs the 7B review and the Plan chip. Exportable as CSV. |
 | `Project.health_reported_at` | `projects` | DateTimeField, nullable | Needed for override age and reconfirmation (Q5.8). |
+| `Project.health_report_note` | `projects` | TextField, blank | An optional note on a PM override (ADR-1464, AI-review). |
+| `Project.commitment_date` | `projects` | DateField, nullable | The project's own commitment, used after the active baseline and before the program target (ADR-1464). |
 
 Migration rules (CLAUDE.md, Migration discipline):
 - Every operation is `CreateModel` or a nullable `AddField`. There is **no `RemoveField`** and no constraint on a populated table in 0.5, so rules 7 and 8 do not trigger.
@@ -70,7 +72,7 @@ All new endpoints go through `rbac-check`, `security-review` and `api-docs`. Eve
 ### 2.1 Capabilities
 - `GET /workspace/` gains `capabilities: [{key, enabled, enforced, changed_by, changed_at}]`.
   - `enforced` is **required** on every entry: `true` only for `agents`.
-- `PATCH /workspace/capabilities/{key}/` is restricted to workspace admins.
+- Capability fields are written through `PATCH /workspace/` (Agents is the existing `mcp_enabled` field). Writes need `IsWorkspaceAdminStrict` **and** a human session (ADR-1460).
   - With data present, the request must carry `confirm_counts_seen_at`, so the UI can't skip the confirm step.
   - Turning off `agile` with an active sprint requires `confirm_text: "AGILE"`. The server returns the list of notified POs and SMs.
 - *(Superseded: Agents reuses the existing fail-closed `mcp_enabled` enforcement, ADR-1460.)* **Agents enforcement is middleware, not a DRF default permission class.** A gate added to `DEFAULT_PERMISSION_CLASSES` is silently inert, because most views override it.
@@ -151,8 +153,8 @@ All new endpoints go through `rbac-check`, `security-review` and `api-docs`. Eve
 
 | Event | Webhook | WS | Notes |
 |---|---|---|---|
-| `resource_ask.transitioned` | new | new | Payload: `ask_id`, `from`, `to`, `actor`, `run_id?`. No note text, for privacy. |
-| `expense.created` / `.updated` / `.deleted` | new | new | Amounts are included only for subscribers with cost visibility. Otherwise only the ID. |
+| `resource_ask.transitioned` | new | new | Signed webhook as well as WS. Payload: `ask_id` and the new state, IDs only (ADR-1461). No note text. |
+| `expense.created` / `.updated` / `.deleted` | new | new | Payload: IDs only (`expense_id`, `project_id`), never amounts (ADR-1462). |
 | `capabilities.changed` | new | new | `key`, `enabled`, `enforced`, `changed_by`. |
 | `task.assigned` | **exists** (`WebhookEventType.TASK_ASSIGNED`) | exists | Approvals already surface here, if they go through the same assignment service. Assert this in a test. |
 | `sprint.scope_changed` | **exists** (#1073) | exists | Must fire when an **acknowledged** ask assignment lands in an active sprint. The ack or decline is the trail entry in 2C. |
@@ -160,11 +162,11 @@ All new endpoints go through `rbac-check`, `security-review` and `api-docs`. Eve
 New WS event names must be added to `FROZEN_WS_EVENT_TYPES` and pass `docs:ws-event-reachability`: each must fan out on a group a client can join.
 
 ## 4. Token scopes and agent rules
-- New scopes: `asks:read`, `asks:write`, `expenses:read`, `expenses:write`, `rates:read`, `rates:write`, and `capabilities:admin`.
+- New scopes: `asks:read`, `asks:write` (drafts only for agents), `expenses:read` and `rates:read`. There is no `capabilities:admin` scope: capability writes are human-only (ADR-1460). `expenses:write` and `rates:write` are **not issuable in 0.5**, because those writes are human-only (ADR-1462); they are reserved for the 0.6 agent-write gate (ADR-0112).
   - `rates:*` also requires the grant or workspace admin, intersected with the token owner's role (RC5).
 - Agent actors:
   - can draft asks only;
-  - can never approve, decline or batch-approve;
+  - can never send, approve, counter, decline or batch-approve (refusals are recorded as `AgentAction` rows);
   - get dry-run verdicts only in 0.5 (#1813);
   - are refused everywhere when `agents` is off.
 - Every agent action is recorded through `agent_action_recorded` with `on_behalf_of`.
@@ -196,8 +198,8 @@ New WS event names must be added to `FROZEN_WS_EVENT_TYPES` and pass `docs:ws-ev
   - the pool and ask approval path (who may assign whom);
   - the offline outbox (client-held writes).
 - `enterprise-check`:
-  - pools spanning programs (Q2.3);
-  - the Rate editor grant vs custom roles (Q3.8);
+  - pools spanning programs (Q2.3) *(ran 2026-11-22: one program in OSS, plus an Enterprise hook; ADR-1461)*;
+  - the Rate editor grant vs custom roles (Q3.8) *(ran 2026-11-22: OSS, as one fixed grant; ADR-1462)*;
   - Workspace counts (#3901 ruling). *(Superseded: counts are Enterprise, trueppm-enterprise#210.)*
 - `ai-review`: every new computed value and mutation in §2.
 - `migration-check`, `broadcast-check` (ask and expense writes are board-scoped), `api-docs`, `rbac-check`, `security-review`.
@@ -205,7 +207,7 @@ New WS event names must be added to `FROZEN_WS_EVENT_TYPES` and pass `docs:ws-ev
 
 ## 7. Open questions
 
-**Resolved in ADRs 1460–1465 (2026-11-22):**
+**Resolved (ADRs 1460–1465 unless noted, 2026-11-22):**
 - Q1.8: until #1063, every MCP token counts as an agent actor (D1).
 - Q1.9: sprint owners get a notice, plus a typed confirm.
 - Q2.3: pools belong to one program.
@@ -213,7 +215,12 @@ New WS event names must be added to `FROZEN_WS_EVENT_TYPES` and pass `docs:ws-ev
 - Q5.8: 14-day reconfirm, batchable.
 - Q6.1: yes, from the TS worker.
 - Q6.5: claim dropped.
-- Q7.5: `start_driver` comes from the engine derivation's `is_binding` (§2.7).
+- Q7.5: `start_driver` comes from the engine derivation's `is_binding` (§2.7 of this handoff, built on ADR-0218; not an ADR-146x decision).
+- Q2.9: the counter-offer line carries a proposed `task` (`AskOfferLine`, ADR-1461).
+- Q3.2: accepted for 0.5, with no suppression (ADR-1462 consequences).
+- Q3.3: deferred to 0.6 (ADR-1462).
+- Q3.4 and Q5.2: deferred (single workspace currency; thresholds are module constants).
+- Also decided, not otherwise listed: Q3.6 and Q3.7 (ADR-1462); Q6.3 and Q6.4 (ADR-1465).
 
 **Still open (from the canvas notes; decide before or during implementation):**
 - **Q1-ops:** can Helm values pin capabilities?
@@ -223,9 +230,9 @@ New WS event names must be added to `FROZEN_WS_EVENT_TYPES` and pass `docs:ws-ev
   - the "Seen" receipt;
   - counter-of-counter;
   - what "Release assignments" undoes;
-  - who maps offer lines to tasks;
+  - who confirms the offer-line task mapping (proposed: the PM can reassign before accepting);
   - whether a direct assignment to a pool member shows as booked.
-- **Q3.2, Q3.3, Q3.5:** suppressing single-rate totals; importing agent token usage as an expense; receipts.
+- **Q3.5:** receipts and attachments on expenses (proposed: out of 0.5).
 - **Q4.2, Q4.7:** how often the soft ask returns; whether Agents off suppresses refusal pushes.
 - **Q5.4, Q5.6:** a weighted rollup; the stale marker.
 - **Q6.6:** a multi-tab outbox.
