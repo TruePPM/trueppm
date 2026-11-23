@@ -209,3 +209,87 @@ def test_a_bigger_pull_in_never_finishes_later(
         assert bigger <= smaller
     assert p50s == finishes
     assert finishes[-1] == finishes[-2]
+
+
+def _late_and_float_net(link: DependencyType, lag: int, succ_days: int, recorded: bool) -> Project:
+    """``M -link+lag-> S`` beside an unlinked 15-day ``L`` that sets the finish.
+
+    M is 5 days at 40% with no remaining work, so it is placed as an instant at the
+    data date, Wednesday 2027-03-10; its span start is either recorded (``actual_start``
+    Monday 03-08) or derived: 40% of 5 days is 2 elapsed working days before the
+    instant, Monday 03-08 too. Standard Monday-to-Friday week, no holidays.
+    """
+    m = Task(
+        "M",
+        "M",
+        timedelta(days=5),
+        percent_complete=40,
+        zero_remaining=True,
+        actual_start=date(2027, 3, 8) if recorded else None,
+    )
+    return Project(
+        id="p",
+        name="p",
+        start_date=date(2027, 3, 1),
+        status_date=date(2027, 3, 10),
+        tasks=[m, Task("S", "S", timedelta(days=succ_days)), Task("L", "L", timedelta(days=15))],
+        dependencies=[Dependency("M", "S", link, timedelta(days=lag))],
+    )
+
+
+# Hand-computed (not read off the engine). The oracle compares only the position of an
+# instant-like task, so these are the checks on its late dates and float (#5115).
+# Common to every case: L runs 15 working days from Wed 03-10 (03-10..12 = 3, 03-15..19
+# = 8, 03-22..26 = 13, 03-29..30 = 15), so the project finishes Tue 03-30, the end of
+# that day, and every late date is bounded by it.
+#
+# SS +4, derived start. Forward: span start Mon 03-08 + 4 calendar days = Fri 03-12 = S's
+# early start; S (3 days) finishes Tue 03-16. Backward: S late finish 03-30, late start
+# 03-26 (26, 29, 30). The latest span start is 03-26 - 4 calendar days = Mon 03-22; the
+# instant sits 2 working days after it, Wed 03-24, so M's late_finish is 03-24 and its
+# total float is 03-10 -> 03-24 = 10 working days. Free float: S's early start 03-12 - 4
+# = Mon 03-08 is the latest span start that leaves S where it is, i.e. the instant 03-10
+# itself, so 0 (a span start of Tue 03-09 would put S on Sat 03-13, snapped to Mon 03-15).
+#
+# SF +7, derived start. The link holds S's finish instant (the start of the day after
+# its finish date) at or after span start + 7. Forward: 03-08 + 7 = the start of Mon
+# 03-15, i.e. the end of Sun 03-14, which is not a working day, so S finishes at the end
+# of Mon 03-15 (starting Fri 03-12). Backward: S's late finish, the end of 03-30, is the
+# instant 03-31; 03-31 - 7 = Wed 03-24 is the latest span start, and the instant 2 working
+# days later is Fri 03-26: late_finish 03-26, total float 03-10 -> 03-26 = 12 working
+# days. Free float: S's early finish instant 03-16 - 7 = Tue 03-09; 2 working days later
+# is Thu 03-11, so 1 working day (a span start of 03-09 still lands S's finish at the end
+# of 03-15).
+#
+# Recorded start, either link. A recorded start does not move when the instant slips
+# (#4523), so the link bounds nothing: M's late date is the project finish, Tue 03-30,
+# and both floats run 03-10 -> 03-30 = 14 working days.
+@pytest.mark.parametrize(
+    ("link", "lag", "succ_days", "recorded", "late_finish", "total_float", "free_float"),
+    [
+        (DependencyType.SS, 4, 3, False, date(2027, 3, 24), 10, 0),
+        (DependencyType.SF, 7, 2, False, date(2027, 3, 26), 12, 1),
+        (DependencyType.SS, 4, 3, True, date(2027, 3, 30), 14, 14),
+        (DependencyType.SF, 7, 2, True, date(2027, 3, 30), 14, 14),
+    ],
+)
+def test_late_dates_and_float_of_a_task_with_no_remaining_work(
+    link: DependencyType,
+    lag: int,
+    succ_days: int,
+    recorded: bool,
+    late_finish: date,
+    total_float: int,
+    free_float: int,
+) -> None:
+    """An SS/SF link from a derived start bounds the instant through the span start;
+    one from a recorded start bounds nothing (ADR-1474)."""
+    m = next(
+        t
+        for t in schedule(_late_and_float_net(link, lag, succ_days, recorded)).tasks
+        if t.id == "M"
+    )
+    assert m.early_start == m.early_finish == date(2027, 3, 10)
+    assert m.late_start == m.late_finish == late_finish
+    assert m.total_float == timedelta(days=total_float)
+    assert m.free_float == timedelta(days=free_float)

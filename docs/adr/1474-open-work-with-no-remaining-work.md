@@ -81,6 +81,9 @@ produces, and a milestone's SS/SF links go through its instant, not its link sta
   calendars to FS/SS networks, so per-task calendars on SF/FF networks are checked only for
   monotonicity, engine agreement and `derive_value` agreement, not against the reference;
   extending the oracle there is tracked in #5115.
+- The oracle compares only the position of instant-like tasks, so late dates and float for
+  this case rest on hand-computed tests (`test_late_dates_and_float_of_a_task_with_no_remaining_work`)
+  and engine agreement; tracked with #5115.
 - No API request field changes. The API never sets the input from stored data; only the
   engine's own perturbation does.
 
