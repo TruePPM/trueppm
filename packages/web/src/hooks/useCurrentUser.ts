@@ -70,6 +70,14 @@ export interface CurrentUser {
     intent: LandingIntent;
     path: string;
     resolved_by: LandingResolvedBy;
+    /**
+     * Shell-v2 role home (ADR-1298 amendment). Read only under `shell_v2`; v1
+     * reads `path`. Optional so a fixture or an older server without it reads as
+     * the contributor home.
+     */
+    home?: 'contributor' | 'pm' | 'rm' | 'exec';
+    /** The program the Executive home opens on; null unless `home` is `exec`. */
+    home_program?: { id: string; code: string; name: string } | null;
   };
   /**
    * Per-user nav visibility (ADR-0139). Canonical view keys the user has hidden

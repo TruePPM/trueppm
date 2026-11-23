@@ -5,7 +5,9 @@ import { queryClient } from '@/lib/queryClient';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { safeLandingPath } from '@/features/me/landing';
 import { lensDefaultView } from '@/features/shell/lensOrder';
-import { ShellGate } from '@/features/shell2/ShellGate';
+import { ShellGate, SHELL_V2_FLAG } from '@/features/shell2/ShellGate';
+import { HOME_PATH } from '@/features/shell2/homeModel';
+import { useFeatureFlag } from '@/lib/featureFlags';
 import { ProjectShell } from '@/features/project/ProjectShell';
 import { ProgramRefBoundary, ProjectRefBoundary } from '@/router/RefBoundary';
 import { LoginPage } from '@/features/auth/LoginPage';
@@ -130,6 +132,9 @@ const ConnectedAccountsPage = lazy(() =>
 );
 const ProgramListPage = lazy(() =>
   import('@/features/programs/ProgramListPage').then((m) => ({ default: m.ProgramListPage })),
+);
+const HomeRoute = lazy(() =>
+  import('@/features/shell2/HomeRoute').then((m) => ({ default: m.HomeRoute })),
 );
 const WorkPage = lazy(() =>
   import('@/features/shell2/WorkPage').then((m) => ({ default: m.WorkPage })),
@@ -348,10 +353,14 @@ export function RootRedirect() {
   const { user, isLoading, isError, refetch } = useCurrentUser();
   const navigate = useNavigate();
 
+  const shellV2 = useFeatureFlag(SHELL_V2_FLAG);
+
   useEffect(() => {
     if (isLoading || !user) return;
-    void navigate(safeLandingPath(user.landing?.path), { replace: true });
-  }, [user, isLoading, navigate]);
+    // Shell v2's front door is `/home`, which renders the server-resolved role
+    // home (ADR-1298 amendment); v1 keeps the server's `landing.path`.
+    void navigate(shellV2 ? HOME_PATH : safeLandingPath(user.landing?.path), { replace: true });
+  }, [user, isLoading, navigate, shellV2]);
 
   // A failed `/auth/me/` must read as broken, not as an eternal "Taking you to
   // your home screen…" (rule 246, #3542). `isLoading` settles to false on a
@@ -1035,6 +1044,17 @@ export const routes: RouteObject[] = [
               // Programs (ADR-0070) — OSS coordination unit for a PM with several
               // related projects. Lives between project (lower) and Enterprise
               // portfolio (higher); see ADR-0030 navigation amendment.
+              // Shell v2's role home (#4755): renders the server-resolved home in place;
+              // replace-redirects to landing.path when the flag is off.
+              {
+                path: 'home',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <HomeRoute />
+                  </Suspense>
+                ),
+                handle: { title: 'Home' } satisfies RouteHandle,
+              },
               // Shell v2's full-page Work list (#4756); redirects to /programs when the flag is off.
               {
                 path: 'work',

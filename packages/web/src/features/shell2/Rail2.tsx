@@ -12,6 +12,7 @@ import { UserMenu } from '@/features/shell/UserMenu';
 import { Tooltip } from '@/components/Tooltip';
 import { resolveRailItems, type RailItem } from './railItems';
 import { WorkFlyout } from './WorkFlyout';
+import { HOME_PATH } from './homeModel';
 
 /** Personal pins shown under the five destinations; the design caps it at seven. */
 const MAX_PINS = 7;
@@ -105,7 +106,7 @@ export function Rail2({ collapsed, canExpand }: Rail2Props) {
   const programIdInContext = programId ?? project?.program_detail?.id ?? null;
   const items = resolveRailItems({
     pathname,
-    landingPath: user?.landing?.path,
+    landingPath: HOME_PATH,
     programAgentsPath: programIdInContext
       ? programPath({ id: programIdInContext }, 'agents')
       : null,

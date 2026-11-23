@@ -1,12 +1,12 @@
 import { useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router';
-import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useUnreadNotificationCount } from '@/hooks/useNotifications';
 import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
 import { ClockIcon, SearchIcon } from '@/components/Icons';
 import { Tooltip } from '@/components/Tooltip';
 import { resolveRailItems } from './railItems';
 import { QuickLogSheet } from './QuickLogSheet';
+import { HOME_PATH } from './homeModel';
 
 const TAB =
   'relative flex h-12 flex-col items-center justify-center gap-0.5 rounded-md text-xs text-p1-text-2 no-underline ' +
@@ -23,14 +23,13 @@ const TAB =
  */
 export function BottomBar2() {
   const { pathname } = useLocation();
-  const { user } = useCurrentUser();
   const { count: inboxCount } = useUnreadNotificationCount();
   const [logOpen, setLogOpen] = useState(false);
   const logRef = useRef<HTMLButtonElement>(null);
   const openPalette = useCommandPaletteStore((s) => s.setOpen);
   const items = resolveRailItems({
     pathname,
-    landingPath: user?.landing?.path,
+    landingPath: HOME_PATH,
     programAgentsPath: null,
     inboxCount,
     agentsCount: 0,

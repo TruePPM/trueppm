@@ -23,7 +23,7 @@ export interface RailItem {
 
 export interface RailItemsInput {
   pathname: string;
-  /** Server-resolved role home (`user.landing.path`); the rail never re-derives it. */
+  /** The Home destination. Shell v2 passes `/home`, which renders the server-resolved role home. */
   landingPath: string | undefined;
   /**
    * The Agents surface for the program in context, or `null` when no program is

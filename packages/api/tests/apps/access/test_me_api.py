@@ -87,7 +87,7 @@ def test_me_authenticated_returns_200_with_expected_fields(db: object) -> None:
     assert "initials" in data
     # Role-based landing fact (ADR-0129).
     assert data["default_landing"] == "auto"
-    assert set(data["landing"]) == {"intent", "path", "resolved_by"}
+    assert set(data["landing"]) == {"intent", "path", "resolved_by", "home", "home_program"}
     # A user with no memberships lands on My Work (onboarding) by fallback.
     assert data["landing"]["intent"] == "my_work"
     assert data["landing"]["path"] == "/me/work"

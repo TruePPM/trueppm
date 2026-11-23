@@ -381,6 +381,17 @@ Shell v2 separates two questions the current chrome answers in one place:
 
 Other changes you will notice with the flag on:
 
+- **A home for your role.** With the flag on, signing in, opening `/`, and the
+  rail's **Home** item take you to `/home`, which shows the home the server
+  picked for you. If you are a Scheduler, Admin or Owner on any project or
+  program you get the delivery home; if you are a Member, or have tasks
+  assigned to you, you get the contributor home; if you only view projects and
+  have nothing assigned, you get the executive home, which shows one program at
+  a time. A **My Work** or **A project's Dashboard** preference you saved picks
+  the contributor or delivery home instead. Until each home is redesigned it
+  shows an existing page in place: My Work, the Programs list, the Resource
+  Catalog, or the program's Overview. With the flag off, `/home` sends you to
+  your usual landing page.
 - **One breadcrumb.** Program / project / view, with a single separator, is the
   only place the app states where you are.
 - **One status pill** in the top bar replaces the stacked status banners: it

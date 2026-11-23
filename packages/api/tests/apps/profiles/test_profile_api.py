@@ -448,3 +448,40 @@ def test_that_rejection_conforms_to_the_committed_400_schema() -> None:
         "the live 400 body violates the declared 400 schema — the same failure the "
         f"nightly api:fuzz reports: {[e.message for e in errors]}"
     )
+
+
+# ---------------------------------------------------------------------------
+# home_override (ADR-1298 amendment, #4755)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_patch_home_override_leaves_default_landing_alone() -> None:
+    user = User.objects.create_user(username="rm-setter", password="pw")
+    UserProfile.objects.create(user=user, default_landing=DefaultLanding.PROJECT_OVERVIEW)
+    resp = _client(user).patch(URL, {"home_override": "rm"}, format="json")
+    assert resp.status_code == 200
+    assert resp.data["home_override"] == "rm"
+    profile = UserProfile.objects.get(user=user)
+    assert profile.home_override == "rm"
+    assert profile.default_landing == DefaultLanding.PROJECT_OVERVIEW
+
+
+@pytest.mark.django_db
+def test_patch_default_landing_clears_home_override() -> None:
+    user = User.objects.create_user(username="rm-clearer", password="pw")
+    UserProfile.objects.create(user=user, home_override="rm")
+    resp = _client(user).patch(URL, {"default_landing": "my_work"}, format="json")
+    assert resp.status_code == 200
+    assert resp.data["home_override"] is None
+    assert UserProfile.objects.get(user=user).home_override is None
+
+
+@pytest.mark.django_db
+def test_patch_home_override_accepts_null_and_rejects_unknown() -> None:
+    user = User.objects.create_user(username="rm-null", password="pw")
+    UserProfile.objects.create(user=user, home_override="rm")
+    assert _client(user).patch(URL, {"home_override": "pm"}, format="json").status_code == 400
+    resp = _client(user).patch(URL, {"home_override": None}, format="json")
+    assert resp.status_code == 200
+    assert UserProfile.objects.get(user=user).home_override is None

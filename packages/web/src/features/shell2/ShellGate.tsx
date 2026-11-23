@@ -2,8 +2,9 @@ import { useFeatureFlag } from '@/lib/featureFlags';
 import { AppShell } from '@/features/shell/AppShell';
 import { AppShell2 } from './AppShell2';
 
-/** The client flag that swaps the shell. Turn it on with `?ff=shell_v2` or `setFeatureFlag('shell_v2', true)`. */
-export const SHELL_V2_FLAG = 'shell_v2';
+import { SHELL_V2_FLAG } from './shellFlag';
+
+export { SHELL_V2_FLAG };
 
 /**
  * Mounts shell v2 when the flag is on, the v1 shell otherwise. The two shells
