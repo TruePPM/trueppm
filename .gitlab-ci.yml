@@ -406,7 +406,7 @@ workflow:
     # own postgres service and MUST keep durability on — it exists to prove a
     # dump survives a real restore, and a drill run against fsync=off is not
     # evidence of anything. tests/test_ci_api_test_contract.py pins both sides.
-    - name: postgres:16-alpine@sha256:81e77a4833487b8132fe4b00bedd39dc3f74b8641e387f19312a48f7de218c2e
+    - name: postgres:16-alpine@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d
       alias: postgres
       command:
         - postgres
@@ -3879,7 +3879,7 @@ api:fuzz:
     # leak: the trace was truncated at GitLab's 16 MB limit before the summary, so
     # the source of the accumulation was never isolated. A recurrence on this same
     # signature means the accumulation is real and needs its own investigation.
-    - name: postgres:16-alpine@sha256:81e77a4833487b8132fe4b00bedd39dc3f74b8641e387f19312a48f7de218c2e
+    - name: postgres:16-alpine@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d
       alias: postgres
       command: ["postgres", "-c", "max_connections=300"]
     - name: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
@@ -4069,7 +4069,7 @@ perf:load:
     - job: ci:build-integration-image
       optional: true
   services:
-    - name: postgres:16-alpine@sha256:81e77a4833487b8132fe4b00bedd39dc3f74b8641e387f19312a48f7de218c2e
+    - name: postgres:16-alpine@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d
       alias: postgres
     - name: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
       alias: valkey
@@ -4541,7 +4541,7 @@ api:s3-drill:
   services:
     # .api's services are REPLACED, not merged — postgres/valkey are re-declared
     # because the tests import Django settings, which parse DATABASE_URL/REDIS_URL.
-    - name: postgres:16-alpine@sha256:81e77a4833487b8132fe4b00bedd39dc3f74b8641e387f19312a48f7de218c2e
+    - name: postgres:16-alpine@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d
       alias: postgres
     - name: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
       alias: valkey
@@ -5331,7 +5331,7 @@ web:integration:
     - job: ci:build-integration-image
       optional: true
   services:
-    - name: postgres:16-alpine@sha256:81e77a4833487b8132fe4b00bedd39dc3f74b8641e387f19312a48f7de218c2e
+    - name: postgres:16-alpine@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d
       alias: postgres
     - name: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
       alias: valkey
@@ -5474,7 +5474,7 @@ sso:integration:
     - job: ci:build-keycloak-image
       optional: true
   services:
-    - name: postgres:16-alpine@sha256:81e77a4833487b8132fe4b00bedd39dc3f74b8641e387f19312a48f7de218c2e
+    - name: postgres:16-alpine@sha256:f2f98726820d0342055351c6e9d36e705f5bfffb3dd53ff556325114b08afb6d
       alias: postgres
     - name: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
       alias: valkey
