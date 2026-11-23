@@ -395,10 +395,11 @@ Other changes you will notice with the flag on:
   - **Delivery home**: the program's P80 finish date with its "as of" and how
     many working days it sits past or inside the commitment, the finish-date
     curve of the project driving that date, a **Biggest slip** card, a
-    **Blocked** card, the decisions waiting on an answer, and a table of the
+    **Blocked** card (both cover only the project driving the program's P80
+    date, not a maximum across the whole program), the decisions waiting on an answer, and a table of the
     program's projects with the server's health word and at-risk and overdue
-    task counts. It opens on the first program you are a member of; when you
-    belong to more than one, a **Program** switcher changes what is shown.
+    task counts. It opens on the first program the server lists for you; when you
+    see more than one, a **Program** switcher changes what is shown.
   - **Executive home**: the same forecast, decisions and projects for **one
     program at a time**. It opens on the program the server chose, and the
     **Program** switcher lists the programs you can see and changes only the
@@ -418,7 +419,9 @@ Other changes you will notice with the flag on:
   again. With the flag off the address sends you to the project's Overview.
   Below the curve, a weekly histogram shows how many runs finished in each
   week, and marks the weeks that hold P50, P80 and P95. Open the view from the
-  **Forecast** link in the project's header, next to the P80 stamp.
+  **Forecast** link in the project's header, next to the P80 stamp. The link
+  appears at desktop widths; on a phone, reach the forecast view from the
+  **Why this date?** link on the home.
 - **One breadcrumb.** Program / project / view, with a single separator, is the
   only place the app states where you are.
 - **One status pill** in the top bar replaces the stacked status banners: it
