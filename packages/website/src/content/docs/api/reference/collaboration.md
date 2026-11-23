@@ -331,6 +331,27 @@ a deactivated account, or the kill switch. All three support
 Read-only team-visible audit trail (ADR-0112). See
 [Agent oversight](/features/agent-oversight/).
 
+## Agents (control plane)
+
+Ships in 0.5.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/agents/` | Agents you can see, with the scope vocabulary (`agents`, `areas`, `grantable_levels`); `?program=` narrows to agents that acted in one program |
+| GET | `/api/v1/agents/{id}/` | One agent with its 20 most recent actions, redacted by project membership |
+| POST | `/api/v1/agents/{id}/pause/` | Pause the agent: every call it makes is refused (`agent_paused`) until resumed |
+| POST | `/api/v1/agents/{id}/resume/` | Resume a paused agent |
+| PATCH | `/api/v1/agents/{id}/scope/` | Set `read` / `propose` (Dry run) per area; `write` is refused (400 `write_not_grantable`), and a level above the person the agent acts for is refused (400 `above_principal`) |
+| POST | `/api/v1/agents/{id}/revoke/` | Revoke the agent's token, effective on its next call |
+| GET | `/api/v1/agents/audit-verify/` | The `audit_verify` result for the whole chain: `ok`, `record_count`, `checked_at` |
+
+You see your own agents, agents that acted in a project you belong to, and every
+agent if you are a workspace Admin. Only the person an agent acts for, or a
+workspace Admin, can pause, resume, edit or revoke it. Every route refuses API
+tokens, so these calls need a signed-in session. The pause, resume, scope and
+revoke bodies accept an optional `reason`, which is recorded in the hash chain.
+See [Agent oversight](/features/agent-oversight/#workspace-agents-page).
+
 ## User search
 
 | Method | Path | Description |
