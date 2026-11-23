@@ -920,10 +920,7 @@ release it is scheduled for:
   [#4319](https://gitlab.com/trueppm/trueppm/-/issues/4319)). Progress and
   actuals: a 100%-complete task with an `actual_start` but no `actual_finish` is
   still laid out over its full span, so it can finish after the data date
-  ([#5043](https://gitlab.com/trueppm/trueppm/-/issues/5043)); a started task
-  with zero remaining work has no explicit input, so an SS/SF link out of it
-  loses the recorded start
-  ([#5070](https://gitlab.com/trueppm/trueppm/-/issues/5070)). Moving the
+  ([#5043](https://gitlab.com/trueppm/trueppm/-/issues/5043)). Moving the
   project start later can still move a floored milestone's successors earlier
   ([#5055](https://gitlab.com/trueppm/trueppm/-/issues/5055)), and an FF/SF link
   into a parent breaks recalculation when a backlog, epic or recurring child

@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed (2026-11-23)
+Accepted (2026-11-23) — the maintainer chose option 1 on #5070; implemented with #4819.
 
 > **Implementation status (2026-11-23):** implemented on the #4819 branch in both engines
 > (`packages/scheduler`, `packages/wasm-scheduler`), the reference CPM oracle, Monte Carlo
