@@ -233,10 +233,8 @@ POST /api/v1/projects/{project_pk}/tasks/{task_pk}/comments/{id}/acknowledge/
 DELETE /api/v1/projects/{project_pk}/tasks/{task_pk}/field-values/{field_id}/
 PUT /api/v1/projects/{project_pk}/tasks/{task_pk}/field-values/{field_id}/
 GET /api/v1/projects/{project_pk}/tasks/{task_pk}/history/
-DELETE /api/v1/projects/{project_pk}/tasks/{task_pk}/labels/
 POST /api/v1/projects/{project_pk}/tasks/{task_pk}/labels/
 DELETE /api/v1/projects/{project_pk}/tasks/{task_pk}/labels/{label_id}/
-POST /api/v1/projects/{project_pk}/tasks/{task_pk}/labels/{label_id}/
 GET /api/v1/projects/{project_pk}/tasks/{task_pk}/links/
 POST /api/v1/projects/{project_pk}/tasks/{task_pk}/links/
 DELETE /api/v1/projects/{project_pk}/tasks/{task_pk}/links/{id}/
