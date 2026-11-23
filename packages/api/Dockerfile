@@ -188,7 +188,9 @@ FROM ${REDHAT_PREFIX}/ubi9/ubi-minimal@sha256:08d4c70f1baf6537a0728656cf7942d561
 # It is also the one the stale-cache gap in that comment actually bit (#4245).
 # python3.11 is the same RPM interpreter the builder's venv was created from
 # (same path, same glibc), libpq is the runtime half of the compiled psycopg
-# extension, shadow-utils provides useradd.
+# extension, shadow-utils provides useradd (removed again right after it runs,
+# below: it ships setuid newgrp/gpasswd/chage and cap_setuid newuidmap/newgidmap,
+# which a runtime image has no use for).
 # microdnf has no --security; a full upgrade matches what the Debian base did.
 RUN microdnf -y upgrade --setopt=install_weak_deps=0 && \
     microdnf -y install --setopt=install_weak_deps=0 --nodocs python3.11 libpq shadow-utils && \
@@ -277,6 +279,7 @@ COPY NOTICE /app/NOTICE
 # unwritable, so the guard refuses the deploy instead of letting the first
 # upload EROFS. Mount a volume here to make uploads durable.
 RUN useradd --uid 1000 --no-create-home --shell /sbin/nologin trueppm && \
+    microdnf -y remove shadow-utils && microdnf clean all && \
     mkdir -p /app/staticfiles /run/trueppm /var/lib/trueppm/media && \
     chown trueppm /app/staticfiles /run/trueppm /var/lib/trueppm/media
 
