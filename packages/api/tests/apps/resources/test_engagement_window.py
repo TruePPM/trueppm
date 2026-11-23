@@ -185,3 +185,25 @@ class TestEngagementWindow:
         idx = {i.name: i for i in ProjectResource._meta.indexes}["projres_engaged_to_idx"]
         assert list(idx.fields) == ["project", "engaged_to"]
         assert idx.condition is not None
+
+
+@pytest.mark.django_db
+def test_new_columns_keep_a_database_default() -> None:
+    """Rolling-update safety (migration rule 8): an old pod's INSERT omits the new columns.
+
+    AddField drops the column default unless ``db_default`` is set, so the old pod's
+    INSERT would hit NOT NULL. Assert the DB itself carries the defaults.
+    """
+    from django.db import connection
+
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT column_name, column_default FROM information_schema.columns "
+            "WHERE table_name = %s AND column_name IN ('availability_percent', 'ramp_state')",
+            [ProjectResource._meta.db_table],
+        )
+        defaults = dict(cur.fetchall())
+    assert defaults["availability_percent"] is not None
+    assert defaults["availability_percent"].startswith("100")
+    assert defaults["ramp_state"] is not None
+    assert "full" in defaults["ramp_state"]
