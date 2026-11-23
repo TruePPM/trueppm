@@ -1,4 +1,5 @@
 import type { Task } from '@/types';
+import { OverallocBadge } from '@/components/Overalloc';
 import { initials } from './cardFormat';
 
 const AVATAR_CLASS =
@@ -28,15 +29,8 @@ function AssigneeChip({ assignee, overFactor, isDetailed }: AssigneeChipProps) {
       </span>
       {overFactor && (
         <>
-          <span
-            aria-hidden="true"
-            className="absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-semantic-critical border border-neutral-surface"
-          />
-          {isDetailed && (
-            <span className="ml-1 inline-flex items-center gap-0.5 text-xs px-1 py-px rounded-chip border bg-semantic-critical-bg border-semantic-critical/30 text-semantic-critical tppm-mono">
-              {overFactor.toFixed(1)}×
-            </span>
-          )}
+          <OverallocBadge variant="marker" />
+          {isDetailed && <OverallocBadge className="ml-1" value={`${overFactor.toFixed(1)}×`} />}
         </>
       )}
     </span>

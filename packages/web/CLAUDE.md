@@ -136,6 +136,7 @@ These rules are enforced at review time. Violations block merge.
 456. **A filled semantic/brand surface that sets `text-white` carries a `dark:text-*` override (`dark:text-navy-900`, as `Button` does) — white on the dark-mode light fills is 2.3-2.8:1. Machine-checked: `scripts/check-dark-text-white.py`.** → [rule](../../docs/design/invariants/456-filled-semantic-brand-surface-pairs-text-white-with-a-dark-override.md)
 457. **A surface that appears unprompted (session ended, connection lost, a sibling tab's message) is a `role="status"` region and never moves focus; only a user-summoned or focus-trapped surface takes it. A first refused action in a degraded mode gets a toast, only a repeat escalates to a blocking modal.** → [rule](../../docs/design/invariants/457-a-surface-that-appears-unprompted-never-moves-focus.md)
 463. **When one bar state changes its line pattern, re-check every other state that shared it: a pattern freed in one place is a collision in another.** → [rule](../../docs/design/invariants/463-a-solid-critical-frame-takes-the-pattern-the-selection-ring-had.md)
+464. **Over-allocation renders through `OverallocBadge` / `OverallocBanner` (▲ glyph + critical color, never color alone); a load heat-map cell bins the server's `load_pct` with `loadBand` and never derives a verdict.** → [rule](../../docs/design/invariants/464-over-allocation-renders-through-the-shared-overalloc-primitives.md)
 
 ## Redundancy
 

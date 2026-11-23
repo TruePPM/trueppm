@@ -7,6 +7,7 @@ import {
   AgentIcon,
   type IconProps,
 } from '@/components/Icons';
+import { PEOPLE_PATH } from '@/features/people/peoplePath';
 import { WORK_PATH } from './workModel';
 
 export type RailItemKey = 'home' | 'inbox' | 'work' | 'people' | 'agents';
@@ -37,7 +38,6 @@ export interface RailItemsInput {
 }
 
 const INBOX_PATH = '/me/notifications';
-const PEOPLE_PATH = '/resources';
 const HOME_FALLBACK_PATH = '/me/work';
 
 const under = (pathname: string, prefix: string) =>
@@ -50,8 +50,9 @@ const under = (pathname: string, prefix: string) =>
  *
  * Work is active on any program or project route: the context header's tabs
  * answer "how am I looking at it", the rail only says the person is inside the
- * work tree. People stays scoped to the org catalog route; a project's own Team
- * tab is a lens of that project, not the People destination.
+ * work tree. People is active on the capacity view (`/people`) and the org catalog
+ * route it holds as its Directory; a project's own Team tab is a lens of that
+ * project, not the People destination.
  */
 export function resolveRailItems(input: RailItemsInput): RailItem[] {
   const { pathname } = input;
@@ -88,7 +89,9 @@ export function resolveRailItems(input: RailItemsInput): RailItem[] {
       key: 'people',
       label: 'People',
       to: PEOPLE_PATH,
-      active: under(pathname, PEOPLE_PATH),
+      // The roster keeps its own route (⌘K's people tier deep-links `/resources?q=`),
+      // and it is the People destination's Directory, so People stays active there.
+      active: under(pathname, PEOPLE_PATH) || under(pathname, '/resources'),
       Icon: ResourcesIcon,
     },
   ];

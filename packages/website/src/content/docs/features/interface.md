@@ -406,11 +406,17 @@ Other changes you will notice with the flag on:
     view. If the server chose no program it opens on a "Choose a program"
     message. There is no view across programs. Sharing a status link from this
     home is planned for a later release.
-  - **Resource manager home**: still shows the Resource Catalog in place. Turn
-    it on under **Settings > Preferences > Home screen**
+  - **Resource manager home**: **Team load**, the same load heat map as the
+    People destination, over the projects where you hold the Scheduler role or
+    above, with a count of people over capacity and a link to People. Turn it on
+    under **Settings > Preferences > Home screen**
     (**Open on the Resource Manager home**); turning it off returns you to the
     home that fits your role. Saving a **Default landing screen** also turns it
     off. With the flag off, `/home` sends you to your usual landing page.
+- **People is the capacity view.** The rail's **People** item opens `/people` on
+  a load-by-person-by-week heat map, with the resource catalog as its
+  **Directory** tab. See
+  [Load across your projects](/features/resources/#load-across-your-projects-people).
 - **A forecast view.** `/projects/<project>/forecast` shows the project's
   Monte Carlo finish-date curve with its P50, P80 and P95 dates, when the
   forecast was run, and a **Run forecast** button. A project that has never been

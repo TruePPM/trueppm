@@ -1074,3 +1074,44 @@ export interface ScheduleDrivingChain {
   edges: DrivingChainEdge[]
   _provenance: AnswerProvenance
 }
+
+// ── GET /me/people-load/ (#4777, ADR-1314) ─────────────────────────────────
+// A person's weekly load across the projects where the viewer holds Scheduler or
+// above. The server computes every figure; the client bins `load_pct` for color
+// and never derives a load (metricProvenance.conformance.test.ts).
+
+/** Why a whole people-load payload has no rows (rule 119). */
+export type PeopleLoadReason = 'no_projects' | 'no_people';
+
+/** One person-week. `load_pct` is null exactly when `reason` is set. */
+export interface PeopleLoadCell {
+  week_start: string;
+  load_pct: number | null;
+  overallocated: boolean;
+  reason: 'no_capacity' | null;
+}
+
+export interface PeopleLoadPerson {
+  resource_id: string;
+  name: string;
+  initials: string;
+  job_role: string;
+  overallocated: boolean;
+  peak_load_pct: number | null;
+  project_count: number;
+  /** One per entry of `PeopleLoadResponse.weeks`, in order. */
+  cells: PeopleLoadCell[];
+}
+
+export interface PeopleLoadResponse {
+  as_of: string;
+  window: { start: string; end: string };
+  /** Week-start Mondays (YYYY-MM-DD). */
+  weeks: string[];
+  scope: { project_count: number; withheld_project_count: number; program_id: string | null };
+  /** Most loaded first. */
+  people: PeopleLoadPerson[];
+  over_allocated_count: number;
+  reason: PeopleLoadReason | null;
+  definitions: { load_pct: string; over_allocated_count: string };
+}

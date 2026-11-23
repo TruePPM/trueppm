@@ -139,6 +139,9 @@ const HomeRoute = lazy(() =>
 const WorkPage = lazy(() =>
   import('@/features/shell2/WorkPage').then((m) => ({ default: m.WorkPage })),
 );
+const PeoplePage = lazy(() =>
+  import('@/features/people/PeoplePage').then((m) => ({ default: m.PeoplePage })),
+);
 const ForecastPage = lazy(() =>
   import('@/features/shell2/ForecastPage').then((m) => ({ default: m.ForecastPage })),
 );
@@ -966,6 +969,17 @@ export const routes: RouteObject[] = [
                   </Suspense>
                 ),
                 handle: { title: 'Resource Catalog' } satisfies RouteHandle,
+              },
+              // Shell v2 People destination: capacity heat map, roster second (#4761).
+              // Flag off, it redirects to the v1 catalog above.
+              {
+                path: 'people',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <PeoplePage />
+                  </Suspense>
+                ),
+                handle: { title: 'People' } satisfies RouteHandle,
               },
               // My Work — cross-project contributor surface (#499, ADR-0065 Gap 2)
               {

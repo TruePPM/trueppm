@@ -37,7 +37,7 @@ import datetime
 from collections import defaultdict
 from collections.abc import Sequence
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 
 from django.db.models import DateField, Exists, OuterRef, Prefetch
 from django.db.models.functions import Coalesce
@@ -919,3 +919,216 @@ def compute_team_utilization(
         return {"pct": None, "reason": TEAM_UTILIZATION_NO_CAPACITY}
 
     return {"pct": round(100.0 * load_total / capacity_total, 1), "reason": None}
+
+
+# ---------------------------------------------------------------------------
+# A person's load across projects (#4777, ADR-1314 amendment)
+# ---------------------------------------------------------------------------
+
+# Machine-readable "cannot be computed" codes (rule 119). The payload-level code
+# says why there are no rows at all; the cell-level code says why one week of one
+# person has no percentage. A computable 0% is never a reason.
+PEOPLE_LOAD_NO_PROJECTS = "no_projects"
+PEOPLE_LOAD_NO_PEOPLE = "no_people"
+PEOPLE_LOAD_NO_CAPACITY = "no_capacity"
+PEOPLE_LOAD_REASON_CHOICES = [PEOPLE_LOAD_NO_PROJECTS, PEOPLE_LOAD_NO_PEOPLE]
+PEOPLE_LOAD_CELL_REASON_CHOICES = [PEOPLE_LOAD_NO_CAPACITY]
+
+
+def _project_engine_rows(
+    project_ids: Sequence[Any], window_start: datetime.date, window_end: datetime.date
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """Run the daily engine over many projects in a constant number of queries.
+
+    Returns ``{project_id: {resource_id: engine_row}}``. Each project keeps its own
+    rows because the engine resolves working days and hours per day against that
+    project's calendar when the person has none of their own; merging rows across
+    projects would mix two calendars' hours into one day. Same task window, same
+    ``.active()`` assignment filter and same per-assignment fold as
+    :func:`_compute_utilization_internal`, so a person on one project reads the same
+    hours here as on that project's own ``/utilization/``.
+    """
+    from trueppm_api.apps.projects.models import Project, Task
+    from trueppm_api.apps.resources.models import TaskResource
+
+    projects = {
+        str(p.pk): p
+        for p in Project.objects.filter(pk__in=project_ids)
+        .select_related("calendar")
+        .prefetch_related("calendar__exceptions")
+    }
+    calendars = {pid: _resolve_project_calendar(p.calendar) for pid, p in projects.items()}
+    tasks = (
+        Task.objects.filter(project_id__in=project_ids, is_deleted=False, early_start__isnull=False)
+        .annotate(_span_start=Coalesce("scheduled_start", "early_start", output_field=DateField()))
+        .filter(_span_start__lte=window_end, early_finish__gte=window_start)
+        .prefetch_related(
+            Prefetch(
+                "assignments", queryset=TaskResource.objects.active().select_related("resource")
+            ),
+            "assignments__resource__calendar__exceptions",
+        )
+    )
+    rows: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
+    for task in tasks:
+        pid = str(task.project_id)
+        project = projects.get(pid)
+        if project is None:
+            continue
+        proj_mask, proj_exceptions, proj_cal_id = calendars[pid]
+        # ``early_finish`` is non-null here: the window filter above compared it.
+        task_end = min(cast("datetime.date", task.early_finish), window_end)
+        task_start = max(task._span_start, window_start)
+        for assignment in task.assignments.all():
+            _accumulate_assignment(
+                rows[pid],
+                assignment,
+                task,
+                task_start,
+                task_end,
+                project.calendar,
+                proj_mask,
+                proj_exceptions,
+                proj_cal_id,
+            )
+    return rows
+
+
+def compute_people_load(
+    project_ids: Sequence[Any],
+    weeks_start: datetime.date,
+    num_weeks: int,
+) -> dict[str, Any]:
+    """One person's weekly load summed across *project_ids* (#4777).
+
+    The cross-project owner ADR-1314 left open. ``project_ids`` is the caller's
+    scope, already narrowed by the view to the projects the viewer has a role in;
+    this function never widens it, so a booking on a project outside the scope is
+    not counted and no person appears only because of one.
+
+    Per person and ISO week (``weeks_start`` must be a Monday)::
+
+        load_pct = round(100 × booked unit-days ÷ (Resource.max_units × working days))
+
+    - **Booked unit-days** come from the daily engine: each project's day hours
+      divided by that row's hours per day, so a 10-hour project calendar and an
+      8-hour one both count a full-time assignment as one unit-day. Summing hours
+      instead would read a full-time booking on a 10-hour calendar as 125%.
+    - **Capacity** is the person's default units (``Resource.max_units``) on each
+      working day of their own calendar, Monday to Friday when they have none.
+      Calendar exceptions (time off) remove those days. A per-project
+      ``units_override`` is a statement about one project, so it does not shrink
+      a total across projects.
+    - A week with no capacity (all of it time off, or zero units) has
+      ``load_pct: null`` and ``reason: "no_capacity"`` rather than a 0% that would
+      read as idle.
+
+    For one project, a person with their own calendar and no override reads the
+    same weekly figure here as ``aggregate_utilization_weekly`` gives for that
+    project; a test pins the agreement.
+    """
+    from trueppm_api.apps.resources.models import ProjectResource, Resource
+
+    week_dates = [
+        (
+            weeks_start + datetime.timedelta(weeks=i),
+            weeks_start + datetime.timedelta(weeks=i, days=6),
+        )
+        for i in range(num_weeks)
+    ]
+    window_end = week_dates[-1][1]
+    base: dict[str, Any] = {
+        "window": {"start": weeks_start.isoformat(), "end": window_end.isoformat()},
+        "weeks": [w.isoformat() for w, _ in week_dates],
+    }
+    ids = list(project_ids)
+    if not ids:
+        return {**base, "people": [], "over_allocated_count": 0, "reason": PEOPLE_LOAD_NO_PROJECTS}
+
+    rows_by_project = _project_engine_rows(ids, weeks_start, window_end)
+
+    # Booked unit-days per person per day, and the projects that booked them.
+    # Shaped like an engine row's ``_days`` (``{iso: {"hours": n}}``) so the weekly
+    # sum reuses :func:`_sum_week_hours`; the "hours" here are unit-days.
+    unit_days: dict[str, dict[str, dict[str, float]]] = defaultdict(
+        lambda: defaultdict(lambda: {"hours": 0.0})
+    )
+    booking_projects: dict[str, set[str]] = defaultdict(set)
+    for pid, rows in rows_by_project.items():
+        for rid, row in rows.items():
+            hpd = row["hours_per_day"]
+            if hpd <= 0:
+                continue
+            for iso, day in row["_days"].items():
+                unit_days[rid][iso]["hours"] += day["hours"] / hpd
+            booking_projects[rid].add(pid)
+
+    # The population: everyone booked in the window plus the live roster of every
+    # scoped project, so an idle person shows as idle rather than not at all.
+    roster_ids = set(
+        ProjectResource.objects.active()
+        .filter(project_id__in=ids)
+        .values_list("resource_id", flat=True)
+    )
+    people_ids = {str(r) for r in roster_ids} | set(unit_days)
+    resources = (
+        Resource.objects.filter(pk__in=people_ids, is_deleted=False)
+        .select_related("calendar")
+        .prefetch_related("calendar__exceptions")
+    )
+
+    people: list[dict[str, Any]] = []
+    for res in resources:
+        rid = str(res.pk)
+        if res.calendar is not None:
+            mask, exc_ranges = res.calendar.working_days, _exception_ranges(res.calendar.exceptions)
+        else:
+            mask, exc_ranges = _DEFAULT_WORKING_DAYS, []
+        units = float(res.max_units)
+        days = unit_days.get(rid, {})
+        cells: list[dict[str, Any]] = []
+        peak = -1
+        for wstart, wend in week_dates:
+            booked = _sum_week_hours(days, wstart, wend)
+            capacity = units * _count_working_days_in_range(mask, exc_ranges, wstart, wend)
+            if capacity <= 0:
+                cells.append(
+                    {
+                        "week_start": wstart.isoformat(),
+                        "load_pct": None,
+                        "overallocated": False,
+                        "reason": PEOPLE_LOAD_NO_CAPACITY,
+                    }
+                )
+                continue
+            pct = round(100 * booked / capacity)
+            peak = max(peak, pct)
+            cells.append(
+                {
+                    "week_start": wstart.isoformat(),
+                    "load_pct": pct,
+                    "overallocated": pct > 100,
+                    "reason": None,
+                }
+            )
+        people.append(
+            {
+                "resource_id": rid,
+                "name": res.name,
+                "initials": _initials(res.name),
+                "job_role": res.job_role or "",
+                "overallocated": peak > 100,
+                "peak_load_pct": peak if peak >= 0 else None,
+                "project_count": len(booking_projects.get(rid, ())),
+                "cells": cells,
+            }
+        )
+
+    # Most loaded first: the question this view answers is "who is over".
+    people.sort(key=lambda p: (-(p["peak_load_pct"] or 0), p["name"].lower()))
+    return {
+        **base,
+        "people": people,
+        "over_allocated_count": sum(1 for p in people if p["overallocated"]),
+        "reason": None if people else PEOPLE_LOAD_NO_PEOPLE,
+    }

@@ -30,6 +30,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.projects.metric_provenance import METRIC_DEFINITIONS
 from trueppm_api.apps.projects.models import (
     Calendar,
     Project,
@@ -319,6 +320,12 @@ def test_utilization_load_vs_target(calendar: Calendar, alice: object) -> None:
     assert util["ratio"] == pytest.approx(0.4)
     assert util["is_over"] is False
     assert util["label"] == "on_track"
+    # Named as a sprint-scoped figure (ADR-1314, #4777) so it is not read as the
+    # cross-project load that GET /me/people-load/ owns.
+    assert util["as_of"]
+    assert util["definitions"] == {
+        "ratio": METRIC_DEFINITIONS["my_work_utilization.ratio"],
+    }
 
 
 @pytest.mark.django_db

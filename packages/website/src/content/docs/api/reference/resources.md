@@ -239,6 +239,24 @@ and `/api/v1/task-skill-requirements/` — create, update, delete, and the
 every role including Owner. Reads are unaffected. Before 0.4, those writes still
 succeeded on an archived project.
 
+## Load across your projects
+
+`GET /api/v1/me/people-load/` will return, from 0.5, each person's weekly load
+summed across the projects where you hold the Scheduler role or above and can read
+the project's `capacity` signal. It is the owner of that figure
+([metric vocabulary](/features/metric-vocabulary/)). Parameters: `week_start` (any
+date; snapped to its Monday, default this week), `weeks` (1 to 26, default 8) and
+`program` (count only your projects in that program). A bad value is a `400` naming
+the parameter.
+
+The response carries `as_of`, `window`, `weeks` (the Mondays), `scope`
+(`project_count`, `withheld_project_count`, `program_id`), `people` (most loaded
+first; each with `cells[]` of `week_start`, `load_pct`, `overallocated` and
+`reason`), `over_allocated_count`, a payload `reason` (`no_projects` or
+`no_people` when `people` is empty) and `definitions`. A week with no working time
+has `load_pct: null` and `reason: "no_capacity"`. Capacity is the person's
+catalog-wide `max_units`, not a roster override.
+
 ## Teams
 
 | Method | Path | Description |

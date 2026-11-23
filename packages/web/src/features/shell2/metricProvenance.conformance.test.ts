@@ -87,7 +87,12 @@ function sourceFiles(dir: string): string[] {
   return out;
 }
 
-const SCANNED_DIRS = [here, ...homeDirs(FEATURES).filter((d) => d !== here)];
+// The People destination (#4761) renders the same load figure the RM home does.
+const SCANNED_DIRS = [
+  here,
+  join(FEATURES, 'people'),
+  ...homeDirs(FEATURES).filter((d) => d !== here),
+];
 const FILES = [
   ...new Set([
     ...SCANNED_DIRS.flatMap(sourceFiles),

@@ -2007,6 +2007,10 @@ def _utilization_signal(user: Any, lead_sprint: Any) -> dict[str, Any] | None:
     sprint, or the window carries no capacity — each leaves the ratio undefined,
     and the ``available > 0`` guard also prevents a divide-by-zero.
     """
+    from trueppm_api.apps.projects.metric_provenance import (
+        MY_WORK_UTILIZATION_DEFINED,
+        definitions_by_field,
+    )
     from trueppm_api.apps.resources.models import Resource
 
     my_resource_ids = {
@@ -2031,6 +2035,8 @@ def _utilization_signal(user: Any, lead_sprint: Any) -> dict[str, Any] | None:
         "ratio": round(ratio, 4),
         "is_over": committed > available,
         "label": _capacity_label(ratio),
+        "as_of": timezone.now().isoformat(),
+        "definitions": definitions_by_field(MY_WORK_UTILIZATION_DEFINED),
     }
 
 

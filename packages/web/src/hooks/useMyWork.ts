@@ -218,6 +218,10 @@ export interface MyWorkSignals {
     ratio: number;
     is_over: boolean;
     label: 'on_track' | 'at_risk' | 'over_capacity';
+    /** When the server computed it (ADR-1314, #4777). */
+    as_of?: string;
+    /** Names this as a sprint-scoped figure, not load across projects. */
+    definitions?: { ratio: string };
   };
 }
 

@@ -13,9 +13,7 @@ const ContributorHome = lazy(() =>
 );
 const PmHome = lazy(() => import('./homes/PmHome').then((m) => ({ default: m.PmHome })));
 const ExecHome = lazy(() => import('./homes/ExecHome').then((m) => ({ default: m.ExecHome })));
-const ResourcesPage = lazy(() =>
-  import('@/features/resources/ResourcesPage').then((m) => ({ default: m.ResourcesPage })),
-);
+const RmHome = lazy(() => import('@/features/homes/RmHome').then((m) => ({ default: m.RmHome })));
 
 /**
  * `/home` — the shell-v2 front door.
@@ -44,7 +42,7 @@ function HomeSurfaceView({ landing }: { landing: Parameters<typeof resolveHomeSu
     <Suspense fallback={<LoadingSkeleton label="Loading…" variant="shell" rows={4} />}>
       {surface.kind === 'contributor' && <ContributorHome />}
       {surface.kind === 'pm' && <PmHome />}
-      {surface.kind === 'resources' && <ResourcesPage />}
+      {surface.kind === 'resources' && <RmHome />}
       {surface.kind === 'exec' && <ExecHome initialProgramId={surface.programId} />}
     </Suspense>
   );

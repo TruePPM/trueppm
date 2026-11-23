@@ -55,6 +55,24 @@ async function setup(page: Page, home: Home, opts: { flag: boolean }): Promise<v
   await page.route('**/api/v1/edition/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj({ edition: 'community' }) }),
   );
+  // The RM home (#4770) reads the people-load owner; the catch-all's list shape is
+  // not this object, so it gets its real (empty) shape.
+  await page.route('**/api/v1/me/people-load/**', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj({
+        as_of: '2026-03-02T09:00:00Z',
+        window: { start: '2026-03-02', end: '2026-04-26' },
+        weeks: [],
+        scope: { project_count: 0, withheld_project_count: 0, program_id: null },
+        people: [],
+        over_allocated_count: 0,
+        reason: 'no_projects',
+        definitions: { load_pct: 'Load.', over_allocated_count: 'Over.' },
+      }),
+    }),
+  );
   // `home_program` only ever names a program the user is a member of (the
   // rollup is members-only), so the program reads back with the user's role.
   await page.route(`**/api/v1/programs/${GID}/`, (r) =>
@@ -139,11 +157,11 @@ test.describe('shell v2 role homes (flag on)', () => {
 
   // Each home's "rendered" signal: something only that home has — My Work's
   // landmark (its h1 is a time-based greeting), the program forecast hero, the
-  // resources search box.
+  // Team load h1.
   const cases: Array<[Home, (page: Page) => ReturnType<Page['getByRole']>]> = [
     ['contributor', (p) => p.getByRole('region', { name: 'My Work', exact: true })],
     ['pm', (p) => p.getByRole('heading', { name: 'Forecast · Exec Program' })],
-    ['rm', (p) => p.getByRole('searchbox', { name: 'Search resources' })],
+    ['rm', (p) => p.getByRole('heading', { level: 1, name: 'Team load' })],
     ['exec', (p) => p.getByRole('heading', { name: 'Forecast · Exec Program' })],
   ];
 

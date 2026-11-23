@@ -17,8 +17,8 @@ vi.mock('./homes/ExecHome', () => ({
     <div>exec-surface:{initialProgramId ?? 'none'}</div>
   ),
 }));
-vi.mock('@/features/resources/ResourcesPage', () => ({
-  ResourcesPage: () => <div>resources-surface</div>,
+vi.mock('@/features/homes/RmHome', () => ({
+  RmHome: () => <div>rm-home-surface</div>,
 }));
 
 function withLanding(landing: Record<string, unknown>) {
@@ -47,7 +47,7 @@ describe('HomeRoute', () => {
   it.each([
     ['contributor', 'contributor-surface'],
     ['pm', 'pm-surface'],
-    ['rm', 'resources-surface'],
+    ['rm', 'rm-home-surface'],
   ])('renders the %s home in place', async (home, text) => {
     withLanding({ home });
     renderWithRouter(<HomeRoute />, { initialEntries: ['/home'] });

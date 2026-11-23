@@ -205,6 +205,29 @@ METRIC_DEFINITIONS: dict[str, str] = {
         "forecasts. Not a joint simulation of the program, whose P80 would be this "
         "date or later."
     ),
+    # ── me/people-load (#4777): a person's load across projects ─────────
+    "people_load.load_pct": (
+        "Load = booked ÷ capacity, time off removed: a person's booked days in a week, "
+        "summed over the projects where you hold the Scheduler role or above, divided "
+        "by their default units on each working day of their own calendar (Monday to "
+        "Friday when they have none), as a percentage. Bookings on other projects are "
+        "not counted."
+    ),
+    "people_load.over_allocated_count": (
+        "People whose load is over 100% in at least one week of the range."
+    ),
+    # ── sprint-scoped capacity (#4777): named so it is not read as load ──
+    "sprint_capacity.ratio": (
+        "Sprint capacity: committed hours on the sprint's tasks divided by available "
+        "hours in the sprint window (units on this project times the sprint's working "
+        "days times hours per day). One sprint on one project; not a person's load "
+        "across projects."
+    ),
+    "my_work_utilization.ratio": (
+        "Your committed hours on your soonest-ending active sprint divided by your "
+        "available hours in it, computed as the sprint capacity panel does. One sprint "
+        "on one project; not your load across projects."
+    ),
 }
 
 #: The figures each owning endpoint defines in its ``definitions`` map (ADR-1314).
@@ -216,6 +239,12 @@ STATUS_SUMMARY_DEFINED: list[str] = [
 ]
 OVERVIEW_DEFINED: list[str] = ["schedule_health", "open_risk_count", "team_utilization_pct"]
 UTILIZATION_DEFINED: list[str] = ["load_pct"]
+PEOPLE_LOAD_DEFINED: dict[str, str] = {
+    "load_pct": "people_load.load_pct",
+    "over_allocated_count": "people_load.over_allocated_count",
+}
+SPRINT_CAPACITY_DEFINED: dict[str, str] = {"ratio": "sprint_capacity.ratio"}
+MY_WORK_UTILIZATION_DEFINED: dict[str, str] = {"ratio": "my_work_utilization.ratio"}
 BURN_DEFINED: list[str] = ["burn_series"]
 BURN_COMBINED_DEFINED: list[str] = ["burn_series"]
 FORECAST_DEFINED: list[str] = [
