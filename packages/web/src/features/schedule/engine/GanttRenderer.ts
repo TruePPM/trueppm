@@ -3750,11 +3750,11 @@ function pushSingleFS(
   const isSelected = pc.selectedTaskIds.has(link.sourceId) || pc.selectedTaskIds.has(link.targetId);
   const role = arrowRole(link.sourceId, link.targetId, pc.hoverChain);
   const { stroke, lineWidth, alpha } = arrowPen(
-      isSelected,
-      role,
-      pc.effectiveDriving(link),
-      pc.isCriticalLink(link),
-    );
+    isSelected,
+    role,
+    pc.effectiveDriving(link),
+    pc.isCriticalLink(link),
+  );
   const arrowSize = 9;
   const tipX = tgt.isMilestone ? tgt.barLeft : tgt.barLeft - 1;
   const srcBox = boxFor(src, srcY, pc.milestoneHalfDiag);

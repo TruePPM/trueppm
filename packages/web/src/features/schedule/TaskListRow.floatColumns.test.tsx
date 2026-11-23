@@ -73,6 +73,21 @@ describe('floatCellAriaLabel', () => {
   });
 });
 
+describe('floatCellAriaLabel band (shell v2)', () => {
+  it('speaks the band the glyph prints, and leaves v1 and late values alone', () => {
+    expect(floatCellAriaLabel('Total float', 0, 'critical')).toBe(
+      'Total float: critical, 0 days float',
+    );
+    expect(floatCellAriaLabel('Total float', 2, 'near-critical')).toBe(
+      'Total float: near-critical, 2 days float',
+    );
+    expect(floatCellAriaLabel('Total float', 0, null)).toBe('Total float: 0 working days');
+    expect(floatCellAriaLabel('Total float', -3, 'critical')).toBe(
+      'Total float: 3 working days late',
+    );
+  });
+});
+
 describe('TaskListRow — float cells', () => {
   it('renders both columns, each naming which float it is', () => {
     renderRow({ totalFloat: 5, freeFloat: 2 });
@@ -119,7 +134,7 @@ describe('shell v2 Total float glyphs (#5106)', () => {
   it('prints ▲ for critical and ◆ for near-critical, only under shell_v2', () => {
     setFeatureFlag('shell_v2', true);
     const { unmount } = renderRow({ isCritical: true, totalFloat: 0, freeFloat: 0 });
-    expect(screen.getByRole('gridcell', { name: 'Total float: 0 working days' })).toHaveTextContent(
+    expect(screen.getByRole('gridcell', { name: 'Total float: critical, 0 days float' })).toHaveTextContent(
       '\u25B2 0d',
     );
     // Free float never wears a band glyph.

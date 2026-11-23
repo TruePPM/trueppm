@@ -213,6 +213,27 @@ describe('ProgramArchivePage close confirmation under shell_v2 (#5102, rule 462)
     expect(mutation.mutate).not.toHaveBeenCalled();
   });
 
+  it('moves focus into the code input on arming and back to Close on cancel and confirm', async () => {
+    setFeatureFlag('shell_v2', true);
+    const user = userEvent.setup();
+    mutation.mutate.mockClear();
+    renderPage();
+    const closeBtn = screen.getByRole('button', { name: 'Close program…' });
+    await user.click(closeBtn);
+    const zone = screen.getByTestId('close-confirm');
+    expect(within(zone).getByRole('textbox')).toHaveFocus();
+    await user.click(within(zone).getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByRole('button', { name: 'Close program…' })).toHaveFocus();
+
+    await user.click(screen.getByRole('button', { name: 'Close program…' }));
+    await user.type(within(screen.getByTestId('close-confirm')).getByRole('textbox'), 'PH2');
+    await user.click(
+      within(screen.getByTestId('close-confirm')).getByRole('button', { name: 'Close program' }),
+    );
+    expect(mutation.mutate).toHaveBeenCalledWith('p-1');
+    expect(screen.getByRole('button', { name: 'Close program…' })).toHaveFocus();
+  });
+
   it('flag off: Close stays one click (v1 unchanged)', async () => {
     const user = userEvent.setup();
     mutation.mutate.mockClear();

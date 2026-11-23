@@ -21,6 +21,17 @@ describe('ZoomControl (continuous-zoom stepper, #351)', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Week');
   });
 
+  it('carries the coarse-pointer 44px hit-target classes on the group and both steppers', () => {
+    renderWithProviders(<ZoomControl />);
+    const group = screen.getByRole('group', { name: 'Timeline zoom' });
+    expect(group.className).toContain('[@media(pointer:coarse)]:h-11');
+    for (const name of ['Zoom out', 'Zoom in']) {
+      const cls = screen.getByRole('button', { name }).className;
+      expect(cls).toContain('[@media(pointer:coarse)]:w-11');
+      expect(cls).toContain('[@media(pointer:coarse)]:h-11');
+    }
+  });
+
   it('Zoom in increases pxPerDay geometrically and updates the visible tier immediately', async () => {
     renderWithProviders(<ZoomControl />);
     const before = useScheduleStore.getState().pxPerDay;

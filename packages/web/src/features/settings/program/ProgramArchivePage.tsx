@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useProgram } from '@/hooks/useProgram';
 import { useFeatureFlag } from '@/lib/featureFlags';
@@ -142,6 +142,19 @@ export function ProgramArchivePage() {
   const [closeConfirmText, setCloseConfirmText] = useState('');
   const closeConfirmed = confirmTarget !== '' && closeConfirmText === confirmTarget;
 
+  // Focus follows the confirmation: arming moves it into the code input; cancel or
+  // confirm returns it to the Close button, whose own click opened the zone.
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const closeInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (closeArming) closeInputRef.current?.focus();
+  }, [closeArming]);
+  const disarmClose = () => {
+    setCloseArming(false);
+    setCloseConfirmText('');
+    closeButtonRef.current?.focus();
+  };
+
   const onToggleClose = () => {
     if (!programId) return;
     if (!isClosed && v2) {
@@ -192,6 +205,7 @@ export function ProgramArchivePage() {
           onClick={onToggleClose}
           busy={close.isPending || reopen.isPending}
           error={closeError}
+          actionRef={closeButtonRef}
         />
 
         {v2 && closeArming && !isClosed ? (
@@ -207,6 +221,7 @@ export function ProgramArchivePage() {
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <input
                 id={closeConfirmId}
+                ref={closeInputRef}
                 type="text"
                 value={closeConfirmText}
                 onChange={(e) => setCloseConfirmText(e.target.value)}
@@ -218,9 +233,8 @@ export function ProgramArchivePage() {
                 variant="danger"
                 disabled={!closeConfirmed || close.isPending}
                 onClick={() => {
+                  disarmClose();
                   if (programId) close.mutate(programId);
-                  setCloseArming(false);
-                  setCloseConfirmText('');
                 }}
                 className={`${PAGE_BUTTON} max-md:w-full`}
               >
@@ -228,10 +242,7 @@ export function ProgramArchivePage() {
               </Button>
               <Button
                 variant="ghost"
-                onClick={() => {
-                  setCloseArming(false);
-                  setCloseConfirmText('');
-                }}
+                onClick={disarmClose}
                 className={`${PAGE_BUTTON} max-md:w-full`}
               >
                 Cancel
