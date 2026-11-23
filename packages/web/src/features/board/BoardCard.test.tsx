@@ -709,7 +709,7 @@ describe('BoardCard', () => {
     expect(screen.queryByLabelText(/linked risk/)).not.toBeInTheDocument();
   });
 
-  it('renders the overallocation red dot on assignees with peak factor > 1', () => {
+  it('renders the overallocation ▲ marker on assignees with peak factor > 1', () => {
     const overallocByResource = new Map([['r1', 1.4]]);
     renderCard({
       task: {
@@ -721,7 +721,7 @@ describe('BoardCard', () => {
     expect(screen.getByLabelText('Pat Chen, overallocated')).toBeInTheDocument();
   });
 
-  it('does not render the overallocation dot when factor is absent', () => {
+  it('does not render the overallocation ▲ marker when factor is absent', () => {
     renderCard({
       task: {
         ...baseTask,

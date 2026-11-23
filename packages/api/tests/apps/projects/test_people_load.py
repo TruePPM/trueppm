@@ -215,6 +215,33 @@ class TestScope:
         # per-person load on; a non-member project and a draft are not in scope.
         assert body["scope"]["withheld_project_count"] == 1
 
+    def test_a_project_whose_capacity_signal_audience_excludes_the_viewer_is_withheld(
+        self, client: APIClient, viewer: object, cal: Calendar
+    ) -> None:
+        """Gate 2 (ADR-0104): the Scheduler+ role gate passes, the ``capacity`` audience does not.
+
+        A project Admin reads as the PM band (TEAM_SM_PM) on the signal ladder; the
+        capacity signal defaults to a TEAM-only audience, so per-person load on that
+        project must not leak through this cross-project lens. The Scheduler role
+        reads as the team band and always passes, so the excluded viewer is an Admin.
+        """
+        from trueppm_api.apps.projects import signal_privacy_services as svc
+        from trueppm_api.apps.projects.models import SignalAudience
+
+        erin = Resource.objects.create(name="Erin", max_units="1.0", calendar=cal)
+        open_project = _project("Open", cal, viewer)  # Scheduler: team band, reads
+        gated = _project("Gated", cal, viewer, role=Role.ADMIN)
+        policy = svc.get_or_create_policy(gated)
+        assert policy.audience_of("capacity") == SignalAudience.TEAM
+        for p in (open_project, gated):
+            _book(p, erin, "0.5", MONDAY, MONDAY + timedelta(days=4))
+
+        body = client.get(URL, {"week_start": MONDAY.isoformat(), "weeks": 1}).json()
+
+        assert _week(body, "Erin")[0]["load_pct"] == 50  # only the readable project
+        assert body["scope"]["project_count"] == 1
+        assert body["scope"]["withheld_project_count"] == 1
+
     def test_a_person_booked_only_outside_scope_is_not_listed(
         self, client: APIClient, viewer: object, cal: Calendar
     ) -> None:

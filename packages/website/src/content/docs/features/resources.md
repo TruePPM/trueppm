@@ -272,7 +272,7 @@ the current one. The roster you know as the resource catalog is the second tab,
 you hold the **Scheduler** role or above. That is the same role you need to read a
 project's own resource heatmap, so this view never shows you load you could not
 already see one project at a time. A Member or Viewer role on a project, and a
-program role on its own, adds nothing. Draft projects are left out.
+program role on its own, adds nothing. Draft projects are left out. A project whose team has not shared its capacity signal with your role band is left out too.
 
 - **Load = booked ÷ capacity, time off removed.** Booked is the person's assigned
   units on each working day, summed across those projects. Capacity is their
