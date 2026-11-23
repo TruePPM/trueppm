@@ -35,6 +35,7 @@ HEAVY_TASKS: tuple[str, ...] = (
     "workspace.run_workspace_export",
     "scheduling.run_monte_carlo_simulation",
     "templates.apply",
+    # layering-ok: a Celery task NAME (this task has no short name=), not an import
     "trueppm_api.apps.scheduling.tasks.recalculate_schedule",
 )
 
