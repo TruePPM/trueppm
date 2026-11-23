@@ -53,7 +53,7 @@ export function Band({ axis, row }: { axis: Axis; row: ProgramRollupRow }) {
   const commitClamp = commit?.clamped ?? null;
   const label = `P50 ${row.p50 ? fmtUtcMedium(row.p50) : 'not computed'} to P80 ${fmtUtcMedium(row.p80)}${
     row.commitment_date ? `, commitment ${fmtUtcMedium(row.commitment_date)}` : ''
-  }${clampedEnd ? ', P80 beyond the axis' : ''}${commitClamp ? ', commitment beyond the axis' : ''}`;
+  }${clampedStart ? ', P50 before the axis' : ''}${clampedEnd ? ', P80 beyond the axis' : ''}${commitClamp ? ', commitment beyond the axis' : ''}`;
   return (
     <div
       role="img"
@@ -203,10 +203,8 @@ function ProjectRow({
  * project that sets it), the program's own figures, then one row per project on a
  * shared axis, sorted by slip. Every figure is the server's (`/rollup/`); this
  * component lays them out and computes none. One program, no cross-program scope.
- * `title` is the program's name when the page is embedded outside the program's
- * own context header (the exec home), so the page still has a visible heading.
  */
-export function ProgramOverview2({ programId, title }: { programId: string; title?: string }) {
+export function ProgramOverview2({ programId }: { programId: string }) {
   const { data: rollup, isLoading, error, refetch } = useProgramRollup(programId);
   const { formatInstant } = useUserDateFormat();
   const wide = useMinWidth(768);
@@ -219,12 +217,7 @@ export function ProgramOverview2({ programId, title }: { programId: string; titl
   const partial = rollup ? partialRollupLine(rollup) : null;
 
   return (
-    <PageFrame
-      width="contained"
-      header={
-        title ? <PageTitle>{title}</PageTitle> : <PageTitle visuallyHidden>Overview</PageTitle>
-      }
-    >
+    <PageFrame width="contained" header={<PageTitle visuallyHidden>Overview</PageTitle>}>
       <div className="flex flex-col gap-6 py-4" data-testid="program-overview2">
         {error ? (
           <QueryErrorState

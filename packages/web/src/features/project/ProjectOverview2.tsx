@@ -14,6 +14,7 @@ import type { SnapshotRow } from '@/components/page2/SnapshotPanel';
 import { StatusUpdatesSection } from '@/features/project/statusUpdates/StatusUpdatesSection';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { useProject } from '@/hooks/useProject';
 import { useMonteCarloHistory } from '@/hooks/useMonteCarloHistory';
 import { ROLE_ADMIN } from '@/lib/roles';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
@@ -277,6 +278,7 @@ export function ProjectOverview2({ projectId }: { projectId: string }) {
   const { user } = useCurrentUser();
   const { role } = useCurrentUserRole(projectId);
   const shellStats = useShellStats().data;
+  const archived = useProject(projectId).data?.is_archived === true;
   const base = `/projects/${projectId}`;
   const o = overview.data;
   const mc = forecast.data;
@@ -408,6 +410,7 @@ export function ProjectOverview2({ projectId }: { projectId: string }) {
           projectId={projectId}
           userId={user?.id ?? null}
           canPost={role != null && role >= ROLE_ADMIN}
+          archived={archived}
           // The counts-only band: a manual report is the PM's call, not the plan's reading.
           derivedBand={
             shellStats?.healthBandSource === 'derived' ? (shellStats.healthBand ?? null) : null

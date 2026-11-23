@@ -11,14 +11,17 @@ const h = vi.hoisted(() => ({
   list: [] as unknown[],
   post: vi.fn<(...args: unknown[]) => Promise<unknown>>(),
   online: true,
+  fail: false,
 }));
 
 vi.mock('@/api/client', () => ({
   apiClient: {
     get: () =>
-      Promise.resolve({
-        data: { count: h.list.length, next: null, previous: null, results: h.list },
-      }),
+      h.fail
+        ? Promise.reject(new Error('boom'))
+        : Promise.resolve({
+            data: { count: h.list.length, next: null, previous: null, results: h.list },
+          }),
     post: (...args: unknown[]) => h.post(...args),
   },
 }));
@@ -62,6 +65,7 @@ beforeEach(() => {
   h.list = [];
   h.post.mockReset();
   h.online = true;
+  h.fail = false;
 });
 afterEach(() => window.localStorage.clear());
 
@@ -134,10 +138,53 @@ describe('StatusUpdatesSection', () => {
     await userEvent.click(screen.getByRole('radio', { name: /On track/ }));
     await userEvent.click(screen.getByRole('button', { name: 'Post update' }));
     await waitFor(() => expect(screen.queryByTestId('status-composer')).toBeNull());
-    expect(h.post).toHaveBeenCalledWith('/projects/p1/status-updates/', {
-      rag: 'green',
-      narrative: '',
-    });
+    expect(h.post).toHaveBeenCalledWith(
+      '/projects/p1/status-updates/',
+      { rag: 'green', narrative: '' },
+      { headers: { 'Idempotency-Key': expect.stringMatching(/.+/) as string } },
+    );
     expect(loadDraft('p1', '7')).toBeNull();
+  });
+
+  it('a retry of the same call reuses its Idempotency-Key; an edit mints a new one', async () => {
+    h.post.mockRejectedValueOnce(new Error('lost')).mockRejectedValueOnce(new Error('lost'));
+    renderSection();
+    await userEvent.click(await screen.findByRole('button', { name: 'Post update' }));
+    await userEvent.click(screen.getByRole('radio', { name: /On track/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Post update' }));
+    await screen.findByTestId('status-composer-error');
+    await userEvent.click(screen.getByRole('button', { name: 'Post update' }));
+    await waitFor(() => expect(h.post).toHaveBeenCalledTimes(2));
+    const key = (i: number) =>
+      (h.post.mock.calls[i][2] as { headers: Record<string, string> }).headers['Idempotency-Key'];
+    expect(key(1)).toBe(key(0));
+    h.post.mockResolvedValue({ data: UPDATE });
+    await userEvent.type(screen.getByTestId('status-composer-narrative'), 'x');
+    await userEvent.click(screen.getByRole('button', { name: 'Post update' }));
+    await waitFor(() => expect(h.post).toHaveBeenCalledTimes(3));
+    expect(key(2)).not.toBe(key(0));
+  });
+
+  it('an archived project offers no Post and says why', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <StatusUpdatesSection projectId="p1" userId="7" canPost archived liveRows={[]} />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByTestId('status-updates-archived')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Post update' })).toBeNull();
+  });
+
+  it('a saved draft stays reachable when the history read fails', async () => {
+    h.fail = true;
+    window.localStorage.setItem(
+      draftKey('p1', '7'),
+      JSON.stringify({ rag: 'green', narrative: 'ok', savedAt: '' }),
+    );
+    renderSection();
+    expect(await screen.findByText('Status updates didn’t load')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Resume draft' }));
+    expect(screen.getByRole('radio', { name: /On track/ })).toBeChecked();
   });
 });

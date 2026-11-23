@@ -202,4 +202,26 @@ test.describe('shell v2 project status updates', () => {
     await expect(page.getByTestId('status-composer-narrative')).toHaveValue('Draft while offline');
     await expect(page.getByRole('radio', { name: /On track/ })).toBeChecked();
   });
+
+  test('a saved draft is still reachable when the history read fails', async ({ page }) => {
+    await open(page, { initial: [update(1, 'green', 'All good')] });
+    await page.getByRole('button', { name: 'Post update' }).click();
+    const composer = page.getByTestId('status-composer');
+    await composer.getByTestId('rag-amber').click();
+    await composer.getByTestId('status-composer-narrative').fill('Kept locally');
+    await composer.getByRole('button', { name: 'Save draft' }).click();
+    // Same page, history now failing: a reload re-reads the list and gets a 500.
+    await page.route(`**/api/v1/projects/${PID}/status-updates/**`, (r) =>
+      r.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'boom' }),
+      }),
+    );
+    await page.reload();
+    // TanStack retries a failed read with backoff before the error state shows.
+    await expect(page.getByText('Status updates didn’t load')).toBeVisible({ timeout: 30_000 });
+    await page.getByRole('button', { name: 'Resume draft' }).click();
+    await expect(page.getByTestId('status-composer-narrative')).toHaveValue('Kept locally');
+  });
 });

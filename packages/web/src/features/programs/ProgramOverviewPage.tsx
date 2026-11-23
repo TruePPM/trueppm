@@ -1,6 +1,4 @@
-import { useContext } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ProgramRefContext } from '@/router/refContext';
 import { Link } from 'react-router';
 import { apiClient } from '@/api/client';
 import { useProgram } from '@/hooks/useProgram';
@@ -580,13 +578,7 @@ function HealthHero({ rollup }: { rollup: ProgramRollup }) {
 export function ProgramOverviewPage() {
   const programId = useProgramId();
   const v2 = useFeatureFlag(SHELL_V2_FLAG);
-  // Embedded by a role home (no program context header above it), the page
-  // carries the program's name as its visible heading.
-  const embedded = useContext(ProgramRefContext) != null;
-  const { data: program } = useProgram(v2 && embedded ? programId : undefined);
-  if (v2 && programId) {
-    return <ProgramOverview2 programId={programId} title={embedded ? program?.name : undefined} />;
-  }
+  if (v2 && programId) return <ProgramOverview2 programId={programId} />;
   return <ProgramOverviewV1 programId={programId} />;
 }
 

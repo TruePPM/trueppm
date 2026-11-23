@@ -44,9 +44,13 @@ Project Overview.
 
 - **Post update** opens the composer: **Your call** (On track ✓, At risk ◆ or
   Critical ▲, the same words the health band uses), a plain-text narrative with
-  a 600-character counter, and the snapshot that will freeze. The band the plan
-  computes now is shown beside your call, so the call reads as your opinion next
-  to the plan's, never a hidden override. There is no generated draft.
+  a 600-character counter, and the snapshot that will freeze. When the plan's
+  computed band is available, it is shown beside your call, so the call reads as
+  your opinion next to the plan's, never a hidden override. A project that
+  reports its health by hand has no computed band to show before its first
+  update; the server still freezes the computed band when you post. There is no
+  generated draft.
+- An archived project is read-only: the section says so and offers no **Post update**.
 - The narrative's **first line** is the summary: it is what the history and the
   program overview's project row show.
 - Your draft is saved on this device as you type, one per project per person, so

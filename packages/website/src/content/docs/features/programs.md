@@ -222,7 +222,7 @@ commitment first):
 - the P80 date, the working-day delta against the commitment, and the project lead.
 
 If a project has no forecast, the overview names it: "1 of 3 projects didn't
-report (Identity Consolidation); the program P80 excludes it until it returns."
+report (Identity Consolidation); the program P80 excludes it until it reports."
 A project you are not a member of shows only its name: program roles do not
 grant access to a project's figures or its status updates.
 

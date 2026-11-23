@@ -47,6 +47,19 @@ describe('forecastHeroState', () => {
       projectsWithoutForecast: 1,
     });
   });
+  it('reads `forecast` when the p80_completion KPI is disabled', () => {
+    const s = forecastHeroState({
+      data: {
+        ...rollup(undefined, {
+          forecast: { available: true, value: '2026-12-07', driver_project_id: 'p-2' },
+        }),
+        kpis: {},
+      } as ProgramRollup,
+      isLoading: false,
+      error: null,
+    });
+    expect(s).toMatchObject({ kind: 'ready', p80: '2026-12-07', driverProjectId: 'p-2' });
+  });
   it('a null value carries its reason; an unavailable kpi says no forecast', () => {
     const none = forecastHeroState({
       data: rollup({ available: true, value: null, reason: 'no_forecast' }),

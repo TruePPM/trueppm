@@ -65,6 +65,13 @@ describe('Band edge markers', () => {
     );
   });
 
+  it('says so when the P50 starts before the axis', () => {
+    const axis = buildAxis([far], 120)!;
+    const early = { ...far, id: 'e', p50: '2020-01-01' };
+    render(<Band axis={axis} row={early} />);
+    expect(screen.getByRole('img').getAttribute('aria-label')).toContain('P50 before the axis');
+  });
+
   it('draws no marker when everything is on the axis', () => {
     const axis = buildAxis([far], 120)!;
     render(<Band axis={axis} row={far} />);

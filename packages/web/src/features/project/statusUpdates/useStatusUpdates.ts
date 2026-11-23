@@ -33,9 +33,19 @@ export function useStatusUpdates(projectId: string) {
  */
 export function usePostStatusUpdate(projectId: string) {
   const qc = useQueryClient();
-  return useMutation<StatusUpdate, unknown, { rag: Rag; narrative: string }>({
-    mutationFn: async (body) =>
-      (await apiClient.post<StatusUpdate>(`/projects/${projectId}/status-updates/`, body)).data,
+  return useMutation<
+    StatusUpdate,
+    unknown,
+    { rag: Rag; narrative: string; idempotencyKey: string }
+  >({
+    // The key makes a retry of a post that committed but lost its response replay the
+    // stored result instead of minting a second, uneditable update.
+    mutationFn: async ({ idempotencyKey, ...body }) =>
+      (
+        await apiClient.post<StatusUpdate>(`/projects/${projectId}/status-updates/`, body, {
+          headers: { 'Idempotency-Key': idempotencyKey },
+        })
+      ).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: statusUpdatesKey(projectId) }),
   });
 }

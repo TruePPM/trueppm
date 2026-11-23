@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { Banner } from '@/components/page2/Banner';
 import { FOCUS_RING } from '@/components/page2/classes';
 import { SectionHeading } from '@/components/page2/PageTitle';
@@ -66,6 +66,8 @@ export function StatusUpdateComposer({
   const online = useOnlineStatus();
   const wide = useMinWidth(640);
   const post = usePostStatusUpdate(projectId);
+  // One key per draft: stable across retries of the same call, new once the content changes.
+  const idempotencyKey = useRef<string>(crypto.randomUUID());
   const narrativeId = useId();
   const counterId = useId();
   const band = asHealthBand(computedBand);
@@ -76,15 +78,17 @@ export function StatusUpdateComposer({
     if (next.rag !== undefined) setRag(next.rag);
     if (next.narrative !== undefined) setNarrative(next.narrative);
     saveDraft(projectId, userId, { rag: r, narrative: n });
+    idempotencyKey.current = crypto.randomUUID();
   };
 
   const submit = () => {
     if (!rag || !online) return;
     setFailed(false);
     post.mutate(
-      { rag, narrative },
+      { rag, narrative, idempotencyKey: idempotencyKey.current },
       {
         onSuccess: () => {
+          idempotencyKey.current = crypto.randomUUID();
           clearDraft(projectId, userId);
           onClose();
         },
@@ -276,6 +280,8 @@ interface SectionProps {
   userId: string | null;
   /** Project Admin+ may post (the API's gate); everyone else reads. */
   canPost: boolean;
+  /** An archived project is history: the API refuses a post, so none is offered. */
+  archived?: boolean;
   liveRows: SnapshotRow[];
   /**
    * status-summary's band when the counts decided it (never a manual report), so the
@@ -293,6 +299,7 @@ export function StatusUpdatesSection({
   projectId,
   userId,
   canPost,
+  archived = false,
   liveRows,
   derivedBand = null,
 }: SectionProps) {
@@ -303,7 +310,7 @@ export function StatusUpdatesSection({
   const updates = history.data?.results ?? [];
   const latest = updates[0];
   const hasDraft = userId != null && loadDraft(projectId, userId) != null;
-  const canCompose = canPost && userId != null;
+  const canCompose = canPost && !archived && userId != null;
 
   const openComposer = (
     <button type="button" className={SECONDARY} onClick={() => setComposing(true)}>
@@ -317,7 +324,12 @@ export function StatusUpdatesSection({
         <SectionHeading id="su-h">Status updates</SectionHeading>
         {canCompose && !composing && updates.length > 0 && openComposer}
       </div>
-      {composing && userId != null && (
+      {canPost && archived && (
+        <p className="text-xs text-p1-text-2" data-testid="status-updates-archived">
+          This project is archived, so new status updates can’t be posted.
+        </p>
+      )}
+      {composing && canCompose && userId != null && (
         <StatusUpdateComposer
           projectId={projectId}
           userId={userId}
@@ -335,11 +347,15 @@ export function StatusUpdatesSection({
           data-testid="status-updates-skeleton"
         />
       ) : history.isError ? (
-        <QueryErrorState
-          variant="inline"
-          message="Status updates didn’t load"
-          onRetry={() => void history.refetch()}
-        />
+        <>
+          <QueryErrorState
+            variant="inline"
+            message="Status updates didn’t load"
+            onRetry={() => void history.refetch()}
+          />
+          {/* The draft is local, so it stays reachable when the history read fails. */}
+          {canCompose && !composing && openComposer}
+        </>
       ) : updates.length === 0 ? (
         <div
           className="flex flex-col items-start gap-2 rounded-lg border border-p1-hairline bg-p1-surface-1 p-4"
