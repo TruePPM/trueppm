@@ -390,15 +390,22 @@ Other changes you will notice with the flag on:
   a time. A **My Work** or **A project's Dashboard** preference you saved picks
   the contributor or delivery home instead. Until each home is redesigned it
   shows an existing page in place: My Work, the Programs list, the Resource
-  Catalog, or the program's Overview. With the flag off, `/home` sends you to
-  your usual landing page.
-- **A forecast view.** `/projects/<project>/forecast` will show the project's
+  Catalog, or the program's Overview. The executive home opens on a program
+  you are a member of; if you belong to none, it shows the Programs list.
+  Nothing in the app sets the resource manager home yet: it is reachable only by
+  setting `home_override` to `"rm"` on `PATCH /api/v1/auth/me/profile/`, and saving a
+  landing preference clears it. With the flag off, `/home` sends you to your
+  usual landing page.
+- **A forecast view.** `/projects/<project>/forecast` shows the project's
   Monte Carlo finish-date curve with its P50, P80 and P95 dates, when the
   forecast was run, and a **Run forecast** button. A project that has never been
   forecast says **Not run yet**. When the project has changed since the last
   run, the view says so in place of the "as of" time and asks you to run it
-  again. It has no tab yet; open it by URL. With the flag off the address sends
-  you to the project's Overview.
+  again. With the flag off the address sends you to the project's Overview.
+  Two things are not there yet: the view draws the cumulative curve only, not
+  the histogram bars of how many runs finished in each week, and nothing in the
+  navigation links to it, so you open it by its address. Both are planned for a
+  later release.
 - **One breadcrumb.** Program / project / view, with a single separator, is the
   only place the app states where you are.
 - **One status pill** in the top bar replaces the stacked status banners: it
@@ -435,6 +442,7 @@ Other changes you will notice with the flag on:
   Queued entries are held in the open browser tab only, so closing the tab before
   you reconnect loses them.
 
-Shell v2 changes chrome only: every page, URL, keyboard shortcut and dialog is
-the same under both shells.
+Apart from `/home` and the forecast view above, shell v2 changes chrome only:
+every other page, URL, keyboard shortcut and dialog is the same under both
+shells.
 

@@ -645,9 +645,6 @@ export const routes: RouteObject[] = [
                   // /projects/:projectId → lens-aware landing (issue 1263, ADR-0162):
                   // PM→schedule, Scrum Master→board, Unified→today (ADR-0180).
                   { index: true, element: <ProjectIndexRedirect /> },
-                  // Pass 2 page-kit fixture UNDER the project context header (#4795):
-                  // the only place the "page starts at <= 191px" budget is measurable
-                  // with the real header above it. Redirects home when shell_v2 is off.
                   // Shell v2 Monte Carlo view; redirects to Overview when shell_v2 is off.
                   {
                     path: 'forecast',
@@ -658,6 +655,9 @@ export const routes: RouteObject[] = [
                     ),
                     handle: { title: 'Forecast' } satisfies RouteHandle,
                   },
+                  // Pass 2 page-kit fixture UNDER the project context header (#4795):
+                  // the only place the "page starts at <= 191px" budget is measurable
+                  // with the real header above it. Redirects home when shell_v2 is off.
                   {
                     path: 'shell2-kit',
                     element: (
@@ -1054,9 +1054,6 @@ export const routes: RouteObject[] = [
                 ),
                 handle: { title: 'Personal Access Tokens' } satisfies RouteHandle,
               },
-              // Programs (ADR-0070) — OSS coordination unit for a PM with several
-              // related projects. Lives between project (lower) and Enterprise
-              // portfolio (higher); see ADR-0030 navigation amendment.
               // Shell v2's role home: renders the server-resolved home in place;
               // replace-redirects to landing.path when the flag is off.
               {
@@ -1068,6 +1065,9 @@ export const routes: RouteObject[] = [
                 ),
                 handle: { title: 'Home' } satisfies RouteHandle,
               },
+              // Programs (ADR-0070) — OSS coordination unit for a PM with several
+              // related projects. Lives between project (lower) and Enterprise
+              // portfolio (higher); see ADR-0030 navigation amendment.
               // Shell v2's full-page Work list (#4756); redirects to /programs when the flag is off.
               {
                 path: 'work',

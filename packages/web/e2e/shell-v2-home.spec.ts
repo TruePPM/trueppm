@@ -37,7 +37,8 @@ async function setup(page: Page, home: Home, opts: { flag: boolean }): Promise<v
         display_name: 'Casey',
         initials: 'C',
         email: 'casey@example.com',
-        max_project_role: 100,
+        // The exec home is the Viewer-only branch, so its user is a Viewer (1).
+        max_project_role: home === 'exec' ? 1 : 100,
         workspace_role: null,
         can_access_admin_settings: false,
         default_landing: 'auto',
@@ -54,6 +55,8 @@ async function setup(page: Page, home: Home, opts: { flag: boolean }): Promise<v
   await page.route('**/api/v1/edition/', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj({ edition: 'community' }) }),
   );
+  // `home_program` only ever names a program the user is a member of (the
+  // rollup is members-only), so the program reads back with the user's role.
   await page.route(`**/api/v1/programs/${GID}/`, (r) =>
     r.fulfill({
       status: 200,
@@ -62,7 +65,7 @@ async function setup(page: Page, home: Home, opts: { flag: boolean }): Promise<v
         id: GID,
         name: 'Exec Program',
         description: '',
-        my_role: 100,
+        my_role: 1,
         project_count: 0,
         color: null,
         code: 'EX',

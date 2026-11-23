@@ -5,11 +5,14 @@
  * Empty state: a 404 from `/monte-carlo/latest/` reads as "Not run yet", not an
  * error. Stale: a server `forecast_staleness` other than `current` replaces the
  * "as of" claim (rule 415). With the flag off the route sends you to Overview.
+ * Run: clicking **Run forecast** POSTs to `/monte-carlo/`, polls the task run and
+ * refetches `latest`; a refused POST shows an inline error.
  */
 import { test, expect, type Page } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 
 const PROJECT_ID = 'e2e-forecast-0000-0000-0000-000000004755';
+const TASK_RUN_ID = '00000000-0000-4000-8000-000000004755';
 
 const MC_RESULT = {
   project_id: PROJECT_ID,
@@ -66,7 +69,9 @@ async function setup(page: Page, latest: 'result' | 'none' | 'stale', flag = tru
           status: 200,
           contentType: 'application/json',
           body: JSON.stringify(
-            latest === 'stale' ? { ...MC_RESULT, forecast_staleness: 'project_changed' } : MC_RESULT,
+            latest === 'stale'
+              ? { ...MC_RESULT, forecast_staleness: 'project_changed' }
+              : MC_RESULT,
           ),
         }),
   );
@@ -99,6 +104,78 @@ test.describe('shell v2 forecast view', () => {
     const main = page.getByRole('main');
     await expect(main.getByText(/project has changed since this forecast ran/)).toBeVisible();
     await expect(main.getByText('As of', { exact: false })).toHaveCount(0);
+  });
+
+  test('Run forecast POSTs the run, polls it and refetches the result', async ({ page }) => {
+    await setup(page, 'none');
+    let posts = 0;
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/monte-carlo/`, async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      posts++;
+      await route.fulfill({
+        status: 202,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          queued: true,
+          task_run_id: TASK_RUN_ID,
+          status: 'pending',
+          n_simulations: null,
+        }),
+      });
+    });
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/task-runs/${TASK_RUN_ID}/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: TASK_RUN_ID,
+          task_name: 'scheduling.monte_carlo',
+          celery_task_id: 'celery-4755',
+          project: PROJECT_ID,
+          initiated_by_username: 'alice',
+          status: 'success',
+          progress_pct: 100,
+          progress_msg: '',
+          result_summary: { run_id: null, n_simulations: 500, last_run_at: MC_RESULT.last_run_at },
+          error_detail: '',
+          created_at: MC_RESULT.last_run_at,
+          started_at: MC_RESULT.last_run_at,
+          completed_at: MC_RESULT.last_run_at,
+        }),
+      }),
+    );
+    await page.goto(`/projects/${PROJECT_ID}/forecast`);
+    await expect(page.getByRole('heading', { name: 'Not run yet' })).toBeVisible();
+
+    // The run lands: from now on `latest` serves a result, so the refetch the hook
+    // fires after the task run succeeds renders the percentiles.
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/monte-carlo/latest/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(MC_RESULT),
+      }),
+    );
+    await page.getByRole('button', { name: 'Run forecast' }).click();
+    await expect(page.getByRole('main').getByText('As of', { exact: false })).toBeVisible();
+    expect(posts).toBe(1);
+    await expect(page.getByRole('alert')).toHaveCount(0);
+  });
+
+  test('a refused run shows an inline error', async ({ page }) => {
+    await setup(page, 'none');
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/monte-carlo/`, async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      await route.fulfill({
+        status: 403,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'This project is archived.' }),
+      });
+    });
+    await page.goto(`/projects/${PROJECT_ID}/forecast`);
+    await page.getByRole('button', { name: 'Run forecast' }).click();
+    await expect(page.getByRole('alert').filter({ hasText: 'The run failed' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Run forecast' })).toBeEnabled();
   });
 
   test('with the flag off the route sends you to Overview', async ({ page }) => {
