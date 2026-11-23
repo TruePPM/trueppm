@@ -62,6 +62,11 @@ vi.mock('@/hooks/useBoardTasks', () => ({
 vi.mock('@/hooks/useTaskMutations', () => ({
   useCreateTask: () => ({ mutate: h.create }),
 }));
+vi.mock('@/features/schedule/TaskDetailDrawer', () => ({
+  TaskDetailDrawer: ({ task }: { task: { id: string } | null }) => (
+    <div data-testid="drawer">{task?.id}</div>
+  ),
+}));
 vi.mock('@/hooks/useOnlineStatus', () => ({ useOnlineStatus: () => h.online }));
 vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => 'p1' }));
 vi.mock('../boardView/useBoardIdentity', () => ({
@@ -254,5 +259,38 @@ describe('Board2Page', () => {
     (h as { tasks: unknown }).tasks = undefined;
     renderWithRouter(<Board2Page />);
     expect(screen.getByText(/could not be loaded/i)).toBeTruthy();
+  });
+
+  it('opens task detail on click and on Enter, but not on Space (pickup)', () => {
+    renderWithRouter(<Board2Page />);
+    expect(screen.queryByTestId('drawer')).toBeNull();
+    const card = screen.getByText('Write brief').closest('button')!;
+    fireEvent.keyDown(card, { key: ' ' });
+    fireEvent.keyUp(card, { key: ' ' });
+    expect(screen.queryByTestId('drawer')).toBeNull();
+    fireEvent.keyDown(card, { key: 'Escape' });
+    fireEvent.click(card);
+    expect(screen.getByTestId('drawer').textContent).toBe('Write brief');
+  });
+
+  it('moves focus between cards in a column with ArrowDown and ArrowUp', () => {
+    seed([
+      t({ id: 'A', status: 'IN_PROGRESS' }),
+      t({ id: 'B', status: 'IN_PROGRESS' }),
+      t({ id: 'C', status: 'IN_PROGRESS' }),
+    ]);
+    renderWithRouter(<Board2Page />);
+    const a = screen.getByText('A').closest('button')!;
+    const b = screen.getByText('B').closest('button')!;
+    const c = screen.getByText('C').closest('button')!;
+    a.focus();
+    fireEvent.keyDown(a, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(b);
+    fireEvent.keyDown(b, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(c);
+    fireEvent.keyDown(c, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(c);
+    fireEvent.keyDown(c, { key: 'ArrowUp' });
+    expect(document.activeElement).toBe(b);
   });
 });

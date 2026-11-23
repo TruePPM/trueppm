@@ -29,6 +29,8 @@ export interface UseScheduleTasksResult {
   links: TaskLink[] | undefined;
   isLoading: boolean;
   error: Error | null;
+  /** Epoch ms the tasks query last fetched successfully (0 if never). */
+  dataUpdatedAt?: number;
 }
 
 export interface ApiTask {
@@ -991,5 +993,7 @@ export function useScheduleTasks(
     links,
     isLoading: tasksQuery.isLoading || linksQuery.isLoading,
     error: tasksQuery.error ?? linksQuery.error,
+    /** Epoch ms the tasks query last fetched successfully (0 if never). */
+    dataUpdatedAt: tasksQuery.dataUpdatedAt,
   };
 }

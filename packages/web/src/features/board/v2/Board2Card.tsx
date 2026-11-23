@@ -15,6 +15,8 @@ export interface Board2CardProps {
   showFields: boolean;
   onKeyDown: (e: KeyboardEvent<HTMLButtonElement>, task: Task) => void;
   onDragStart: (task: Task) => void;
+  /** Click or Enter opens task detail. Space is reserved for picking the card up. */
+  onOpen: (task: Task) => void;
 }
 
 /**
@@ -32,6 +34,7 @@ export function Board2Card({
   showFields,
   onKeyDown,
   onDragStart,
+  onOpen,
 }: Board2CardProps) {
   const chips = cardChips(task);
   const owner = task.assignees[0];
@@ -45,7 +48,10 @@ export function Board2Card({
         aria-pressed={held}
         draggable={draggable}
         onDragStart={() => onDragStart(task)}
+        onClick={() => onOpen(task)}
         onKeyDown={(e) => onKeyDown(e, task)}
+        // Space picks the card up on keydown; stop the keyup from also clicking it.
+        onKeyUp={(e) => e.key === ' ' && e.preventDefault()}
         className={`flex w-full min-w-0 flex-col gap-1.5 rounded-md border border-p1-hairline bg-p1-surface-1 p-2.5 text-left text-sm text-p1-text-1 hover:bg-p1-surface-2 ${FOCUS_RING} ${
           task.isCritical ? 'border-l-[3px] border-l-p1-critical' : ''
         } ${held ? 'ring-2 ring-p1-focus' : ''}`}

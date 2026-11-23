@@ -23,6 +23,8 @@ import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
+import { useUrlSelectedId } from '@/hooks/useUrlSelectedId';
+import { TaskDetailDrawer } from '@/features/schedule/TaskDetailDrawer';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useCreateTask } from '@/hooks/useTaskMutations';
 import { useMinWidth } from '@/features/shell2/useMinWidth';
@@ -178,7 +180,8 @@ function ColumnHeader({ head, showWip }: { head: ColumnHead; showWip: boolean })
 export function Board2Page() {
   const { projectId, projectIdOrNull, currentRole } = useBoardIdentity(useProjectId());
   const { columns: rawColumns } = useBoardConfig(projectIdOrNull);
-  const { tasks, isLoading, error } = useScheduleTasks();
+  const { tasks, isLoading, error, dataUpdatedAt } = useScheduleTasks();
+  const [selectedTaskId, setSelectedTaskId] = useUrlSelectedId('task');
   const updateStatus = useUpdateTaskStatus();
   const createTask = useCreateTask(projectIdOrNull);
   const online = useOnlineStatus();
@@ -209,8 +212,10 @@ export function Board2Page() {
 
   // The copy the board falls back to when the network is gone. Stamped on every
   // successful read, so "showing your 09:12 copy" names when it was last true.
+  // Prefer the query's own fetch time so a cached copy reads its true age.
   const lastGood = useRef<Date | null>(null);
   if (tasks && !error) lastGood.current = new Date();
+  const copyTime = dataUpdatedAt ? new Date(dataUpdatedAt) : lastGood.current;
 
   const columns = useMemo(
     () => rawColumns.filter((c) => c.visible && c.status !== 'BACKLOG'),
@@ -411,8 +416,8 @@ export function Board2Page() {
       role="status"
       className="rounded-md border border-p1-hairline bg-p1-surface-2 px-3 py-2 text-sm text-p1-text-1"
     >
-      Board is showing your {formatInstantTime(lastGood.current?.toISOString())} copy. Moves you
-      make now are queued and sync when you reconnect.
+      Board is showing your {formatInstantTime(copyTime?.toISOString())} copy. Moves you make now
+      are queued and sync when you reconnect.
     </div>
   );
 
@@ -505,6 +510,7 @@ export function Board2Page() {
                 showFields={showFields}
                 onKeyDown={onCardKey}
                 onDragStart={(task) => (dragged.current = task)}
+                onOpen={(task) => setSelectedTaskId(task.id)}
               />
             ))}
         {hidden > 0 && (
@@ -623,6 +629,7 @@ export function Board2Page() {
                   showFields={showFields}
                   onKeyDown={onCardKey}
                   onDragStart={(task) => (dragged.current = task)}
+                  onOpen={(task) => setSelectedTaskId(task.id)}
                 />
               ))}
             </ul>
@@ -685,6 +692,7 @@ export function Board2Page() {
               showFields={showFields}
               onKeyDown={onCardKey}
               onDragStart={() => undefined}
+              onOpen={(task) => setSelectedTaskId(task.id)}
             />
           ))}
         </ul>
@@ -729,6 +737,14 @@ export function Board2Page() {
           {announce}
         </div>
       </div>
+      {projectIdOrNull && selectedTaskId && (
+        <TaskDetailDrawer
+          task={all.find((x) => x.id === selectedTaskId) ?? null}
+          projectId={projectIdOrNull}
+          onClose={() => setSelectedTaskId(null)}
+          onSwapCanceled={(keptId) => setSelectedTaskId(keptId)}
+        />
+      )}
     </PageFrame>
   );
 }

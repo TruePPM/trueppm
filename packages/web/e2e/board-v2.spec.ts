@@ -133,6 +133,33 @@ test.describe('shell v2 board', () => {
       ).toBeVisible();
     });
 
+    test('click and Enter open task detail; Space still picks the card up', async ({ page }) => {
+      await open(page);
+      const c = page.locator('[data-board2-card="c1"]');
+      await c.focus();
+      await page.keyboard.press('Space');
+      await page.keyboard.press('Escape');
+      await expect(page).not.toHaveURL(/task=c1/);
+      await page.keyboard.press('Enter');
+      await expect(page).toHaveURL(/task=c1/);
+      await expect(page.getByRole('dialog').first()).toBeVisible();
+    });
+
+    test('the overflow menu opens and closes from the keyboard', async ({ page }) => {
+      await open(page);
+      const more = page.getByRole('button', { name: /More board options/ });
+      await more.focus();
+      await page.keyboard.press('Enter');
+      await expect(page.getByRole('menu', { name: /More board options/ })).toBeVisible();
+      await page.keyboard.press('ArrowDown');
+      await expect(page.getByRole('menuitemcheckbox').first()).toBeFocused();
+      await page.keyboard.press('ArrowDown');
+      await expect(page.getByRole('menuitemcheckbox').nth(1)).toBeFocused();
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('menu', { name: /More board options/ })).toHaveCount(0);
+      await expect(more).toBeFocused();
+    });
+
     test('the empty backlog pane is open, quiet, and names the actions that fill it', async ({
       page,
     }) => {
@@ -176,11 +203,26 @@ test.describe('shell v2 board', () => {
       await open(page);
       const tabs = page.getByRole('tablist', { name: 'Status' }).getByRole('tab');
       await expect(tabs).toHaveCount(4);
-      expect((await tabs.first().boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+      for (let i = 0; i < 4; i++) {
+        expect((await tabs.nth(i).boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+      }
+      for (const control of [
+        page.getByRole('combobox', { name: 'Lane' }),
+        page.getByRole('button', { name: 'Filter cards' }),
+      ]) {
+        expect((await control.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+      }
       await expect(page.getByText('Write brief')).toBeVisible();
       await tabs.nth(1).click();
       await expect(page.getByText('Interview users')).toBeVisible();
       await expect(page.getByText('Write brief')).toHaveCount(0);
     });
+    for (const theme of [undefined, 'dark'] as const) {
+      test(`axe is clean on the phone layout (${theme ?? 'light'})`, async ({ page }, testInfo) => {
+        await open(page, TASKS, theme);
+        await expect(page.getByRole('tablist', { name: 'Status' })).toBeVisible();
+        await expectNoA11yViolations(page, testInfo);
+      });
+    }
   });
 });

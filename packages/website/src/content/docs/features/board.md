@@ -250,7 +250,7 @@ With the new shell on, the Board page is rebuilt so the work is on screen first:
 - **Keyboard**: Tab to a card, use the arrow keys to move between cards, press
   Space to pick one up, the left and right arrows to choose a column (the Backlog
   pane counts as the first target when it is open), and Space again to drop it.
-  Escape cancels.
+  Escape cancels. Click a card, or press Enter on it, to open its task detail.
 - **Backlog pane**: open by default, with a quiet empty state offering **Add to
   backlog** and an import link, and it is the drop target that unplans a card. The
   toggle collapses it to give the columns another 248 pixels. (An earlier proposal
@@ -261,6 +261,20 @@ With the new shell on, the Board page is rebuilt so the work is on screen first:
 - **Offline or stale**: the board says "Board is showing your 09:12 copy" and queues
   moves, which sync when you reconnect. Moves keep the optimistic update and roll
   back on failure, exactly as above.
+
+### Not in the redesigned board yet
+
+The redesigned board does not carry everything the board above does. These are
+missing from it for now, and the board above still has them:
+
+- **Export PDF** and **swimlane by person** are not in the overflow.
+- **Moving a card by touch on a phone.** On a phone the arrow keys and Space need a
+  hardware keyboard.
+- **Sprint scoping**, **saved views**, **search**, **grouping** and **density**.
+- The **standup** and **activity** panels.
+- **WIP-limit confirmation** dialogs when a move would pass a column's limit.
+- **Import tasks** in the empty Backlog pane currently links to project settings, not
+  to an import flow of its own.
 
 ## Toolbar
 
@@ -318,7 +332,7 @@ The **Zoom** stepper (Small / Normal / Large) scales the **board surface only** 
 Board PDF export was added in 0.3.
 :::
 
-**Export PDF** in the More⋯ overflow will produce a boardroom-clean PDF of the board for a deck or a client who has no portal access — no screenshots, no copy-paste. The export is a faithful, static projection of what you currently see:
+**Export PDF** in the More⋯ overflow of the board described in this section (not yet the redesigned board above) produces a boardroom-clean PDF of the board for a deck or a client who has no portal access — no screenshots, no copy-paste. The export is a faithful, static projection of what you currently see:
 
 - **Swimlanes and columns** mirror the on-screen layout: one block per phase, the same status columns.
 - **Cards** carry their title, assignee initials, due date, and key chips (critical-path marker, blocked, story points, milestone).
