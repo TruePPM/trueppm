@@ -224,6 +224,58 @@ When you reconnect, the queued moves are sent automatically and the **Pending** 
 
 The board also renders from its last successful fetch when you reopen it offline, so you can review the current state without a connection. Offline support currently covers card status changes and [flagging a task blocked](/features/my-work/#working-offline) — creating tasks, editing card details, and reordering phases still require a connection.
 
+## The redesigned board
+
+:::note[Ships in 0.5]
+The redesigned board below ships in 0.5, with the new shell. In 0.4 the board is the
+one described in the rest of this page.
+:::
+
+With the new shell on, the Board page is rebuilt so the work is on screen first:
+
+- **Five toolbar controls**: **Filter**, **Lanes (Phase)**, **Backlog pane**, the
+  **⋯** overflow, and **Add card**. Card fields, WIP limits and **Collapse Done**
+  live in the overflow, which is reachable by keyboard; its label lists what it holds.
+- **Phases are lanes.** Each phase is a full-width group with its dates, its card
+  count and "▲ N critical". Collapsing a lane leaves one summary line.
+- **Four equal columns** that fit at 1440 and 1024 pixels wide with no sideways
+  scroll. The column header stays in view and shows the name, the card count and
+  the WIP limit; hover or focus **WIP** for its definition. A column over its limit
+  shows **▲** and the number, not only an amber color. **Done** shows two cards,
+  then "N more done".
+- **Cards** mark a critical-path task with a red edge and a **▲ Critical** chip, a
+  blocked task with a **■ Blocked** chip that names the blocker, and a near-critical
+  task with a **◆** chip that states its float. Assignees show a 22px avatar; an
+  unassigned card shows a dashed one.
+- **Keyboard**: Tab to a card, use the arrow keys to move between cards, press
+  Space to pick one up, the left and right arrows to choose a column (the Backlog
+  pane counts as the first target when it is open), and Space again to drop it.
+  Escape cancels. Click a card, or press Enter on it, to open its task detail.
+- **Backlog pane**: open by default, with a quiet empty state offering **Add to
+  backlog** and an import link, and it is the drop target that unplans a card. The
+  toggle collapses it to give the columns another 248 pixels. (An earlier proposal
+  was to collapse it while empty; the design keeps it open so the drop target is
+  always there.)
+- **Phone**: Filter, a lane picker and four status pills as a tab list, one column
+  at a time, with that column's WIP and critical count.
+- **Offline or stale**: the board says "Board is showing your 09:12 copy" and queues
+  moves, which sync when you reconnect. Moves keep the optimistic update and roll
+  back on failure, exactly as above.
+
+### Not in the redesigned board yet
+
+The redesigned board does not carry everything the board above does. These are
+missing from it for now, and the board above still has them:
+
+- **Export PDF** and **swimlane by person** are not in the overflow.
+- **Moving a card by touch on a phone.** On a phone the arrow keys and Space need a
+  hardware keyboard.
+- **Sprint scoping**, **saved views**, **search**, **grouping** and **density**.
+- The **standup** and **activity** panels.
+- **WIP-limit confirmation** dialogs when a move would pass a column's limit.
+- **Import tasks** in the empty Backlog pane currently links to project settings, not
+  to an import flow of its own.
+
 ## Toolbar
 
 The board toolbar (top of the board) groups its controls into these clusters:
@@ -280,7 +332,7 @@ The **Zoom** stepper (Small / Normal / Large) scales the **board surface only** 
 Board PDF export was added in 0.3.
 :::
 
-**Export PDF** in the More⋯ overflow will produce a boardroom-clean PDF of the board for a deck or a client who has no portal access — no screenshots, no copy-paste. The export is a faithful, static projection of what you currently see:
+**Export PDF** in the More⋯ overflow of the board described in this section (not yet the redesigned board above) produces a boardroom-clean PDF of the board for a deck or a client who has no portal access — no screenshots, no copy-paste. The export is a faithful, static projection of what you currently see:
 
 - **Swimlanes and columns** mirror the on-screen layout: one block per phase, the same status columns.
 - **Cards** carry their title, assignee initials, due date, and key chips (critical-path marker, blocked, story points, milestone).

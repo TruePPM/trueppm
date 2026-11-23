@@ -45,8 +45,8 @@ const TaskDetailPage = lazy(() =>
 const GridView = lazy(() =>
   import('@/features/grid/GridView').then((m) => ({ default: m.GridView })),
 );
-const BoardView = lazy(() =>
-  import('@/features/board/BoardView').then((m) => ({ default: m.BoardView })),
+const BoardRoute = lazy(() =>
+  import('@/features/board/v2/BoardRoute').then((m) => ({ default: m.BoardRoute })),
 );
 const SprintsView = lazy(() =>
   import('@/features/sprints/SprintsView').then((m) => ({ default: m.SprintsView })),
@@ -703,7 +703,7 @@ export const routes: RouteObject[] = [
                     path: 'board',
                     element: (
                       <Suspense fallback={<RouteLoadingFallback />}>
-                        <BoardView />
+                        <BoardRoute />
                       </Suspense>
                     ),
                     handle: { title: 'Board' } satisfies RouteHandle,
