@@ -67,6 +67,8 @@ ALIASES: dict[str, str] = {
     "PeopleLoadCell": "_PeopleLoadCell",
     "PeopleLoadPerson": "_PeopleLoadPerson",
     "PeopleLoadResponse": "PeopleLoad",
+    "AgentRow": "Agent",
+    "AgentRecentAction": "AgentActionSummary",
 }
 
 # Interfaces with no response schema to compare against, each with the reason.
