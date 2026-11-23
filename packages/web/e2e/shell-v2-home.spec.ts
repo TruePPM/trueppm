@@ -93,10 +93,11 @@ async function setup(page: Page, home: Home, opts: { flag: boolean }): Promise<v
 test.describe('shell v2 role homes (flag on)', () => {
   test.use({ viewport: { width: 1280, height: 800 } });
 
-  // Each home's "rendered" signal: the page's h1, or (the resources page has
-  // none) its search box.
+  // Each home's "rendered" signal: something only that home has — My Work's
+  // landmark (its h1 is a time-based greeting), the Programs h1, the resources
+  // search box, the exec program's h1.
   const cases: Array<[Home, (page: Page) => ReturnType<Page['getByRole']>]> = [
-    ['contributor', (p) => p.getByRole('heading', { level: 1 })],
+    ['contributor', (p) => p.getByRole('region', { name: 'My Work', exact: true })],
     ['pm', (p) => p.getByRole('heading', { level: 1, name: 'Programs' })],
     ['rm', (p) => p.getByRole('searchbox', { name: 'Search resources' })],
     ['exec', (p) => p.getByRole('heading', { level: 1, name: 'Exec Program' })],
@@ -108,6 +109,10 @@ test.describe('shell v2 role homes (flag on)', () => {
       await page.goto('/');
       await expect(page).toHaveURL(/\/home$/);
       await expect(rendered(page).first()).toBeVisible();
+      // Only the PM home is the Programs list; no other home may render it.
+      if (home !== 'pm') {
+        await expect(page.getByRole('heading', { level: 1, name: 'Programs' })).toHaveCount(0);
+      }
       const destinations = page.getByRole('navigation', { name: 'Destinations' });
       await expect(destinations.getByRole('link', { name: /Home/ })).toHaveAttribute(
         'aria-current',

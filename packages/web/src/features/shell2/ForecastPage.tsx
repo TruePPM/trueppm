@@ -14,7 +14,7 @@ import { SCurveChart, forecastToSCurveProps } from '@/features/charts';
 import { formatRelative } from '@/lib/formatRelative';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { SHELL_V2_FLAG } from './shellFlag';
-import { forecastViewState, staleMessage } from './forecastViewModel';
+import { forecastViewState, staleMessage, runRefusalText } from './forecastViewModel';
 
 const BUTTON =
   `inline-flex h-9 items-center rounded-md bg-p1-brand px-3 text-sm font-medium text-white ` +
@@ -34,6 +34,7 @@ export function ForecastPage() {
 
 function RunButton({ projectId, label }: { projectId: string | undefined; label: string }) {
   const run = useRunMonteCarlo(projectId);
+  const refusal = run.isError ? runRefusalText(run.error) : null;
   return (
     <div className="flex items-center gap-3">
       <button
@@ -44,9 +45,9 @@ function RunButton({ projectId, label }: { projectId: string | undefined; label:
       >
         {run.isPending ? 'Running…' : label}
       </button>
-      {run.isError && (
+      {refusal && (
         <span role="alert" className="text-sm text-p1-text-2">
-          The run failed. Try again.
+          {refusal}
         </span>
       )}
     </div>

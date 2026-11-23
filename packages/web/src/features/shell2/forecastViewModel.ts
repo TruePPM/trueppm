@@ -1,4 +1,5 @@
 import type { MonteCarloResult } from '@/types';
+import { describeWriteRefusal } from '@/lib/writeRefusal';
 
 /**
  * What the shell-v2 Monte Carlo view shows. Every date and percentile is the
@@ -47,4 +48,15 @@ export function staleMessage(staleness: MonteCarloResult['forecastStaleness']): 
     default:
       return "We can't tell whether this forecast matches the current plan. Run it again to be sure.";
   }
+}
+
+/**
+ * The inline text for a failed forecast run: the server's own refusal sentence,
+ * with "Try again." appended only when replaying could succeed — a dependency
+ * cycle or an archived project is not fixed by a second click.
+ */
+export function runRefusalText(error: unknown): string | null {
+  const refusal = describeWriteRefusal(error, "Couldn't run the forecast.");
+  if (!refusal) return null;
+  return refusal.retryable ? `${refusal.message} Try again.` : refusal.message;
 }

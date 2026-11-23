@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MonteCarloResult } from '@/types';
-import { forecastViewState, staleMessage } from './forecastViewModel';
+import { AxiosError } from 'axios';
+import { forecastViewState, staleMessage, runRefusalText } from './forecastViewModel';
 
 const result = (over: Partial<MonteCarloResult> = {}): MonteCarloResult =>
   ({
@@ -66,5 +67,33 @@ describe('staleMessage', () => {
       expect(staleMessage(s)).toMatch(/Run it again/);
       expect(staleMessage(s)).not.toMatch(/moved|slipped|later/i);
     }
+  });
+});
+
+describe('runRefusalText', () => {
+  const refusal = (status: number, data: unknown) =>
+    new AxiosError('x', 'ERR_BAD_REQUEST', undefined, undefined, {
+      status,
+      data,
+      statusText: '',
+      headers: {},
+      config: { headers: {} } as never,
+    });
+
+  it('shows the server sentence and no retry for a non-retryable refusal', () => {
+    expect(runRefusalText(refusal(409, { detail: 'The schedule has a dependency cycle.' }))).toBe(
+      'The schedule has a dependency cycle.',
+    );
+  });
+  it('adds a retry for a retryable refusal', () => {
+    expect(runRefusalText(refusal(429, { detail: 'Too many runs.' }))).toBe(
+      'Too many runs. Try again.',
+    );
+  });
+  it('falls back for a failure with no body', () => {
+    expect(runRefusalText(new Error('boom'))).toBe("Couldn't run the forecast. Try again.");
+  });
+  it('is null without an error', () => {
+    expect(runRefusalText(null)).toBeNull();
   });
 });

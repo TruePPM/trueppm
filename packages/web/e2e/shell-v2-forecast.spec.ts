@@ -162,7 +162,27 @@ test.describe('shell v2 forecast view', () => {
     await expect(page.getByRole('alert')).toHaveCount(0);
   });
 
-  test('a refused run shows an inline error', async ({ page }) => {
+  test('a refused run shows the server refusal inline', async ({ page }) => {
+    await setup(page, 'none');
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/monte-carlo/`, async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      await route.fulfill({
+        status: 429,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'Too many forecast runs. Wait a minute.' }),
+      });
+    });
+    await page.goto(`/projects/${PROJECT_ID}/forecast`);
+    await page.getByRole('button', { name: 'Run forecast' }).click();
+    await expect(
+      page
+        .getByRole('alert')
+        .filter({ hasText: 'Too many forecast runs. Wait a minute. Try again.' }),
+    ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Run forecast' })).toBeEnabled();
+  });
+
+  test('a non-retryable refusal shows the reason and does not offer a retry', async ({ page }) => {
     await setup(page, 'none');
     await page.route(`**/api/v1/projects/${PROJECT_ID}/monte-carlo/`, async (route) => {
       if (route.request().method() !== 'POST') return route.fallback();
@@ -174,8 +194,9 @@ test.describe('shell v2 forecast view', () => {
     });
     await page.goto(`/projects/${PROJECT_ID}/forecast`);
     await page.getByRole('button', { name: 'Run forecast' }).click();
-    await expect(page.getByRole('alert').filter({ hasText: 'The run failed' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Run forecast' })).toBeEnabled();
+    const alert = page.getByRole('alert').filter({ hasText: 'This project is archived.' });
+    await expect(alert).toBeVisible();
+    await expect(alert).not.toContainText('Try again');
   });
 
   test('with the flag off the route sends you to Overview', async ({ page }) => {
