@@ -189,6 +189,12 @@ Include the kaizen report as a separate section at the top of the final consolid
 
 ---
 
+## Step 0.75 — Scheduler conformance report generated and reviewed — full audits only
+
+When the release ships `trueppm-scheduler`, confirm `python3 scripts/gen-scheduler-conformance-report.py --check` is green and read the oracle coverage matrix in `packages/website/src/content/docs/architecture/scheduler-conformance.md` against the generators in `packages/scheduler/tests/test_cpm_oracle.py`: the cells are declared by hand (the script only checks that the tests they cite still exist), so a changed generator is the reviewer's to catch. Then generate the per-release report with `--release OUT --strict` from that release's benchmark, mutation and parity artifacts (#4685). Skip for a release that does not touch the scheduler.
+
+---
+
 ## Step 0.8 — Voice-of-Customer audit on shipped surfaces — full audits only
 
 Before launching the codebase audit waves, invoke `/voc-audit --from-pre-release` once per user-visible surface shipped since the last release tag. voc-audit reviews **what actually shipped** through the persona lens and cross-references against the GitLab tracker. Where the wave-based audits ask "is this code correct?", voc-audit asks "does this surface actually serve the personas day-to-day?".

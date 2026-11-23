@@ -1362,6 +1362,8 @@ docs:static:
     # authoritative. Its own job until #5097.
     - bash scripts/ci/step.sh docs:config-links bash scripts/check-config-doc-links.sh
     - bash scripts/ci/step.sh docs:config-links bash scripts/check-config-doc-links.sh --self-test
+    - bash scripts/ci/step.sh docs:scheduler-conformance python3 scripts/gen-scheduler-conformance-report.py --self-test
+    - bash scripts/ci/step.sh docs:scheduler-conformance python3 scripts/gen-scheduler-conformance-report.py --check
     - bash scripts/ci/step.sh --finish
 
 docs:known-issues-freshness:

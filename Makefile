@@ -171,6 +171,12 @@ settings-contract-check: ## Fail on an undocumented env var, a doc/code default 
 	@python3 scripts/check-settings-contract.py --self-test
 	@python3 scripts/check-settings-contract.py
 
+scheduler-conformance-check: ## Fail when the generated block of architecture/scheduler-conformance.md is stale against the scheduler tests (#4685)
+	@# The page's matrix, refusal list, budgets and corpus counts are read from the tree;
+	@# regenerate with `python3 scripts/gen-scheduler-conformance-report.py --write`.
+	@python3 scripts/gen-scheduler-conformance-report.py --self-test
+	@python3 scripts/gen-scheduler-conformance-report.py --check
+
 pairings-check: ## Fail on a new aria-modal without useFocusTrap, or "removed next release" prose without a deprecation marker + issue (#4125)
 	@# Baseline in scripts/pairings-baseline.txt can only shrink. Pure static analysis.
 	@python3 scripts/check-pairings.py --self-test
@@ -947,6 +953,7 @@ pre-push-checks: adr-status-check
 pre-push-checks: version-status-check
 pre-push-checks: tracker-refs-check
 pre-push-checks: config-doc-links-check
+pre-push-checks: scheduler-conformance-check
 pre-push-checks: docs-tree-split-check
 pre-push-checks: ws-event-reachability-check
 pre-push-checks: ws-handler-conformance-check
