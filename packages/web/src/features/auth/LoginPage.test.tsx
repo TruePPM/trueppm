@@ -6,6 +6,8 @@ import { renderWithRouter } from '@/test/utils';
 import { useAuthStore } from '@/stores/authStore';
 import { queryClient } from '@/lib/queryClient';
 import type { CurrentUser } from '@/hooks/useCurrentUser';
+import { setFeatureFlag } from '@/lib/featureFlags';
+import { SHELL_V2_FLAG } from '@/features/shell2/shellFlag';
 import { LoginPage, loginRedirectDest } from './LoginPage';
 
 vi.mock('axios');
@@ -296,6 +298,37 @@ describe('LoginPage', () => {
     expect(useAuthStore.getState().accessToken).toBe('minted-token');
     expect(useAuthStore.getState().isAuthenticated).toBe(true);
     expect(queryClient.getQueryData(['current-user'])).toEqual(currentUser);
+  });
+
+  it('with shell_v2 on, sign-in lands on /home instead of landing.path', async () => {
+    setFeatureFlag(SHELL_V2_FLAG, true);
+    try {
+      meHandler = () =>
+        Promise.resolve({
+          data: makeCurrentUser({
+            landing: {
+              intent: 'project_overview',
+              path: '/projects/abc/overview',
+              resolved_by: 'role_policy',
+              home: 'pm',
+              home_program: null,
+            },
+          }),
+        });
+      mockedAxios.post.mockResolvedValueOnce({ data: { access: 'minted-token' } });
+
+      renderWithRouter(<LoginPage />, { initialEntries: ['/login'] });
+      const user = userEvent.setup();
+      await user.type(screen.getByLabelText('Email'), 'anna@example.com');
+      await user.type(screen.getByLabelText('Password'), 'correct-horse');
+      await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith('/home', { replace: true });
+      });
+    } finally {
+      setFeatureFlag(SHELL_V2_FLAG, false);
+    }
   });
 
   it('completes sign-in and falls back to the root path when the me fetch fails', async () => {

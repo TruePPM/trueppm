@@ -39,6 +39,7 @@ from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership,
 from trueppm_api.apps.profiles.models import (
     DateFormat,
     DefaultLanding,
+    HomeOverride,
     ProjectVisit,
     RoleContext,
     UserProfile,
@@ -310,9 +311,9 @@ def seed_hidden_views_for_first_project(user: Any, methodology: str) -> bool:
     return True
 
 
-def get_profile_prefs(user: Any) -> tuple[str, list[str], str, str, str]:
+def get_profile_prefs(user: Any) -> tuple[str, list[str], str, str, str, str | None]:
     """All app preferences in one row read — ``(default_landing, hidden_views,
-    role_context, timezone, date_format)``.
+    role_context, timezone, date_format, home_override)``.
 
     ``/auth/me/`` surfaces all five fields, so reading them together (one
     ``.only()`` query) avoids extra ``UserProfile`` lookups per response. Returns
@@ -336,17 +337,19 @@ def get_profile_prefs(user: Any) -> tuple[str, list[str], str, str, str]:
             "role_context",
             "timezone",
             "date_format",
+            "home_override",
         )
         .first()
     )
     if profile is None:
-        return DefaultLanding.AUTO, [], RoleContext.UNIFIED, "auto", DateFormat.AUTO
+        return DefaultLanding.AUTO, [], RoleContext.UNIFIED, "auto", DateFormat.AUTO, None
     return (
         profile.default_landing,
         list(profile.hidden_views),
         profile.role_context,
         profile.timezone,
         profile.date_format,
+        profile.home_override,
     )
 
 
@@ -494,6 +497,160 @@ def _landing_from_role_policy(user: Any, enterprise: bool, max_role: Any) -> Lan
 
     #    Contributor (MEMBER / VIEWER) → My Work.
     return Landing("my_work", MY_WORK_PATH, "role_policy")
+
+
+# ---------------------------------------------------------------------------
+# Shell-v2 home resolution (shell v2 home resolution)
+# ---------------------------------------------------------------------------
+
+HOME_CONTRIBUTOR = "contributor"
+HOME_PM = "pm"
+HOME_RM = "rm"
+HOME_EXEC = "exec"
+
+# A v1 landing the user chose explicitly maps onto the home of the same surface.
+# Keyed on ``intent`` and read only when ``resolved_by == "preference"``, so a
+# stored value ``_landing_from_preference`` does not honor (an OSS ``portfolio``,
+# an unreachable ``project_overview``) falls through exactly as it does for v1.
+_HOME_FOR_PREFERRED_INTENT = {
+    "my_work": HOME_CONTRIBUTOR,
+    "project_overview": HOME_PM,
+    "portfolio": HOME_EXEC,
+}
+
+
+@dataclass(frozen=True)
+class Home:
+    """Resolved shell-v2 home. ``program`` is ``{id, code, name}`` or None; it is
+    set only for ``exec``, whose home shows one program at a time."""
+
+    home: str  # "contributor" | "pm" | "rm" | "exec"
+    program: dict[str, str] | None = None
+
+
+def _max_membership_role(user: Any, max_project_role: Any) -> int | None:
+    """Highest Role ordinal across project AND program memberships."""
+    if max_project_role is _UNSET:
+        max_project_role = _max_project_role(user)
+    program_role = ProgramMembership.objects.filter(
+        user=user, is_deleted=False, program__is_deleted=False
+    ).aggregate(_max=Max("role"))["_max"]
+    roles = [int(r) for r in (max_project_role, program_role) if r is not None]
+    return max(roles) if roles else None
+
+
+def _has_my_work_assignment(user: Any) -> bool:
+    """Whether ``/me/work`` would list at least one task for ``user``.
+
+    Reuses ``MeWorkView``'s own "assigned to me" predicate (``Task.assignee`` OR a
+    ``TaskResource`` on a ``Resource`` linked to the user) and its scope
+    (non-BACKLOG, not soft-deleted, in a project the user still belongs to), so a
+    Viewer the contributor page would show work to gets the contributor home. The
+    issue's narrower "assignee only, not TaskResource" wording was deliberately
+    widened to match what the page actually reads; a home that disagreed with the
+    page it opens would land a resource-assigned Viewer on the Executive home.
+    """
+    from trueppm_api.apps.projects.models import Task, TaskStatus
+    from trueppm_api.apps.projects.views import _my_work_assigned_q
+
+    return (
+        Task.objects.filter(
+            _my_work_assigned_q(user.pk),
+            is_deleted=False,
+            project__is_deleted=False,
+            project__memberships__user=user,
+            project__memberships__is_deleted=False,
+        )
+        .exclude(status=TaskStatus.BACKLOG)
+        .exists()
+    )
+
+
+def _program_payload(program: Any) -> dict[str, str]:
+    return {"id": str(program.pk), "code": program.code, "name": program.name}
+
+
+def resolve_home_program(user: Any) -> dict[str, str] | None:
+    """The one program the Executive home opens on; the client selects nothing.
+
+    The program of :func:`most_recent_project`, but only when the user holds a live
+    ``ProgramMembership`` on it: the program rollup admits program members only, so
+    a project Viewer inside a program they do not belong to would otherwise be sent
+    to an overview that 404s. Else the first program by name among the user's live
+    program memberships; else None.
+    """
+    from trueppm_api.apps.projects.models import Program
+
+    member_programs = Program.objects.filter(
+        is_deleted=False,
+        pk__in=ProgramMembership.objects.filter(user=user, is_deleted=False).values("program_id"),
+    )
+    proj = most_recent_project(user)
+    if proj is not None and proj.program_id is not None:
+        program = member_programs.filter(pk=proj.program_id).first()
+        if program is not None:
+            return _program_payload(program)
+    program = member_programs.order_by("name", "pk").first()
+    return _program_payload(program) if program is not None else None
+
+
+def resolve_home(
+    user: Any,
+    landing: Landing,
+    *,
+    home_override: Any = _UNSET,
+    max_role: Any = _UNSET,
+) -> Home:
+    """Resolve the shell-v2 home for ``user``. Pure read; fails open to Contributor.
+
+    ``landing`` is the v1 :func:`resolve_landing` result for the same request; the
+    preference and demo steps read it so the two resolvers can never disagree about
+    which preference was honored. Precedence (shell v2, behind the shell_v2 web flag):
+
+    1. ``home_override`` (``rm``);
+    2. an honored ``default_landing`` preference (my_work → contributor,
+       project_overview → pm, portfolio → exec);
+    3. the demo visitor → pm;
+    4. no memberships → contributor;
+    5. the max role across project and program memberships: Scheduler+ → pm;
+       Member, or any ``/me/work`` assignment → contributor; Viewer-only → exec.
+
+    ``max_role`` is the caller's already-computed max *project* role.
+    """
+    try:
+        home = _resolve_home(user, landing, home_override=home_override, max_role=max_role)
+        if home == HOME_EXEC:
+            return Home(home, resolve_home_program(user))
+        return Home(home)
+    except Exception:  # defensive: /auth/me/ must never 500 on the home
+        logger.exception("resolve_home failed for user %s; falling back to contributor", user.pk)
+        return Home(HOME_CONTRIBUTOR)
+
+
+def _resolve_home(user: Any, landing: Landing, *, home_override: Any, max_role: Any) -> str:
+    if home_override is _UNSET:
+        profile = UserProfile.objects.filter(user=user).only("home_override").first()
+        home_override = profile.home_override if profile is not None else None
+    if home_override == HomeOverride.RM:
+        return HOME_RM
+
+    if landing.resolved_by == "preference":
+        preferred = _HOME_FOR_PREFERRED_INTENT.get(landing.intent)
+        if preferred is not None:
+            return preferred
+
+    if landing.resolved_by == "demo_landing":
+        return HOME_PM
+
+    role = _max_membership_role(user, max_role)
+    if role is None:
+        return HOME_CONTRIBUTOR
+    # A Scheduler+ with no recent project is still pm; only ``path`` falls back.
+    if role >= Role.SCHEDULER:
+        return HOME_PM
+    if role >= Role.MEMBER or _has_my_work_assignment(user):
+        return HOME_CONTRIBUTOR
+    return HOME_EXEC
 
 
 # ---------------------------------------------------------------------------

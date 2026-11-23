@@ -5,7 +5,9 @@ import { queryClient } from '@/lib/queryClient';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { safeLandingPath } from '@/features/me/landing';
 import { lensDefaultView } from '@/features/shell/lensOrder';
-import { ShellGate } from '@/features/shell2/ShellGate';
+import { ShellGate, SHELL_V2_FLAG } from '@/features/shell2/ShellGate';
+import { HOME_PATH } from '@/features/shell2/homeModel';
+import { useFeatureFlag } from '@/lib/featureFlags';
 import { ProjectShell } from '@/features/project/ProjectShell';
 import { ProgramRefBoundary, ProjectRefBoundary } from '@/router/RefBoundary';
 import { LoginPage } from '@/features/auth/LoginPage';
@@ -131,8 +133,14 @@ const ConnectedAccountsPage = lazy(() =>
 const ProgramListPage = lazy(() =>
   import('@/features/programs/ProgramListPage').then((m) => ({ default: m.ProgramListPage })),
 );
+const HomeRoute = lazy(() =>
+  import('@/features/shell2/HomeRoute').then((m) => ({ default: m.HomeRoute })),
+);
 const WorkPage = lazy(() =>
   import('@/features/shell2/WorkPage').then((m) => ({ default: m.WorkPage })),
+);
+const ForecastPage = lazy(() =>
+  import('@/features/shell2/ForecastPage').then((m) => ({ default: m.ForecastPage })),
 );
 const KitPage = lazy(() =>
   import('@/features/shell2/KitPage').then((m) => ({ default: m.KitPage })),
@@ -348,10 +356,14 @@ export function RootRedirect() {
   const { user, isLoading, isError, refetch } = useCurrentUser();
   const navigate = useNavigate();
 
+  const shellV2 = useFeatureFlag(SHELL_V2_FLAG);
+
   useEffect(() => {
     if (isLoading || !user) return;
-    void navigate(safeLandingPath(user.landing?.path), { replace: true });
-  }, [user, isLoading, navigate]);
+    // Shell v2's front door is `/home`, which renders the server-resolved role
+    // home; v1 keeps the server's `landing.path`.
+    void navigate(shellV2 ? HOME_PATH : safeLandingPath(user.landing?.path), { replace: true });
+  }, [user, isLoading, navigate, shellV2]);
 
   // A failed `/auth/me/` must read as broken, not as an eternal "Taking you to
   // your home screen…" (rule 246, #3542). `isLoading` settles to false on a
@@ -633,6 +645,16 @@ export const routes: RouteObject[] = [
                   // /projects/:projectId → lens-aware landing (issue 1263, ADR-0162):
                   // PM→schedule, Scrum Master→board, Unified→today (ADR-0180).
                   { index: true, element: <ProjectIndexRedirect /> },
+                  // Shell v2 Monte Carlo view; redirects to Overview when shell_v2 is off.
+                  {
+                    path: 'forecast',
+                    element: (
+                      <Suspense fallback={<RouteLoadingFallback />}>
+                        <ForecastPage />
+                      </Suspense>
+                    ),
+                    handle: { title: 'Forecast' } satisfies RouteHandle,
+                  },
                   // Pass 2 page-kit fixture UNDER the project context header (#4795):
                   // the only place the "page starts at <= 191px" budget is measurable
                   // with the real header above it. Redirects home when shell_v2 is off.
@@ -1031,6 +1053,17 @@ export const routes: RouteObject[] = [
                   </Suspense>
                 ),
                 handle: { title: 'Personal Access Tokens' } satisfies RouteHandle,
+              },
+              // Shell v2's role home: renders the server-resolved home in place;
+              // replace-redirects to landing.path when the flag is off.
+              {
+                path: 'home',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <HomeRoute />
+                  </Suspense>
+                ),
+                handle: { title: 'Home' } satisfies RouteHandle,
               },
               // Programs (ADR-0070) — OSS coordination unit for a PM with several
               // related projects. Lives between project (lower) and Enterprise

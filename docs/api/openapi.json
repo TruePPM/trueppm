@@ -65425,6 +65425,25 @@
                     "id"
                 ]
             },
+            "HomeEnum": {
+                "enum": [
+                    "contributor",
+                    "pm",
+                    "rm",
+                    "exec"
+                ],
+                "type": "string",
+                "description": "* `contributor` - Contributor\n* `pm` - PM / Delivery Manager\n* `rm` - Resource Manager\n* `exec` - Executive",
+                "x-trueppm-enum": "open"
+            },
+            "HomeOverrideEnum": {
+                "enum": [
+                    "rm"
+                ],
+                "type": "string",
+                "description": "* `rm` - Resource Manager",
+                "x-trueppm-enum": "open"
+            },
             "ImportProvenancePage": {
                 "type": "object",
                 "description": "The paginated envelope ``GET /projects/{id}/imports/`` actually returns (#2942).\n\nDeclared explicitly rather than left to ``OpenApiTypes.OBJECT``, which generates\n``{\"type\": \"object\", \"additionalProperties\": {}}`` — machine-readable for nothing.\nAn SDK generated from that schema hands the caller an untyped bag: not ``results``,\nnot the pagination envelope, not ``task_count``, not ``warnings``. Every accuracy\nproblem #2942 lists exists *because* prose was the only description, so the fix is\nto make the shape checkable rather than to write better prose.\n\nThis is a schema-only serializer — the view returns\n``paginator.get_paginated_response(...)``, so nothing instantiates it at runtime.\nIt exists so ``responses={200: ...}`` has something faithful to point at, and it\nmust be kept in step with :class:`ImportProvenancePagination`'s envelope by hand;\nthere is no gate that compares a declared response shape to the real one.",
@@ -66013,12 +66032,50 @@
                     },
                     "resolved_by": {
                         "type": "string"
+                    },
+                    "home": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/HomeEnum"
+                            }
+                        ],
+                        "description": "Shell-v2 home (shell v2). The v1 shell ignores it.\n\n* `contributor` - Contributor\n* `pm` - PM / Delivery Manager\n* `rm` - Resource Manager\n* `exec` - Executive"
+                    },
+                    "home_program": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/LandingHomeProgram"
+                            }
+                        ],
+                        "nullable": true,
+                        "description": "The program the Executive home opens on; null unless home is 'exec' and the user belongs to a program."
                     }
                 },
                 "required": [
+                    "home",
+                    "home_program",
                     "intent",
                     "path",
                     "resolved_by"
+                ]
+            },
+            "LandingHomeProgram": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string"
+                    },
+                    "code": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "code",
+                    "id",
+                    "name"
                 ]
             },
             "LastDeliveryOutcomeEnum": {
@@ -72589,7 +72646,7 @@
             },
             "PatchedUserProfileRequest": {
                 "type": "object",
-                "description": "Read/write the caller's own app preferences.\n\n``default_landing`` and ``role_context`` choice validation is enforced by the\nmodel fields' ``choices`` (DRF rejects an out-of-range value with 400).\n``hidden_views`` is a bounded list of canonical view keys (ADR-0139);\n``validate_hidden_views`` rejects unknown keys and de-duplicates.\n``RETIRED_FIELDS`` are 400-rejected by name (see ``validate``).\n``timezone`` / ``date_format`` are the personal display frame (#1953, ADR-0410):\n``date_format`` choice validation is enforced by the model field's ``choices``;\n``timezone`` is validated below against stdlib ``zoneinfo`` (``\"auto\"`` accepted).",
+                "description": "Read/write the caller's own app preferences.\n\n``default_landing`` and ``role_context`` choice validation is enforced by the\nmodel fields' ``choices`` (DRF rejects an out-of-range value with 400).\n``hidden_views`` is a bounded list of canonical view keys (ADR-0139);\n``validate_hidden_views`` rejects unknown keys and de-duplicates.\n``RETIRED_FIELDS`` are 400-rejected by name (see ``validate``).\n``home_override`` (``\"rm\"`` or null) picks the shell-v2 home; a write to\n``default_landing`` clears it (see ``update``), so a request that sets both\n``default_landing`` and a non-null ``home_override`` is 400-rejected (see\n``validate``) rather than silently dropping the override.\n``timezone`` / ``date_format`` are the personal display frame (#1953, ADR-0410):\n``date_format`` choice validation is enforced by the model field's ``choices``;\n``timezone`` is validated below against stdlib ``zoneinfo`` (``\"auto\"`` accepted).",
                 "properties": {
                     "default_landing": {
                         "allOf": [
@@ -72629,6 +72686,18 @@
                             }
                         ],
                         "description": "Date-format style for all displayed dates. 'auto' follows browser locale.\n\n* `auto` - Automatic (based on your locale)\n* `iso` - 2026-07-14\n* `us` - Jul 14, 2026\n* `eu` - 14 Jul 2026"
+                    },
+                    "home_override": {
+                        "nullable": true,
+                        "description": "Shell-v2 home that overrides the role policy. Null = derive it.\n\n* `rm` - Resource Manager",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/HomeOverrideEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
                     }
                 }
             },
@@ -92072,7 +92141,7 @@
             },
             "UserProfile": {
                 "type": "object",
-                "description": "Read/write the caller's own app preferences.\n\n``default_landing`` and ``role_context`` choice validation is enforced by the\nmodel fields' ``choices`` (DRF rejects an out-of-range value with 400).\n``hidden_views`` is a bounded list of canonical view keys (ADR-0139);\n``validate_hidden_views`` rejects unknown keys and de-duplicates.\n``RETIRED_FIELDS`` are 400-rejected by name (see ``validate``).\n``timezone`` / ``date_format`` are the personal display frame (#1953, ADR-0410):\n``date_format`` choice validation is enforced by the model field's ``choices``;\n``timezone`` is validated below against stdlib ``zoneinfo`` (``\"auto\"`` accepted).",
+                "description": "Read/write the caller's own app preferences.\n\n``default_landing`` and ``role_context`` choice validation is enforced by the\nmodel fields' ``choices`` (DRF rejects an out-of-range value with 400).\n``hidden_views`` is a bounded list of canonical view keys (ADR-0139);\n``validate_hidden_views`` rejects unknown keys and de-duplicates.\n``RETIRED_FIELDS`` are 400-rejected by name (see ``validate``).\n``home_override`` (``\"rm\"`` or null) picks the shell-v2 home; a write to\n``default_landing`` clears it (see ``update``), so a request that sets both\n``default_landing`` and a non-null ``home_override`` is 400-rejected (see\n``validate``) rather than silently dropping the override.\n``timezone`` / ``date_format`` are the personal display frame (#1953, ADR-0410):\n``date_format`` choice validation is enforced by the model field's ``choices``;\n``timezone`` is validated below against stdlib ``zoneinfo`` (``\"auto\"`` accepted).",
                 "properties": {
                     "default_landing": {
                         "allOf": [
@@ -92110,6 +92179,18 @@
                             }
                         ],
                         "description": "Date-format style for all displayed dates. 'auto' follows browser locale.\n\n* `auto` - Automatic (based on your locale)\n* `iso` - 2026-07-14\n* `us` - Jul 14, 2026\n* `eu` - 14 Jul 2026"
+                    },
+                    "home_override": {
+                        "nullable": true,
+                        "description": "Shell-v2 home that overrides the role policy. Null = derive it.\n\n* `rm` - Resource Manager",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/HomeOverrideEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
                     }
                 }
             },

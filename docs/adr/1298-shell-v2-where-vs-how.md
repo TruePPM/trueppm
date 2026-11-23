@@ -141,7 +141,7 @@ the flag changes chrome only.
 
 - The role-resolved **homes** (Contributor, PM, Resource Manager, Executive) and
   the Monte Carlo view — Pass 1 designs them; they land in later MRs on this
-  flag.
+  flag. *Resolution decided 2026-11-22 by #4755: see the amendment below.*
 - A **workspace-level Agents** surface. Until it exists, the rail's Agents item
   appears only when a program is in context and links to that program's agents
   page; it is omitted, not stubbed, elsewhere.
@@ -192,3 +192,51 @@ More; the phone bar of 5) are now an enforceable design invariant, web rule 436
 ([`docs/design/invariants/436-a-navigation-surface-holds-a-fixed-number-of-items-at-rest.md`](../design/invariants/436-a-navigation-surface-holds-a-fixed-number-of-items-at-rest.md)).
 Raising any of those numbers is an amendment to this ADR (or its successor), not a
 review-time judgement call.
+
+## Amendment (2026-11-22, #4755): home resolution
+
+The rail's **Home** item resolves to one of four homes, and which one is a server
+fact: `GET /auth/me/` returns `landing.home` ∈ `contributor` | `pm` | `rm` | `exec`
+alongside the existing `landing.intent` / `landing.path` / `landing.resolved_by`
+(ADR-0129), which do not change. The v1 shell reads only `intent` and `path`, so
+nothing in v1 moves with the flag off. The client runs no role logic: it switches
+on `home` and renders.
+
+Precedence, first match wins:
+
+| # | Condition | `home` |
+|---|---|---|
+| 1 | `UserProfile.home_override = "rm"` (new nullable field; only value `rm`) | `rm` |
+| 2 | stored `default_landing` that `_landing_from_preference` honors (`resolved_by = "preference"`): `my_work` / `project_overview` / `portfolio` (Enterprise only — in OSS a stored portfolio falls through, as it does for v1) | `contributor` / `pm` / `exec` |
+| 3 | the published demo visitor (`resolved_by = "demo_landing"`) | `pm` |
+| 4 | no live project or program membership | `contributor` |
+| 5a | max role across project **and** program memberships ≥ Scheduler (still `pm` when there is no recent project; `path` keeps its My Work fallback) | `pm` |
+| 5b | max role Member, or any `/me/work` assignment (the page's own predicate: `Task.assignee` **or** a `TaskResource` on the user's linked `Resource`; non-BACKLOG, not soft-deleted, live membership). This deliberately widens #4755's "not `TaskResource`" wording so the home matches what My Work shows | `contributor` |
+| 5c | Viewer-only, no assignment | `exec` |
+
+Steps 2 and 3 read the v1 `Landing` for the same request rather than re-deriving
+it, so the two resolvers cannot disagree about which preference was honored. The
+resolver fails open to `contributor`.
+
+**`home_override` and `default_landing`.** A write to `default_landing` clears
+`home_override` (the newer choice wins); writing `home_override` leaves
+`default_landing`, and therefore the v1 front door, alone. #4758 merges the two
+into one setting.
+
+**Executive home is one program at a time.** `landing.home_program` is
+`{id, code, name}` when `home = exec`, else null: the program of the most recent
+project when it has one **and the viewer holds a live membership on that program**
+(the program rollup is members-only, so a project Viewer inside someone else's
+program would otherwise land on an overview that 404s); else the first program by
+name among the viewer's program memberships; else null. The Executive home shows that program with a switcher and is
+never a cross-program rollup — a cross-program view is portfolio governance, which
+is Enterprise.
+
+**Front door under the flag.** `/home` is a route under `ShellGate`. With the flag
+on, `RootRedirect`, the login redirect and the rail's Home item go to `/home`, which
+renders the resolved home in place (never a redirect, so the Home item stays
+active). Until each home's own issue ships (#4768–#4771) it renders that home's
+existing page: contributor → My Work, pm → the programs list, rm → the resources
+page (the People view, #4761, replaces it), exec → `home_program`'s overview, or the
+programs list when `home_program` is null. With the flag off, `/home`
+replace-redirects to `landing.path`.

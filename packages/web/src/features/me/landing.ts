@@ -11,7 +11,10 @@
 import type { DefaultLanding, LandingIntent } from '@/hooks/useCurrentUser';
 
 /** Paths the client will navigate to from the server-resolved landing. */
-const ALLOWED_LANDING_PREFIXES = ['/me/work', '/projects/'] as const;
+// `/home` is the shell-v2 front door. The server's `path` never returns
+// it, so listing it changes nothing for v1; it lets `loginRedirectDest` land there
+// when the flag is on.
+const ALLOWED_LANDING_PREFIXES = ['/me/work', '/projects/', '/home'] as const;
 
 /** Where we send a user when a path is missing, off-allowlist, or unsafe. */
 export const LANDING_FALLBACK_PATH = '/me/work';

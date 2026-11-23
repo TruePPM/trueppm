@@ -4,6 +4,9 @@ import axios from 'axios';
 import { queryClient } from '@/lib/queryClient';
 import type { CurrentUser } from '@/hooks/useCurrentUser';
 import { safeLandingPath } from '@/features/me/landing';
+import { useFeatureFlag } from '@/lib/featureFlags';
+import { SHELL_V2_FLAG } from '@/features/shell2/shellFlag';
+import { HOME_PATH } from '@/features/shell2/homeModel';
 import { LogoMark } from '@/components/Icons';
 import { OSSChip } from '@/components/OSSChip';
 import { discoverSsoProviders, ssoLoginUrl, type SsoProviderSummary } from '@/hooks/ssoLogin';
@@ -114,6 +117,7 @@ function MiniGantt() {
 
 export function LoginPage() {
   const [searchParams] = useSearchParams();
+  const shellV2 = useFeatureFlag(SHELL_V2_FLAG);
   // After accepting a workspace invite (#2035) the user arrives here with their
   // just-set username pre-filled and a one-shot `welcome` flag, so they land on a
   // sign-in form that already knows who they are rather than a blank dead-end.
@@ -212,7 +216,8 @@ export function LoginPage() {
           headers: { Authorization: `Bearer ${access}` },
         });
         queryClient.setQueryData(['current-user'], me.data);
-        landingPath = me.data.landing?.path;
+        // Shell v2's front door is `/home`; v1 keeps the server's `landing.path`.
+        landingPath = shellV2 ? HOME_PATH : me.data.landing?.path;
       } catch {
         /* offline / slow — RootRedirect resolves the landing after navigation */
       }

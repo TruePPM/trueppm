@@ -30,6 +30,18 @@ class DefaultLanding(models.TextChoices):
     PORTFOLIO = "portfolio", "Portfolio"
 
 
+class HomeOverride(models.TextChoices):
+    """Explicit shell-v2 home that no ``default_landing`` value can express (shell v2).
+
+    Null (the default) means "derive the home from ``default_landing`` and the role
+    policy". Only ``RM`` exists because the Resource Manager home has no v1 landing
+    counterpart; #4758 reconciles this with ``default_landing`` into one setting.
+    The v1 shell never reads it.
+    """
+
+    RM = "rm", "Resource Manager"
+
+
 class RoleContext(models.TextChoices):
     """Which role-context "lens" the app presents for this user (#412).
 
@@ -87,6 +99,19 @@ class UserProfile(models.Model):
         choices=DefaultLanding.choices,
         default=DefaultLanding.AUTO,
         help_text="Which screen the app opens on. 'auto' uses the role-based policy.",
+    )
+    # Shell-v2 home override (shell v2, behind the shell_v2 web flag). Written independently of
+    # default_landing, but a write to default_landing clears it (the serializer
+    # enforces that), so the newer of the two choices always wins. Null, not "",
+    # is the "derive it" state on purpose: the API surfaces it as JSON null, and
+    # with no blank=True the serializer rejects "" and the enum (HomeOverrideEnum)
+    # needs no empty-string member.
+    home_override = models.CharField(  # noqa: DJ001
+        max_length=8,
+        choices=HomeOverride.choices,
+        null=True,
+        default=None,
+        help_text="Shell-v2 home that overrides the role policy. Null = derive it.",
     )
     # 'unified' is the default because the dual-hat "Unified Today" view is the
     # headline demo for #412: a user who has not yet picked a lens should see the

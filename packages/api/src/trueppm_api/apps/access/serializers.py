@@ -856,7 +856,9 @@ class MeSerializer(serializers.Serializer[Any]):
     # navigates — it holds no role→surface policy itself. API-first: the
     # destination is a server fact, identical for web, mobile, and MCP clients.
     #   - default_landing: the user's stored preference ("auto" if unset).
-    #   - landing: {intent, path, resolved_by} — the resolved front door.
+    #   - landing: {intent, path, resolved_by} — the resolved front door — plus
+    #     the shell-v2 {home, home_program} (shell v2, behind the shell_v2 web flag). v1 reads only
+    #     intent/path, so the two added keys change nothing with the flag off.
     default_landing = serializers.SerializerMethodField()
     landing = serializers.SerializerMethodField()
     # Per-user nav visibility (ADR-0139). The web shell reads this to hide the
@@ -928,7 +930,7 @@ class MeSerializer(serializers.Serializer[Any]):
     def get_is_workspace_operator(self, obj: Any) -> bool:
         return _is_workspace_operator(obj)
 
-    def _prefs(self, obj: Any) -> tuple[str, list[str], str, str, str]:
+    def _prefs(self, obj: Any) -> tuple[str, list[str], str, str, str, str | None]:
         # Memoized single read of (default_landing, hidden_views, role_context,
         # timezone, date_format): every pref getter needs a UserProfile column, so
         # reading them in one .only() query keeps /auth/me at one profile read
@@ -936,7 +938,9 @@ class MeSerializer(serializers.Serializer[Any]):
         if not hasattr(self, "_prefs_cache"):
             from trueppm_api.apps.profiles.services import get_profile_prefs
 
-            self._prefs_cache: tuple[str, list[str], str, str, str] = get_profile_prefs(obj)
+            self._prefs_cache: tuple[str, list[str], str, str, str, str | None] = get_profile_prefs(
+                obj
+            )
         return self._prefs_cache
 
     def get_default_landing(self, obj: Any) -> str:
@@ -949,11 +953,31 @@ class MeSerializer(serializers.Serializer[Any]):
                 "intent": serializers.CharField(),
                 "path": serializers.CharField(),
                 "resolved_by": serializers.CharField(),
+                "home": serializers.ChoiceField(
+                    choices=[
+                        ("contributor", "Contributor"),
+                        ("pm", "PM / Delivery Manager"),
+                        ("rm", "Resource Manager"),
+                        ("exec", "Executive"),
+                    ],
+                    help_text="Shell-v2 home (shell v2). The v1 shell ignores it.",
+                ),
+                "home_program": inline_serializer(
+                    "LandingHomeProgram",
+                    {
+                        "id": serializers.CharField(),
+                        "code": serializers.CharField(),
+                        "name": serializers.CharField(),
+                    },
+                    allow_null=True,
+                    help_text="The program the Executive home opens on; null unless "
+                    "home is 'exec' and the user belongs to a program.",
+                ),
             },
         )
     )
-    def get_landing(self, obj: Any) -> dict[str, str]:
-        from trueppm_api.apps.profiles.services import resolve_landing
+    def get_landing(self, obj: Any) -> dict[str, Any]:
+        from trueppm_api.apps.profiles.services import resolve_home, resolve_landing
 
         # Reuse the already-computed preference and max project role so the
         # resolver doesn't re-query UserProfile / re-aggregate Max(role) — both
@@ -963,10 +987,18 @@ class MeSerializer(serializers.Serializer[Any]):
             pref=self.get_default_landing(obj),
             max_role=self.get_max_project_role(obj),
         )
+        home = resolve_home(
+            obj,
+            landing,
+            home_override=self._prefs(obj)[5],
+            max_role=self.get_max_project_role(obj),
+        )
         return {
             "intent": landing.intent,
             "path": landing.path,
             "resolved_by": landing.resolved_by,
+            "home": home.home,
+            "home_program": home.program,
         }
 
     @extend_schema_field(serializers.ListField(child=serializers.CharField()))
