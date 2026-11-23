@@ -1,5 +1,6 @@
 import { test, expect } from './fixtures/coverage';
 import { setupCatchAll } from './fixtures/api-mocks';
+import { expectNoA11yViolations } from './fixtures/a11y';
 
 /**
  * Shell v2 Settings restyle (#4800) behind `?ff=shell_v2`: the dirty-state save bar
@@ -118,7 +119,6 @@ async function setup(page: Page) {
   );
 }
 
-
 const V2 = '?ff=shell_v2';
 
 test.describe('Settings under shell v2 (#4800)', () => {
@@ -158,5 +158,163 @@ test.describe('Settings under shell v2 (#4800)', () => {
     await page.goto(`/projects/${PROJECT_ID}/settings/general`);
     await expect(page.getByRole('button', { name: 'Workspace', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Personal', exact: true })).toHaveCount(0);
+  });
+});
+
+const WORKSPACE = {
+  name: 'TrueScope Aerospace',
+  subdomain: 'truescope',
+  timezone: 'America/Los_Angeles',
+  fiscal_year_start_month: 1,
+  fiscal_year_start_day: 1,
+  fiscal_year_start_display: 'January 1',
+  work_week: [true, true, true, true, true, false, false],
+  default_project_view: 'Board',
+  allow_guests: true,
+  public_sharing: false,
+  public_sharing_override_policy: 'suggest',
+  iteration_label: 'Sprint',
+  iteration_label_override_policy: 'suggest',
+  mc_history_enabled: true,
+  mc_history_retention_cap: 100,
+  mc_history_attribution_audience: 'admin_owner',
+  mc_history_override_policy: 'suggest',
+  near_critical_threshold_days: 10,
+};
+
+/** Workspace-admin identity + the /workspace/ read/write the General page uses. */
+async function setupWorkspace(page: Page, onPatch?: (body: Record<string, unknown>) => void) {
+  await setup(page);
+  await page.route('**/api/v1/auth/me/', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ...FIXTURE_ME, workspace_role: 300 }),
+    }),
+  );
+  const stored: Record<string, unknown> = { ...WORKSPACE };
+  await page.route('**/api/v1/workspace/', (r) => {
+    if (r.request().method() === 'PATCH') {
+      const body = r.request().postDataJSON() as Record<string, unknown>;
+      onPatch?.(body);
+      Object.assign(stored, body);
+    }
+    return r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(stored),
+    });
+  });
+}
+
+test.describe('Settings v2: Workspace > General save bar (#4800)', () => {
+  test('dirty edit shows the save bar naming General, and Save writes it', async ({ page }) => {
+    let patch: Record<string, unknown> | undefined;
+    await setupWorkspace(page, (b) => (patch = b));
+    await page.goto(`/settings/general${V2}`);
+
+    const guests = page.getByRole('switch', { name: 'Allow guest access' });
+    await expect(guests).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByTestId('settings-save-bar')).toBeHidden();
+
+    await guests.click();
+    const bar = page.getByTestId('settings-save-bar');
+    await expect(bar).toBeVisible();
+    await expect(bar).toContainText('Unsaved changes in');
+    await expect(bar).toContainText('General');
+
+    await bar.getByRole('button', { name: 'Save changes' }).click();
+    await expect.poll(() => patch).toMatchObject({ allow_guests: false });
+    await expect(page.getByTestId('settings-save-bar')).toBeHidden();
+  });
+});
+
+test.describe('Settings v2: a11y and phone viewport (#4800)', () => {
+  test('Project > General has no critical/serious axe violations, light', async ({
+    page,
+  }, testInfo) => {
+    await setup(page);
+    await page.emulateMedia({ colorScheme: 'light' });
+    await page.addInitScript(() => localStorage.setItem('trueppm.theme', 'light'));
+    await page.goto(`/projects/${PROJECT_ID}/settings/general${V2}`);
+    await expect(page.getByRole('textbox', { name: /project name/i })).toBeVisible();
+    await page.getByRole('textbox', { name: /project name/i }).fill('Dirty');
+    await expect(page.getByTestId('settings-save-bar')).toBeVisible();
+    await expectNoA11yViolations(page, testInfo);
+  });
+
+  test('Project > General has no critical/serious axe violations, dark', async ({
+    page,
+  }, testInfo) => {
+    await setup(page);
+    await page.addInitScript(() => localStorage.setItem('trueppm.theme', 'dark'));
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.goto(`/projects/${PROJECT_ID}/settings/general${V2}`);
+    await expect(page.locator('html')).toHaveClass(/dark/);
+    await page.getByRole('textbox', { name: /project name/i }).fill('Dirty');
+    await expect(page.getByTestId('settings-save-bar')).toBeVisible();
+    await expectNoA11yViolations(page, testInfo);
+  });
+
+  test('phone (390px): save bar, scope segments and toggles are >= 44px tall', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await setupWorkspace(page);
+    await page.goto(`/settings/general${V2}`);
+
+    const guests = page.getByRole('switch', { name: 'Allow guest access' });
+    await expect(guests).toBeVisible();
+    await guests.click();
+    const bar = page.getByTestId('settings-save-bar');
+    await expect(bar).toBeVisible();
+
+    const heightOf = async (loc: import('@playwright/test').Locator) => {
+      const box = await loc.boundingBox();
+      expect(box).not.toBeNull();
+      return box!.height;
+    };
+    expect(await heightOf(guests)).toBeGreaterThanOrEqual(44);
+    expect(
+      await heightOf(bar.getByRole('button', { name: 'Save changes' })),
+    ).toBeGreaterThanOrEqual(44);
+    for (const name of ['Personal', 'Workspace']) {
+      const seg = page.getByRole('button', { name, exact: true }).first();
+      await expect(seg).toBeVisible();
+      expect(await heightOf(seg)).toBeGreaterThanOrEqual(44);
+    }
+  });
+});
+
+test.describe('Settings v2: project archive confirmation (#4800)', () => {
+  test('Archive stays disabled until the project code is typed', async ({ page }) => {
+    await setup(page);
+    let archived = 0;
+    const project = { ...FIXTURE_PROJECT, code: 'ATLAS', is_archived: false };
+    await page.route(new RegExp(`/api/v1/projects/${PROJECT_ID}/(\\?.*)?$`), (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(project) }),
+    );
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/archive/`, (r) => {
+      archived += 1;
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...project, is_archived: true }),
+      });
+    });
+    await page.goto(`/projects/${PROJECT_ID}/settings/lifecycle${V2}`);
+
+    await page.getByRole('button', { name: /Archive Atlas Migration/i }).click();
+    const confirm = page.getByTestId('archive-confirm');
+    await expect(confirm).toBeVisible();
+    const go = confirm.getByRole('button', { name: 'Archive project' });
+    await expect(go).toBeDisabled();
+
+    const input = confirm.getByRole('textbox');
+    await input.fill('ATLA');
+    await expect(go).toBeDisabled();
+    await input.fill('ATLAS');
+    await expect(go).toBeEnabled();
+    expect(archived).toBe(0);
+    await go.click();
+    await expect.poll(() => archived).toBe(1);
   });
 });
