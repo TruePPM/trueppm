@@ -3,7 +3,7 @@ import type { CurrentUser } from '@/hooks/useCurrentUser';
 /** The shell-v2 front door. Rail Home, `/` and the login redirect go here when `shell_v2` is on. */
 export const HOME_PATH = '/home';
 
-/** The four role homes the server resolves (`landing.home`, ADR-1298 amendment). */
+/** The four role homes the server resolves (`landing.home`). */
 export type HomeKind = 'contributor' | 'pm' | 'rm' | 'exec';
 
 /**

@@ -358,7 +358,7 @@ export function RootRedirect() {
   useEffect(() => {
     if (isLoading || !user) return;
     // Shell v2's front door is `/home`, which renders the server-resolved role
-    // home (ADR-1298 amendment); v1 keeps the server's `landing.path`.
+    // home; v1 keeps the server's `landing.path`.
     void navigate(shellV2 ? HOME_PATH : safeLandingPath(user.landing?.path), { replace: true });
   }, [user, isLoading, navigate, shellV2]);
 
@@ -1044,7 +1044,7 @@ export const routes: RouteObject[] = [
               // Programs (ADR-0070) — OSS coordination unit for a PM with several
               // related projects. Lives between project (lower) and Enterprise
               // portfolio (higher); see ADR-0030 navigation amendment.
-              // Shell v2's role home (#4755): renders the server-resolved home in place;
+              // Shell v2's role home: renders the server-resolved home in place;
               // replace-redirects to landing.path when the flag is off.
               {
                 path: 'home',

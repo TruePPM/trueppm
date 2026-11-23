@@ -25,7 +25,7 @@ const ProgramOverviewPage = lazy(() =>
 );
 
 /**
- * `/home` — the shell-v2 front door (ADR-1298 amendment, #4755).
+ * `/home` — the shell-v2 front door.
  *
  * Renders the server-resolved home **in place** rather than redirecting, so the
  * rail's Home item stays active while the person is on it. With the flag off it

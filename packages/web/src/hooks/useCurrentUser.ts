@@ -71,7 +71,7 @@ export interface CurrentUser {
     path: string;
     resolved_by: LandingResolvedBy;
     /**
-     * Shell-v2 role home (ADR-1298 amendment). Read only under `shell_v2`; v1
+     * Shell-v2 role home. Read only under `shell_v2`; v1
      * reads `path`. Optional so a fixture or an older server without it reads as
      * the contributor home.
      */

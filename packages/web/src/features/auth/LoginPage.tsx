@@ -216,8 +216,7 @@ export function LoginPage() {
           headers: { Authorization: `Bearer ${access}` },
         });
         queryClient.setQueryData(['current-user'], me.data);
-        // Shell v2's front door is `/home` (ADR-1298 amendment, #4755); v1 keeps
-        // the server's `landing.path`.
+        // Shell v2's front door is `/home`; v1 keeps the server's `landing.path`.
         landingPath = shellV2 ? HOME_PATH : me.data.landing?.path;
       } catch {
         /* offline / slow — RootRedirect resolves the landing after navigation */

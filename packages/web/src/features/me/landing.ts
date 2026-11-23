@@ -11,7 +11,7 @@
 import type { DefaultLanding, LandingIntent } from '@/hooks/useCurrentUser';
 
 /** Paths the client will navigate to from the server-resolved landing. */
-// `/home` is the shell-v2 front door (#4755). The server's `path` never returns
+// `/home` is the shell-v2 front door. The server's `path` never returns
 // it, so listing it changes nothing for v1; it lets `loginRedirectDest` land there
 // when the flag is on.
 const ALLOWED_LANDING_PREFIXES = ['/me/work', '/projects/', '/home'] as const;
