@@ -980,12 +980,14 @@ def _shift_remaining_work(task: Task, delta_days: int) -> Task:
     100, so the task stays in progress. The original percentage is kept whenever it
     already yields the same elapsed count.
 
-    A pull-in that leaves no remaining work returns a zero-duration task, which is how
-    the engine expresses an open task with nothing left to do. No duration above zero
-    can say it, because the integer rule always leaves a day below 100%. Everything
-    else stays as recorded: the percentage and ``actual_start`` describe work the
-    what-if did not change. Layout no longer reads the percentage at zero duration, but
-    ``actual_start`` still floors the task, which can limit how far the finish moves.
+    A pull-in that leaves no remaining work returns the task with
+    ``zero_remaining`` set (ADR-1474), which is how the engine expresses an open task
+    with nothing left to do. No duration above zero can say it, because the integer
+    rule always leaves a day below 100%. Everything else stays as recorded: the
+    duration, percentage and ``actual_start`` describe work the what-if did not
+    change, so start-to-start and start-to-finish links out of the task keep reading
+    its start. ``actual_start`` still floors the task, which can limit how far the
+    finish moves.
 
     The task stays open rather than becoming complete because a completed task is
     pinned at its actuals and stops reading its predecessors. That would be a statement
@@ -994,9 +996,8 @@ def _shift_remaining_work(task: Task, delta_days: int) -> Task:
     risk would drop out of the Monte Carlo bands, moving the forecast far more than the
     pull-in asked for. Open, the task still sits behind its predecessors, so with no
     lag and no other floor, finish-to-start and finish-to-finish links out of it move
-    the finish by the remaining days. Start-to-start and start-to-finish links do not
-    get that result yet; see the comment on the return below. A velocity-sampled task
-    needs its points capped as well, which :func:`perturb_task_duration` does.
+    the finish by the remaining days. A velocity-sampled task needs its points capped
+    as well, which :func:`perturb_task_duration` does.
     """
     duration_days = task.duration.days
     pct = min(task.percent_complete or 0.0, 100.0)
@@ -1008,6 +1009,11 @@ def _shift_remaining_work(task: Task, delta_days: int) -> Task:
         # Open work with nothing left (ADR-1474): duration, percentage and actuals
         # keep describing the work done, so SS/SF links still read its start.
         return replace(task, zero_remaining=True)
+    if pct <= 0 and not task.zero_remaining:
+        # Unstarted: the whole-duration shift this task got before ADR-1474, kept
+        # exactly (sub-day seconds and an unset percentage included), so a network
+        # that never sets ``zero_remaining`` perturbs byte-identically.
+        return replace(task, duration=task.duration + timedelta(days=delta_days))
     new_days = elapsed + remaining
     if pct > 0 and _elapsed_working_days(new_days, pct) != elapsed:
         pct = (elapsed + 0.5) * 100.0 / new_days

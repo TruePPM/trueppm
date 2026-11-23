@@ -1384,8 +1384,8 @@ def _milestone_context(
     other milestones, so they come from the pass state :func:`schedule` kept on the
     result (``engine._milestone_replay``), or — for a result :func:`schedule` did
     not produce for this project object — from a full pass replay (#4524). Only a
-    project with a zero-duration task needs them; otherwise every accessor
-    degrades to plain dates.
+    project with a zero-duration task, or one with no remaining work (ADR-1474),
+    needs them; otherwise every accessor degrades to plain dates.
 
     The replay is keyed on the whole project, not on the tasks this derivation
     touches: every late date is seeded from the project's finish *instant*
@@ -1399,7 +1399,8 @@ def _milestone_context(
     # Free float compares a milestone successor at its free-float instant (#4180).
     instants, late_instants, finish_instant, link_instants, free_instants = (
         _milestone_replay(project, result)
-        if any(t.duration.days == 0 for t in project.tasks)
+        # Open work with no remaining work is an instant too (ADR-1474).
+        if any(t.duration.days == 0 or t.zero_remaining for t in project.tasks)
         else ({}, {}, _safe_offset(result.project_finish, timedelta(days=1)), {}, {})
     )
 

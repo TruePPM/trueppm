@@ -4,7 +4,7 @@
 
 Accepted (2026-11-23) — the maintainer chose option 1 on #5070; implemented with #4819.
 
-> **Implementation status (2026-11-23):** implemented on the #4819 branch in both engines
+> **Implementation status (2026-11-23):** implemented with #4819 in both engines
 > (`packages/scheduler`, `packages/wasm-scheduler`), the reference CPM oracle, Monte Carlo
 > and `derive_value`. The decision itself was taken on #5070 (option 1).
 
@@ -67,14 +67,20 @@ produces, and a milestone's SS/SF links go through its instant, not its link sta
 - A bigger pull-in never finishes later than a smaller one, on any link type, lag, start
   reading or calendar, in `schedule()` and in Monte Carlo. The limitation #4536 disclosed is
   removed from the docs.
-- `Task.to_dict()` always emits `zero_remaining`, so a document from this version needs a
-  Rust/WASM engine that knows the key. Both are released together.
+- `Task.to_dict()` emits `zero_remaining` only when it is `True`, as the Rust engine does
+  (`skip_serializing_if`). A network that does not set it serializes exactly as before, so
+  the Monte Carlo seed and answer-stamp `input_hash` the API derives from that document do
+  not move on upgrade, and only a document that sets the flag needs an engine that knows
+  the key.
 - `wasm:test` and `scheduler:snapshot-regression` prove only that the two engines agree. The
   correctness check is the reference CPM in `tests/oracle/reference_cpm.py`, which models the
   input independently (`RefProgress.zero_remaining`) and is compared against both engines on
   generated networks covering every link type, recorded and derived starts, the data date,
   SNETs and per-task calendars (`*_matches_reference_with_no_remaining_work`). A mutation that
-  measures the start links from the instant again fails it.
+  measures the start links from the instant again fails it. Its generator keeps per-task
+  calendars to FS/SS networks, so per-task calendars on SF/FF networks are checked only for
+  monotonicity, engine agreement and `derive_value` agreement, not against the reference;
+  extending the oracle there is tracked in #5115.
 - No API request field changes. The API never sets the input from stored data; only the
   engine's own perturbation does.
 

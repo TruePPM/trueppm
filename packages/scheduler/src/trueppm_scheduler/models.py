@@ -418,6 +418,13 @@ class Task:
         """
         _validate_task_fields(self)
         result: dict[str, Any] = _serialize(asdict(self))
+        # ``zero_remaining`` is emitted only when set, as the Rust engine does
+        # (``skip_serializing_if = "is_false"``). A document for a network that does
+        # not use it is then byte-identical to one from before the key existed, so
+        # the Monte Carlo seed and answer-stamp ``input_hash`` derived from it do not
+        # move on upgrade, and an older engine still reads it (ADR-1474).
+        if not self.zero_remaining:
+            del result["zero_remaining"]
         return result
 
     @classmethod

@@ -86,6 +86,63 @@ def test_the_flag_round_trips_through_a_document() -> None:
     assert Task.from_dict(task.to_dict()) == task
 
 
+def test_an_unset_flag_is_left_out_of_the_document() -> None:
+    """As in Rust (``skip_serializing_if``): an unflagged document is unchanged by the
+    key's existence, so Monte Carlo seeds and answer-stamp hashes taken over it do not
+    move on upgrade."""
+    task = Task(id="a", name="a", duration=timedelta(days=2))
+    doc = task.to_dict()
+    assert "zero_remaining" not in doc
+    assert Task.from_dict(doc) == task
+    assert replace(task, zero_remaining=True).to_dict()["zero_remaining"] is True
+
+
+def test_a_network_whose_only_instant_is_a_flagged_task_replays_its_instants() -> None:
+    """No zero-duration task, one flagged task: the milestone-replay gates in
+    ``schedule()`` and ``derive_value`` must still treat it as an instant, both from
+    the stash and from a full replay (a result not produced for this object)."""
+    start = date(2027, 3, 1)
+    project = Project(
+        id="p",
+        name="p",
+        start_date=start,
+        tasks=[
+            Task("a", "a", timedelta(days=3)),
+            Task("z", "z", timedelta(days=4), percent_complete=50.0, zero_remaining=True),
+            Task("s", "s", timedelta(days=2)),
+            Task("u", "u", timedelta(days=5)),
+        ],
+        dependencies=[
+            Dependency("a", "z"),
+            Dependency("z", "s", DependencyType.SS, lag=timedelta(days=1)),
+            Dependency("z", "u", DependencyType.FF),
+        ],
+    )
+    result = schedule(project)
+    by_id = {t.id: t for t in result.tasks}
+    copy = replace(project, tasks=list(project.tasks))  # forces the full replay
+    for proj in (project, copy):
+        for t in project.tasks:
+            for q in Quantity:
+                d = derive_value(proj, t.id, q, result=result)
+                engine_value = getattr(by_id[t.id], q.value)
+                if q in _DATE_QUANTITIES:
+                    expected = engine_value.isoformat() if engine_value is not None else None
+                    assert d.value == expected, (t.id, q)
+                else:
+                    assert d.value == engine_value.days, (t.id, q)
+
+
+def test_an_unstarted_task_perturbs_exactly_as_before() -> None:
+    """An unstarted task keeps its sub-day seconds and an unset percentage, so a
+    network that never sets the flag perturbs byte-identically (ADR-1474)."""
+    t = Task("a", "a", timedelta(days=5, hours=6))
+    project = Project(id="p", name="p", start_date=date(2027, 3, 1), tasks=[t])
+    out = perturb_task_duration(project, "a", -2).tasks[0]
+    assert out == replace(t, duration=timedelta(days=3, hours=6))
+    assert out.to_dict() == replace(t, duration=timedelta(days=3, hours=6)).to_dict()
+
+
 def test_a_milestone_and_a_completed_task_ignore_the_flag() -> None:
     """Both already have no remaining work, so the flag changes nothing."""
     start = date(2027, 3, 1)
