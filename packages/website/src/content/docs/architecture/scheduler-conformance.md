@@ -7,8 +7,10 @@ documentedFor: "0.5"
 :::note[Ships in 0.5]
 This page ships in 0.5. The per-release report it describes (mutation score,
 benchmark timings, the Python/Rust parity result, engine version and git sha) is
-attached to each release from 0.5 on; on 0.4 only the static sections below exist,
-and they describe the test suites in the repository, not a published measurement.
+intended to be attached to each release; the tag-pipeline job that would publish it
+does not exist yet and is tracked in #5114. Until it lands, only the static sections
+below exist, and they describe the test suites in the repository, not a published
+measurement.
 :::
 
 `trueppm-scheduler` is a standalone library, and its correctness does not rest on
@@ -53,7 +55,7 @@ longer matches the generator.
 | `gate` (every pipeline, derandomized) | 200 |
 | `scheduler:fuzz-deep` (nightly, randomized) | 50,000 |
 
-69 Hypothesis properties across 15 test files: `test_cpm_oracle.py` (20), `test_contract_fuzz.py` (11), `test_cpm_invariants.py` (9), `test_milestone_instant.py` (5), `test_duration_expansion_arithmetic.py` (4), `test_elapsed_working_days.py` (4), `test_monte_carlo_finish_reading.py` (3), `test_sub_start_floor.py` (3).
+69 Hypothesis properties across 15 test files; the 8 with the most: `test_cpm_oracle.py` (20), `test_contract_fuzz.py` (11), `test_cpm_invariants.py` (9), `test_milestone_instant.py` (5), `test_duration_expansion_arithmetic.py` (4), `test_elapsed_working_days.py` (4), `test_monte_carlo_finish_reading.py` (3), `test_sub_start_floor.py` (3).
 
 ### Committed corpora
 

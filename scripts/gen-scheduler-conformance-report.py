@@ -235,7 +235,8 @@ def static_block() -> str:
         f"| `gate` (every pipeline, derandomized) | {b['gate']} |",
         f"| `scheduler:fuzz-deep` (nightly, randomized) | {int(b['fuzz-deep']):,} |",
         "",
-        f"{sum(given.values())} Hypothesis properties across {len(given)} test files: "
+        f"{sum(given.values())} Hypothesis properties across {len(given)} test files; "
+        f"the {min(8, len(given))} with the most: "
         + ", ".join(
             f"`{f}` ({n})" for f, n in sorted(given.items(), key=lambda kv: -kv[1])[:8]
         )
