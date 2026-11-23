@@ -66039,7 +66039,7 @@
                                 "$ref": "#/components/schemas/HomeEnum"
                             }
                         ],
-                        "description": "Shell-v2 home (ADR-1298). The v1 shell ignores it.\n\n* `contributor` - Contributor\n* `pm` - PM / Delivery Manager\n* `rm` - Resource Manager\n* `exec` - Executive"
+                        "description": "Shell-v2 home (shell v2). The v1 shell ignores it.\n\n* `contributor` - Contributor\n* `pm` - PM / Delivery Manager\n* `rm` - Resource Manager\n* `exec` - Executive"
                     },
                     "home_program": {
                         "allOf": [

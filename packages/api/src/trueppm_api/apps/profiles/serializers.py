@@ -126,7 +126,7 @@ class UserProfileSerializer(serializers.ModelSerializer[UserProfile]):
 
     def update(self, instance: UserProfile, validated_data: dict[str, Any]) -> UserProfile:
         update_fields: list[str] = []
-        # A write to default_landing clears home_override (ADR-1298 amendment): the
+        # A write to default_landing clears home_override (shell-v2 home amendment): the
         # newer choice wins, so a user who picks "My Work" after "Resource Manager"
         # is not silently held on the RM home. The reverse does not hold — setting
         # home_override leaves default_landing (and so the v1 front door) alone.

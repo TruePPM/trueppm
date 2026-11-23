@@ -500,7 +500,7 @@ def _landing_from_role_policy(user: Any, enterprise: bool, max_role: Any) -> Lan
 
 
 # ---------------------------------------------------------------------------
-# Shell-v2 home resolution (ADR-1298 amendment, #4755)
+# Shell-v2 home resolution (shell v2 home resolution)
 # ---------------------------------------------------------------------------
 
 HOME_CONTRIBUTOR = "contributor"
@@ -600,7 +600,7 @@ def resolve_home(
 
     ``landing`` is the v1 :func:`resolve_landing` result for the same request; the
     preference and demo steps read it so the two resolvers can never disagree about
-    which preference was honored. Precedence (ADR-1298 amendment):
+    which preference was honored. Precedence (shell v2, behind the shell_v2 web flag):
 
     1. ``home_override`` (``rm``);
     2. an honored ``default_landing`` preference (my_work → contributor,

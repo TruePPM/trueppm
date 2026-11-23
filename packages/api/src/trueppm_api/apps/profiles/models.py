@@ -31,7 +31,7 @@ class DefaultLanding(models.TextChoices):
 
 
 class HomeOverride(models.TextChoices):
-    """Explicit shell-v2 home that no ``default_landing`` value can express (ADR-1298).
+    """Explicit shell-v2 home that no ``default_landing`` value can express (shell v2).
 
     Null (the default) means "derive the home from ``default_landing`` and the role
     policy". Only ``RM`` exists because the Resource Manager home has no v1 landing
@@ -100,7 +100,7 @@ class UserProfile(models.Model):
         default=DefaultLanding.AUTO,
         help_text="Which screen the app opens on. 'auto' uses the role-based policy.",
     )
-    # Shell-v2 home override (ADR-1298 amendment). Written independently of
+    # Shell-v2 home override (shell v2, behind the shell_v2 web flag). Written independently of
     # default_landing, but a write to default_landing clears it (the serializer
     # enforces that), so the newer of the two choices always wins. Null, not "",
     # is the "derive it" state on purpose: the API surfaces it as JSON null and the

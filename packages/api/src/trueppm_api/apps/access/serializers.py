@@ -857,7 +857,7 @@ class MeSerializer(serializers.Serializer[Any]):
     # destination is a server fact, identical for web, mobile, and MCP clients.
     #   - default_landing: the user's stored preference ("auto" if unset).
     #   - landing: {intent, path, resolved_by} — the resolved front door — plus
-    #     the shell-v2 {home, home_program} (ADR-1298 amendment). v1 reads only
+    #     the shell-v2 {home, home_program} (shell v2, behind the shell_v2 web flag). v1 reads only
     #     intent/path, so the two added keys change nothing with the flag off.
     default_landing = serializers.SerializerMethodField()
     landing = serializers.SerializerMethodField()
@@ -960,7 +960,7 @@ class MeSerializer(serializers.Serializer[Any]):
                         ("rm", "Resource Manager"),
                         ("exec", "Executive"),
                     ],
-                    help_text="Shell-v2 home (ADR-1298). The v1 shell ignores it.",
+                    help_text="Shell-v2 home (shell v2). The v1 shell ignores it.",
                 ),
                 "home_program": inline_serializer(
                     "LandingHomeProgram",
