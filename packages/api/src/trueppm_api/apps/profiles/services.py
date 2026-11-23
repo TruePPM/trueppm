@@ -540,18 +540,22 @@ def _max_membership_role(user: Any, max_project_role: Any) -> int | None:
 
 
 def _has_my_work_assignment(user: Any) -> bool:
-    """Whether ``/me/work``'s assignee source has a row for ``user``.
+    """Whether ``/me/work`` would list at least one task for ``user``.
 
-    Mirrors ``MeWorkView``'s ``Task.assignee`` scope (non-BACKLOG, not
-    soft-deleted, in a project the user still belongs to). ``TaskResource`` is
-    deliberately not consulted: the home follows what the contributor page shows
-    from the assignee field, as the issue defines "assignment".
+    Reuses ``MeWorkView``'s own "assigned to me" predicate (``Task.assignee`` OR a
+    ``TaskResource`` on a ``Resource`` linked to the user) and its scope
+    (non-BACKLOG, not soft-deleted, in a project the user still belongs to), so a
+    Viewer the contributor page would show work to gets the contributor home. The
+    issue's narrower "assignee only, not TaskResource" wording was deliberately
+    widened to match what the page actually reads; a home that disagreed with the
+    page it opens would land a resource-assigned Viewer on the Executive home.
     """
     from trueppm_api.apps.projects.models import Task, TaskStatus
+    from trueppm_api.apps.projects.views import _my_work_assigned_q
 
     return (
         Task.objects.filter(
-            assignee=user,
+            _my_work_assigned_q(user.pk),
             is_deleted=False,
             project__is_deleted=False,
             project__memberships__user=user,
@@ -569,23 +573,24 @@ def _program_payload(program: Any) -> dict[str, str]:
 def resolve_home_program(user: Any) -> dict[str, str] | None:
     """The one program the Executive home opens on; the client selects nothing.
 
-    The program of :func:`most_recent_project` when it has one; else the first
-    program by name among the user's live program memberships; else None.
+    The program of :func:`most_recent_project`, but only when the user holds a live
+    ``ProgramMembership`` on it: the program rollup admits program members only, so
+    a project Viewer inside a program they do not belong to would otherwise be sent
+    to an overview that 404s. Else the first program by name among the user's live
+    program memberships; else None.
     """
     from trueppm_api.apps.projects.models import Program
 
+    member_programs = Program.objects.filter(
+        is_deleted=False,
+        pk__in=ProgramMembership.objects.filter(user=user, is_deleted=False).values("program_id"),
+    )
     proj = most_recent_project(user)
     if proj is not None and proj.program_id is not None:
-        program = Program.objects.filter(pk=proj.program_id, is_deleted=False).first()
+        program = member_programs.filter(pk=proj.program_id).first()
         if program is not None:
             return _program_payload(program)
-    program = (
-        Program.objects.filter(
-            memberships__user=user, memberships__is_deleted=False, is_deleted=False
-        )
-        .order_by("name", "pk")
-        .first()
-    )
+    program = member_programs.order_by("name", "pk").first()
     return _program_payload(program) if program is not None else None
 
 

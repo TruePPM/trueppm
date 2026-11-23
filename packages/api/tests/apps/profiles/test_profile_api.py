@@ -485,3 +485,42 @@ def test_patch_home_override_accepts_null_and_rejects_unknown() -> None:
     resp = _client(user).patch(URL, {"home_override": None}, format="json")
     assert resp.status_code == 200
     assert UserProfile.objects.get(user=user).home_override is None
+
+
+@pytest.mark.django_db
+def test_patch_home_override_rejects_empty_string() -> None:
+    """Null, not "", is the derive-it state: "" is not a member of the enum."""
+    user = User.objects.create_user(username="rm-blank", password="pw")
+    UserProfile.objects.create(user=user, home_override="rm")
+    resp = _client(user).patch(URL, {"home_override": ""}, format="json")
+    assert resp.status_code == 400
+    assert UserProfile.objects.get(user=user).home_override == "rm"
+
+
+@pytest.mark.django_db
+def test_patch_default_landing_with_a_non_null_home_override_is_400() -> None:
+    """A default_landing write clears the override, so sending both is a
+    contradiction: refused, and neither field is written."""
+    user = User.objects.create_user(username="rm-both", password="pw")
+    UserProfile.objects.create(user=user, default_landing=DefaultLanding.PROJECT_OVERVIEW)
+    resp = _client(user).patch(
+        URL, {"default_landing": "my_work", "home_override": "rm"}, format="json"
+    )
+    assert resp.status_code == 400
+    assert "home_override" in resp.data
+    profile = UserProfile.objects.get(user=user)
+    assert profile.default_landing == DefaultLanding.PROJECT_OVERVIEW
+    assert profile.home_override is None
+
+
+@pytest.mark.django_db
+def test_patch_default_landing_with_a_null_home_override_is_accepted() -> None:
+    user = User.objects.create_user(username="rm-both-null", password="pw")
+    UserProfile.objects.create(user=user, home_override="rm")
+    resp = _client(user).patch(
+        URL, {"default_landing": "my_work", "home_override": None}, format="json"
+    )
+    assert resp.status_code == 200
+    profile = UserProfile.objects.get(user=user)
+    assert profile.default_landing == DefaultLanding.MY_WORK
+    assert profile.home_override is None

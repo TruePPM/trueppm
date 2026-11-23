@@ -19,7 +19,9 @@ class UserProfileSerializer(serializers.ModelSerializer[UserProfile]):
     ``validate_hidden_views`` rejects unknown keys and de-duplicates.
     ``RETIRED_FIELDS`` are 400-rejected by name (see ``validate``).
     ``home_override`` (``"rm"`` or null) picks the shell-v2 home; a write to
-    ``default_landing`` clears it (see ``update``).
+    ``default_landing`` clears it (see ``update``), so a request that sets both
+    ``default_landing`` and a non-null ``home_override`` is 400-rejected (see
+    ``validate``) rather than silently dropping the override.
     ``timezone`` / ``date_format`` are the personal display frame (#1953, ADR-0410):
     ``date_format`` choice validation is enforced by the model field's ``choices``;
     ``timezone`` is validated below against stdlib ``zoneinfo`` (``"auto"`` accepted).
@@ -103,6 +105,19 @@ class UserProfileSerializer(serializers.ModelSerializer[UserProfile]):
             retired = [k for k in self.RETIRED_FIELDS if k in raw]
             if retired:
                 raise serializers.ValidationError({k: [self.RETIRED_FIELDS[k]] for k in retired})
+        # ``update`` clears home_override on every default_landing write, so a
+        # payload carrying both with a non-null override asks for two contradictory
+        # outcomes; refusing it beats a 200 that quietly drops one of them. A null
+        # override alongside default_landing agrees with the clear and is accepted.
+        if "default_landing" in attrs and attrs.get("home_override") is not None:
+            raise serializers.ValidationError(
+                {
+                    "home_override": [
+                        "Cannot be set in the same request as default_landing, "
+                        "which clears it. Send them as separate requests."
+                    ]
+                }
+            )
         return attrs
 
     def validate_hidden_views(self, value: list[str]) -> list[str]:

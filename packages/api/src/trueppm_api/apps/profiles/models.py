@@ -103,13 +103,13 @@ class UserProfile(models.Model):
     # Shell-v2 home override (shell v2, behind the shell_v2 web flag). Written independently of
     # default_landing, but a write to default_landing clears it (the serializer
     # enforces that), so the newer of the two choices always wins. Null, not "",
-    # is the "derive it" state on purpose: the API surfaces it as JSON null and the
-    # enum (HomeOverrideEnum) then needs no empty-string member.
+    # is the "derive it" state on purpose: the API surfaces it as JSON null, and
+    # with no blank=True the serializer rejects "" and the enum (HomeOverrideEnum)
+    # needs no empty-string member.
     home_override = models.CharField(  # noqa: DJ001
         max_length=8,
         choices=HomeOverride.choices,
         null=True,
-        blank=True,
         default=None,
         help_text="Shell-v2 home that overrides the role policy. Null = derive it.",
     )

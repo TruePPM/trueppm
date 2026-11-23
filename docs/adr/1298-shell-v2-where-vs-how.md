@@ -211,7 +211,7 @@ Precedence, first match wins:
 | 3 | the published demo visitor (`resolved_by = "demo_landing"`) | `pm` |
 | 4 | no live project or program membership | `contributor` |
 | 5a | max role across project **and** program memberships ≥ Scheduler (still `pm` when there is no recent project; `path` keeps its My Work fallback) | `pm` |
-| 5b | max role Member, or any `/me/work` assignment (`Task.assignee`, non-BACKLOG, not soft-deleted, live membership — not `TaskResource`) | `contributor` |
+| 5b | max role Member, or any `/me/work` assignment (the page's own predicate: `Task.assignee` **or** a `TaskResource` on the user's linked `Resource`; non-BACKLOG, not soft-deleted, live membership). This deliberately widens #4755's "not `TaskResource`" wording so the home matches what My Work shows | `contributor` |
 | 5c | Viewer-only, no assignment | `exec` |
 
 Steps 2 and 3 read the v1 `Landing` for the same request rather than re-deriving
@@ -225,8 +225,10 @@ into one setting.
 
 **Executive home is one program at a time.** `landing.home_program` is
 `{id, code, name}` when `home = exec`, else null: the program of the most recent
-project when it has one; else the first program by name among the viewer's program
-memberships; else null. The Executive home shows that program with a switcher and is
+project when it has one **and the viewer holds a live membership on that program**
+(the program rollup is members-only, so a project Viewer inside someone else's
+program would otherwise land on an overview that 404s); else the first program by
+name among the viewer's program memberships; else null. The Executive home shows that program with a switcher and is
 never a cross-program rollup — a cross-program view is portfolio governance, which
 is Enterprise.
 

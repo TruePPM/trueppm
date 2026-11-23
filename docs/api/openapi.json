@@ -72646,7 +72646,7 @@
             },
             "PatchedUserProfileRequest": {
                 "type": "object",
-                "description": "Read/write the caller's own app preferences.\n\n``default_landing`` and ``role_context`` choice validation is enforced by the\nmodel fields' ``choices`` (DRF rejects an out-of-range value with 400).\n``hidden_views`` is a bounded list of canonical view keys (ADR-0139);\n``validate_hidden_views`` rejects unknown keys and de-duplicates.\n``RETIRED_FIELDS`` are 400-rejected by name (see ``validate``).\n``home_override`` (``\"rm\"`` or null) picks the shell-v2 home; a write to\n``default_landing`` clears it (see ``update``).\n``timezone`` / ``date_format`` are the personal display frame (#1953, ADR-0410):\n``date_format`` choice validation is enforced by the model field's ``choices``;\n``timezone`` is validated below against stdlib ``zoneinfo`` (``\"auto\"`` accepted).",
+                "description": "Read/write the caller's own app preferences.\n\n``default_landing`` and ``role_context`` choice validation is enforced by the\nmodel fields' ``choices`` (DRF rejects an out-of-range value with 400).\n``hidden_views`` is a bounded list of canonical view keys (ADR-0139);\n``validate_hidden_views`` rejects unknown keys and de-duplicates.\n``RETIRED_FIELDS`` are 400-rejected by name (see ``validate``).\n``home_override`` (``\"rm\"`` or null) picks the shell-v2 home; a write to\n``default_landing`` clears it (see ``update``), so a request that sets both\n``default_landing`` and a non-null ``home_override`` is 400-rejected (see\n``validate``) rather than silently dropping the override.\n``timezone`` / ``date_format`` are the personal display frame (#1953, ADR-0410):\n``date_format`` choice validation is enforced by the model field's ``choices``;\n``timezone`` is validated below against stdlib ``zoneinfo`` (``\"auto\"`` accepted).",
                 "properties": {
                     "default_landing": {
                         "allOf": [
@@ -72693,9 +72693,6 @@
                         "oneOf": [
                             {
                                 "$ref": "#/components/schemas/HomeOverrideEnum"
-                            },
-                            {
-                                "$ref": "#/components/schemas/BlankEnum"
                             },
                             {
                                 "$ref": "#/components/schemas/NullEnum"
@@ -92144,7 +92141,7 @@
             },
             "UserProfile": {
                 "type": "object",
-                "description": "Read/write the caller's own app preferences.\n\n``default_landing`` and ``role_context`` choice validation is enforced by the\nmodel fields' ``choices`` (DRF rejects an out-of-range value with 400).\n``hidden_views`` is a bounded list of canonical view keys (ADR-0139);\n``validate_hidden_views`` rejects unknown keys and de-duplicates.\n``RETIRED_FIELDS`` are 400-rejected by name (see ``validate``).\n``home_override`` (``\"rm\"`` or null) picks the shell-v2 home; a write to\n``default_landing`` clears it (see ``update``).\n``timezone`` / ``date_format`` are the personal display frame (#1953, ADR-0410):\n``date_format`` choice validation is enforced by the model field's ``choices``;\n``timezone`` is validated below against stdlib ``zoneinfo`` (``\"auto\"`` accepted).",
+                "description": "Read/write the caller's own app preferences.\n\n``default_landing`` and ``role_context`` choice validation is enforced by the\nmodel fields' ``choices`` (DRF rejects an out-of-range value with 400).\n``hidden_views`` is a bounded list of canonical view keys (ADR-0139);\n``validate_hidden_views`` rejects unknown keys and de-duplicates.\n``RETIRED_FIELDS`` are 400-rejected by name (see ``validate``).\n``home_override`` (``\"rm\"`` or null) picks the shell-v2 home; a write to\n``default_landing`` clears it (see ``update``), so a request that sets both\n``default_landing`` and a non-null ``home_override`` is 400-rejected (see\n``validate``) rather than silently dropping the override.\n``timezone`` / ``date_format`` are the personal display frame (#1953, ADR-0410):\n``date_format`` choice validation is enforced by the model field's ``choices``;\n``timezone`` is validated below against stdlib ``zoneinfo`` (``\"auto\"`` accepted).",
                 "properties": {
                     "default_landing": {
                         "allOf": [
@@ -92189,9 +92186,6 @@
                         "oneOf": [
                             {
                                 "$ref": "#/components/schemas/HomeOverrideEnum"
-                            },
-                            {
-                                "$ref": "#/components/schemas/BlankEnum"
                             },
                             {
                                 "$ref": "#/components/schemas/NullEnum"
