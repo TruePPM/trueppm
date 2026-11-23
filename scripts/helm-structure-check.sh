@@ -2669,11 +2669,15 @@ pgb_tls_mount="$(yq 'select(.kind == "Deployment" and .metadata.labels["app.kube
   || fail "PgBouncer Deployment does not mount pgbouncer.tls.existingSecret at /etc/pgbouncer-tls (got '$pgb_tls_mount') (#2275)"
 # NetworkPolicy: with networkPolicy on (the default) PgBouncer admits exactly the
 # postgresql policy's datastore clients on 6432, and nothing renders when it is off.
-pgb_np="$(yq 'select(.kind == "NetworkPolicy" and .metadata.name == "trueppm-pgbouncer")' <<<"$pgb_on_render")"
-[ -n "$pgb_np" ] || fail "pgbouncer.enabled rendered no PgBouncer NetworkPolicy (#2275)"
-[ "$(yq '.spec.ingress[0].ports[0].port' <<<"$pgb_np")" = "6432" ] \
+# One yq pass per question over the whole stream, then drop blank and `---`
+# lines: older yq (v4.35.2, the --self-test shim) emits a separator for every
+# document select() skips (#3147).
+pgb_np_q() { yq "select(.kind == \"NetworkPolicy\" and .metadata.name == \"trueppm-pgbouncer\") | $1" <<<"$pgb_on_render" | grep -vx -e '---' -e '' || true; }
+pgb_np_port="$(pgb_np_q '.spec.ingress[0].ports[0].port')"
+[ -n "$pgb_np_port" ] || fail "pgbouncer.enabled rendered no PgBouncer NetworkPolicy (#2275)"
+[ "$pgb_np_port" = "6432" ] \
   || fail "PgBouncer NetworkPolicy does not scope ingress to 6432 (#2275)"
-pgb_np_from="$(yq '.spec.ingress[0].from[].podSelector.matchLabels["app.kubernetes.io/component"]' <<<"$pgb_np" | sort | tr '\n' ' ')"
+pgb_np_from="$(pgb_np_q '.spec.ingress[0].from[].podSelector.matchLabels["app.kubernetes.io/component"]' | sort | tr '\n' ' ')"
 [ "$pgb_np_from" = "api backup celery-beat celery-worker demo-seed " ] \
   || fail "PgBouncer NetworkPolicy admits '$pgb_np_from', want the datastore clients api backup celery-beat celery-worker demo-seed (#2275)"
 pgb_np_heavy="$(helm template trueppm "$CHART" "${pgb_base[@]}" "${pgb_on[@]}" --set heavyWorker.enabled=true \
