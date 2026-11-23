@@ -36,6 +36,7 @@ import {
 import { RoleContextRadioGroup } from '@/features/me/RoleContextRadioGroup';
 import { ROLE_CONTEXT_LABEL } from '@/features/me/roleContext';
 import { ViewVisibilitySection } from '@/features/me/ViewVisibilitySection';
+import { RmHomeToggle } from '@/features/me/RmHomeToggle';
 import { TimezoneFormatSection } from '@/features/me/TimezoneFormatSection';
 
 const SAVED_TOAST_MS = 3000;
@@ -196,6 +197,8 @@ export function MyGeneralPreferencesPage() {
             ? 'Saved.'
             : 'Changes save automatically.'}
       </p>
+
+      <RmHomeToggle offline={offline} />
 
       <ViewVisibilitySection />
 

@@ -16,6 +16,9 @@ vi.mock('@/hooks/useMonteCarloResult', () => ({ useMonteCarloResult: () => q.cur
 vi.mock('@/hooks/useRunMonteCarlo', () => ({ useRunMonteCarlo: () => q.run }));
 vi.mock('@/features/charts', () => ({
   SCurveChart: () => <div data-testid="scurve" />,
+  HistogramChart: ({ buckets }: { buckets: unknown[] }) => (
+    <div data-testid="histogram">{buckets.length}</div>
+  ),
   forecastToSCurveProps: () => ({}),
 }));
 
@@ -50,6 +53,18 @@ describe('ForecastPage', () => {
     expect(screen.getByRole('heading', { name: 'Forecast' })).toBeInTheDocument();
     expect(screen.getByTestId('scurve')).toBeInTheDocument();
     expect(screen.getByText(/As of/)).toBeInTheDocument();
+  });
+
+  it('draws the weekly histogram from the server buckets, and omits it when there are none', () => {
+    set({ data: { ...result, buckets: [{ weekStart: '2026-06-01', count: 3 }] } });
+    const { unmount } = renderWithRouter(<ForecastPage />, {
+      initialEntries: ['/projects/proj/forecast'],
+    });
+    expect(screen.getByTestId('histogram')).toHaveTextContent('1');
+    unmount();
+    set({ data: { ...result, buckets: [] } });
+    renderWithRouter(<ForecastPage />, { initialEntries: ['/projects/proj/forecast'] });
+    expect(screen.queryByTestId('histogram')).toBeNull();
   });
 
   it('replaces the "as of" claim with a rerun prompt when stale', () => {

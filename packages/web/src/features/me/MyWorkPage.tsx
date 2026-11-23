@@ -56,7 +56,7 @@ import { LandingPrimaryUsePrompt } from './LandingPrimaryUsePrompt';
 import { LandingContextHint } from './LandingContextHint';
 import { buildMyWorkFocusCards, greeting, greetingSubline, dateChip } from './myWorkFocus';
 
-interface WorkGroup {
+export interface WorkGroup {
   group: MyWorkGroup;
   tasks: MyWorkTask[];
   /** Read-only external items (Jira etc.) bucketed into this group (#1422). */
@@ -65,8 +65,8 @@ interface WorkGroup {
 
 // Render order + contributor-facing labels (#484). Deliberately plain language —
 // "Today" / "This Sprint" / "Upcoming", never "Phase" / "Early Finish" / "WBS".
-const GROUP_ORDER: MyWorkGroup[] = ['today', 'this_sprint', 'upcoming'];
-const GROUP_LABEL: Record<MyWorkGroup, string> = {
+export const GROUP_ORDER: MyWorkGroup[] = ['today', 'this_sprint', 'upcoming'];
+export const GROUP_LABEL: Record<MyWorkGroup, string> = {
   today: 'Today',
   this_sprint: 'This Sprint',
   upcoming: 'Upcoming',
@@ -81,7 +81,7 @@ const GROUP_LABEL: Record<MyWorkGroup, string> = {
  * server already ordered them (due date → bucket → recency), so each group
  * preserves that order.
  */
-function groupExternalItems(
+export function groupExternalItems(
   items: MyWorkExternalItem[],
   todayIso: string,
 ): Record<MyWorkGroup, MyWorkExternalItem[]> {
@@ -105,7 +105,7 @@ function groupExternalItems(
  * each section; external items are appended after native rows in the same group.
  * A group renders when it has either native tasks or external items.
  */
-function groupByBucket(
+export function groupByBucket(
   tasks: MyWorkTask[],
   externalByGroup: Record<MyWorkGroup, MyWorkExternalItem[]>,
 ): WorkGroup[] {
@@ -393,7 +393,7 @@ export function MyWorkPage() {
   );
 }
 
-function WorkGroupHeader({ group, taskCount }: { group: MyWorkGroup; taskCount: number }) {
+export function WorkGroupHeader({ group, taskCount }: { group: MyWorkGroup; taskCount: number }) {
   const label = GROUP_LABEL[group];
   return (
     <h2

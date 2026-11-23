@@ -10,7 +10,7 @@ import { DefinitionTip } from '@/components/page2/DefinitionTip';
 import { PAGE_BUTTON } from '@/components/page2/classes';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { QueryErrorState } from '@/components/QueryErrorState';
-import { SCurveChart, forecastToSCurveProps } from '@/features/charts';
+import { HistogramChart, SCurveChart, forecastToSCurveProps } from '@/features/charts';
 import { formatRelative } from '@/lib/formatRelative';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { SHELL_V2_FLAG } from './shellFlag';
@@ -108,6 +108,17 @@ function ForecastBody() {
             )
           )}
           <SCurveChart {...forecastToSCurveProps(state.result)} />
+          {state.result.buckets && state.result.buckets.length > 0 && (
+            <HistogramChart
+              title="Finish by week"
+              buckets={state.result.buckets}
+              markers={(['p50', 'p80', 'p95'] as const).map((k) => ({
+                key: k,
+                label: k.toUpperCase(),
+                date: state.result[k],
+              }))}
+            />
+          )}
         </div>
       )}
     </PageFrame>

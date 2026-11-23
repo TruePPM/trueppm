@@ -7,3 +7,5 @@ export type { RiskZone, RiskZoneBandProps, RiskZoneMarker } from './RiskZoneBand
 export { HeatCellBox, HeatLegend } from './HeatScale';
 export { heatCell, heatFill, heatInk, heatLabel } from './heat';
 export { assignLabelRows } from './labelPacking';
+export { HistogramChart } from './HistogramChart';
+export type { HistogramBucket, HistogramChartProps, HistogramMarker } from './HistogramChart';
