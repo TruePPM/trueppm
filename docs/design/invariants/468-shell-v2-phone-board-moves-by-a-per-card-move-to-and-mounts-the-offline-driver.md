@@ -1,4 +1,4 @@
-# Rule 465 — On the shell v2 phone Board a card moves by a per-card "Move to…" disclosure, and the board mounts the offline driver
+# Rule 468 — On the shell v2 phone Board a card moves by a per-card "Move to…" disclosure, and the board mounts the offline driver
 
 > **Invariant.** Indexed from [`packages/web/CLAUDE.md`](../../../packages/web/CLAUDE.md), section *Board*. The index carries the rule's headline; this file carries its full text (#5105).
 

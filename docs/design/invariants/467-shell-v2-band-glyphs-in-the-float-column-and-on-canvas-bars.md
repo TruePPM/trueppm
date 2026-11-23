@@ -1,4 +1,4 @@
-# Rule 464 — On shell v2 the critical and near-critical bands are written as glyphs in the Float column and on the bar, not only as a frame color
+# Rule 467 — On shell v2 the critical and near-critical bands are written as glyphs in the Float column and on the bar, not only as a frame color
 
 > **Invariant.** Indexed from [`packages/web/CLAUDE.md`](../../../packages/web/CLAUDE.md), section *Schedule*. The index carries the rule's headline; this file carries its full text (#5106).
 
