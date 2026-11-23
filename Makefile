@@ -251,16 +251,26 @@ role-route-matrix-check: ## Run the RBAC role-route-matrix oracle + route-table 
 	@# test_role_route_matrix.py pins every (method, route, action) x 7 principals against
 	@# role_route_matrix.txt; before this target it ran only in CI's api:test, so a route that
 	@# drifted the authorization surface was found after the push. Change-gated to the files
-	@# that can move the matrix (api source, the access tests) so an unrelated push skips it.
+	@# that can move the matrix (route-surface files, below) so an unrelated push skips it.
 	@# It needs a reachable Postgres: pytest-django builds a throwaway test database, named
 	@# by the worktree's TRUEPPM_TEST_DB (source .envrc) so parallel worktrees do not collide.
 	@# DATABASE_URL defaults to the dev stack's published port; export it when yours differs
 	@# (the shared stack's port moves, #3666). Unreachable -> fail with the fix, not a trace.
 	@# PYTHONPATH pins this tree's api and scheduler sources over the shared venv's editable
 	@# installs, which resolve to the main checkout (a worktree would test main's routes).
-	@if ! git diff --name-only origin/main...HEAD 2>/dev/null | grep -qE '^packages/api/(src/|tests/apps/access/)'; then \
-	  echo "→ role-route-matrix: no packages/api source or access-test changes — skipped"; \
-	else \
+	@# Narrowed to route-surface files (urls.py, *views*.py, permissions*.py, *viewsets*, the
+	@# access tests, packages/api/pyproject.toml). Fail open: when the base ref cannot be
+	@# resolved the changed files are unknowable, so the oracle runs rather than skips.
+	@# BASE_REF overrides origin/main (used to test the gate).
+	@BASE_REF="$${BASE_REF:-origin/main}"; \
+	RUN=1; \
+	if ! git rev-parse --verify -q "$$BASE_REF" >/dev/null 2>&1; then \
+	  echo "→ role-route-matrix: cannot resolve $$BASE_REF, changed files unknown — running the oracle (fail open)"; \
+	elif ! git diff --name-only "$$BASE_REF"...HEAD 2>/dev/null | grep -qE '^packages/api/(.*/)?(urls\.py|[^/]*views[^/]*\.py|permissions[^/]*\.py|[^/]*viewsets[^/]*|pyproject\.toml)$|^packages/api/tests/apps/access/'; then \
+	  RUN=0; \
+	  echo "→ role-route-matrix: no route-surface changes (urls/views/permissions/viewsets, access tests, api pyproject) — skipped"; \
+	fi; \
+	if [ "$$RUN" = 1 ]; then \
 	  echo "→ role-route-matrix + route-table invariants"; \
 	  cd packages/api && \
 	  DB_URL="$${DATABASE_URL:-postgres://trueppm:trueppm@127.0.0.1:5432/trueppm}" && \
