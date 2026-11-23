@@ -272,7 +272,7 @@ test.describe('Project Settings → Template divergence', () => {
     await expect(page.getByText(/Everyone on this project sees exactly this page/)).toBeVisible();
   });
 
-  test('a deleted template still names itself in the provenance line', async ({ page }) => {
+  test('an unavailable template still names itself in the provenance line', async ({ page }) => {
     await setup(page, {
       role: 1,
       digest: { ...ADOPTED, template: null, template_available: false },
@@ -280,7 +280,7 @@ test.describe('Project Settings → Template divergence', () => {
     await page.goto(URL);
 
     await expect(page.getByText(/Delivery skeleton/).first()).toBeVisible();
-    await expect(page.getByText(/has since been deleted/)).toBeVisible();
+    await expect(page.getByText(/no longer available/)).toBeVisible();
     // Not an error: the adoption record is denormalized precisely so it outlives
     // the template row.
     await expect(page.locator('#template-divergence').getByRole('alert')).toHaveCount(0);

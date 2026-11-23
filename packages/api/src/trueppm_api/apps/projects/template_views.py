@@ -12,14 +12,18 @@ caller regardless of program membership.
 
 from __future__ import annotations
 
+import uuid
 from typing import Any, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Case, Count, Exists, IntegerField, OuterRef, Q, QuerySet, Value, When
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
+    OpenApiParameter,
     OpenApiResponse,
     extend_schema,
     extend_schema_field,
+    extend_schema_view,
     inline_serializer,
 )
 from rest_framework import serializers, status, viewsets
@@ -47,8 +51,13 @@ from trueppm_api.apps.projects.models import (
 )
 from trueppm_api.apps.projects.program_views import SeedImportThrottle
 from trueppm_api.apps.projects.project_templates import (
+    OUTLINE_KIND_GATE,
+    OUTLINE_KIND_MILESTONE,
+    OUTLINE_KIND_PHASE,
+    OUTLINE_KIND_TASK,
     TemplateStructureError,
     extract_structure,
+    outline_structure,
     summarize_structure,
     validate_structure,
 )
@@ -58,7 +67,11 @@ from trueppm_api.apps.projects.template_services import (
 )
 from trueppm_api.apps.workspace.models import AuditEventType
 from trueppm_api.apps.workspace.services import record_audit_event
-from trueppm_api.core.openapi import state_refusal_400, undo_summary_schema
+from trueppm_api.core.openapi import (
+    state_refusal_400,
+    undo_summary_schema,
+    validation_envelope_400,
+)
 from trueppm_api.core.request_body import object_body
 
 # Shared user-facing response details.
@@ -171,6 +184,23 @@ _ApplyRequestSerializer = inline_serializer(
 )
 
 
+def _uuid_query_param(request: Request | None, name: str) -> uuid.UUID | None:
+    """A UUID query parameter, or None when absent; a malformed one is a 400.
+
+    Passed raw to a UUID column, a malformed value raises Django's
+    ``ValidationError`` inside the queryset, which DRF does not convert — a 500 on
+    input that has to be a 400 (the #2785 class). ``request`` may be unset during
+    schema introspection, which reads no parameters.
+    """
+    raw = request.query_params.get(name) if request is not None else None
+    if not raw:
+        return None
+    try:
+        return uuid.UUID(raw)
+    except ValueError as exc:
+        raise ValidationError({name: "Must be an id (UUID)."}) from exc
+
+
 def _flag(value: Any) -> bool:
     """Read a permissive boolean off attacker-shaped ``request.data``.
 
@@ -224,6 +254,15 @@ class ProjectTemplateSerializer(serializers.ModelSerializer[ProjectTemplate]):
             "counts",
             "usage_count",
         ]
+        # `name`, `description`, `program` and `is_published` are absent from this
+        # list, so the serializer would accept them on a write. That is safe ONLY
+        # because `ProjectTemplateViewSet` is a `ReadOnlyModelViewSet` whose one
+        # write door is `publish`, which builds the row itself and never calls
+        # `is_valid()` here. Turning the viewset into a `ModelViewSet` would make all
+        # four writable under the class's bare `IsAuthenticated` — any user could
+        # rename, re-scope into another program, or unpublish somebody else's
+        # template — with nothing failing. Add them here before adding any write
+        # route (#3316, #3039).
         read_only_fields = [  # noqa: RUF012
             "id",
             "source_kind",
@@ -335,6 +374,58 @@ class ProjectTemplateSerializer(serializers.ModelSerializer[ProjectTemplate]):
         return TemplateSource(obj.source_kind).label
 
 
+_OUTLINE_ITEMS = inline_serializer(
+    name="ProjectTemplateOutlineItem",
+    many=True,
+    fields={
+        "name": serializers.CharField(help_text="The row name apply will write, verbatim."),
+        "kind": serializers.ChoiceField(
+            choices=[
+                (OUTLINE_KIND_PHASE, "Phase"),
+                (OUTLINE_KIND_GATE, "Gate"),
+                (OUTLINE_KIND_MILESTONE, "Milestone"),
+                (OUTLINE_KIND_TASK, "Task"),
+            ],
+            help_text=(
+                "`phase` has structural children; `gate` is a gated milestone; "
+                "`milestone` is any other milestone; everything else is `task`."
+            ),
+        ),
+        "depth": serializers.IntegerField(
+            help_text="WBS depth, 0 for a top-level row.", min_value=0
+        ),
+    },
+)
+
+
+class ProjectTemplateDetailSerializer(ProjectTemplateSerializer):
+    """One template, plus the names, kinds and depths of the rows applying it writes.
+
+    The outline is returned on the detail read only; the gallery list leaves it
+    out. The template's frozen document itself is never returned.
+    """
+
+    # Why this shape (#3084): names are not a wider disclosure than publishing
+    # already made -- the ``publish`` action records a ``TEMPLATE_PUBLISHED`` audit
+    # event precisely because it puts the source project's task names in front of
+    # everyone who can see the template, and any Admin who applies it gets every
+    # name written into their own project. What stays withheld is everything else
+    # the document holds (notes, durations, the dependency edges). It is
+    # detail-only rather than on every gallery row because a template carries up
+    # to ``MAX_TEMPLATE_NODES`` rows, which would multiply the gallery's payload
+    # by its largest template for a list the card shows collapsed by default.
+    outline = serializers.SerializerMethodField()
+
+    class Meta(ProjectTemplateSerializer.Meta):
+        fields = [*ProjectTemplateSerializer.Meta.fields, "outline"]  # noqa: RUF012
+        read_only_fields = [*ProjectTemplateSerializer.Meta.read_only_fields, "outline"]  # noqa: RUF012
+
+    @extend_schema_field(_OUTLINE_ITEMS)
+    def get_outline(self, obj: ProjectTemplate) -> list[dict[str, Any]]:
+        """Off the frozen document ``apply`` materializes — never a second list."""
+        return outline_structure(obj.structure or {})
+
+
 class TemplateApplicationSerializer(serializers.ModelSerializer[TemplateApplication]):
     """The adoption record — also what the Start sheet polls while seeding runs."""
 
@@ -394,6 +485,45 @@ class TemplateApplicationUndoSerializer(TemplateApplicationSerializer):
         return dict((obj.result_summary or {}).get("undo") or {})
 
 
+@extend_schema_view(
+    list=extend_schema(
+        responses={
+            200: ProjectTemplateSerializer,
+            400: validation_envelope_400(
+                "A `program` or `source_project` filter that is not a UUID. Keyed by "
+                "the parameter's name."
+            ),
+        },
+        parameters=[
+            OpenApiParameter(
+                "program",
+                OpenApiTypes.UUID,
+                description=(
+                    "Narrow to this program's templates plus the workspace-wide ones. "
+                    "Cannot widen past the caller's program memberships. A malformed "
+                    "id is a 400 for either filter."
+                ),
+            ),
+            OpenApiParameter(
+                "source_project",
+                OpenApiTypes.UUID,
+                description=(
+                    "Only templates published from this project — the project "
+                    "Settings → Templates version list. Narrows the caller's visible "
+                    "pool; it never reveals a template the caller could not otherwise "
+                    "list."
+                ),
+            ),
+        ],
+    ),
+    retrieve=extend_schema(
+        responses={200: ProjectTemplateDetailSerializer},
+        description=(
+            "One template, plus `outline`: the names of the rows applying it would "
+            "write, in WBS order."
+        ),
+    ),
+)
 class ProjectTemplateViewSet(IdempotencyMixin, viewsets.ReadOnlyModelViewSet[ProjectTemplate]):
     """Templates available to the caller, plus publish and apply.
 
@@ -415,6 +545,12 @@ class ProjectTemplateViewSet(IdempotencyMixin, viewsets.ReadOnlyModelViewSet[Pro
 
     serializer_class = ProjectTemplateSerializer
     permission_classes = [IsAuthenticated]  # noqa: RUF012
+
+    def get_serializer_class(self) -> type[serializers.BaseSerializer[Any]]:
+        """The detail read adds ``outline``; every other action keeps the gallery row."""
+        if self.action == "retrieve":
+            return ProjectTemplateDetailSerializer
+        return ProjectTemplateSerializer
 
     def get_queryset(self) -> QuerySet[ProjectTemplate]:
         """Published templates in scope: workspace-wide, or a program the caller belongs to.
@@ -488,9 +624,17 @@ class ProjectTemplateViewSet(IdempotencyMixin, viewsets.ReadOnlyModelViewSet[Pro
                 .values("program_id")
             )
             qs = qs.filter(Q(program__isnull=True) | Q(program_id__in=member_program_ids))
-        program_id = self.request.query_params.get("program")
+        program_id = _uuid_query_param(self.request, "program")
         if program_id:
             qs = qs.filter(Q(program_id=program_id) | Q(program__isnull=True))
+        # Server-side rather than the client filtering page 1 of the whole gallery
+        # (#3316): once the workspace pool passes one page, a project's own published
+        # versions silently drop off its own Settings page. It only ever narrows the
+        # membership-scoped queryset above, so it cannot surface a program-scoped
+        # template the caller is not entitled to list.
+        source_project_id = _uuid_query_param(self.request, "source_project")
+        if source_project_id:
+            qs = qs.filter(source_project_id=source_project_id)
         return qs
 
     def _require_project_admin(self, project: Project) -> None:

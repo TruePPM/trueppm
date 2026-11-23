@@ -1,6 +1,7 @@
 ---
 title: Project templates
 description: Reusable project shapes — phases, gates, dependencies and durations — that never carry owners, dates, or anyone else's progress.
+documentedFor: "0.5"
 ---
 
 A template captures a project's **shape** so the next project like it does not
@@ -58,6 +59,26 @@ asking.
 Alongside the chip, each row states how many rows it will write and what it
 carries.
 
+### The row names, before you apply
+
+:::note[Ships in 0.5]
+The row-name list below ships in 0.5. In 0.4 a gallery card shows only the counts
+("carries 5 phases · 4 gates · 9 deps") and the description; the names appear once
+the template has been applied.
+:::
+
+Counts tell you how big a shape is, not what it calls things. If your steering
+committee already knows its hold points as "Gate 2 — approved to execute", that is
+worth checking before the project exists, not after. So every card ends in
+**Show the N row names**: open it and the card lists every phase, gate, milestone
+and task name the template will write, in WBS order, with phases, gates and
+milestones labeled. It is collapsed by default and loads the names only when you
+open it. Opening it does not choose the template.
+
+The names come from the same frozen copy that applying the template writes from, so
+the list cannot disagree with what lands on your Schedule. They are the only part of
+that copy the list shows: notes, durations and dependency links stay out of it.
+
 ## Applying one
 
 Pick a template in the new-project flow. **Blank project** is the default and a
@@ -114,7 +135,7 @@ after a row is seeded, whether or not you ever open the banner again.
 
 ### When an apply doesn't finish
 
-Sometimes an apply fails — the template was deleted while the job sat in the
+Sometimes an apply fails — the template was no longer available while the job sat in the
 queue, the project was archived after you asked for it, or the server hit an
 error part way through. The surface you landed on tells you — the Schedule for a
 waterfall or hybrid template, the Product Backlog for an agile one — instead of
@@ -134,7 +155,7 @@ You have three ways forward:
 
 - **Try again** re-applies the same template to the same project. It appears for
   **Project Manager** and above, and only while the template still exists — if it
-  has since been deleted, the banner says so rather than offering a button that
+  is no longer available, the banner says so rather than offering a button that
   cannot work.
 - **Keep the empty project.** The ordinary blank schedule — or empty backlog — is
   right there under the banner with the first row waiting for you. Nothing was
@@ -263,9 +284,12 @@ template wrote:
 | **Added** | Rows in the project that no template wrote, including any that predate the adoption. |
 
 Above the counts is the provenance line — which template, which version, who
-applied it and when. That line survives the template being deleted: the name and
-version are recorded on the project's adoption record, so "this came from Delivery
-Skeleton v3" outlives v3.
+applied it and when. That line does not depend on the template still being
+available: the name and version are recorded on the project's adoption record, so
+"this came from Delivery Skeleton v3" outlives v3. If the template row itself is
+ever missing, the page says the template is no longer available and reports the
+counts as usual. TruePPM has no way to delete or unpublish a template, so in
+practice this happens only after direct changes to the database.
 
 A project that was never created from a template says so, and reports nothing else.
 

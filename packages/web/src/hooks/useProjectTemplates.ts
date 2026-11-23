@@ -63,6 +63,26 @@ export interface ProjectTemplate {
   is_superseded?: boolean;
 }
 
+/**
+ * One row a template will write, as the detail read reports it (#3084).
+ *
+ * Read off the same frozen document `apply` materializes, server-side — there is
+ * no client-side list of phase or gate names to drift from it. Only the name, a
+ * kind and a WBS depth: durations, notes and edges stay on the server.
+ */
+export interface TemplateOutlineItem {
+  name: string;
+  /** `phase` has children; `gate` is a gated milestone; `milestone` any other. */
+  kind: 'phase' | 'gate' | 'milestone' | 'task';
+  /** WBS depth, 0 for a top-level row. */
+  depth: number;
+}
+
+/** `GET /project-templates/{id}/` — the gallery row plus its outline. */
+export interface ProjectTemplateDetail extends ProjectTemplate {
+  outline: TemplateOutlineItem[];
+}
+
 /** What publishing this shape would carry. */
 export interface TemplateCounts {
   task_count: number;
@@ -124,6 +144,30 @@ export function useProjectTemplates(programId?: string | null): UseQueryResult<P
       );
       const data = res.data;
       return Array.isArray(data) ? data : data.results;
+    },
+  });
+}
+
+/**
+ * GET /api/v1/project-templates/{id}/ — the row names a template will write (#3084).
+ *
+ * Fetched on demand, when a reader expands a card, rather than riding every gallery
+ * row: a template carries up to 2,000 rows and the card shows them collapsed by
+ * default, so the list endpoint stays the size of its counts. Keyed per template so
+ * collapsing and re-expanding a card is served from cache.
+ */
+export function useProjectTemplateOutline(
+  templateId: string,
+  enabled: boolean,
+): UseQueryResult<TemplateOutlineItem[]> {
+  return useQuery({
+    queryKey: ['project-template', templateId, 'outline'],
+    enabled,
+    // The document is frozen at publish: a template's outline never changes.
+    staleTime: Infinity,
+    queryFn: async () => {
+      const res = await apiClient.get<ProjectTemplateDetail>(`/project-templates/${templateId}/`);
+      return res.data.outline ?? [];
     },
   });
 }
@@ -342,15 +386,15 @@ export function useTemplatesFromProject(projectId: string | null): UseQueryResul
     queryKey: ['project-templates-from', projectId],
     enabled: Boolean(projectId),
     queryFn: async () => {
+      // Filtered by the server (#3316). The old client-side filter ran over page 1
+      // of the whole workspace gallery, so once that passed one page a project's own
+      // published versions silently dropped off its own Settings page.
       const res = await apiClient.get<PaginatedResponse<ProjectTemplate> | ProjectTemplate[]>(
         '/project-templates/',
+        { params: { source_project: projectId } },
       );
       const data = res.data;
-      const rows = Array.isArray(data) ? data : data.results;
-      // Filtered client-side: the gallery endpoint has no source-project filter,
-      // and adding one for a list this small would be a wider API change than
-      // the screen needs.
-      return rows.filter((t) => t.source_project === projectId);
+      return Array.isArray(data) ? data : data.results;
     },
   });
 }

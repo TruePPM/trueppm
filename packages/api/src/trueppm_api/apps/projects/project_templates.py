@@ -191,27 +191,101 @@ def summarize_structure(structure: dict[str, Any]) -> dict[str, Any]:
     hold points a PMO is actually counting.
     """
     tasks = [t for t in structure.get("tasks", []) if isinstance(t, dict)]
-    paths = [str(t.get("wbs_path") or "") for t in tasks]
-
-    phases = 0
-    for node in tasks:
-        path = str(node.get("wbs_path") or "")
-        if not path or node.get("is_subtask"):
-            continue
-        if any(other != path and other.startswith(f"{path}.") for other in paths):
-            phases += 1
+    parents = _parent_paths(tasks)
 
     return {
         "task_count": len(tasks),
-        "phase_count": phases,
-        "gate_count": sum(
-            1 for t in tasks if t.get("is_milestone") and t.get("governance_class") == "gated"
-        ),
+        "phase_count": sum(1 for t in tasks if _is_phase(t, parents)),
+        "gate_count": sum(1 for t in tasks if _is_gate(t)),
         "milestone_count": sum(1 for t in tasks if t.get("is_milestone")),
         "dependency_count": len(structure.get("dependencies") or []),
         "methodology": structure.get("methodology"),
         "carries": list(structure.get("carries") or []),
     }
+
+
+#: Row kinds :func:`outline_structure` reports, most specific first.
+OUTLINE_KIND_GATE = "gate"
+OUTLINE_KIND_MILESTONE = "milestone"
+OUTLINE_KIND_PHASE = "phase"
+OUTLINE_KIND_TASK = "task"
+
+
+def _parent_paths(tasks: list[dict[str, Any]]) -> set[str]:
+    """Every WBS path that is a proper prefix of some node's path.
+
+    A node whose own path is in this set has a structural descendant, which is
+    what makes it a phase. Built once as a set (O(N x depth)) rather than testing
+    each node against every other path (O(N^2)): a template carries up to
+    ``MAX_TEMPLATE_NODES`` rows and the gallery serializes every one it lists.
+    """
+    parents: set[str] = set()
+    for node in tasks:
+        labels = str(node.get("wbs_path") or "").split(".")
+        for i in range(1, len(labels)):
+            parents.add(".".join(labels[:i]))
+    return parents
+
+
+def _is_phase(node: dict[str, Any], parents: set[str]) -> bool:
+    """Mirrors ``task_is_phase``: a non-subtask node with a structural descendant."""
+    path = str(node.get("wbs_path") or "")
+    return bool(path) and not node.get("is_subtask") and path in parents
+
+
+def _is_gate(node: dict[str, Any]) -> bool:
+    """A gated milestone — the hold points a PMO is actually counting."""
+    return bool(node.get("is_milestone")) and node.get("governance_class") == "gated"
+
+
+def _wbs_sort_key(node: dict[str, Any]) -> tuple[int, tuple[tuple[int, int, str], ...]]:
+    """WBS order with numeric labels compared as numbers, so ``1.10`` follows ``1.9``.
+
+    The document is written in the source query's order, which is not a promise this
+    reader should lean on: a row edited outside the publish path, or one extracted
+    under a different ordering, would otherwise render out of sequence. A node with
+    no path sorts last rather than first, since it has no position to claim.
+    """
+    path = str(node.get("wbs_path") or "")
+    if not path:
+        return (1, ())
+    labels = path.split(".")
+    return (0, tuple((0, int(lb), "") if lb.isdigit() else (1, 0, lb) for lb in labels))
+
+
+def outline_structure(structure: dict[str, Any]) -> list[dict[str, Any]]:
+    """The row names a template will write, in WBS order, each tagged with its kind (#3084).
+
+    Derived from the frozen document for the same reason :func:`summarize_structure`
+    is: it is the document ``apply`` materializes, so the names an adopter reads
+    before applying are the names that will land in their project. There is
+    deliberately no second, hand-maintained list of phase or gate names anywhere.
+
+    Each entry carries only ``name``, ``kind`` and ``depth`` (0 for a top-level row).
+    Durations, notes and dependency edges stay out: the card answers "what will this
+    call things", and the rest of the shape is already summarized by the counts.
+    """
+    tasks = [t for t in structure.get("tasks", []) if isinstance(t, dict) and t.get("name")]
+    parents = _parent_paths(tasks)
+    outline: list[dict[str, Any]] = []
+    for node in sorted(tasks, key=_wbs_sort_key):
+        if _is_gate(node):
+            kind = OUTLINE_KIND_GATE
+        elif node.get("is_milestone"):
+            kind = OUTLINE_KIND_MILESTONE
+        elif _is_phase(node, parents):
+            kind = OUTLINE_KIND_PHASE
+        else:
+            kind = OUTLINE_KIND_TASK
+        path = str(node.get("wbs_path") or "")
+        outline.append(
+            {
+                "name": str(node["name"]),
+                "kind": kind,
+                "depth": path.count(".") if path else 0,
+            }
+        )
+    return outline
 
 
 def _validate_structure_envelope(structure: Any) -> tuple[dict[str, Any], list[Any]]:

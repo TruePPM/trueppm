@@ -6,6 +6,7 @@ import { createElement } from 'react';
 import {
   useApplyTemplate,
   useDeleteUntouchedSeededTasks,
+  useProjectTemplateOutline,
   useProjectTemplates,
   usePublishPreview,
   usePublishTemplate,
@@ -87,17 +88,42 @@ describe('useProjectTemplates', () => {
 });
 
 describe('useTemplatesFromProject', () => {
-  it('filters the gallery to templates published from the given project', async () => {
+  it('asks the server for one project\'s templates rather than filtering page 1', async () => {
+    // #3316: the client used to filter `results` of an unparameterized gallery
+    // read, which loses a project's templates once the gallery passes one page.
     getMock.mockResolvedValue({
-      data: [template(), template({ id: 'tpl2', source_project: 'other' })],
+      data: { count: 1, next: null, previous: null, results: [template()] },
     });
     const { result } = renderHook(() => useTemplatesFromProject('p1'), { wrapper });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(getMock).toHaveBeenCalledWith('/project-templates/', {
+      params: { source_project: 'p1' },
+    });
     expect(result.current.data?.map((t) => t.id)).toEqual(['tpl1']);
   });
 
   it('is disabled without a project', () => {
     const { result } = renderHook(() => useTemplatesFromProject(null), { wrapper });
+    expect(result.current.fetchStatus).toBe('idle');
+    expect(getMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('useProjectTemplateOutline', () => {
+  it('reads the outline off the detail endpoint once enabled', async () => {
+    const outline = [
+      { name: 'Initiate', kind: 'phase', depth: 0 },
+      { name: 'Gate 1 — approved to plan', kind: 'gate', depth: 1 },
+    ];
+    getMock.mockResolvedValue({ data: { ...template(), outline } });
+    const { result } = renderHook(() => useProjectTemplateOutline('tpl1', true), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(getMock).toHaveBeenCalledWith('/project-templates/tpl1/');
+    expect(result.current.data).toEqual(outline);
+  });
+
+  it('fetches nothing while the card is collapsed', () => {
+    const { result } = renderHook(() => useProjectTemplateOutline('tpl1', false), { wrapper });
     expect(result.current.fetchStatus).toBe('idle');
     expect(getMock).not.toHaveBeenCalled();
   });

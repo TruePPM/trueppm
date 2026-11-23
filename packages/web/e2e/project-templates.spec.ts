@@ -245,3 +245,71 @@ test.describe('Template way-in is never empty (#2909)', () => {
     await expect(rows.nth(1)).toContainText('Community');
   });
 });
+
+test.describe('Row names before Apply (#3084)', () => {
+  const OUTLINE = [
+    { name: 'Initiate', kind: 'phase', depth: 0 },
+    { name: 'Charter and business case', kind: 'task', depth: 1 },
+    { name: 'Gate 1 — approved to plan', kind: 'gate', depth: 1 },
+    { name: 'Plan', kind: 'phase', depth: 0 },
+    { name: 'Gate 2 — approved to execute', kind: 'gate', depth: 1 },
+  ];
+
+  test('a card expands to the phase and gate names the template writes', async ({ page }) => {
+    await setup(page);
+    // Registered after `setup`, so it wins over the list-shaped catch-all for the
+    // detail read the disclosure fires (Playwright matches routes newest-first).
+    let detailReads = 0;
+    await page.route(`**/api/v1/project-templates/${TEMPLATE.id}/`, (r) => {
+      detailReads += 1;
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ ...TEMPLATE, outline: OUTLINE }),
+      });
+    });
+    const dialog = await openStartSheet(page);
+    await dialog.getByRole('radio', { name: /^template/i }).click();
+    const option = dialog.getByRole('radio', { name: /Delivery skeleton/i });
+    // Choose it explicitly first: a lone template may be auto-selected once the list
+    // lands, and reading the state before that settles would race it.
+    await option.click();
+    await expect(option).toHaveAttribute('aria-checked', 'true');
+
+    const toggle = dialog.getByRole('button', { name: 'Show the 12 row names' });
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    // Collapsed by default, and nothing fetched until asked.
+    expect(detailReads).toBe(0);
+    await toggle.click();
+
+    const list = dialog.getByRole('list', { name: 'Rows Delivery skeleton writes' });
+    await expect(list.getByRole('listitem')).toHaveText([
+      'Initiate · phase',
+      'Charter and business case',
+      'Gate 1 — approved to plan · gate',
+      'Plan · phase',
+      'Gate 2 — approved to execute · gate',
+    ]);
+    await expect(dialog.getByRole('button', { name: 'Hide the 12 row names' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+    // Expanding the names is not a click on the radio: the choice is untouched.
+    await expect(option).toHaveAttribute('aria-checked', 'true');
+  });
+
+  test('a failed names read leaves the card usable', async ({ page }) => {
+    await setup(page);
+    await page.route(`**/api/v1/project-templates/${TEMPLATE.id}/`, (r) =>
+      r.fulfill({ status: 500, contentType: 'application/json', body: pj({ detail: 'boom' }) }),
+    );
+    const dialog = await openStartSheet(page);
+    await dialog.getByRole('radio', { name: /^template/i }).click();
+    await dialog.getByRole('button', { name: 'Show the 12 row names' }).click();
+
+    await expect(dialog.getByText(/Couldn’t load the row names/)).toBeVisible();
+    const option = dialog.getByRole('radio', { name: /Delivery skeleton/i });
+    await option.click();
+    await expect(option).toHaveAttribute('aria-checked', 'true');
+  });
+});

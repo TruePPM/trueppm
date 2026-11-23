@@ -105,7 +105,9 @@ describe('ProjectTemplateDivergencePage', () => {
 
     // The name survives the row: the adoption record is denormalized for exactly this.
     expect(screen.getByText(/Delivery skeleton/)).toBeInTheDocument();
-    expect(screen.getByText(/has since been deleted/)).toBeInTheDocument();
+    expect(screen.getByText(/no longer available/)).toBeInTheDocument();
+    // Neutral about why: no shipped path deletes a template (#3039).
+    expect(screen.queryByText(/since been deleted/)).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
