@@ -9,7 +9,9 @@ import { PageTitle, SectionHeading } from '@/components/page2/PageTitle';
 import { StatusChip, type StatusTone } from '@/components/page2/StatusChip';
 import { TYPE } from '@/components/page2/typeScale';
 import { SCurveChart, forecastToSCurveProps } from '@/features/charts';
+import { useMonteCarloHistory } from '@/hooks/useMonteCarloHistory';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
+import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 import { fmtUtcLong, fmtUtcMedium } from '@/lib/formatUtcDate';
 import type { MetricDefinitions, MonteCarloResult } from '@/types';
@@ -53,6 +55,22 @@ export function commitmentChip(
   return { tone: 'ok', label: 'on commitment' };
 }
 
+/**
+ * The caveat under a lead figure that no longer describes the plan. The verdict is
+ * the server's (`forecastStaleness`, #3140) and `unknown` earns no claim, as on the
+ * schedule forecast bar. Word plus glyph, never color alone (rule 120).
+ */
+export function stalenessCaveat(
+  mc: Pick<MonteCarloResult, 'forecastStaleness' | 'velocitySaturatedRuns'>,
+): string[] {
+  const out: string[] = [];
+  if (mc.forecastStaleness === 'aged') out.push('Stale — rerun for updated forecast');
+  else if (mc.forecastStaleness === 'projectChanged') out.push('Edited since this run');
+  if (mc.velocitySaturatedRuns && mc.velocitySaturatedRuns > 0)
+    out.push('Lower bound — some runs hit the velocity limit');
+  return out;
+}
+
 function Peer({
   label,
   date,
@@ -75,9 +93,23 @@ function Peer({
 }
 
 function LeadCard({ projectId, mc }: { projectId: string; mc: MonteCarloResult }) {
-  const { formatInstantTime: clock } = useUserDateFormat();
+  const { formatInstantTime: clock, formatInstantDate: day } = useUserDateFormat();
   const chip = commitmentChip(mc.p80DeltaVsCommitmentDays);
   const runs = mc.nSimulations ?? mc.runs;
+  const caveats = stalenessCaveat(mc);
+  const history = useMonteCarloHistory(projectId);
+  // Two server facts: the latest run's P80 and the run before it. Shown only when they differ.
+  const [latest, prior] = history.data ?? [];
+  const moved =
+    latest?.p80 && prior?.p80 && latest.p80 === mc.p80 && prior.p80 !== latest.p80
+      ? {
+          from: prior.p80,
+          day: day(latest.takenAt, 'medium'),
+        }
+      : null;
+  const topId = mc.sensitivity?.[0]?.taskId;
+  const { tasks } = useScheduleTasks(projectId, { enabled: !!topId });
+  const driver = topId ? tasks?.find((t) => t.id === topId)?.name : undefined;
   const spoken = `Forecast finish P80, ${fmtUtcLong(mc.p80)}${mc.lastRunAt ? `, as of ${clock(mc.lastRunAt)}` : ''}`;
   return (
     <section aria-labelledby="ov2-lead-h" className={CARD} data-testid="overview2-lead">
@@ -93,6 +125,11 @@ function LeadCard({ projectId, mc }: { projectId: string; mc: MonteCarloResult }
           <StatusChip tone={chip.tone} label={chip.label} data-testid="overview2-commitment-chip" />
         )}
       </div>
+      {caveats.length > 0 && (
+        <p className="mt-2 text-xs text-p1-risk-text" data-testid="overview2-staleness">
+          {caveats.map((c) => `◆ ${c}`).join(' · ')}
+        </p>
+      )}
       <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2">
         <Peer label="P50" date={mc.p50} definition={mc.definitions?.p50} />
         <Peer label="Commitment" date={mc.commitmentDate} definition={mc.definitions?.commitment} />
@@ -107,8 +144,14 @@ function LeadCard({ projectId, mc }: { projectId: string; mc: MonteCarloResult }
       >
         {mc.lastRunAt && <span>as of {clock(mc.lastRunAt)}</span>}
         {runs > 0 && <span>· {runs.toLocaleString()} runs</span>}
+        {moved && (
+          <span data-testid="overview2-moved">
+            · moved from {fmtUtcMedium(moved.from)} on {moved.day}
+          </span>
+        )}
         <Link className="ml-auto text-p1-brand underline" to={`/projects/${projectId}/schedule`}>
           Why this date?
+          {driver && <span data-testid="overview2-driver"> Biggest driver: {driver}</span>}
         </Link>
       </p>
     </section>
@@ -118,18 +161,20 @@ function LeadCard({ projectId, mc }: { projectId: string; mc: MonteCarloResult }
 function Tile({
   term,
   definition,
+  asOf,
   value,
   sub,
 }: {
   term: string;
   definition?: string;
+  asOf?: string;
   value: string;
   sub?: string;
 }) {
   return (
     <div className={CARD} data-testid="overview2-tile">
       <div className="text-xs text-p1-text-2">
-        <DefinitionTip term={term} definition={definition} />
+        <DefinitionTip term={term} definition={definition} asOf={asOf} />
       </div>
       <div className={`${TYPE.tile} mt-1 text-p1-text-1`}>{value}</div>
       {sub && <div className="text-xs text-p1-text-2">{sub}</div>}
@@ -193,14 +238,9 @@ export function ProjectOverview2({ projectId }: { projectId: string }) {
           o && (
             <>
               <div className="grid grid-cols-2 gap-3 lg:grid-cols-3" data-testid="overview2-tiles">
-                <Tile
-                  term="Critical tasks"
-                  definition={o.definitions?.critical_task_count}
-                  value={String(o.critical_task_count)}
-                />
+                <Tile term="Critical tasks" value={String(o.critical_task_count)} />
                 <Tile
                   term="Complete"
-                  definition={o.definitions?.complete_tasks}
                   value={`${o.complete_tasks} of ${o.total_tasks}`}
                   sub="tasks"
                 />
@@ -208,12 +248,13 @@ export function ProjectOverview2({ projectId }: { projectId: string }) {
                   <Tile
                     term="Open risks"
                     definition={o.definitions?.open_risk_count}
+                    asOf={o.as_of}
                     value={String(o.open_risk_count)}
                     sub={o.high_risk_count ? `${o.high_risk_count} high` : undefined}
                   />
                 )}
               </div>
-              {/* cost_computable is not served yet (#4809/#4810); until it is, the line stays. */}
+              {/* TODO(#4810): cost_computable is not served yet; until it is, the line stays and the rates link is aspirational. */}
               <NotComputable
                 label="Cost variance"
                 missing="no cost rates are set"

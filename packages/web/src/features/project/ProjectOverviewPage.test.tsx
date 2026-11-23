@@ -130,6 +130,12 @@ describe('ProjectOverviewPage', () => {
     expect(screen.getByRole('region', { name: /holding steady/i })).toBeInTheDocument();
   });
 
+  it('renders the v1 overview, not ProjectOverview2, with shell_v2 off', async () => {
+    renderPage();
+    expect(await screen.findByRole('region', { name: /needs attention/i })).toBeInTheDocument();
+    expect(screen.queryByTestId('overview2')).not.toBeInTheDocument();
+  });
+
   it('renders burn-up chart section', () => {
     renderPage();
     expect(screen.getByRole('region', { name: /burn-up chart/i })).toBeInTheDocument();

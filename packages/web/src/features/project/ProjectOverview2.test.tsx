@@ -4,7 +4,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MonteCarloResult } from '@/types';
-import { ProjectOverview2, commitmentChip, type Overview2Data } from './ProjectOverview2';
+import {
+  ProjectOverview2,
+  commitmentChip,
+  stalenessCaveat,
+  type Overview2Data,
+} from './ProjectOverview2';
 
 const h = vi.hoisted(() => ({
   mc: { data: undefined, isLoading: false, error: null } as {
@@ -13,10 +18,17 @@ const h = vi.hoisted(() => ({
     error: Error | null;
   },
   overview: undefined as unknown,
+  history: undefined as unknown,
 }));
 
 vi.mock('@/hooks/useMonteCarloResult', () => ({
   useMonteCarloResult: () => ({ ...h.mc, refetch: vi.fn() }),
+}));
+vi.mock('@/hooks/useMonteCarloHistory', () => ({
+  useMonteCarloHistory: () => ({ data: h.history }),
+}));
+vi.mock('@/hooks/useScheduleTasks', () => ({
+  useScheduleTasks: () => ({ tasks: [{ id: 't9', name: 'Pour foundation' }] }),
 }));
 vi.mock('@/api/client', () => ({
   apiClient: { get: () => Promise.resolve({ data: h.overview }) },
@@ -29,6 +41,7 @@ const OVERVIEW: Overview2Data = {
   open_risk_count: 5,
   high_risk_count: 2,
   next_milestone: { id: 'm1', name: 'Beta', date: '2026-12-01', percent_complete: 40 },
+  as_of: '2026-11-20T09:12:00Z',
   definitions: { open_risk_count: 'Server risk sentence.' },
 };
 
@@ -43,6 +56,7 @@ const MC: Partial<MonteCarloResult> = {
   p80DeltaVsCommitmentDays: 2,
   cpmFinish: '2026-11-28',
   confidenceCurve: [],
+  forecastStaleness: 'current',
   definitions: { p80: 'Server P80 sentence.' },
 };
 
@@ -70,6 +84,7 @@ describe('ProjectOverview2', () => {
   beforeEach(() => {
     h.mc = { data: MC, isLoading: false, error: null };
     h.overview = OVERVIEW;
+    h.history = undefined;
   });
 
   it('renders one lead figure with the server definition and a spoken label', async () => {
@@ -79,6 +94,13 @@ describe('ProjectOverview2', () => {
       /^Forecast finish P80, .*December.*7.*, as of /,
     );
     expect(screen.getAllByTestId('overview2-lead-figure')).toHaveLength(1);
+    expect(fig.className).toContain('text-[44px]');
+    await screen.findByTestId('overview2-tiles');
+    for (const t of screen.getAllByTestId('overview2-tile')) {
+      expect(t.innerHTML).not.toContain('text-[44px]');
+      expect(t.innerHTML).toContain('text-[20px]');
+    }
+    expect(screen.queryByTestId('overview2-staleness')).not.toBeInTheDocument();
     expect(screen.getByTestId('overview2-commitment-chip')).toHaveTextContent(
       '+2d past commitment',
     );
@@ -128,5 +150,52 @@ describe('ProjectOverview2', () => {
     h.mc = { data: undefined, isLoading: true, error: null };
     renderPage();
     expect(screen.getByTestId('overview2-skeleton')).toBeInTheDocument();
+  });
+
+  it.each([
+    ['aged', 'Stale — rerun for updated forecast'],
+    ['projectChanged', 'Edited since this run'],
+  ] as const)('caveats the lead figure with a word and glyph when %s', async (state, text) => {
+    h.mc = { data: { ...MC, forecastStaleness: state }, isLoading: false, error: null };
+    renderPage();
+    expect(await screen.findByTestId('overview2-staleness')).toHaveTextContent(`◆ ${text}`);
+  });
+
+  it('makes no staleness claim for unknown, and flags a velocity-clamped lower bound', () => {
+    expect(stalenessCaveat({ forecastStaleness: 'unknown' })).toEqual([]);
+    expect(
+      stalenessCaveat({ forecastStaleness: 'current', velocitySaturatedRuns: 3 }),
+    ).toHaveLength(1);
+  });
+
+  it('names the top sensitivity driver from the task list in the Why link', async () => {
+    h.mc = {
+      data: { ...MC, sensitivity: [{ taskId: 't9', index: 0.8 }] },
+      isLoading: false,
+      error: null,
+    };
+    renderPage();
+    expect(await screen.findByTestId('overview2-driver')).toHaveTextContent('Pour foundation');
+  });
+
+  it('says where the P80 moved from only when the prior run differs', async () => {
+    h.history = [
+      { takenAt: '2026-11-20T09:12:00Z', p80: '2026-12-07' },
+      { takenAt: '2026-11-13T09:12:00Z', p80: '2026-12-01' },
+    ];
+    renderPage();
+    expect(await screen.findByTestId('overview2-moved')).toHaveTextContent(
+      /moved from .*Dec.* 1.* on .*Nov/,
+    );
+  });
+
+  it('omits the moved line when the prior P80 is the same', async () => {
+    h.history = [
+      { takenAt: '2026-11-20T09:12:00Z', p80: '2026-12-07' },
+      { takenAt: '2026-11-13T09:12:00Z', p80: '2026-12-07' },
+    ];
+    renderPage();
+    await screen.findByTestId('overview2-lead-footer');
+    expect(screen.queryByTestId('overview2-moved')).not.toBeInTheDocument();
   });
 });
