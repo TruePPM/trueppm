@@ -117,7 +117,7 @@ function V2Menu({
           tabIndex={-1}
           aria-label={accessibleName}
           onKeyDown={onMenuKey}
-          className="absolute right-0 top-full z-30 mt-1 min-w-[14rem] rounded-control border border-neutral-border bg-neutral-surface py-1 shadow-pop"
+          className="absolute right-0 top-full z-30 mt-1 max-h-[min(70vh,28rem)] min-w-[14rem] overflow-y-auto rounded-control border border-neutral-border bg-neutral-surface py-1 shadow-pop"
         >
           {items.map((it, idx) => {
             if (it.kind === 'heading') {
