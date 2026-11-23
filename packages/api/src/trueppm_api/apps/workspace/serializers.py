@@ -25,6 +25,7 @@ from trueppm_api.apps.workspace.models import (
     WorkspaceExportJob,
     WorkspaceRole,
 )
+from trueppm_api.apps.workspace.permissions import is_workspace_admin
 
 
 def _max_fiscal_day(month: int) -> int:
@@ -101,7 +102,8 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
     # Number of memberships whose lifecycle status is "guest". Backs the
     # "Enabled - N guests" readout on the Guest access toggle (#5102). An annotation,
     # not a column: the membership rows are the source of truth, so a stored counter
-    # could drift from them. Read-only, and served only on this workspace-admin route.
+    # could drift from them. Read-only; ``to_representation`` withholds it from
+    # callers below workspace ADMIN, since this route is readable by every member.
     guest_count = serializers.SerializerMethodField()
 
     class Meta:
@@ -234,6 +236,19 @@ class WorkspaceSettingsSerializer(serializers.ModelSerializer[Workspace]):
                 )
             },
         }
+
+    def to_representation(self, instance: Workspace) -> dict[str, Any]:
+        """Drop ``guest_count`` unless the caller is a workspace admin.
+
+        ``GET /workspace/`` is readable by any active member, but the guest roster
+        size is admin-facing. Without a request in context (internal callers) the
+        field is withheld too: omission is the safe default.
+        """
+        data = super().to_representation(instance)
+        request = self.context.get("request")
+        if request is None or not is_workspace_admin(request.user):
+            data.pop("guest_count", None)
+        return data
 
     @extend_schema_field(serializers.IntegerField())
     def get_guest_count(self, obj: Workspace) -> int:

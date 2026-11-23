@@ -70,10 +70,12 @@ def test_guest_count_is_read_only(admin: object) -> None:
     assert res.data["guest_count"] == 1
 
 
-def test_non_admin_cannot_read_count(db: object) -> None:
+def test_non_admin_does_not_see_count(db: object) -> None:
     member = User.objects.create_user(username="gc-member", email="gc-member@example.com")
     WorkspaceMembership.objects.create(
         workspace=Workspace.load(), user=member, role=WorkspaceRole.MEMBER
     )
     res = _client(member).get(SETTINGS_URL)
-    assert res.status_code == 403
+    # The route stays readable for members; only the admin-facing count is withheld.
+    assert res.status_code == 200
+    assert "guest_count" not in res.data
