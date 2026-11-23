@@ -10,6 +10,7 @@ import { StatusChip, type StatusTone } from '@/components/page2/StatusChip';
 import { TYPE } from '@/components/page2/typeScale';
 import { SCurveChart, forecastToSCurveProps } from '@/features/charts';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
+import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 import { fmtUtcLong, fmtUtcMedium } from '@/lib/formatUtcDate';
 import type { MetricDefinitions, MonteCarloResult } from '@/types';
 
@@ -36,11 +37,6 @@ function useOverview2(projectId: string) {
 }
 
 const CARD = 'rounded-lg border border-p1-hairline bg-p1-surface-1 p-4';
-
-/** "09:12" in the viewer's locale, from a server timestamp. */
-function clock(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
 
 /**
  * The chip beside the lead figure. Its text is the server's signed working-day
@@ -79,6 +75,7 @@ function Peer({
 }
 
 function LeadCard({ projectId, mc }: { projectId: string; mc: MonteCarloResult }) {
+  const { formatInstantTime: clock } = useUserDateFormat();
   const chip = commitmentChip(mc.p80DeltaVsCommitmentDays);
   const runs = mc.nSimulations ?? mc.runs;
   const spoken = `Forecast finish P80, ${fmtUtcLong(mc.p80)}${mc.lastRunAt ? `, as of ${clock(mc.lastRunAt)}` : ''}`;
