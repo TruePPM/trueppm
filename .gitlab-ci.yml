@@ -764,7 +764,7 @@ scripts:test:
         - scripts/tests/check-release-images.test.sh
         # Brace-merged: GitLab caps a rules:changes list at 50 entries, and this one sat
         # at exactly 50 before the schema-breaking gate joined it.
-        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-bulk-create-server-version.py,tests/check-bulk-create-server-version.test.sh,check-app-layering.py,tests/check-app-layering.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh,tests/pre-bash-deny.test.sh,demo-init-secrets.sh,tests/demo-init-secrets.test.sh,lib/dockerhub-auth.sh,tests/dockerhub-auth.test.sh,ci/step.sh,tests/ci-step.test.sh,check-mr-followups.sh,tests/pre-mr-followups.test.sh}
+        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-bulk-create-server-version.py,tests/check-bulk-create-server-version.test.sh,check-app-layering.py,tests/check-app-layering.test.sh,check-settings-contract.py,tests/check-settings-contract.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh,tests/pre-bash-deny.test.sh,demo-init-secrets.sh,tests/demo-init-secrets.test.sh,lib/dockerhub-auth.sh,tests/dockerhub-auth.test.sh,ci/step.sh,tests/ci-step.test.sh,check-mr-followups.sh,tests/pre-mr-followups.test.sh}
         - .claude/hooks/{pre-bash-deny.sh,lib/pre_bash_deny.py,user-skill-unlock.sh,pre-tool-safety.sh,pre-mr-followups.sh}
         - .claude/settings.json
         - .gitlab-ci.yml
@@ -817,7 +817,7 @@ scripts:test:
         - scripts/tests/check-release-images.test.sh
         # Brace-merged: GitLab caps a rules:changes list at 50 entries, and this one sat
         # at exactly 50 before the schema-breaking gate joined it.
-        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-bulk-create-server-version.py,tests/check-bulk-create-server-version.test.sh,check-app-layering.py,tests/check-app-layering.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh,tests/pre-bash-deny.test.sh,demo-init-secrets.sh,tests/demo-init-secrets.test.sh,lib/dockerhub-auth.sh,tests/dockerhub-auth.test.sh,ci/step.sh,tests/ci-step.test.sh,check-mr-followups.sh,tests/pre-mr-followups.test.sh}
+        - scripts/{check-migration-constraint-safety.py,tests/check-migration-constraint-safety.test.sh,check-bulk-create-server-version.py,tests/check-bulk-create-server-version.test.sh,check-app-layering.py,tests/check-app-layering.test.sh,check-settings-contract.py,tests/check-settings-contract.test.sh,check-schema-breaking.py,tests/check-schema-breaking.test.sh,ci/pip-floor.sh,tests/pip-floor.test.sh,scorecard-report.sh,tests/scorecard-report.test.sh,mcp-registry-publish.sh,tests/mcp-registry-publish.test.sh,tests/pre-bash-deny.test.sh,demo-init-secrets.sh,tests/demo-init-secrets.test.sh,lib/dockerhub-auth.sh,tests/dockerhub-auth.test.sh,ci/step.sh,tests/ci-step.test.sh,check-mr-followups.sh,tests/pre-mr-followups.test.sh}
         - .claude/hooks/{pre-bash-deny.sh,lib/pre_bash_deny.py,user-skill-unlock.sh,pre-tool-safety.sh,pre-mr-followups.sh}
         - .claude/settings.json
         - .gitlab-ci.yml
@@ -859,6 +859,7 @@ scripts:test:
     - bash scripts/tests/check-migration-constraint-safety.test.sh
     - bash scripts/tests/check-bulk-create-server-version.test.sh
     - bash scripts/tests/check-app-layering.test.sh
+    - bash scripts/tests/check-settings-contract.test.sh
     - bash scripts/tests/check-schema-breaking.test.sh
     - bash scripts/tests/pip-floor.test.sh
     - bash scripts/tests/ci-step.test.sh
@@ -2804,6 +2805,8 @@ api:static:
     - bash scripts/ci/step.sh api:app-layering python3 scripts/check-app-layering.py
     - bash scripts/ci/step.sh lint:api-engine-boundary python3 scripts/check-api-engine-boundary.py --self-test
     - bash scripts/ci/step.sh lint:api-engine-boundary python3 scripts/check-api-engine-boundary.py
+    - bash scripts/ci/step.sh api:settings-contract python3 scripts/check-settings-contract.py --self-test
+    - bash scripts/ci/step.sh api:settings-contract python3 scripts/check-settings-contract.py
     - bash scripts/ci/step.sh lint:on-commit-durability python3 scripts/check-on-commit-durability.py --self-test
     - bash scripts/ci/step.sh lint:on-commit-durability python3 scripts/check-on-commit-durability.py
     - bash scripts/ci/step.sh api:schema-breaking python3 scripts/check-schema-breaking.py --self-test

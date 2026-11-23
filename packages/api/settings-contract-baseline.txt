@@ -1,0 +1,11 @@
+# Recorded settings-contract findings -- a ceiling that can only shrink (scripts/check-settings-contract.py, #3248).
+# Format: `<kind> | <key> | <issue> | <reason>`. Kinds: env-undocumented, default-drift, unread-writable.
+# Seeded 2026-11-23 from main so the gate lands green. A SEEDED entry is a grandfathered snapshot,
+# NOT a review: nobody has verified that each one is dead rather than a false positive. Fix the
+# finding (document the variable / wire a reader / correct the default), then drop its line with
+# `python3 scripts/check-settings-contract.py --update-baseline`, which refuses to add.
+# A new line against the merge base fails unless the line above it is `# raise-ok: <reason>`.
+env-undocumented | TRUEPPM_DEMO_ACCESS_GATE_PRIVACY_URL | #3248 | seeded from main, unreviewed: read in settings/ but named in no docs page
+env-undocumented | TRUEPPM_DEMO_ACCESS_GATE_PROVIDER | #3248 | seeded from main, unreviewed: read in settings/ but named in no docs page
+env-undocumented | TRUEPPM_REQUIRE_JWT_SIGNING_KEY | #3248 | seeded from main, unreviewed: read in settings/ but named in no docs page
+unread-writable | CrossProjectSlipConflict.detected_at | #3248 | seeded from main, unreviewed: serializer-writable, no reader outside packages/api/src/trueppm_api/apps/projects/models.py, serializers and migrations
