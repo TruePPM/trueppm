@@ -134,9 +134,9 @@ describe('shell v2 Total float glyphs (#5106)', () => {
   it('prints ▲ for critical and ◆ for near-critical, only under shell_v2', () => {
     setFeatureFlag('shell_v2', true);
     const { unmount } = renderRow({ isCritical: true, totalFloat: 0, freeFloat: 0 });
-    expect(screen.getByRole('gridcell', { name: 'Total float: critical, 0 days float' })).toHaveTextContent(
-      '\u25B2 0d',
-    );
+    expect(
+      screen.getByRole('gridcell', { name: 'Total float: critical, 0 days float' }),
+    ).toHaveTextContent('\u25B2 0d');
     // Free float never wears a band glyph.
     expect(screen.getByRole('gridcell', { name: 'Free float: 0 working days' })).toHaveTextContent(
       /^0d$/,

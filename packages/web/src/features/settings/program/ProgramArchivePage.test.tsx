@@ -208,7 +208,9 @@ describe('ProgramArchivePage close confirmation under shell_v2 (#5102, rule 462)
     mutation.mutate.mockClear();
     renderPage();
     await user.click(screen.getByRole('button', { name: 'Close program…' }));
-    await user.click(within(screen.getByTestId('close-confirm')).getByRole('button', { name: 'Cancel' }));
+    await user.click(
+      within(screen.getByTestId('close-confirm')).getByRole('button', { name: 'Cancel' }),
+    );
     expect(screen.queryByTestId('close-confirm')).toBeNull();
     expect(mutation.mutate).not.toHaveBeenCalled();
   });
