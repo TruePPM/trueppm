@@ -615,6 +615,24 @@ else:
     # terminationGracePeriodSeconds on the worker past this.
     CELERY_BROKER_TRANSPORT_OPTIONS = {"visibility_timeout": 900}
 
+# Queue topology (#2276). Heavy tasks (imports, exports, Monte Carlo, CPM
+# recalculation) go to their own queue so a burst of them cannot head-of-line
+# block the outbox drains and email on the default queue. A worker started
+# without ``-Q`` consumes only the default queue, so every worker command in this
+# repo (Helm, both compose files) names both queues explicitly; an operator's own
+# worker must do the same, or set TRUEPPM_CELERY_HEAVY_QUEUE=celery to keep a
+# single queue.
+from trueppm_api.core.celery_queues import (  # noqa: E402
+    DEFAULT_HEAVY_QUEUE,
+    DEFAULT_QUEUE,
+    build_task_routes,
+)
+
+CELERY_TASK_DEFAULT_QUEUE = DEFAULT_QUEUE
+CELERY_TASK_ROUTES = build_task_routes(
+    env("TRUEPPM_CELERY_HEAVY_QUEUE", default=DEFAULT_HEAVY_QUEUE) or DEFAULT_QUEUE
+)
+
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"

@@ -247,6 +247,22 @@ Items 1 and 2 are measured; items 3, 4 and 5 are reasoned from the deployment sh
 4. **Postgres connection ceiling.** `CONN_MAX_AGE=60` and `ATOMIC_REQUESTS=true` mean every request runs inside a transaction and holds a connection. With many API and Celery workers, you approach PostgreSQL's default `max_connections=100` at the 200-user tier — add **PgBouncer** or raise `max_connections` ([#2275](https://gitlab.com/trueppm/trueppm/-/issues/2275)). With four workers, eight concurrent users kept 11 PostgreSQL cores busy, so give the database cores to match the API tier you scale to.
 5. **Per-project write serialization.** The first synced write in a request allocates the project's sync sequence number with an `UPDATE` on the project row, and that row lock is held until the request commits. Writes to one project therefore run one at a time, so per-project write throughput is capped at roughly one over the request latency. A long operation against a single project (an MS Project import, a template apply, a bulk paste) holds up every other edit to that project until it finishes, and interactive saves queued behind it can hit proxy timeouts. Writes to different projects do not contend. Schedule large imports outside working hours, and keep proxy timeouts above your longest import. The lock is what keeps the offline sync cursor from skipping rows, so it is not a setting you can turn off. Shrinking the lock window is tracked in [#4469](https://gitlab.com/trueppm/trueppm/-/issues/4469).
 
+## Worker topology and queue-depth autoscaling
+
+:::note[Ships in 0.5]
+Separate queues and the heavy worker ship in 0.5. In 0.4 all tasks share one queue.
+:::
+
+Background work runs on two Celery queues. The `celery` queue carries latency-sensitive work: outbox drains (every 30 seconds), notification and invite email, webhook delivery. The `heavy` queue carries MS Project, Jira and CSV import, project, program and workspace export, Monte Carlo and CPM recalculation, which run for seconds to minutes.
+
+| Install size | Recommended topology |
+|---|---|
+| Team of 25 | One worker on both queues (the chart default). Nothing to configure. |
+| Team of 250, or regular large imports | Set `heavyWorker.enabled: true`. Imports queue behind other imports rather than in front of email and drains. Give `resources.heavyWorker` the memory the largest project needs (see [Toward 100,000 tasks](#toward-100000-tasks)). |
+| Bursty imports | Add `heavyWorker.keda.enabled: true` to scale the heavy worker on queue depth. CPU alone does not see a backlog while the tasks wait, so a CPU HPA scales too late. |
+
+Scale the two on different signals: the default worker on CPU (`autoscaling.worker.enabled`), the heavy worker on `heavy` list length. Keep `lifecycle.worker.terminationGracePeriodSeconds` above your longest heavy task. See [Heavy-queue worker](/administration/helm-values/#heavy-queue-worker) for every key. A `kubectl exec` into any worker and `celery -A trueppm_api.celery inspect active_queues` shows which queues it consumes.
+
 ## Startup budget
 
 How long each component can take to boot before Kubernetes gives up on it and

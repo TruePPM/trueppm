@@ -2578,6 +2578,45 @@ for other_name in default sharelink; do
   fi
 done
 
+# 4b. Celery queue topology (#2276). settings/base.py routes the long-running
+# tasks to the "heavy" queue; a worker started without --queues consumes only
+# "celery", which would strand every import/export/Monte Carlo/CPM task. So the
+# stock single worker must name BOTH queues, and when heavyWorker splits them
+# out the two Deployments must cover the pair exactly once between them.
+wq_default="$(worker_cmd)"
+grep -q -- '--queues=celery,heavy' <<<"$wq_default" \
+  || fail "default worker does not consume --queues=celery,heavy — heavy tasks routed by CELERY_TASK_ROUTES would never be picked up (#2276)"
+heavy_off="$(helm template trueppm "$CHART" --set image.tag=latest --show-only templates/celery-worker/deployment-heavy.yaml 2>&1 || true)"
+grep -q 'celery-worker-heavy' <<<"$heavy_off" \
+  && fail "heavy worker Deployment rendered with heavyWorker.enabled=false (#2276)"
+wq_split="$(worker_cmd --set heavyWorker.enabled=true)"
+grep -q -- '--queues=celery ' <<<"$wq_split " \
+  || fail "with heavyWorker.enabled the default worker must consume only --queues=celery (#2276)"
+wq_heavy="$(helm template trueppm "$CHART" --set image.tag=latest --set heavyWorker.enabled=true \
+  --show-only templates/celery-worker/deployment-heavy.yaml \
+  | yq '.spec.template.spec.containers[0].command | join(" ")')"
+grep -q -- '--queues=heavy' <<<"$wq_heavy" \
+  || fail "heavy worker does not consume --queues=heavy (#2276)"
+grep -q -- '--concurrency=[0-9]' <<<"$wq_heavy" \
+  || fail "heavy worker has no pinned --concurrency (#2571)"
+# KEDA: absent unless asked for, needs an address, and owns replicas when on.
+keda_off="$(helm template trueppm "$CHART" --set image.tag=latest --set heavyWorker.enabled=true 2>&1)"
+grep -q 'kind: ScaledObject' <<<"$keda_off" \
+  && fail "ScaledObject rendered with heavyWorker.keda.enabled=false (#2276)"
+if helm template trueppm "$CHART" --set image.tag=latest --set heavyWorker.enabled=true \
+     --set heavyWorker.keda.enabled=true >/dev/null 2>&1; then
+  fail "heavyWorker.keda.enabled=true rendered with no redisAddress (#2276)"
+fi
+keda_on="$(helm template trueppm "$CHART" --set image.tag=latest --set heavyWorker.enabled=true \
+  --set heavyWorker.keda.enabled=true --set heavyWorker.keda.redisAddress=valkey:6379)"
+grep -q 'kind: ScaledObject' <<<"$keda_on" && grep -q 'listName: "heavy"' <<<"$keda_on" \
+  || fail "heavyWorker.keda.enabled did not render a ScaledObject on the heavy list (#2276)"
+heavy_replicas="$(helm template trueppm "$CHART" --set image.tag=latest --set heavyWorker.enabled=true \
+  --set heavyWorker.keda.enabled=true --set heavyWorker.keda.redisAddress=valkey:6379 \
+  --show-only templates/celery-worker/deployment-heavy.yaml | yq '.spec.replicas')"
+[ "$heavy_replicas" = "null" ] \
+  || fail "heavy Deployment sets replicas=$heavy_replicas while KEDA owns the count — every helm upgrade would fight the scaler (#2276)"
+
 echo "helm structure check GREEN:"
 echo "  - init order: migrate -> bootstrap"
 echo "  - operator envFrom secret reaches all $env_checked containers that import settings.prod"
@@ -2618,3 +2657,5 @@ echo "  - web pod template carries checksum/nginx-conf, and it changes when the 
 echo "  - interactive demo edge: the fenced /api/ 403 routes to an internal @demo_read_only location returning the middleware JSON body; share-link and production ConfigMaps carry none of it (#4053)"
 echo "  - values-prod.yaml's Ingress overlay routes /api and /ws to the api Service and / to the web Service, so the SPA stays reachable once the overlay replaces values.yaml's default host list (#4349)"
 echo "  - web readinessProbe.httpGet.path is not '/' (the SPA fallback answers it unconditionally), and all three rendered ConfigMap branches (production, share-link demo, interactive demo) give that path its own non-SPA-falling-back, '=404'-on-a-miss location (#4359)"
+
+echo "  - celery queues (#2276): the default worker consumes --queues=celery,heavy until heavyWorker.enabled splits it (then celery vs heavy, no overlap); the heavy Deployment and the KEDA ScaledObject are absent by default, KEDA needs a redisAddress, and KEDA leaves replicas unset"

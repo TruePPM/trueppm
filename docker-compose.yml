@@ -241,7 +241,7 @@ services:
     image: trueppm-api:local
     # --concurrency=2 keeps dev memory under ~150 MB (default=10 caused OOM kills)
     entrypoint: ["/bin/sh", "-c", ". /secrets/env && exec \"$$@\"", "--"]
-    command: ["celery", "-A", "trueppm_api.celery", "worker", "--loglevel=info", "--concurrency=2"]
+    command: ["celery", "-A", "trueppm_api.celery", "worker", "--loglevel=info", "--concurrency=2", "-Q", "celery,heavy"]
     restart: unless-stopped
     environment:
       DATABASE_URL: postgres://trueppm:trueppm@db:5432/trueppm

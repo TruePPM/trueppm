@@ -146,7 +146,7 @@ services:
   celery:
     image: trueppm-api:local
     command:
-      ["celery", "-A", "trueppm_api.celery", "worker", "--loglevel=warning", "--concurrency=2"]
+      ["celery", "-A", "trueppm_api.celery", "worker", "--loglevel=warning", "--concurrency=2", "-Q", "celery,heavy"]
     environment: *api_env
     depends_on:
       api-init:

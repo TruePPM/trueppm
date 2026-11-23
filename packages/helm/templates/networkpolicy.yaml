@@ -60,7 +60,7 @@ spec:
          container and load_sample_project (ADR-0658). Both are off by default, but
          both break under enforcement if omitted. */}}
     - from:
-        {{- include "trueppm.datastoreClientSelectors" (dict "root" . "components" (list "api" "celery-worker" "celery-beat" "backup" "demo-seed")) | nindent 8 }}
+        {{- include "trueppm.datastoreClientSelectors" (dict "root" . "components" (concat (list "api" "celery-worker") (ternary (list "celery-worker-heavy") (list) .Values.heavyWorker.enabled) (list "celery-beat" "backup" "demo-seed"))) | nindent 8 }}
       ports:
         - protocol: TCP
           port: 5432
@@ -89,7 +89,7 @@ spec:
          that does not exist. demo-seed runs Django, which resolves CACHES and the
          channel layer against Valkey. */}}
     - from:
-        {{- include "trueppm.datastoreClientSelectors" (dict "root" . "components" (list "api" "celery-worker" "celery-beat" "demo-seed")) | nindent 8 }}
+        {{- include "trueppm.datastoreClientSelectors" (dict "root" . "components" (concat (list "api" "celery-worker") (ternary (list "celery-worker-heavy") (list) .Values.heavyWorker.enabled) (list "celery-beat" "demo-seed"))) | nindent 8 }}
       ports:
         - protocol: TCP
           port: 6379
@@ -227,7 +227,10 @@ spec:
   podSelector:
     matchLabels:
       {{- include "trueppm.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: celery-worker
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: [celery-worker{{ if .Values.heavyWorker.enabled }}, celery-worker-heavy{{ end }}]
   policyTypes:
     - Ingress
   # No `ingress:` rules → default-deny. The worker has no Service and nothing in
@@ -345,7 +348,10 @@ spec:
   podSelector:
     matchLabels:
       {{- include "trueppm.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: celery-worker
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: [celery-worker{{ if .Values.heavyWorker.enabled }}, celery-worker-heavy{{ end }}]
   policyTypes:
     - Egress
   egress:

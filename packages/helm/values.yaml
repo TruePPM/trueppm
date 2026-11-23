@@ -707,6 +707,45 @@ processes:
     # order after the flags above — e.g. ["--queues=exports", "--prefetch-multiplier=1"].
     extraArgs: []
 
+# Dedicated heavy-queue worker (#2276). OFF by default: a stock install runs ONE
+# worker Deployment that consumes both queues (`--queues=celery,heavy`), exactly
+# the old single-queue behavior. Enable this to give the long-running tasks —
+# MS Project / Jira / CSV import, project / program / workspace export, Monte
+# Carlo, CPM recalculation — their own worker, so a burst of imports cannot sit in
+# front of outbox drains and notification email. When enabled, the default worker
+# (processes.worker, resources.worker, replicaCount) consumes only the light
+# "celery" queue and this one consumes only "heavy". Queue names are fixed; they
+# match settings/base.py's CELERY_TASK_ROUTES.
+# https://docs.trueppm.com/administration/helm-values/#heavy-queue-worker
+heavyWorker:
+  enabled: false
+  # Fixed replica count; ignored when keda.enabled (KEDA then owns it).
+  replicas: 1
+  # Pinned for the same reason as processes.worker.concurrency (#2571). Must be >= 1.
+  concurrency: 2
+  # Imports and exports hold large parse buffers; recycle children aggressively.
+  maxTasksPerChild: 10
+  extraArgs: []
+  # Queue-depth autoscaling through KEDA (https://keda.sh) — scales on the
+  # length of the Redis list that IS the heavy queue, which CPU never sees while
+  # tasks wait. Needs the KEDA operator installed; not supported with
+  # valkey.sentinel. Resources come from resources.heavyWorker, falling back to
+  # resources.worker.
+  keda:
+    enabled: false
+    # host:port of the broker as the KEDA operator reaches it, e.g.
+    # "my-release-valkey.ns.svc:6379". Required when enabled.
+    redisAddress: ""
+    # Name of a KEDA TriggerAuthentication in this namespace carrying the broker
+    # password (parameter `password`). Empty for a passwordless broker.
+    authenticationRef: ""
+    enableTLS: false
+    # Target backlog per replica: scale out when more than this many heavy tasks wait.
+    listLength: 5
+    minReplicaCount: 1
+    maxReplicaCount: 4
+    cooldownPeriod: 300
+
 # Default resource requests/limits for the API and Celery worker containers.
 # Tune for your workload; these are conservative single-team defaults.
 # https://docs.trueppm.com/administration/sizing/

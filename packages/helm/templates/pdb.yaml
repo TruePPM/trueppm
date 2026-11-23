@@ -78,6 +78,23 @@ spec:
     matchLabels:
       {{- include "trueppm.selectorLabels" . | nindent 6 }}
       app.kubernetes.io/component: celery-worker
+{{- if .Values.heavyWorker.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "trueppm.fullname" . }}-celery-worker-heavy
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: celery-worker-heavy
+spec:
+  # Same budget as the default worker: the heavy tier shares podDisruptionBudget.worker.
+  maxUnavailable: {{ $workerMaxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "trueppm.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: celery-worker-heavy
+{{- end }}
 {{- if .Values.web.enabled }}
 ---
 apiVersion: policy/v1

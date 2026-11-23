@@ -272,7 +272,7 @@ services:
     cpus: 2.0
     pids_limit: 512
     image: ghcr.io/trueppm/api:${APP_VERSION:-latest}
-    command: ["celery", "-A", "trueppm_api.celery", "worker", "--loglevel=info"]
+    command: ["celery", "-A", "trueppm_api.celery", "worker", "--loglevel=info", "-Q", "celery,heavy"]
     restart: unless-stopped
     read_only: true
     security_opt:
