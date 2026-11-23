@@ -31,12 +31,7 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
 
-from trueppm_api.apps.agents.canonical import canonical_fields, compute_record_hash
-from trueppm_api.apps.agents.models import (
-    GENESIS_PREV_HASH,
-    AgentAction,
-    AgentActionCheckpoint,
-)
+from trueppm_api.apps.agents.services import verify_chain
 
 
 class Command(BaseCommand):
@@ -51,51 +46,19 @@ class Command(BaseCommand):
 
     def handle(self, *args: Any, **options: Any) -> None:
         quiet: bool = options["quiet"]
-
-        # Re-anchor from the latest prune checkpoint if the oldest rows were pruned;
-        # otherwise the chain still starts at genesis / sequence 1 (ADR-0361).
-        checkpoint = AgentActionCheckpoint.objects.order_by("-pruned_through_sequence").first()
-        if checkpoint is None:
-            expected_prev = GENESIS_PREV_HASH
-            expected_sequence = 1
-            anchor = "genesis"
-        else:
-            expected_prev = checkpoint.pruned_through_hash
-            expected_sequence = checkpoint.first_retained_sequence
-            anchor = f"checkpoint @seq {checkpoint.pruned_through_sequence}"
-        count = 0
-
-        # Stream in chain order; .iterator() keeps memory flat for a long chain.
-        for action in AgentAction.objects.order_by("sequence").iterator():
-            if action.sequence != expected_sequence:
-                raise CommandError(
-                    f"Chain break at sequence {action.sequence} ({action.id}): "
-                    f"expected sequence {expected_sequence} (gap or reorder)."
-                )
-            if action.prev_hash != expected_prev:
-                raise CommandError(
-                    f"Chain break at sequence {action.sequence} ({action.id}): "
-                    f"prev_hash does not match the predecessor's record_hash."
-                )
-            recomputed = compute_record_hash(action.prev_hash, canonical_fields(action))
-            if recomputed != action.record_hash:
-                raise CommandError(
-                    f"Chain break at sequence {action.sequence} ({action.id}): "
-                    f"record_hash does not recompute — the row was altered."
-                )
-
-            expected_prev = action.record_hash
-            expected_sequence += 1
-            count += 1
-
+        # One implementation shared with the Agents page's verified line (#4814).
+        result = verify_chain()
+        if not result.ok:
+            raise CommandError(result.message)
         if not quiet:
-            if count == 0:
+            if result.record_count == 0:
                 self.stdout.write(
-                    self.style.SUCCESS(f"Agent-action chain empty (from {anchor}) — OK.")
+                    self.style.SUCCESS(f"Agent-action chain empty (from {result.anchor}) — OK.")
                 )
             else:
                 self.stdout.write(
                     self.style.SUCCESS(
-                        f"Agent-action chain intact — {count} records verified (from {anchor})."
+                        f"Agent-action chain intact — {result.record_count} records verified "
+                        f"(from {result.anchor})."
                     )
                 )

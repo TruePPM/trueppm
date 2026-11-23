@@ -8134,6 +8134,29 @@ class ApiToken(VersionedModel):
         db_index=True,
         help_text="Set when an Admin/PM revokes the token.  Non-null = inactive.",
     )
+    # Agent control plane (#4814). Meaningful only for an agent token (owner-scoped,
+    # not full scope). Kept on the token row rather than a side table so the MCP guard
+    # reads them from the row the authenticator already loaded on this request: there
+    # is no cache to invalidate, so a pause or revoke takes effect on the next call.
+    agent_paused_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Set while the agent is paused; every call it makes is refused.",
+    )
+    agent_paused_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text="Who paused the agent. Shown to people, never sent to the agent.",
+    )
+    agent_scope = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Capability grant, area → none|read|propose (agent_scope.py). "
+        "Null = the default grant: read on every area.",
+    )
 
     class Meta:
         db_table = "projects_api_token"

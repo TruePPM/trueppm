@@ -398,3 +398,63 @@ def prune_agent_actions(
             first_retained,
             str(checkpoint.id),
         )
+
+
+@dataclass(frozen=True)
+class ChainVerifyResult:
+    """Outcome of :func:`verify_chain` — what ``audit_verify`` and the Agents page report.
+
+    ``ok`` is False at the first break; ``break_sequence`` names the row and ``message``
+    says which of the three checks failed. ``record_count`` counts the rows verified
+    before the break (all of them when ``ok``). ``anchor`` is ``"genesis"`` or the prune
+    checkpoint the walk re-seeded from (ADR-0361).
+    """
+
+    ok: bool
+    record_count: int
+    anchor: str
+    break_sequence: int | None = None
+    message: str = ""
+
+
+def verify_chain() -> ChainVerifyResult:
+    """Walk the whole chain in sequence order and recompute every link (ADR-0112).
+
+    The single implementation behind ``manage.py audit_verify`` and the Agents page's
+    "Action log verified" line (#4814), so the two can never disagree about a break.
+    Streams with ``.iterator()`` so memory stays flat on a long chain.
+    """
+
+    checkpoint = AgentActionCheckpoint.objects.order_by("-pruned_through_sequence").first()
+    if checkpoint is None:
+        from trueppm_api.apps.agents.models import GENESIS_PREV_HASH
+
+        expected_prev = GENESIS_PREV_HASH
+        expected_sequence = 1
+        anchor = "genesis"
+    else:
+        expected_prev = checkpoint.pruned_through_hash
+        expected_sequence = checkpoint.first_retained_sequence
+        anchor = f"checkpoint @seq {checkpoint.pruned_through_sequence}"
+
+    count = 0
+    for action in AgentAction.objects.order_by("sequence").iterator():
+        problem = ""
+        if action.sequence != expected_sequence:
+            problem = f"expected sequence {expected_sequence} (gap or reorder)."
+        elif action.prev_hash != expected_prev:
+            problem = "prev_hash does not match the predecessor's record_hash."
+        elif compute_record_hash(action.prev_hash, canonical_fields(action)) != action.record_hash:
+            problem = "record_hash does not recompute — the row was altered."
+        if problem:
+            return ChainVerifyResult(
+                ok=False,
+                record_count=count,
+                anchor=anchor,
+                break_sequence=action.sequence,
+                message=f"Chain break at sequence {action.sequence} ({action.id}): {problem}",
+            )
+        expected_prev = action.record_hash
+        expected_sequence += 1
+        count += 1
+    return ChainVerifyResult(ok=True, record_count=count, anchor=anchor)

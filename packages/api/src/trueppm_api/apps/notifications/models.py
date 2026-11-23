@@ -184,6 +184,10 @@ class NotificationEventType(models.TextChoices):
     # signal in this table (Priya's un-opted-email hard-NO).
     MEMBERSHIP_GRANTED = "membership.granted", "Added to a project or program"
     MEMBERSHIP_ROLE_CHANGED = "membership.role_changed", "Role changed on a project or program"
+    # A call by one of my agents was refused because it is paused or out of its
+    # capability scope (#4814). Sent to the agent's principal only, coalesced per
+    # (agent, constraint) per 15 minutes (ADR-1463). In-app only.
+    AGENT_REFUSED = "agent.refused", "One of my agents was refused"
 
 
 class NotificationChannel(models.TextChoices):
@@ -518,6 +522,8 @@ DEFAULT_PREFERENCES: list[tuple[str, str, bool]] = [
     (NotificationEventType.MEMBERSHIP_GRANTED, NotificationChannel.EMAIL, False),
     (NotificationEventType.MEMBERSHIP_ROLE_CHANGED, NotificationChannel.IN_APP, True),
     (NotificationEventType.MEMBERSHIP_ROLE_CHANGED, NotificationChannel.EMAIL, False),
+    (NotificationEventType.AGENT_REFUSED, NotificationChannel.IN_APP, True),
+    (NotificationEventType.AGENT_REFUSED, NotificationChannel.EMAIL, False),
 ]
 
 

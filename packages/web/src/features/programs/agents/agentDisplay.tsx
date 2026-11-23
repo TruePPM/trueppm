@@ -29,10 +29,11 @@ export const VERDICT_DISPLAY: Record<AgentActionVerdict, VerdictDisplay> = {
     symbol: <RadioDotIcon className={MARK_CLASS} />,
     textClass: 'text-semantic-on-track',
   },
+  // Neutral, never red (rule 466): a refusal is the guard working, not a failure.
   refused: {
     label: 'Refused',
     symbol: <BanIcon className={MARK_CLASS} />,
-    textClass: 'text-semantic-critical',
+    textClass: 'text-neutral-text-primary',
   },
   // Reserved for the 0.7 approval gate; defined so the vocabulary is stable.
   requires_approval: {

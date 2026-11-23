@@ -105,6 +105,11 @@ const EVENT_LABELS: Record<string, { title: string; example: string }> = {
     title: 'Weekly resource overallocation digest',
     example: 'Sunday evening: who is booked over 100% in the week ahead',
   },
+  // #4814: one of my agents was refused because it is paused or outside its scope.
+  'agent.refused': {
+    title: 'When one of your agents is refused',
+    example: '“Refused: agent Claude is paused”',
+  },
 };
 
 /** Event types sent on the weekly slot — used to gate the schedule card. */
@@ -368,7 +373,12 @@ export function NotificationPreferencesPage() {
 
   if (isLoading) {
     return (
-      <section role="status" aria-busy="true" aria-label="Loading notification preferences" className="p-6">
+      <section
+        role="status"
+        aria-busy="true"
+        aria-label="Loading notification preferences"
+        className="p-6"
+      >
         <div className="h-8 w-64 rounded-card bg-neutral-surface-raised motion-safe:animate-pulse mb-4" />
         <div className="h-40 rounded-card border border-neutral-border bg-neutral-surface-raised motion-safe:animate-pulse" />
       </section>

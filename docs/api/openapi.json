@@ -1573,6 +1573,668 @@
                 "summary": "Retrieve agent action"
             }
         },
+        "/api/v1/agents/": {
+            "get": {
+                "operationId": "v1_agents_retrieve",
+                "description": "Agents are owner-scoped API tokens without the full scope. A workspace Admin sees every agent; anyone else sees their own agents and agents that have acted in a project they are a member of. Token-authenticated requests are refused.",
+                "summary": "List agents the caller can see",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "program",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Only agents that acted in this program."
+                    }
+                ],
+                "tags": [
+                    "agents"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AgentListResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/": {
+            "get": {
+                "operationId": "v1_agents_retrieve_2",
+                "description": "One agent, with its recent actions.",
+                "summary": "Retrieve an agent",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "agents"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AgentDetail"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/pause/": {
+            "post": {
+                "operationId": "v1_agents_pause_create",
+                "description": "Pause an agent: every call it makes is refused until resumed.",
+                "summary": "Pause an agent",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "header",
+                        "name": "Idempotency-Key",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "maxLength": 255
+                        },
+                        "description": "Optional client-generated key (a UUIDv4 is recommended) that makes a retry of this request safe: a retry with the same key and a byte-identical request replays the stored response instead of repeating the write. Scoped per authenticated user. Reusing a key for a different request is refused with ``422``. See the Idempotency guide."
+                    }
+                ],
+                "tags": [
+                    "agents"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AgentControlRequestRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AgentControlRequestRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AgentControlRequestRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AgentDetail"
+                                }
+                            }
+                        },
+                        "description": "",
+                        "headers": {
+                            "Idempotent-Replay": {
+                                "description": "``true`` when this response is a replay of the stored response for the request's ``Idempotency-Key``; absent on a first execution.",
+                                "schema": {
+                                    "type": "string",
+                                    "example": "true"
+                                }
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
+                                            "example": "Request body must be a JSON object."
+                                        },
+                                        "code": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
+                                            "example": "invalid_body"
+                                        }
+                                    },
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/resume/": {
+            "post": {
+                "operationId": "v1_agents_resume_create",
+                "description": "Resume a paused agent.",
+                "summary": "Resume an agent",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "header",
+                        "name": "Idempotency-Key",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "maxLength": 255
+                        },
+                        "description": "Optional client-generated key (a UUIDv4 is recommended) that makes a retry of this request safe: a retry with the same key and a byte-identical request replays the stored response instead of repeating the write. Scoped per authenticated user. Reusing a key for a different request is refused with ``422``. See the Idempotency guide."
+                    }
+                ],
+                "tags": [
+                    "agents"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AgentControlRequestRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AgentControlRequestRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AgentControlRequestRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AgentDetail"
+                                }
+                            }
+                        },
+                        "description": "",
+                        "headers": {
+                            "Idempotent-Replay": {
+                                "description": "``true`` when this response is a replay of the stored response for the request's ``Idempotency-Key``; absent on a first execution.",
+                                "schema": {
+                                    "type": "string",
+                                    "example": "true"
+                                }
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
+                                            "example": "Request body must be a JSON object."
+                                        },
+                                        "code": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
+                                            "example": "invalid_body"
+                                        }
+                                    },
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/revoke/": {
+            "post": {
+                "operationId": "v1_agents_revoke_create",
+                "description": "Revoke an agent's token. Immediate and permanent.",
+                "summary": "Revoke an agent's token",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "header",
+                        "name": "Idempotency-Key",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "maxLength": 255
+                        },
+                        "description": "Optional client-generated key (a UUIDv4 is recommended) that makes a retry of this request safe: a retry with the same key and a byte-identical request replays the stored response instead of repeating the write. Scoped per authenticated user. Reusing a key for a different request is refused with ``422``. See the Idempotency guide."
+                    }
+                ],
+                "tags": [
+                    "agents"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AgentControlRequestRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AgentControlRequestRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AgentControlRequestRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AgentDetail"
+                                }
+                            }
+                        },
+                        "description": "",
+                        "headers": {
+                            "Idempotent-Replay": {
+                                "description": "``true`` when this response is a replay of the stored response for the request's ``Idempotency-Key``; absent on a first execution.",
+                                "schema": {
+                                    "type": "string",
+                                    "example": "true"
+                                }
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
+                                            "example": "Request body must be a JSON object."
+                                        },
+                                        "code": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
+                                            "example": "invalid_body"
+                                        }
+                                    },
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/{id}/scope/": {
+            "patch": {
+                "operationId": "v1_agents_scope_partial_update",
+                "description": "Edit an agent's capability scope, capped at its principal; ``write`` is refused.",
+                "summary": "Edit an agent's capability scope",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "header",
+                        "name": "Idempotency-Key",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "maxLength": 255
+                        },
+                        "description": "Optional client-generated key (a UUIDv4 is recommended) that makes a retry of this request safe: a retry with the same key and a byte-identical request replays the stored response instead of repeating the write. Scoped per authenticated user. Reusing a key for a different request is refused with ``422``. See the Idempotency guide."
+                    }
+                ],
+                "tags": [
+                    "agents"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedAgentScopeEditRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedAgentScopeEditRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedAgentScopeEditRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AgentDetail"
+                                }
+                            }
+                        },
+                        "description": "",
+                        "headers": {
+                            "Idempotent-Replay": {
+                                "description": "``true`` when this response is a replay of the stored response for the request's ``Idempotency-Key``; absent on a first execution.",
+                                "schema": {
+                                    "type": "string",
+                                    "example": "true"
+                                }
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
+                                            "example": "Request body must be a JSON object."
+                                        },
+                                        "code": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
+                                            "example": "invalid_body"
+                                        }
+                                    },
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    }
+                }
+            }
+        },
+        "/api/v1/agents/audit-verify/": {
+            "get": {
+                "operationId": "v1_agents_audit_verify_retrieve",
+                "description": "The \"Action log verified\" line: ``audit_verify`` over the whole chain.\n\nReused while the chain head has not moved and for at most\n:data:`AUDIT_VERIFY_TTL_SECONDS`, so a page load cannot turn into a full-chain walk.",
+                "summary": "Verify the agent-action hash chain",
+                "tags": [
+                    "agents"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AgentAuditVerify"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/assets/": {
             "get": {
                 "operationId": "v1_assets_retrieve",
@@ -59543,6 +60205,102 @@
                     "task_short_id"
                 ]
             },
+            "Agent": {
+                "type": "object",
+                "description": "One agent on the workspace Agents page (#4814, #4757).\n\n``scope`` is the stored grant; ``effective_scope`` is that grant intersected with\nwhat the principal can do right now, which is what the server enforces. Each maps\nevery area to one of ``none``, ``read``, ``propose`` (shown as \"Dry run\") or\n``write`` (never present in 0.5).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "token_prefix": {
+                        "type": "string"
+                    },
+                    "principal": {
+                        "$ref": "#/components/schemas/AgentPerson"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "last_used_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "expires_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "revoked_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "paused": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/AgentPause"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "scope": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
+                    },
+                    "effective_scope": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
+                    },
+                    "last_action": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/AgentLastAction"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "refusals_7d": {
+                        "type": "integer",
+                        "description": "Refused calls in the last 7 days, counting only actions the viewer can see."
+                    },
+                    "programs": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AgentProgram"
+                        }
+                    },
+                    "can_manage": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "can_manage",
+                    "created_at",
+                    "effective_scope",
+                    "expires_at",
+                    "id",
+                    "last_action",
+                    "last_used_at",
+                    "name",
+                    "paused",
+                    "principal",
+                    "programs",
+                    "refusals_7d",
+                    "revoked_at",
+                    "scope",
+                    "token_prefix"
+                ]
+            },
             "AgentAction": {
                 "type": "object",
                 "description": "Team-facing view of one audited agent action.\n\nRead-only — ``AgentAction`` rows are append-only and never mutated through the API.\nExposes the chain fields (``sequence``, ``record_hash``) for transparency; they are\nintegrity anchors, not secrets. Never exposes token material — only the 8-char\n``actor_token_prefix``. ``refusal_detail`` is the non-hashed side-car telemetry\n(constraint that fired + projected impact); ``null`` for allowed actions and for\nrefusals recorded before a constraint was wired.",
@@ -59701,7 +60459,7 @@
                             }
                         ],
                         "readOnly": true,
-                        "description": "Which specific guard fired — a finer axis than the chain's refusal_reason (identity|policy).\n\n* `capability_scope` - Capability scope\n* `token_identity` - Token identity\n* `graph_validation` - Graph validation\n* `sprint_sovereignty` - Sprint sovereignty\n* `rollup_lock` - Rollup lock\n* `engine_referee` - Engine referee"
+                        "description": "Which specific guard fired — a finer axis than the chain's refusal_reason (identity|policy).\n\n* `capability_scope` - Capability scope\n* `token_identity` - Token identity\n* `agent_paused` - Agent paused\n* `graph_validation` - Graph validation\n* `sprint_sovereignty` - Sprint sovereignty\n* `rollup_lock` - Rollup lock\n* `engine_referee` - Engine referee"
                     },
                     "projected_impact": {
                         "readOnly": true,
@@ -59722,6 +60480,48 @@
                 "description": "* `identity` - Identity\n* `policy` - Policy",
                 "x-trueppm-enum": "open"
             },
+            "AgentActionSummary": {
+                "type": "object",
+                "description": "One recent action in an agent's detail panel, redacted by project membership.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "occurred_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "actor_kind": {
+                        "$ref": "#/components/schemas/AgentActorKindEnum"
+                    },
+                    "action": {
+                        "type": "string"
+                    },
+                    "verdict": {
+                        "$ref": "#/components/schemas/AgentActionVerdictEnum"
+                    },
+                    "constraint": {
+                        "type": "string"
+                    },
+                    "summary": {
+                        "type": "string"
+                    },
+                    "redacted": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "action",
+                    "actor_kind",
+                    "constraint",
+                    "id",
+                    "occurred_at",
+                    "redacted",
+                    "summary",
+                    "verdict"
+                ]
+            },
             "AgentActionVerdictEnum": {
                 "enum": [
                     "allowed",
@@ -59734,11 +60534,268 @@
             },
             "AgentActorKindEnum": {
                 "enum": [
-                    "mcp_token"
+                    "mcp_token",
+                    "person"
                 ],
                 "type": "string",
-                "description": "* `mcp_token` - MCP token",
+                "description": "* `mcp_token` - MCP token\n* `person` - Person (agent control)",
                 "x-trueppm-enum": "open"
+            },
+            "AgentAuditVerify": {
+                "type": "object",
+                "description": "The \"Action log verified\" line: the ``audit_verify`` result, cached briefly.",
+                "properties": {
+                    "ok": {
+                        "type": "boolean"
+                    },
+                    "record_count": {
+                        "type": "integer"
+                    },
+                    "checked_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "anchor": {
+                        "type": "string"
+                    },
+                    "break_sequence": {
+                        "type": "integer",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "anchor",
+                    "break_sequence",
+                    "checked_at",
+                    "ok",
+                    "record_count"
+                ]
+            },
+            "AgentControlRequestRequest": {
+                "type": "object",
+                "description": "Body of pause / resume / revoke.",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "maxLength": 500
+                    }
+                }
+            },
+            "AgentDetail": {
+                "type": "object",
+                "description": "``GET /agents/{id}/``: the row plus recent actions.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "token_prefix": {
+                        "type": "string"
+                    },
+                    "principal": {
+                        "$ref": "#/components/schemas/AgentPerson"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "last_used_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "expires_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "revoked_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "paused": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/AgentPause"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "scope": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
+                    },
+                    "effective_scope": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
+                    },
+                    "last_action": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/AgentLastAction"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "refusals_7d": {
+                        "type": "integer",
+                        "description": "Refused calls in the last 7 days, counting only actions the viewer can see."
+                    },
+                    "programs": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AgentProgram"
+                        }
+                    },
+                    "can_manage": {
+                        "type": "boolean"
+                    },
+                    "recent_actions": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AgentActionSummary"
+                        }
+                    }
+                },
+                "required": [
+                    "can_manage",
+                    "created_at",
+                    "effective_scope",
+                    "expires_at",
+                    "id",
+                    "last_action",
+                    "last_used_at",
+                    "name",
+                    "paused",
+                    "principal",
+                    "programs",
+                    "recent_actions",
+                    "refusals_7d",
+                    "revoked_at",
+                    "scope",
+                    "token_prefix"
+                ]
+            },
+            "AgentLastAction": {
+                "type": "object",
+                "description": "The agent's latest call, redacted to what the viewer can read.",
+                "properties": {
+                    "occurred_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "verdict": {
+                        "$ref": "#/components/schemas/AgentActionVerdictEnum"
+                    },
+                    "summary": {
+                        "type": "string",
+                        "description": "Empty when the action's project is not readable."
+                    },
+                    "redacted": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "occurred_at",
+                    "redacted",
+                    "summary",
+                    "verdict"
+                ]
+            },
+            "AgentListResponse": {
+                "type": "object",
+                "description": "``GET /agents/``: the agents plus the scope vocabulary the matrix renders.",
+                "properties": {
+                    "agents": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Agent"
+                        }
+                    },
+                    "areas": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "grantable_levels": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "required": [
+                    "agents",
+                    "areas",
+                    "grantable_levels"
+                ]
+            },
+            "AgentPause": {
+                "type": "object",
+                "description": "Pause state, for people. The agent itself is only ever told it is paused.",
+                "properties": {
+                    "paused_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "paused_by": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/AgentPerson"
+                            }
+                        ],
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "paused_at",
+                    "paused_by"
+                ]
+            },
+            "AgentPerson": {
+                "type": "object",
+                "description": "A person named on the Agents page (principal, or who paused).",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "name"
+                ]
+            },
+            "AgentProgram": {
+                "type": "object",
+                "description": "A program the agent acted in that the viewer can see (links to its agents page).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "name"
+                ]
             },
             "AggregationPolicyEnum": {
                 "enum": [
@@ -70124,6 +71181,23 @@
                         "type": "integer",
                         "maximum": 2147483647,
                         "minimum": 0
+                    }
+                }
+            },
+            "PatchedAgentScopeEditRequest": {
+                "type": "object",
+                "description": "Body of ``PATCH /agents/{id}/scope/`` — areas left out keep their level.",
+                "properties": {
+                    "scope": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string",
+                            "minLength": 1
+                        }
+                    },
+                    "reason": {
+                        "type": "string",
+                        "maxLength": 500
                     }
                 }
             },
@@ -80721,13 +81795,14 @@
                 "enum": [
                     "capability_scope",
                     "token_identity",
+                    "agent_paused",
                     "graph_validation",
                     "sprint_sovereignty",
                     "rollup_lock",
                     "engine_referee"
                 ],
                 "type": "string",
-                "description": "* `capability_scope` - Capability scope\n* `token_identity` - Token identity\n* `graph_validation` - Graph validation\n* `sprint_sovereignty` - Sprint sovereignty\n* `rollup_lock` - Rollup lock\n* `engine_referee` - Engine referee",
+                "description": "* `capability_scope` - Capability scope\n* `token_identity` - Token identity\n* `agent_paused` - Agent paused\n* `graph_validation` - Graph validation\n* `sprint_sovereignty` - Sprint sovereignty\n* `rollup_lock` - Rollup lock\n* `engine_referee` - Engine referee",
                 "x-trueppm-enum": "open"
             },
             "RelationTypeEnum": {
@@ -93893,6 +94968,10 @@
         {
             "name": "agent-actions",
             "description": "Append-only, hash-chained audit trail of MCP/agent read actions and refusals, scoped to project membership."
+        },
+        {
+            "name": "agents",
+            "description": "Workspace Agents page and the person-only agent control plane: list agents, pause, resume, edit capability scope, revoke, and verify the action log. Token-authenticated requests are refused."
         },
         {
             "name": "meta",

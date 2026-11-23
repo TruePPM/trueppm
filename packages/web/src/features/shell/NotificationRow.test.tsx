@@ -60,6 +60,23 @@ beforeEach(() => {
 });
 
 describe('NotificationRow', () => {
+  it('opens the Agents page for a refused agent call (#4814)', () => {
+    renderWithRouter(
+      <NotificationRow
+        notification={row({
+          mention: null,
+          event_type: 'agent.refused',
+          subject: 'Refused: agent Claude is paused',
+          body: 'It is paused, so every call it makes is refused until it is resumed.\nNothing changed in the schedule.',
+          project: null,
+          task_id: null,
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByText('Refused: agent Claude is paused'));
+    expect(navigateMock).toHaveBeenCalledWith('/agents');
+  });
+
   it('renders mention text and snippet for an individual mention', () => {
     renderWithRouter(<NotificationRow notification={row()} />);
     expect(screen.getByText('Bob mentioned you')).toBeTruthy();
@@ -185,54 +202,38 @@ describe('NotificationRow', () => {
   });
 
   it('falls back to "Someone" when mention author is missing', () => {
-    renderWithRouter(
-      <NotificationRow notification={row({ mention: null })} />,
-    );
+    renderWithRouter(<NotificationRow notification={row({ mention: null })} />);
     expect(screen.getByText(/Someone mentioned you/)).toBeTruthy();
   });
 
   it('falls back to placeholder snippet when comment is unavailable', () => {
-    renderWithRouter(
-      <NotificationRow notification={row({ snippet: '' })} />,
-    );
+    renderWithRouter(<NotificationRow notification={row({ snippet: '' })} />);
     expect(screen.getByText('(comment unavailable)')).toBeTruthy();
   });
 
   it('navigates to the source task and marks read on row click', () => {
     const onNavigate = vi.fn();
-    renderWithRouter(
-      <NotificationRow notification={row()} onNavigate={onNavigate} />,
-    );
+    renderWithRouter(<NotificationRow notification={row()} onNavigate={onNavigate} />);
     fireEvent.click(screen.getByText('Bob mentioned you'));
     expect(mutateMock).toHaveBeenCalledWith({ id: 'n1', is_read: true });
-    expect(navigateMock).toHaveBeenCalledWith(
-      '/projects/p1/schedule?task=t1',
-    );
+    expect(navigateMock).toHaveBeenCalledWith('/projects/p1/schedule?task=t1');
     expect(onNavigate).toHaveBeenCalled();
   });
 
   it('navigates to the project board when task_id is missing', () => {
-    renderWithRouter(
-      <NotificationRow notification={row({ task_id: null })} />,
-    );
+    renderWithRouter(<NotificationRow notification={row({ task_id: null })} />);
     fireEvent.click(screen.getByText('Bob mentioned you'));
     expect(navigateMock).toHaveBeenCalledWith('/projects/p1/board');
   });
 
   it('does not call PATCH on click when already read', () => {
-    renderWithRouter(
-      <NotificationRow notification={row({ is_read: true })} />,
-    );
+    renderWithRouter(<NotificationRow notification={row({ is_read: true })} />);
     fireEvent.click(screen.getByText('Bob mentioned you'));
-    expect(mutateMock).not.toHaveBeenCalledWith(
-      expect.objectContaining({ is_read: true }),
-    );
+    expect(mutateMock).not.toHaveBeenCalledWith(expect.objectContaining({ is_read: true }));
   });
 
   it('toggles read state via the Mark unread / Mark read button', () => {
-    const { rerender } = renderWithRouter(
-      <NotificationRow notification={row()} />,
-    );
+    const { rerender } = renderWithRouter(<NotificationRow notification={row()} />);
     fireEvent.click(screen.getByText('Mark read'));
     expect(mutateMock).toHaveBeenLastCalledWith({ id: 'n1', is_read: true });
 
@@ -248,9 +249,7 @@ describe('NotificationRow', () => {
   });
 
   it('hides the Archive button when the row is already archived', () => {
-    renderWithRouter(
-      <NotificationRow notification={row({ is_archived: true })} />,
-    );
+    renderWithRouter(<NotificationRow notification={row({ is_archived: true })} />);
     expect(screen.queryByText('Archive')).toBeNull();
   });
 
@@ -264,10 +263,7 @@ describe('NotificationRow', () => {
     const menu = screen.getByRole('menu', { name: 'Snooze options' });
     expect(menu).toBeTruthy();
     fireEvent.click(screen.getByRole('menuitem', { name: '1 hour' }));
-    expect(snoozeMock).toHaveBeenCalledWith(
-      { id: 'n1', preset: '1h' },
-      expect.anything(),
-    );
+    expect(snoozeMock).toHaveBeenCalledWith({ id: 'n1', preset: '1h' }, expect.anything());
   });
 
   it('offers all three snooze presets', () => {
@@ -284,10 +280,7 @@ describe('NotificationRow', () => {
     );
     expect(screen.queryByRole('button', { name: 'Snooze' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Un-snooze' }));
-    expect(snoozeMock).toHaveBeenCalledWith(
-      { id: 'n1', until: null },
-      expect.anything(),
-    );
+    expect(snoozeMock).toHaveBeenCalledWith({ id: 'n1', until: null }, expect.anything());
   });
 
   // -- Mute a type (ADR-0216 §2) ---------------------------------------------

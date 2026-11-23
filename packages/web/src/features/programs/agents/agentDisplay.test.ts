@@ -37,8 +37,10 @@ describe('agentDisplay', () => {
       // The mark is a house icon element, not a glyph string — a plain string here
       // would mean an emoji crept back into the verdict vocabulary.
       expect(isValidElement(d.symbol)).toBe(true);
-      expect(d.textClass).toMatch(/semantic-/);
+      expect(d.textClass).toMatch(/semantic-|neutral-/);
     }
+    // Rule 466: a refusal is never red.
+    expect(VERDICT_DISPLAY.refused.textClass).not.toMatch(/critical/);
   });
 
   it('buckets an identity refusal as identity and a policy refusal as policy', () => {

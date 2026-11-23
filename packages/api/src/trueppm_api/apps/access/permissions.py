@@ -2737,6 +2737,58 @@ class McpInstanceEnabled(BasePermission):
         return True
 
 
+class AgentControlGuard(BasePermission):
+    """Per-agent pause and capability scope, evaluated on every agent call (#4814).
+
+    Two refusals, both ``policy`` and both decided on the server — the Agents page
+    only shows what this guard enforces:
+
+    * **Paused** (``agent_paused``): every call by a paused agent is refused. The
+      message is generic on purpose; who paused it is human UI only, because an agent
+      may relay what it receives to third parties.
+    * **Out of scope** (``capability_scope``): the view's area
+      (:func:`~trueppm_api.apps.projects.agent_scope.area_for_view`) is not readable
+      under the agent's *effective* scope — its grant intersected with what its
+      principal can do right now. Read per call from the token row the authenticator
+      loaded on this request, so there is no cache for a pause, scope edit or revoke
+      to outlive.
+
+    Passes for every non-agent caller: a person's JWT, and a ``legacy:full`` personal
+    token (#2877), which is the person's own credential and not an agent.
+    """
+
+    message = "This agent's call was refused."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        from trueppm_api.apps.projects.agent_scope import (
+            AGENT_AREA_LABELS,
+            AGENT_PAUSED_CONSTRAINT,
+            AGENT_PAUSED_MESSAGE,
+            AGENT_SCOPE_MESSAGE,
+            can_read_area,
+        )
+        from trueppm_api.apps.projects.agent_scope import area_for_view as _area_for_view
+        from trueppm_api.apps.projects.models import is_agent_token
+
+        token = getattr(request, "auth", None)
+        if not is_agent_token(token):
+            return True
+        if token.agent_paused_at is not None:
+            self.message = AGENT_PAUSED_MESSAGE
+            _mark_policy_refusal(request, AGENT_PAUSED_CONSTRAINT)
+            return False
+        area = _area_for_view(view)
+        if area is None:
+            return True
+        if not can_read_area(token, area):
+            self.message = AGENT_SCOPE_MESSAGE.format(area=AGENT_AREA_LABELS[area].lower())
+            # The literal is RefusalConstraint.CAPABILITY_SCOPE; spelled out so this
+            # guard adds no access -> agents import site (app-layering baseline).
+            _mark_policy_refusal(request, "capability_scope")
+            return False
+        return True
+
+
 class TokenIsOwnerScoped(BasePermission):
     """Confine the MCP read surface to owner-scoped (personal) API tokens (#1712).
 
@@ -3114,6 +3166,10 @@ class McpReadableViewMixin(_McpViewBase):
         return [
             TokenIsOwnerScoped(),
             McpInstanceEnabled(),
+            # Pause and capability scope (#4814): after the operator switch, before the
+            # team opt-out, so a paused agent is told it is paused rather than which
+            # project withheld it.
+            AgentControlGuard(),
             McpProjectEnabled(),
             TokenReadOnlyMethods(),
             TokenHasScope(SCOPE_MCP_READ)(),

@@ -76,6 +76,9 @@ _EVENT_TYPE_CATEGORY: dict[str, str] = {
     # access-lifecycle notices, the same reading as PROJECT_DELETED above.
     NotificationEventType.MEMBERSHIP_GRANTED.value: CATEGORY_PROJECT,
     NotificationEventType.MEMBERSHIP_ROLE_CHANGED.value: CATEGORY_PROJECT,
+    # `project`: a notice about the person's own agent configuration (#4814), the
+    # same access-lifecycle reading as the membership notices above.
+    NotificationEventType.AGENT_REFUSED.value: CATEGORY_PROJECT,
 }
 
 

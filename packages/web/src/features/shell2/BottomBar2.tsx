@@ -30,7 +30,6 @@ export function BottomBar2() {
   const items = resolveRailItems({
     pathname,
     landingPath: HOME_PATH,
-    programAgentsPath: null,
     inboxCount,
     agentsCount: 0,
   });

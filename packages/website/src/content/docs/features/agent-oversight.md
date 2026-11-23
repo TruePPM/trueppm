@@ -1,7 +1,16 @@
 ---
 title: Agent oversight
 description: A read-only view — per program, and per project on your own Activity tab — of what your team's agents read and which agent calls were refused. Every row is a link in a tamper-evident chain you can verify yourself. Governance of agents, never surveillance of people.
+documentedFor: "0.5"
 ---
+
+:::note[Ships in 0.5]
+The workspace **Agents** page — pause, capability scope, token revoke, the
+"Action log verified" line and the refused-agent Inbox item — ships in 0.5 and is
+described under [Workspace Agents page](#workspace-agents-page). In the current
+release, agents are visible per program and per project only, and you stop an agent
+by revoking its token under **Settings › API tokens**.
+:::
 
 This page is for a PM, Scrum Master, or program lead who wants to know what an AI
 assistant connected to TruePPM has actually looked at, and what it was refused —
@@ -84,6 +93,54 @@ python manage.py audit_verify
 That check runs on your own server, against your own data — it is the authoritative
 proof, not something the browser can fake. The panel points you to it honestly
 rather than claiming a guarantee it cannot make on its own.
+
+## Workspace Agents page
+
+The **Agents** item in the left rail opens one page for every agent you can see,
+across every program you belong to. An agent is a personal access token with the
+read-only MCP scope; it acts for one person, the person who created it.
+
+**Who sees which agents.** You see your own agents, and any agent that has acted in
+a project you are a member of. A workspace Admin sees every agent. When an agent's
+latest action was in a project you cannot read, the row says so instead of showing
+it.
+
+Each row shows who the agent acts for, its scope in words, its last action, and how
+many of its calls were **refused in the last 7 days** — counting only actions you can
+see. Select a row to open its panel:
+
+- **Pause** stops the agent. Every call it makes is refused until someone resumes
+  it. The panel says who paused it. The agent itself is told only that it is
+  paused, never by whom.
+- **Edit scope** sets what the agent may do in each area (Schedule & tasks,
+  Dependencies, Resources, Baselines). **Read** lets it read that area. **Dry run**
+  lets it ask what a change would do; the verdict is recorded in the action log and
+  nothing changes. **Write** is shown but disabled: the write path ships in 0.6, and
+  the server refuses a write grant whatever the page sends.
+- **Revoke token** ends the agent for good, on its next call.
+
+An agent can never do more than the person it acts for. The server checks the
+agent's scope against that person's **current** project roles on every call, so
+removing the person from a project, or lowering their role, narrows the agent at
+once. A workspace Admin who edits someone else's agent is held to the same limit.
+
+Only the person an agent acts for, or a workspace Admin, can pause, resume, edit or
+revoke it, and only from a signed-in session: the endpoints refuse every API token,
+including the agent's own, so an agent cannot resume itself or widen its own scope.
+Every pause, resume, scope change and revoke is written to the same tamper-evident
+chain as the agent's own calls, with who made it and why.
+
+The line under the page title — **Action log verified · N records · as of …** — is
+the result of the same check as `audit_verify`, run by the server and reused for up
+to ten minutes while the log has not grown.
+
+### Refused agents in your Inbox
+
+When one of your agents is refused because it is paused or outside its scope, you
+get an Inbox item. It leads with the reason, then names what the agent attempted
+and the agent, and ends with "Nothing changed in the schedule." Repeats from the
+same agent for the same reason within 15 minutes update one item with a count, so a
+looping agent cannot fill your Inbox. Opening the item takes you to the Agents page.
 
 ## Governance of agents, not surveillance of people
 

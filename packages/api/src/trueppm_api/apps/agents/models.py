@@ -29,6 +29,8 @@ from django.conf import settings
 from django.db import models
 from django.db.models import Q
 
+from trueppm_api.apps.projects.agent_scope import AGENT_PAUSED_CONSTRAINT
+
 #: Schema version of the ``AgentAction`` record + the canonical hash input. Bumped only
 #: on a breaking change to the chained field set or the canonicalization (which would be
 #: a chain-format break). Enterprise receivers branch on this (ADR-0112 contract).
@@ -57,6 +59,10 @@ class AgentActorKind(models.TextChoices):
     """
 
     MCP_TOKEN = "mcp_token", "MCP token"
+    # A person acting on an agent through the control plane (#4814): pause, resume,
+    # scope edit, revoke. ``actor_token`` is the agent acted on and ``principal`` is
+    # the person who acted, so the chain proves who widened what.
+    PERSON = "person", "Person (agent control)"
 
 
 class AgentActionVerdict(models.TextChoices):
@@ -95,6 +101,8 @@ class RefusalConstraint(models.TextChoices):
 
     CAPABILITY_SCOPE = "capability_scope", "Capability scope"
     TOKEN_IDENTITY = "token_identity", "Token identity"
+    # The agent was paused by a person (#4814). Describes the caller's own credential.
+    AGENT_PAUSED = AGENT_PAUSED_CONSTRAINT, "Agent paused"
     # Reserved for the 0.6 gated-write surface (ADR-0362 §4 refusal-engine v1); no
     # producer emits these yet — the enum reserves the codes so they slot in later.
     GRAPH_VALIDATION = "graph_validation", "Graph validation"

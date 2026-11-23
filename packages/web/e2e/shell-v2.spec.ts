@@ -89,9 +89,10 @@ test.describe('shell v2 (shell_v2 flag)', () => {
         'aria-current',
         'true',
       );
+      // Always the workspace Agents page (#4757), even inside a program.
       await expect(destinations(page).getByRole('link', { name: 'Agents' })).toHaveAttribute(
         'href',
-        `/programs/${PROGRAM_ID}/agents`,
+        '/agents',
       );
 
       // One location: program / project / leaf. No eyebrow, no status-bar echo.
@@ -273,7 +274,9 @@ test.describe('shell v2 (shell_v2 flag)', () => {
         }),
       );
       await page.goto('/work');
-      await expect(page.getByRole('heading', { name: 'No programs or projects yet' })).toBeVisible();
+      await expect(
+        page.getByRole('heading', { name: 'No programs or projects yet' }),
+      ).toBeVisible();
       await expect(page.getByRole('tree')).toHaveCount(0);
     });
   });

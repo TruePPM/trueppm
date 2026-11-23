@@ -70,7 +70,7 @@ export function RefusalLog({
                     <span>{formatRelative(new Date(r.occurred_at))}</span>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 text-sm">
-                    <span className="inline-flex items-center gap-1 font-medium text-semantic-critical">
+                    <span className="inline-flex items-center gap-1 font-medium text-neutral-text-primary">
                       <BanIcon aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
                       {GROUP_LABEL[group]}
                     </span>
