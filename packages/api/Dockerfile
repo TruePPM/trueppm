@@ -279,7 +279,7 @@ COPY NOTICE /app/NOTICE
 # unwritable, so the guard refuses the deploy instead of letting the first
 # upload EROFS. Mount a volume here to make uploads durable.
 RUN useradd --uid 1000 --no-create-home --shell /sbin/nologin trueppm && \
-    microdnf -y remove shadow-utils && microdnf clean all && \
+    microdnf -y remove shadow-utils && microdnf clean all && rm -rf /var/cache/dnf /var/cache/yum && \
     mkdir -p /app/staticfiles /run/trueppm /var/lib/trueppm/media && \
     chown trueppm /app/staticfiles /run/trueppm /var/lib/trueppm/media
 
