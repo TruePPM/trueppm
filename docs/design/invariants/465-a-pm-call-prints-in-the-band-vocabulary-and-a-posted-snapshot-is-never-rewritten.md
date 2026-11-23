@@ -4,7 +4,7 @@
 
 **A project manager's status-update call (`green` / `amber` / `red` on the wire) is printed with the health band's glyph and word (On track ✓, At risk ◆, Critical ▲) through `lib/ragBand.ts`, never as "Green / Amber / Red" or any second set of words. A posted update's snapshot is shown exactly as frozen; a figure that has moved since gets a separate "now …" tag whose value comes only from the API's `live_diff`, never from a client comparison or a fresh read.**
 
-**Why.** Rule 397 and ADR-1464 allow one status vocabulary; a RAG radio with its own words would be the fourth word for a three-value scale that #3470 removed. And a status update is a signed record: overwriting the frozen value with today's, or computing the diff on the client against another endpoint, would make the record say something its author never posted and could disagree with the server's own diff.
+**Why.** Rule 397 allows one status vocabulary; a RAG radio with its own words would be the fourth word for a three-value scale that #3470 removed. And a status update is a signed record: overwriting the frozen value with today's, or computing the diff on the client against another endpoint, would make the record say something its author never posted and could disagree with the server's own diff.
 
 **How to apply.**
 - (a) Map at the edge with `RAG_BAND` / `ragLabel`; glyphs come from `STATUS_GLYPH[BAND_TONE[...]]`.

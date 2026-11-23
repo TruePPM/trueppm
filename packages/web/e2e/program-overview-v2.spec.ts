@@ -7,7 +7,7 @@
  */
 import { test, expect, type Page } from './fixtures/coverage';
 import { setupCatchAll } from './fixtures/api-mocks';
-import { expectNoA11yViolations } from './fixtures/a11y';
+import { expectNoA11yViolationsBothThemes } from './fixtures/a11y';
 
 const PROGRAM_ID = 'e2e-program-v2-0000-0000-0000-000000004799';
 const A = '00000000-0000-0000-0000-0000000000a1';
@@ -159,7 +159,7 @@ test.describe('shell v2 program overview', () => {
     await expect(page.getByTestId('program-row-band')).toHaveCount(2);
     await expect(page.getByTestId('program-overview2-partial')).toHaveCount(0);
     await expect(page.getByText(/Enterprise/)).toHaveCount(0);
-    await expectNoA11yViolations(page, testInfo);
+    await expectNoA11yViolationsBothThemes(page, testInfo);
   });
 
   test('empty program: one add action, no upsell', async ({ page }) => {
@@ -174,7 +174,7 @@ test.describe('shell v2 program overview', () => {
   test('partial rollup names the project the program P80 excludes', async ({ page }) => {
     await open(page, rollup(ROWS, [C]));
     await expect(page.getByTestId('program-overview2-partial')).toHaveText(
-      /1 of 3 projects didn’t report \(Identity Consolidation\); the program P80 excludes it until it returns\./,
+      /1 of 3 projects didn’t report \(Identity Consolidation\); the program P80 excludes it until it reports\./,
     );
   });
 });

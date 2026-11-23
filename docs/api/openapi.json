@@ -74729,6 +74729,11 @@
                         "type": "string",
                         "readOnly": true,
                         "description": "The latest P80 finish among the contributing projects' own Monte Carlo forecasts. Not a joint simulation of the program, whose P80 would be this date or later."
+                    },
+                    "projects": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "One contributing project: its own latest forecast (P50 and P80) and the P80's working-day delta against its commitment, its schedule band, and its project manager's latest posted status update. Projects the caller is not a member of carry only their name."
                     }
                 },
                 "required": [
@@ -74740,6 +74745,7 @@
                     "milestone_health",
                     "p80_completion",
                     "program_health",
+                    "projects",
                     "risk_score",
                     "schedule_health",
                     "schedule_variance"

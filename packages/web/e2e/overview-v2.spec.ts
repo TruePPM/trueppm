@@ -5,7 +5,7 @@
  */
 import { test, expect, type Page } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
-import { expectNoA11yViolations } from './fixtures/a11y';
+import { expectNoA11yViolationsBothThemes } from './fixtures/a11y';
 
 const PID = 'e2e-overview-v2-00000000-0000-0000-0000-000000000098';
 
@@ -179,6 +179,6 @@ test.describe('shell v2 project overview', () => {
       'Biggest driver: Pour foundation',
     );
     await expect(page.getByTestId('overview2-moved')).toContainText('moved from');
-    await expectNoA11yViolations(page, testInfo);
+    await expectNoA11yViolationsBothThemes(page, testInfo);
   });
 });

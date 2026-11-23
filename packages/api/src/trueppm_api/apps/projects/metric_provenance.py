@@ -394,7 +394,8 @@ def latest_forecast_by_project(project_ids: Iterable[Any]) -> dict[str, dict[str
     owner does. A newest run with no P80 means the owner has no P80 to show, so the
     project is left out; an older run's date is not substituted for it.
 
-    Returns ``{str(project_id): {"p50": date|None, "p80": date, "last_run_at": iso}}``
+    Returns ``{str(project_id): {"p50": date|None, "p80": date, "last_run_at": iso,
+    "p80_at_day_start": bool|None}}``
     for the projects that have a P80.
     """
     from django.core.cache import cache
@@ -425,20 +426,22 @@ def latest_forecast_by_project(project_ids: Iterable[Any]) -> dict[str, dict[str
                 "p50": _day(entry.get("p50")),
                 "p80": _day(p80),
                 "last_run_at": entry["last_run_at"],
+                "p80_at_day_start": entry.get("p80_at_day_start"),
             }
     if uncached:
         newest = (
             MonteCarloRun.objects.filter(project_id__in=uncached)
             .order_by("project_id", "-taken_at")
             .distinct("project_id")
-            .values_list("project_id", "p50", "p80", "taken_at")
+            .values_list("project_id", "p50", "p80", "taken_at", "p80_at_day_start")
         )
-        for run_project_id, run_p50, run_p80, taken_at in newest:
+        for run_project_id, run_p50, run_p80, taken_at, run_at_day_start in newest:
             if run_p80 is not None:
                 out[str(run_project_id)] = {
                     "p50": run_p50,
                     "p80": run_p80,
                     "last_run_at": taken_at.isoformat(),
+                    "p80_at_day_start": run_at_day_start,
                 }
     return out
 

@@ -3633,6 +3633,9 @@ class ProgramRollupDefinitionsSerializer(serializers.Serializer[dict[str, str]])
     p80_completion = serializers.CharField(
         read_only=True, required=False, help_text=METRIC_DEFINITIONS["rollup.p80_completion"]
     )
+    projects = serializers.CharField(
+        read_only=True, required=False, help_text=METRIC_DEFINITIONS["rollup.project_row"]
+    )
 
 
 class ProgramRollupSerializer(serializers.Serializer[dict[str, Any]]):

@@ -38,10 +38,10 @@ export function partialRollupLine(
   const names = ids.map((id) => rows.find((r) => r.id === id)?.name).filter(Boolean) as string[];
   const subject = names.length === ids.length ? names.join(', ') : `${ids.length} projects`;
   const pronoun = ids.length === 1 ? 'it' : 'them';
-  return `${ids.length} of ${rows.length} projects didn’t report (${subject}); the program P80 excludes ${pronoun} until it returns.`;
+  return `${ids.length} of ${rows.length} projects didn’t report (${subject}); the program P80 excludes ${pronoun} until ${ids.length === 1 ? 'it reports' : 'they report'}.`;
 }
 
-function Band({ axis, row }: { axis: Axis; row: ProgramRollupRow }) {
+export function Band({ axis, row }: { axis: Axis; row: ProgramRollupRow }) {
   if (!row.p80) {
     return <span className="text-xs text-p1-text-2">No forecast</span>;
   }
@@ -50,9 +50,10 @@ function Band({ axis, row }: { axis: Axis; row: ProgramRollupRow }) {
   const commit = row.commitment_date ? axisPosition(axis, row.commitment_date) : null;
   const clampedEnd = p80.clamped === 'end';
   const clampedStart = p50.clamped === 'start';
+  const commitClamp = commit?.clamped ?? null;
   const label = `P50 ${row.p50 ? fmtUtcMedium(row.p50) : 'not computed'} to P80 ${fmtUtcMedium(row.p80)}${
     row.commitment_date ? `, commitment ${fmtUtcMedium(row.commitment_date)}` : ''
-  }${clampedEnd ? ', P80 beyond the axis' : ''}`;
+  }${clampedEnd ? ', P80 beyond the axis' : ''}${commitClamp ? ', commitment beyond the axis' : ''}`;
   return (
     <div
       role="img"
@@ -84,6 +85,15 @@ function Band({ axis, row }: { axis: Axis; row: ProgramRollupRow }) {
           data-testid="program-row-clamp-end"
         >
           ▸
+        </span>
+      )}
+      {commitClamp && !(commitClamp === 'end' ? clampedEnd : clampedStart) && (
+        <span
+          aria-hidden="true"
+          className={`absolute ${commitClamp === 'end' ? '-right-1' : '-left-1'} top-1/2 -translate-y-1/2 text-xs text-p1-text-2`}
+          data-testid="program-row-clamp-commitment"
+        >
+          {commitClamp === 'end' ? '▸' : '◂'}
         </span>
       )}
       {clampedStart && (

@@ -125,6 +125,7 @@ def compute_program_rollup(
     *,
     exclude_project_ids: Collection[Any] | None = None,
     cost_viewer: Any = None,
+    schedule_bands_out: dict[Any, str] | None = None,
 ) -> dict[str, Any]:
     """Compute the rolled-up KPI block for a program's overview (ADR-0088).
 
@@ -149,6 +150,11 @@ def compute_program_rollup(
     caller below it gets the average with ``policy_unavailable_reason:
     "cost_restricted"`` (see :func:`_policy_weights`). The weekly digest passes no
     ``cost_viewer``, so its health dot for a budget-weighted program is the average.
+
+    ``schedule_bands_out``, when given, is filled with the per-project SPI bands this
+    call already computed, so a caller that also renders per-project rows
+    (:func:`program_project_rows`) does not pay for a second SPI query. The digest
+    passes nothing and behaves as before.
 
     Pure read: deterministic for a given DB state (and Monte Carlo cache), no
     writes, safe to call on every GET.
@@ -188,6 +194,8 @@ def compute_program_rollup(
     # source of the headline program health dot (ADR-0088). Also drives the weekly
     # program-health digest.
     schedule_health_by_project = _schedule_health_by_project(project_ids, today)
+    if schedule_bands_out is not None:
+        schedule_bands_out.update(schedule_health_by_project)
     program_health = _reduce_health(
         list(schedule_health_by_project.values()), effective_policy, task_weights, project_ids
     )
@@ -391,8 +399,9 @@ def p80_completion_entry(project_ids: list[Any]) -> dict[str, Any]:
 def program_project_rows(
     program: Program,
     *,
-    can_access_project: Callable[[Any], bool],
+    accessible_project_ids: Collection[Any],
     exclude_project_ids: Collection[Any] | None = None,
+    schedule_bands: dict[Any, str] | None = None,
 ) -> list[dict[str, Any]]:
     """One row per contributing project for the program overview (#4799).
 
@@ -405,8 +414,9 @@ def program_project_rows(
     schedule band through :func:`_schedule_health_by_project`, and the PM's call from
     the latest posted :class:`StatusUpdate`.
 
-    Program roles do not cascade to projects (ADR-1324 §4), so a project the caller
-    is not a member of keeps only its id and name (``accessible: False``): the
+    ``accessible_project_ids`` is the set of projects the caller holds a live
+    membership on. Program roles do not cascade to projects (ADR-1324 §4), so a
+    project the caller is not a member of keeps only its id and name (``accessible: False``): the
     status update narrative in particular is readable only by project members.
 
     Sorted by slip: the largest ``p80_delta_vs_commitment_days`` first, then the rows
@@ -428,11 +438,16 @@ def program_project_rows(
     if exclude_project_ids is not None:
         qs = qs.exclude(pk__in=exclude_project_ids)
     projects = list(qs.select_related("program", "lead").order_by("name", "id"))
-    readable = [p for p in projects if can_access_project(p.id)]
-    readable_ids = [p.id for p in readable]
+    readable_ids = [p.id for p in projects if p.id in accessible_project_ids]
+    readable_set = set(readable_ids)
 
     forecasts = latest_forecast_by_project(readable_ids)
-    bands = _schedule_health_by_project(readable_ids, timezone.localdate())
+    # Reuse the rollup's own bands when the caller has them (same project set).
+    bands = (
+        schedule_bands
+        if schedule_bands is not None and readable_set <= schedule_bands.keys()
+        else _schedule_health_by_project(readable_ids, timezone.localdate())
+    )
     latest_updates = {
         u.project_id: u
         for u in StatusUpdate.objects.filter(project_id__in=readable_ids)
@@ -457,11 +472,14 @@ def program_project_rows(
             "lead_name": None,
             "latest_update": None,
         }
-        if project.id in readable_ids:
+        if project.id in readable_set:
             forecast = forecasts.get(str(project.id))
             p80 = forecast["p80"] if forecast else None
             facts = forecast_commitment_facts(
-                project, p80=p80, p80_at_day_start=None, calendar_for=_calendar_for(project)
+                project,
+                p80=p80,
+                p80_at_day_start=forecast["p80_at_day_start"] if forecast else None,
+                calendar_for=_calendar_for(project),
             )
             lead = project.lead
             update = latest_updates.get(project.id)

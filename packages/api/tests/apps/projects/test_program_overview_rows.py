@@ -191,11 +191,15 @@ def test_rows_for_projects_the_caller_cannot_read_carry_only_the_name(
 
 
 @pytest.mark.django_db
-def test_latest_update_is_the_newest_of_many(pm: Any, program: Program, calendar: Calendar) -> None:
+def test_latest_update_is_the_newest_of_many(
+    pm: Any, program: Program, calendar: Calendar, django_assert_max_num_queries: Any
+) -> None:
     project = _project(program, calendar, "Busy", pm)
     for n in range(5):
         status_update_services.post_status_update(project, pm, rag="green", narrative=f"n{n}")
-    rows = _get(pm, program)["projects"]
+    _get(pm, program)  # warm per-process caches (content types, etc.)
+    with django_assert_max_num_queries(25):
+        rows = _get(pm, program)["projects"]
     assert rows[0]["latest_update"]["seq"] == 5
 
 
@@ -205,3 +209,94 @@ def test_empty_program_has_no_rows(pm: Any, program: Program) -> None:
     assert data["projects"] == []
     assert data["forecast"]["projects_without_forecast_ids"] == []
     assert data["forecast"]["reason"] == "no_projects"
+
+
+@pytest.mark.django_db
+def test_query_count_does_not_grow_with_project_count(
+    pm: Any, program: Program, calendar: Calendar, django_assert_max_num_queries: Any
+) -> None:
+    """Membership and SPI bands are one query each, not one per project."""
+    for n in range(2):
+        _project(program, calendar, f"P{n}", pm)
+    _get(pm, program)
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    with CaptureQueriesContext(connection) as few:
+        _get(pm, program)
+    for n in range(2, 6):
+        _project(program, calendar, f"P{n}", pm)
+    with CaptureQueriesContext(connection) as many:
+        _get(pm, program)
+    # The commitment read is per accessible project (known, tracked separately);
+    # membership and bands must add nothing, so growth is at most that read.
+    assert len(many) - len(few) <= 4 * 2
+    sql = "\n".join(q["sql"] for q in many.captured_queries)
+    assert sql.count('FROM "access_projectmembership"') <= 3
+
+
+@pytest.mark.django_db
+def test_lead_p80_and_row_definitions_survive_the_kpi_being_disabled(
+    pm: Any, program: Program, calendar: Calendar
+) -> None:
+    program.rollup_enabled_kpis = []
+    program.save(update_fields=["rollup_enabled_kpis"])
+    project = _project(program, calendar, "Alpha", pm)
+    _run(project, datetime.date(2027, 1, 10), datetime.date(2027, 1, 20))
+
+    data = _get(pm, program)
+
+    assert "p80_completion" not in data["kpis"]
+    assert data["forecast"]["value"] == "2027-01-20"
+    assert data["definitions"]["p80_completion"]
+    assert data["definitions"]["projects"]
+
+
+@pytest.mark.django_db
+def test_mcp_excluded_and_draft_projects_are_dropped(
+    pm: Any,
+    program: Program,
+    calendar: Calendar,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from trueppm_api.apps.projects import mcp_settings
+    from trueppm_api.apps.projects.models import ProjectLifecycle
+
+    kept = _project(program, calendar, "Kept", pm)
+    opted_out = _project(program, calendar, "OptedOut", pm)
+    draft = _project(program, calendar, "Draft", pm)
+    Project.objects.filter(pk=draft.pk).update(lifecycle=ProjectLifecycle.DRAFT)
+    _run(kept, datetime.date(2027, 1, 10), datetime.date(2027, 1, 20))
+    _run(opted_out, datetime.date(2027, 2, 10), datetime.date(2027, 6, 20))
+    _run(draft, datetime.date(2027, 2, 10), datetime.date(2027, 7, 20))
+    monkeypatch.setattr(mcp_settings, "mcp_excluded_project_ids", lambda request: [opted_out.pk])
+
+    data = _get(pm, program)
+
+    assert [r["name"] for r in data["projects"]] == ["Kept"]
+    assert data["forecast"]["value"] == "2027-01-20"
+    assert data["project_count"] == 1
+
+
+@pytest.mark.django_db
+def test_row_delta_honors_a_start_of_day_finish(
+    pm: Any, program: Program, calendar: Calendar
+) -> None:
+    """The row's delta equals the project's own, including a p80 read at day start."""
+    project = _project(program, calendar, "Edge", pm)
+    _baseline(project, datetime.date(2027, 1, 20))
+    MonteCarloRun.objects.create(
+        project=project,
+        n_simulations=100,
+        p50=datetime.date(2027, 1, 12),
+        p80=datetime.date(2027, 1, 22),
+        p80_at_day_start=True,
+    )
+    client = APIClient()
+    client.force_authenticate(user=pm)
+    own = client.get(f"/api/v1/projects/{project.pk}/monte-carlo/latest/").json()
+
+    row = _get(pm, program)["projects"][0]
+
+    assert own["p80_delta_vs_commitment_days"] is not None
+    assert row["p80_delta_vs_commitment_days"] == own["p80_delta_vs_commitment_days"]

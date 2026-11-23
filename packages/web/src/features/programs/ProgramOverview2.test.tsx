@@ -1,5 +1,7 @@
+import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { partialRollupLine } from './ProgramOverview2';
+import { Band, partialRollupLine } from './ProgramOverview2';
+import { buildAxis } from './programAxis';
 import type { ProgramRollupRow } from './ProgramOverviewPage';
 
 const row = (id: string, name: string): ProgramRollupRow => ({
@@ -27,7 +29,7 @@ describe('partialRollupLine', () => {
         forecast: { available: true, value: '2027-01-01', projects_without_forecast_ids: ['b'] },
       }),
     ).toBe(
-      '1 of 3 projects didn’t report (Identity Consolidation); the program P80 excludes it until it returns.',
+      '1 of 3 projects didn’t report (Identity Consolidation); the program P80 excludes it until it reports.',
     );
   });
 
@@ -47,5 +49,25 @@ describe('partialRollupLine', () => {
         forecast: { available: true, value: null, projects_without_forecast_ids: ['b', 'zz'] },
       }),
     ).toContain('(2 projects)');
+  });
+});
+
+describe('Band edge markers', () => {
+  const far = { ...row('f', 'Far'), p50: '2027-01-01', p80: '2027-02-01' };
+  const outlier = { ...far, id: 'o', commitment_date: '2031-01-01' };
+
+  it('marks a commitment past the axis with an edge marker and says so', () => {
+    const axis = buildAxis([far, outlier], 120)!;
+    render(<Band axis={axis} row={outlier} />);
+    expect(screen.getByTestId('program-row-clamp-commitment')).toBeInTheDocument();
+    expect(screen.getByRole('img').getAttribute('aria-label')).toContain(
+      'commitment beyond the axis',
+    );
+  });
+
+  it('draws no marker when everything is on the axis', () => {
+    const axis = buildAxis([far], 120)!;
+    render(<Band axis={axis} row={far} />);
+    expect(screen.queryByTestId('program-row-clamp-commitment')).toBeNull();
   });
 });

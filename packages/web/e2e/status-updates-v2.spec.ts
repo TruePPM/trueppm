@@ -7,7 +7,7 @@
  */
 import { test, expect, type Page } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
-import { expectNoA11yViolations } from './fixtures/a11y';
+import { expectNoA11yViolationsBothThemes } from './fixtures/a11y';
 
 const PID = 'e2e-status-upd-0000-0000-0000-000000004804';
 
@@ -150,7 +150,7 @@ test.describe('shell v2 project status updates', () => {
     await expect(composer.getByTestId('status-composer-first-line')).toContainText(
       'Vendor slipped two weeks',
     );
-    await expectNoA11yViolations(page, testInfo);
+    await expectNoA11yViolationsBothThemes(page, testInfo);
     await composer.getByRole('button', { name: 'Post update' }).click();
     await expect(page.getByTestId('status-composer')).toHaveCount(0);
     await expect(page.getByTestId('status-update-row')).toHaveCount(2);

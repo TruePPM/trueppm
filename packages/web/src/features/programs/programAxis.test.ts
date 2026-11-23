@@ -38,4 +38,26 @@ describe('programAxis', () => {
     const one = buildAxis([row(null, '2027-01-01')])!;
     expect(one.end).toBeGreaterThan(one.start);
   });
+
+  it('anchors on the densest window so one early outlier does not clamp every other row', () => {
+    const axis = buildAxis(
+      [
+        row('2024-01-01', '2024-01-10'),
+        row('2027-01-01', '2027-02-01'),
+        row('2027-01-15', '2027-03-01', '2027-02-15'),
+      ],
+      120,
+    )!;
+    expect(axisPosition(axis, '2027-03-01').clamped).toBeNull();
+    expect(axisPosition(axis, '2027-02-15').clamped).toBeNull();
+    expect(axisPosition(axis, '2024-01-10')).toEqual({ pct: 0, clamped: 'start' });
+  });
+
+  it('flags a commitment past the axis like any other date', () => {
+    const axis = buildAxis(
+      [row('2027-01-01', '2027-02-01', '2031-01-01'), row('2027-01-10', '2027-02-10')],
+      120,
+    )!;
+    expect(axisPosition(axis, '2031-01-01')).toEqual({ pct: 100, clamped: 'end' });
+  });
 });

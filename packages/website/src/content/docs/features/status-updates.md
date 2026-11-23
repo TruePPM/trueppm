@@ -53,7 +53,8 @@ Project Overview.
   a reload keeps it. **Save draft** closes the composer and keeps it; **Cancel**
   discards it. When a draft exists the button reads **Resume draft**.
 - **Offline**, the draft keeps saving and **Post update** is disabled: the update
-  posts when you reconnect, and the snapshot freezes then, not when you typed it.
+  becomes available again when you reconnect. Nothing posts on its own: you post
+  it, and the snapshot freezes then, not when you typed it.
 - If a post fails, the composer stays open with your call and narrative kept as a
   draft, and says which update number did not post.
 - The history lists updates newest first: the call, the first line, the author

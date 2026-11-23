@@ -41,13 +41,19 @@ const UPDATE: StatusUpdate = {
   live_diff: { 'forecast.p80': { value: '2026-12-14', as_of: null } },
 };
 
-function renderSection(canPost = true) {
+function renderSection(canPost = true, derivedBand: string | null = null) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={qc}>
-      <StatusUpdatesSection projectId="p1" userId="7" canPost={canPost} liveRows={[]} />
+      <StatusUpdatesSection
+        projectId="p1"
+        userId="7"
+        canPost={canPost}
+        liveRows={[]}
+        derivedBand={derivedBand}
+      />
     </QueryClientProvider>,
   );
 }
@@ -64,6 +70,12 @@ describe('StatusUpdatesSection', () => {
     renderSection();
     expect(await screen.findByText('No status updates yet')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Post update' })).toBeInTheDocument();
+  });
+
+  it("the first update's composer still shows the plan's computed band", async () => {
+    renderSection(true, 'at_risk');
+    await userEvent.click(await screen.findByRole('button', { name: 'Post update' }));
+    expect(await screen.findByText(/Computed:/)).toBeInTheDocument();
   });
 
   it('a reader sees the empty state with no action', async () => {

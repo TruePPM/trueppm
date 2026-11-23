@@ -277,6 +277,11 @@ interface SectionProps {
   /** Project Admin+ may post (the API's gate); everyone else reads. */
   canPost: boolean;
   liveRows: SnapshotRow[];
+  /**
+   * status-summary's band when the counts decided it (never a manual report), so the
+   * first update's composer still shows the plan's reading. Null when unknown.
+   */
+  derivedBand?: string | null;
 }
 
 /**
@@ -284,7 +289,13 @@ interface SectionProps {
  * the composer for a Project Manager. Selecting a row shows that update's frozen
  * snapshot with "now …" tags from the API's live diff; nothing is recomputed here.
  */
-export function StatusUpdatesSection({ projectId, userId, canPost, liveRows }: SectionProps) {
+export function StatusUpdatesSection({
+  projectId,
+  userId,
+  canPost,
+  liveRows,
+  derivedBand = null,
+}: SectionProps) {
   const history = useStatusUpdates(projectId);
   const { formatInstantDate } = useUserDateFormat();
   const [composing, setComposing] = useState(false);
@@ -310,7 +321,7 @@ export function StatusUpdatesSection({ projectId, userId, canPost, liveRows }: S
         <StatusUpdateComposer
           projectId={projectId}
           userId={userId}
-          computedBand={currentComputedHealth(latest)}
+          computedBand={currentComputedHealth(latest) ?? derivedBand}
           nextSeq={(latest?.seq ?? 0) + 1}
           liveRows={liveRows}
           onClose={() => setComposing(false)}
