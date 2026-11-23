@@ -125,7 +125,7 @@ function leafTask(task: ProgramScheduleTask, laneId: string): Task {
       : task.duration,
     progress: 0,
     parentId: laneId,
-    isCritical: task.is_critical,
+    isCritical: task.is_critical ?? false,
     isComplete: false,
     isSummary: false,
     isMilestone: task.is_milestone,

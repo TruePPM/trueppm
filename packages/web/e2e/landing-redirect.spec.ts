@@ -303,11 +303,7 @@ test.describe('Role-based landing redirect (#1181, ADR-0129)', () => {
     await setupAuth(page);
     await setupCatchAll(page);
     await page.route('**/api/v1/edition/', (r) =>
-      r.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ edition: 'community' }),
-      }),
+      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ edition: 'community' }) }),
     );
 
     let requestCount = 0;

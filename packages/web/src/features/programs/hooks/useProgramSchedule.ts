@@ -50,7 +50,7 @@ export interface ProgramScheduleFullTask {
   late_start: string | null;
   late_finish: string | null;
   total_float_days: number | null;
-  is_critical: boolean;
+  is_critical: boolean | null;
   /**
    * Working days (#3597) — the task's own estimate, read straight off the row
    * rather than derived from `early_start`/`early_finish`, so it equals what the
@@ -79,7 +79,7 @@ export interface ProgramScheduleExternalTask {
   is_external: true;
   early_start: string | null;
   early_finish: string | null;
-  is_critical: boolean;
+  is_critical: boolean | null;
   /** #4079: as on the full row — which edge of its shown day a milestone is on. */
   milestone_at_day_end?: boolean;
 }

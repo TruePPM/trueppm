@@ -28,7 +28,7 @@ interface ApiSprintTask {
   wbs_path: string | null;
   status: TaskStatus;
   story_points: number | null;
-  is_critical: boolean;
+  is_critical: boolean | null;
   assignments?: SprintBacklogAssignee[];
 }
 
@@ -59,7 +59,7 @@ export function useSprintBacklog(
         wbs_path: t.wbs_path,
         status: t.status,
         story_points: t.story_points,
-        is_critical: t.is_critical,
+        is_critical: t.is_critical ?? false,
         assignments: t.assignments ?? [],
       }));
       return rows;
