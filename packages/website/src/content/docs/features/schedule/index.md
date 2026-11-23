@@ -147,6 +147,37 @@ tasks you can edit get a one-tap complete. The Monte Carlo forecast card stays
 pinned at the bottom. This is a read-and-navigate surface — reschedule and
 drag-to-plan stay on the desktop canvas.
 
+## Redesigned toolbar and legend
+
+:::note[Ships in 0.5]
+This section describes the redesigned Schedule page that ships in 0.5 behind the `shell_v2` preview flag (add `?ff=shell_v2` to the URL). The current release uses the toolbar described in [Schedule toolbar](/features/schedule-toolbar/), with a show/hide **Legend** button and a forecast strip docked under the chart.
+:::
+
+In 0.5 the redesigned Schedule page will cut the toolbar down to the controls you reach for most:
+
+- **Filter**, **Zoom** and **Add task** will always stay in the bar.
+- **Today**, **Baseline** and **Critical only** will sit in the bar when the window has room, and move into the **More** menu as it narrows. **Baseline** will only appear when the project has an active baseline.
+- **Group**, **Columns**, **Expand all**, **Dependency links** (show or hide the arrows) and **Export** will live in the **More** menu. Its button will say how many actions it holds, and a control that moved there for lack of room will be listed under **Moved here: no room at this width**.
+
+The toolbar will measure itself rather than switch at fixed screen sizes: it gives up room one step at a time until everything fits, so the exact width at which a control moves depends on your project and on whether the side rail is open. Zoom will first shrink to a single **Month ▾**-style button, then the legend will move into the timeline header, and **Add task** will become a `+` button only when nothing else is left to give up. Nothing in the bar is ever cut off.
+
+The toolbar will be a single stop for the `Tab` key. Use the left and right arrow keys, `Home` and `End` to move between its controls, and `Escape` to close the **More** menu.
+
+### Legend and the critical path
+
+The legend will always be on screen. It names four marks, each with a swatch and a symbol so that none of them depends on color alone:
+
+| Mark | Looks like | Symbol |
+|---|---|---|
+| Critical | A bar with a solid red outline | ▲ |
+| Near-critical | A bar with a dashed amber outline: its total float is at or under the project's near-critical threshold | ◆ |
+| Baseline | The pale bar behind a task, shown only while baseline bars are on | ▭ |
+| Today | A vertical line | │ |
+
+The near-critical threshold is the one set in project settings (10 working days unless changed). A selected bar will get a dotted ring, so you can still tell it apart from a critical one.
+
+The forecast strip under the chart will go away in the redesigned page. The P80 date in the project header will be the one forecast shown at rest.
+
 ## Canvas renderer
 
 TruePPM ships its own canvas Schedule renderer in `packages/web/src/features/schedule/engine/`. It replaced an earlier SVAR React Gantt integration to remove third-party constraints on drag UX, accessibility (ARIA grid overlay), and dark-mode rendering. Three layered canvases (background, bars, interaction) are dirty-rect repainted; row virtualization is mandatory from the first commit. See [ADR-0040](/architecture/decisions/) for the full rationale.
