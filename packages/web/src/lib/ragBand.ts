@@ -2,8 +2,7 @@ import { HEALTH_BAND_LABEL, type HealthBand } from '@/lib/healthBand';
 
 /**
  * A project manager's own call on a status update (#4803): the API stores
- * `green` / `amber` / `red`. The product has ONE status vocabulary (rule 397,
- * ADR-1464), so a call is printed with the health band's word and glyph, never a
+ * `green` / `amber` / `red`. The product has ONE status vocabulary (rule 397), so a call is printed with the health band's word and glyph, never a
  * second set of words: green reads "On track", amber "At risk", red "Critical".
  * The map is the only place the two key shapes meet.
  */
