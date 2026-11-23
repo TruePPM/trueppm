@@ -239,8 +239,16 @@ def model_fields(root: Path) -> dict[str, dict[str, str]]:
                         if isinstance(fn, ast.Attribute)
                         else getattr(fn, "id", "")
                     )
-                    if _FIELD_CALL.match(fname) and not stmt.targets[0].id.startswith(
-                        "_"
+                    server_set = any(
+                        kw.arg in ("auto_now", "auto_now_add", "editable")
+                        and isinstance(kw.value, ast.Constant)
+                        and kw.value.value is (kw.arg != "editable")
+                        for kw in stmt.value.keywords
+                    )  # server-set or non-editable: never client-writable
+                    if (
+                        _FIELD_CALL.match(fname)
+                        and not server_set
+                        and not stmt.targets[0].id.startswith("_")
                     ):
                         fields[stmt.targets[0].id] = str(p.relative_to(root))
             if fields:
@@ -291,7 +299,23 @@ def writable_fields(
             if mname not in models:
                 continue
             listed = _names(meta.get("fields"))
-            ro = set(_names(meta.get("read_only_fields")))
+            ro_node = meta.get("read_only_fields")
+            if isinstance(ro_node, ast.Name) and ro_node.id == "fields":
+                continue  # ``read_only_fields = fields``: every listed field is read-only
+            if isinstance(ro_node, ast.Name):  # a same-class list assigned by name
+                ro_node = next(
+                    (
+                        st.value
+                        for st in cls.body
+                        if isinstance(st, ast.Assign)
+                        and any(
+                            isinstance(t, ast.Name) and t.id == ro_node.id
+                            for t in st.targets
+                        )
+                    ),
+                    None,
+                )
+            ro = set(_names(ro_node))
             for stmt in (
                 cls.body
             ):  # explicit declarations that are read_only / replace the model field
@@ -487,6 +511,19 @@ def self_test() -> int:
             "        fields = ['read_me', 'ghost', 'derived']\n"
             "        read_only_fields = ['derived']\n"
         )
+        (app / "serializers.py").write_text(
+            (app / "serializers.py").read_text()
+            + "\nclass ThingRoSerializer(serializers.ModelSerializer):\n"
+            "    class Meta:\n"
+            "        model = Thing\n"
+            "        fields = ('ro_only',)\n"
+            "        read_only_fields = fields\n"
+        )
+        (app / "models.py").write_text(
+            (app / "models.py").read_text()
+            + "    ro_only = models.CharField(max_length=5)\n"
+            "    stamped = models.DateTimeField(auto_now_add=True)\n"
+        )
         (app / "services.py").write_text("def use(t):\n    return t.read_me\n")
         env = env_findings(root)
         check(
@@ -508,6 +545,14 @@ def self_test() -> int:
         )
         check(("unread-writable", "Thing.read_me") not in rd, "read field flagged")
         check(("unread-writable", "Thing.derived") not in rd, "read-only field flagged")
+        check(
+            ("unread-writable", "Thing.ro_only") not in rd,
+            "read_only_fields = fields idiom flagged",
+        )
+        check(
+            ("unread-writable", "Thing.stamped") not in rd,
+            "auto_now_add field flagged",
+        )
         # A web-only reader counts.
         (root / "packages/web/src/x.ts").write_text("const g = row.ghost;\n")
         check(
