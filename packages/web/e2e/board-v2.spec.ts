@@ -142,7 +142,19 @@ test.describe('shell v2 board', () => {
       await expect(page).not.toHaveURL(/task=c1/);
       await page.keyboard.press('Enter');
       await expect(page).toHaveURL(/task=c1/);
-      await expect(page.getByRole('dialog').first()).toBeVisible();
+      await expect(page.getByRole('dialog', { name: /Write brief/ })).toBeVisible();
+    });
+
+    test('Enter on a held card drops it and does not open task detail', async ({ page }) => {
+      const store = await open(page);
+      await page.locator('[data-board2-card="c1"]').focus();
+      await page.keyboard.press('Space');
+      await page.keyboard.press('ArrowRight');
+      await page.keyboard.press('Enter');
+      await expect.poll(() => store.patches.length).toBeGreaterThan(0);
+      expect(store.patches[0]).toMatchObject({ status: 'IN_PROGRESS' });
+      await expect(page).not.toHaveURL(/task=/);
+      await expect(page.getByRole('dialog', { name: /Write brief/ })).toHaveCount(0);
     });
 
     test('the overflow menu opens and closes from the keyboard', async ({ page }) => {
