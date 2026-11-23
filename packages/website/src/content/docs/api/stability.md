@@ -709,6 +709,26 @@ on paper; on the wire nothing changes. Endpoints that honor the parameters (for 
 | Announced | 0.5 (declaration correction; wire behavior unchanged) |
 | Migration | stop sending `search` / `ordering` to the listed operations; filter and sort client-side |
 
+### API fuzz declaration corrections (#5093)
+
+The nightly Schemathesis run drove four declarations that did not match the server.
+Three are documentation of behavior that never worked or never held:
+
+- `POST /projects/{project_pk}/tasks/{task_pk}/labels/{label_id}/` and
+  `DELETE /projects/{project_pk}/tasks/{task_pk}/labels/` were published, but the
+  handler for each took the other route's arguments and answered `500`. Attach is
+  `POST .../labels/` with `{"label_id": ...}`; detach is `DELETE .../labels/{label_id}/`.
+  Those two are unchanged and still work. The other two verbs now answer `405`.
+- `count` on the task list is no longer `required` in `PaginatedTaskList`: a
+  `pagination=keyset` response has never carried it.
+- `GET /programs/samples/{key}/download/` declared a binary string; the body is a JSON
+  object served as `application/json`, and still is.
+
+| | |
+|---|---|
+| Announced | 0.5 (declaration correction; no working call changes behavior) |
+| Migration | none for a client that used the documented attach and detach calls; read `count` as optional |
+
 ### `RoleEnum` replaced by `RoleOrdinal`
 
 **This is a pre-GA break with no deprecation window, not a scheduled
