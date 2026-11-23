@@ -66,7 +66,7 @@ rejected by schema validation either.
 
 **Why the images themselves do not block this.** The API image
 (`packages/api/Dockerfile`) bakes `USER trueppm` (a named uid-1000 account) and
-the web image uses `nginxinc/nginx-unprivileged` (`USER 101`), but neither
+the web image uses Red Hat UBI nginx (`USER 1001`, group 0), but neither
 Dockerfile's `USER` line matters once OpenShift injects a pod-level
 `runAsUser`: Kubernetes' `securityContext.runAsUser` always overrides an image's
 `USER` directive. What the arbitrary UID actually needs is **read** access to

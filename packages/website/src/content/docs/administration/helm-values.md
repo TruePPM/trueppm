@@ -511,7 +511,7 @@ instead and carry no WebSocket traffic either way. Whether that production
 api Service, bypassing the web pod's nginx entirely; this directive matters
 on a topology that instead routes `/ws` through the web tier (no Ingress, or
 one configured to do so). On such a topology, the base image
-(`nginx-unprivileged`) stops on `SIGQUIT` — a graceful shutdown that, with no
+(Red Hat UBI nginx) stops on `SIGQUIT` — a graceful shutdown that, with no
 bound, waits for open connections to close on their own — so a terminating
 pod with live WebSocket viewers held those sockets open until the full
 termination grace ran out and Kubernetes SIGKILLed it. Either way the client

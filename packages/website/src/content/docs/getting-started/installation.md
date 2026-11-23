@@ -41,9 +41,10 @@ to) uses the **`v`-prefixed** form, `v<version>`; the two are not
 interchangeable. To avoid pulling at all, build locally with the development
 stack below.
 
-**Both paths need outbound network access** to Docker Hub (`python:3.11-slim`,
-`node:22-alpine`, `nginxinc/nginx-unprivileged`, `postgres:16-alpine`,
-`valkey/valkey:8-alpine`), PyPI, and the npm registry. On an air-gapped or
+**Both paths need outbound network access** to Docker Hub (`node:22-alpine`,
+`postgres:16-alpine`, `valkey/valkey:8-alpine`), Red Hat's anonymous registry
+(`registry.access.redhat.com`, the UBI 9 base of the API and web images), PyPI,
+and the npm registry. On an air-gapped or
 egress-filtered host, mirror those into an internal registry first and point the
 compose files or `image.repository` / `image.webRepository` at it.
 :::

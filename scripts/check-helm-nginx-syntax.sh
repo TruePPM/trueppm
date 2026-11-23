@@ -16,11 +16,13 @@
 # ConfigMap is written to be included INTO (its own comment: "this file is
 # included from nginx.conf's http block") — a bare `server { }` fragment has no
 # such context on its own. The web image's own base,
-# nginxinc/nginx-unprivileged:alpine (pinned to the same digest
-# packages/web/Dockerfile's serve stage uses, so this tests the nginx the
-# project actually ships), already supplies both: pipe the rendered text onto
-# /etc/nginx/conf.d/default.conf over stdin (see check_syntax(), never a bind
-# mount) and its stock nginx.conf includes it.
+# ubi9/nginx-124 (pinned to the same digest packages/web/Dockerfile's serve
+# stage uses, so this tests the nginx the project actually ships, #4336) supplies
+# both. Its stock nginx.conf is s2i-shaped and does not include conf.d, so the
+# rendered text is piped onto /etc/nginx/conf.d/default.conf over stdin (see
+# check_syntax(), never a bind mount) and the vendor include is repointed at
+# conf.d with sed — the same include packages/web/nginx-main.conf makes in the
+# shipped image. Run as root: the vendor config tree is root-owned.
 #
 # `nginx -t` does not only parse syntax, though — for a `proxy_pass` whose
 # target is a LITERAL hostname (not a variable), nginx resolves that hostname
@@ -62,7 +64,7 @@ HELM_CHART="packages/helm"
 # Pinned to the exact digest packages/web/Dockerfile's serve stage FROMs, so a
 # syntax pass here means "valid against the nginx this project actually ships,"
 # not just "valid against whatever :alpine resolves to today."
-NGINX_IMAGE="docker.io/nginxinc/nginx-unprivileged:alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e"
+NGINX_IMAGE="registry.access.redhat.com/ubi9/nginx-124@sha256:25689563c913e06be2879b36394e8a156b7a96ad1fd45e2cfcbf91dc5c071f70"
 
 violations=0
 
@@ -119,7 +121,8 @@ check_syntax() {
   out="$(printf '%s\n' "$conf_text" | docker run --rm -i \
     --add-host api:127.0.0.1 \
     --add-host trueppm-api:127.0.0.1 \
-    "$NGINX_IMAGE" sh -c 'cat > /etc/nginx/conf.d/default.conf && nginx -t' 2>&1)"
+    --user root \
+    "$NGINX_IMAGE" sh -c 'cat > /etc/nginx/conf.d/default.conf && sed -i "s#/opt/app-root/etc/nginx.d/#/etc/nginx/conf.d/#" /etc/nginx/nginx.conf && nginx -t' 2>&1)"
   rc=$?
   set -e
 
