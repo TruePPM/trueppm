@@ -41,7 +41,8 @@ DEFAULT_HEAVY_QUEUE = "heavy"
 #: (a bulk edit across projects) would occupy the few children the 30-second
 #: outbox drains and email need — and because
 #: the program pass it escalates to must share its queue, or a project with
-#: cross-program edges would refresh on a different clock from one without.
+#: cross-project edges in its program would refresh on a different clock from
+#: one without.
 #: The operator-side mitigation (heavy-worker headroom, KEDA) is in the sizing
 #: guide, "Worker topology and queue-depth autoscaling".
 HEAVY_TASKS: tuple[str, ...] = (
