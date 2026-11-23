@@ -1,6 +1,6 @@
 import { test, expect, type Page } from './fixtures/coverage';
 import { expectNoA11yViolations, setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
-import { setupTaskStore } from './fixtures/task-store';
+import { setupTaskStore, type TaskRow } from './fixtures/task-store';
 
 /**
  * Shell v2 Board page (#4797), behind `?ff=shell_v2`. Phase lanes, five toolbar
@@ -65,7 +65,7 @@ const TASKS = [
   card(4, 'Kickoff', 'COMPLETE'),
 ];
 
-async function open(page: Page, tasks: object[] = TASKS, theme?: 'dark') {
+async function open(page: Page, tasks: TaskRow[] = TASKS, theme?: 'dark') {
   if (theme) await page.addInitScript((t) => localStorage.setItem('trueppm.theme', t), theme);
   await setupAuth(page);
   await setupCatchAll(page);
