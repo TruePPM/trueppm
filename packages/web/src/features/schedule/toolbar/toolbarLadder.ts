@@ -250,8 +250,12 @@ export interface FitStepInput {
    * "142 items · 9 critical" and "3 items · 0 critical" are not the same width.
    */
   costs: ReadonlyArray<number | undefined>;
-  /** The ladder `step` indexes into; `costs` must have been learned on it. */
-  ladder?: readonly LadderRung[];
+  /**
+   * The ladder `step` indexes into; `costs` must have been learned on it.
+   * Only each rung's `estimate` is read, so any ladder whose rungs carry one
+   * (the shell v2 Schedule toolbar's, #4796) can share this loop.
+   */
+  ladder?: readonly Pick<LadderRung, 'estimate'>[];
 }
 
 /**

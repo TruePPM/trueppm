@@ -147,6 +147,61 @@ tasks you can edit get a one-tap complete. The Monte Carlo forecast card stays
 pinned at the bottom. This is a read-and-navigate surface — reschedule and
 drag-to-plan stay on the desktop canvas.
 
+## Redesigned toolbar and legend
+
+:::note[Ships in 0.5]
+This section describes the redesigned Schedule page that ships in 0.5 behind the `shell_v2` preview flag (add `?ff=shell_v2` to the URL). The current release uses the toolbar described in [Schedule toolbar](/features/schedule-toolbar/), with a show/hide **Legend** button and a forecast strip docked under the chart.
+:::
+
+In 0.5 the redesigned Schedule page will put a smaller set of controls in its toolbar. It does not yet offer every action the current toolbar has; the ones it leaves out are listed under [Not in the redesigned Schedule page yet](#not-in-the-redesigned-schedule-page-yet). With the preview flag on, those actions are not reachable from the Schedule page at all. The redesigned toolbar will hold:
+
+- **Filter**, **Zoom** and **Add task** will always stay in the bar.
+- **Today**, **Baseline** and **Critical only** will sit in the bar when the window has room, and move into the **More** menu as it narrows. **Baseline** will only appear when the project has an active baseline.
+- **Group**, **Columns**, **Expand all**, **Dependency links** (show or hide the arrows) and **Export** will live in the **More** menu. Its button will say how many actions it holds, and a control that moved there for lack of room will be listed under **Moved here: no room at this width**.
+
+The toolbar will measure itself rather than switch at fixed screen sizes: it gives up room one step at a time until everything fits, so the exact width at which a control moves depends on your project and on whether the side rail is open. Zoom will first shrink to a single **Month ▾**-style button, then the legend will move into the timeline header, and **Add task** will become a `+` button only when nothing else is left to give up. Nothing in the bar is ever cut off.
+
+The toolbar will be a single stop for the `Tab` key. Use the left and right arrow keys, `Home` and `End` to move between its controls, and `Escape` to close the **More** menu.
+
+### Legend and the critical path
+
+The legend will always be on screen on the desktop chart. It names up to four marks, each as a swatch drawn the way the chart draws it, plus a word, so that none of them depends on color alone:
+
+| Mark | Looks like |
+|---|---|
+| Critical | A solid red outline around the bar. The bar's fill still shows its status. |
+| Near-critical | A dashed orange outline (amber in dark mode) around the bar: its total float is more than zero and at or under the project's near-critical threshold |
+| Baseline | The pale bar behind a task, shown only while baseline bars are on |
+| Today | A vertical line |
+
+The near-critical threshold is the one set in project settings (10 working days unless changed). Near-critical outlines will appear once the project's settings have loaded, never from a guessed threshold. A selected bar will get a dotted ring, so you can still tell it apart from a critical one.
+
+The forecast strip under the chart will go away in the redesigned page. The P80 date in the project header will be the one forecast shown at rest.
+
+### Not in the redesigned Schedule page yet
+
+The redesigned page is a first pass, and so far it covers the toolbar, the legend and the critical-path outlines. These are not part of it yet, and no release is promised for any of them. Until they are, turn the preview flag off to use them:
+
+- **Import** from Microsoft Project or CSV, and **Share**.
+- **Capture baseline**, the **baseline manager**, and **Trash** (deleted tasks).
+- **Undo** for structural changes, and **Bulk edit**.
+- The **Read** / **Author** mode toggle.
+- **Add milestone**, **Add phase** and **Ungroup**.
+- **Focus mode** and the critical-path-only view (**CP only**).
+- Display options: where task names sit on the bar, **progress pills** and **sprint bands**.
+- Filters other than **Milestones only**. The **Filter** menu holds that one filter for now.
+- The ▲ (critical) and ◆ (near-critical) symbols the design gives the **Float** column. The chart and the column do not draw them yet, so the legend does not list them.
+- Grouping recurring tasks under one row. Each occurrence is stored per task already; the plan is to group them for display in the browser from what the server sends, but nothing is built.
+- A phone layout for the toolbar. Below 768 pixels wide the redesigned toolbar is not shown at all; the phone's schedule list has no toolbar controls, as in the current release.
+- Touch-sized targets for the **Zoom** stepper buttons. The **Zoom** − and + buttons are 28 pixels square for now; the rest of the toolbar's controls and the **More** menu rows are 44 pixels.
+- The page's loading, empty and error states, redrawn to the new design.
+- The opening state of a project: a 448-pixel item list, a 12-week zoom, today's phase expanded, and a "N more" count for what is off screen.
+- The "one warning" items: a blocked-only pill, a footer summary, and a roll-up for phases with no committed start.
+- Solid red critical dependency arrows.
+- The **Commit** marker and the **P80** tick on the chart, with their definitions.
+- Plain-text **Float** values in the **Float** column, in the design's wording.
+- An as-of date beside the commitment and the P50 / P80 forecast dates, which depends on the server reporting when each was computed ([#4760](https://gitlab.com/trueppm/trueppm/-/issues/4760)).
+
 ## Canvas renderer
 
 TruePPM ships its own canvas Schedule renderer in `packages/web/src/features/schedule/engine/`. It replaced an earlier SVAR React Gantt integration to remove third-party constraints on drag UX, accessibility (ARIA grid overlay), and dark-mode rendering. Three layered canvases (background, bars, interaction) are dirty-rect repainted; row virtualization is mandatory from the first commit. See [ADR-0040](/architecture/decisions/) for the full rationale.

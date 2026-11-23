@@ -1,4 +1,8 @@
 import { ROW_VOCABULARY, countRows, outlineWidthValueText } from './rowVocabulary';
+import { useFeatureFlag } from '@/lib/featureFlags';
+import { ScheduleToolbarV2 } from './v2/ScheduleToolbarV2';
+import { ScheduleLegendV2 } from './v2/ScheduleLegendV2';
+import { SCHEDULE_SHELL_V2_FLAG, v2ColumnLabel } from './v2/scheduleV2Columns';
 import {
   useRef,
   useCallback,
@@ -1484,14 +1488,24 @@ export function ScheduleView() {
   // visibility is handled by the `links` filter above, not here. The canvas no
   // longer draws a name column of its own (#2960) — the outline renders on both
   // surfaces, so the name is always two cells to the left of the track.
+  const { data: projectDetail } = useProject(projectIdUndef);
+  // Shell v2 Schedule (#4796): a different toolbar, a persistent legend and no
+  // docked forecast strip. Off, v1's Schedule is untouched.
+  const shellV2 = useFeatureFlag(SCHEDULE_SHELL_V2_FLAG);
+  const [legendV2Placement, setLegendV2Placement] = useState<'bar' | 'timeline-header'>('bar');
   const chartOptions = useMemo(
     () => ({
       taskNamePlacement: activeNamePlacement,
       showProgressPills: chartPrefs.progressPillsVisible,
       showSprintBands: chartPrefs.sprintBandsVisible,
       showBaselineBars: chartPrefs.baselineBarsVisible && baselineDrawable,
+      criticalAtRest: shellV2
+        ? { nearCriticalDays: projectDetail?.effective_near_critical_threshold_days ?? null }
+        : null,
     }),
     [
+      shellV2,
+      projectDetail?.effective_near_critical_threshold_days,
       activeNamePlacement,
       chartPrefs.progressPillsVisible,
       chartPrefs.sprintBandsVisible,
@@ -1627,7 +1641,8 @@ export function ScheduleView() {
   // project's data date; and the project-start floor prompt (#868) needs
   // `start_date`. Passing `undefined` while the query is in flight is safe —
   // `useColumnWidths` derives visibility every render instead of latching it.
-  const { data: projectDetail } = useProject(projectIdUndef);
+  // `projectDetail` (useProject) is declared above `chartOptions`, which reads
+  // its near-critical threshold for the shell v2 at-rest frames (#4796).
   // The calendar every client-side working-day step and count on this page uses
   // (#4170): the composed calendar the server schedules with, or — from a server
   // that predates `scheduling_calendar` — the base weekday mask alone. One value
@@ -4638,78 +4653,128 @@ export function ScheduleView() {
   const mainView = (() => (
     <div className="flex flex-col h-full overflow-hidden">
       <h1 className="sr-only">Schedule</h1>
-      <ScheduleToolbar
-        bulkEditSelectionCount={bulkEdit.selectedTasks.length}
-        onBulkEdit={hasEditRights && !readOnly ? bulkEdit.open : undefined}
-        onUndoStructuralAct={undoStructuralAct}
-        undoPending={undoStructuralMut.isPending}
-        hasEditRights={hasEditRights}
-        canLinkDependencies={!dependenciesReadOnly}
-        displayOptions={displayOptions}
-        onToggleDisplayOption={toggleDisplayOption}
-        displayTriggerRef={displayTriggerRef}
-        legendTriggerRef={legendTriggerRef}
-        isMobile={isMobile}
-        projectId={projectId}
-        readOnly={readOnly}
-        showAddForm={showAddForm}
-        insertTarget={insertTarget}
-        onAddTask={handleToolbarAddTask}
-        handleAddMilestone={handleAddMilestone}
-        handleAddPhase={handleAddPhase}
-        phaseAdoptionName={phaseAdoptionTarget?.name ?? null}
-        groupTarget={groupTarget}
-        ungroupTarget={ungroupTarget}
-        onGroup={handleGroupRows}
-        onUngroup={handleUngroupRow}
-        restructurePending={groupTasksMut.isPending || ungroupTasksMut.isPending}
-        createPending={createTaskMut.isPending}
-        buildModeActive={buildModeActive}
-        authorMode={authorMode.mode}
-        onToggleAuthorMode={requestAuthorToggle}
-        activeBaselineName={baselinedAuthorGate.activeBaselineName}
-        setCheatsheetOpen={setCheatsheetOpen}
-        pendingCount={pendingTaskIds.size}
-        projectDetail={projectDetail}
-        visibleTasks={visibleTasks}
-        effectiveViewMode={effectiveViewMode}
-        showCpOnly={showCpOnly}
-        setShowCpOnly={setShowCpOnly}
-        focusModeEnabled={focusModeEnabled}
-        setFocusModeEnabled={setFocusModeEnabled}
-        showCriticalOnly={showCriticalOnly}
-        setShowCriticalOnly={setShowCriticalOnly}
-        showMilestonesOnly={showMilestonesOnly}
-        setShowMilestonesOnly={setShowMilestonesOnly}
-        visible={visible}
-        toggleColumn={toggleColumn}
-        chartPrefs={chartPrefs}
-        setDependencyLinesVisible={setDependencyLinesVisible}
-        activeNamePlacement={activeNamePlacement}
-        setTaskNamePlacement={setTaskNamePlacement}
-        setProgressPillsVisible={setProgressPillsVisible}
-        // Offered only when the project actually has a window to draw — an
-        // inert checkbox on a pure waterfall plan is a control that lies (#2738).
-        setSprintBandsVisible={sprintBands.length > 0 ? setSprintBandsVisible : undefined}
-        setBaselineBarsVisible={hasActiveBaseline ? setBaselineBarsVisible : undefined}
-        hiddenChartCount={hiddenChartCount}
-        breakpoint={breakpoint}
-        handleScrollToToday={handleScrollToToday}
-        engine={engine}
-        canImport={canImport}
-        isExporting={isExporting}
-        exportProject={exportProject}
-        scheduleExport={scheduleExport}
-        canShare={canShare}
-        canCaptureBaseline={canCaptureBaseline}
-        setImportOpen={setImportOpen}
-        canImportCsv={canImportCsv}
-        setCsvImportOpen={setCsvImportOpen}
-        setShareOpen={setShareOpen}
-        setCaptureBaselineConfirmOpen={setCaptureBaselineConfirmOpen}
-        setBaselineManagerOpen={setBaselineManagerOpen}
-        setTaskTrashOpen={setTaskTrashOpen}
-      />
+      {shellV2 && !isMobile ? (
+        <ScheduleToolbarV2
+          onFit={() => engine?.fitToProject()}
+          canAddTask={hasEditRights && !readOnly}
+          onAddTask={handleToolbarAddTask}
+          createPending={createTaskMut.isPending}
+          onToday={handleScrollToToday}
+          baselineAvailable={hasActiveBaseline}
+          baselineShown={chartPrefs.baselineBarsVisible}
+          baselineBarsDrawn={chartOptions.showBaselineBars === true}
+          onToggleBaseline={() => setBaselineBarsVisible(!chartPrefs.baselineBarsVisible)}
+          criticalOnly={showCriticalOnly}
+          onToggleCriticalOnly={() => setShowCriticalOnly((v) => !v)}
+          milestonesOnly={showMilestonesOnly}
+          onToggleMilestonesOnly={() => setShowMilestonesOnly((v) => !v)}
+          canGroup={groupTarget.blocked === null}
+          onGroup={hasEditRights && !readOnly ? handleGroupRows : undefined}
+          columns={(Object.keys(visible) as Array<keyof typeof visible>).map((key) => ({
+            key,
+            label: v2ColumnLabel(key),
+            visible: visible[key],
+          }))}
+          onToggleColumn={(key) => toggleColumn(key as keyof typeof visible)}
+          onExpandAll={() => expandAll(collectAllIds(buildWbsTree(allTasks)))}
+          dependencyLinesShown={chartPrefs.dependencyLinesVisible}
+          onToggleDependencyLines={() =>
+            setDependencyLinesVisible(!chartPrefs.dependencyLinesVisible)
+          }
+          exportItems={[
+            { label: 'Export PDF…', onSelect: scheduleExport.openDialog },
+            ...(canImport
+              ? [
+                  {
+                    label: 'Export MS Project (.xml)',
+                    onSelect: () => void exportProject(),
+                    disabled: isExporting,
+                  },
+                ]
+              : []),
+          ]}
+          legend={(placement) => (
+            <ScheduleLegendV2
+              placement={placement}
+              baselineShown={chartOptions.showBaselineBars === true}
+            />
+          )}
+          onLegendPlacementChange={setLegendV2Placement}
+        />
+      ) : (
+        <ScheduleToolbar
+          bulkEditSelectionCount={bulkEdit.selectedTasks.length}
+          onBulkEdit={hasEditRights && !readOnly ? bulkEdit.open : undefined}
+          onUndoStructuralAct={undoStructuralAct}
+          undoPending={undoStructuralMut.isPending}
+          hasEditRights={hasEditRights}
+          canLinkDependencies={!dependenciesReadOnly}
+          displayOptions={displayOptions}
+          onToggleDisplayOption={toggleDisplayOption}
+          displayTriggerRef={displayTriggerRef}
+          legendTriggerRef={legendTriggerRef}
+          isMobile={isMobile}
+          projectId={projectId}
+          readOnly={readOnly}
+          showAddForm={showAddForm}
+          insertTarget={insertTarget}
+          onAddTask={handleToolbarAddTask}
+          handleAddMilestone={handleAddMilestone}
+          handleAddPhase={handleAddPhase}
+          phaseAdoptionName={phaseAdoptionTarget?.name ?? null}
+          groupTarget={groupTarget}
+          ungroupTarget={ungroupTarget}
+          onGroup={handleGroupRows}
+          onUngroup={handleUngroupRow}
+          restructurePending={groupTasksMut.isPending || ungroupTasksMut.isPending}
+          createPending={createTaskMut.isPending}
+          buildModeActive={buildModeActive}
+          authorMode={authorMode.mode}
+          onToggleAuthorMode={requestAuthorToggle}
+          activeBaselineName={baselinedAuthorGate.activeBaselineName}
+          setCheatsheetOpen={setCheatsheetOpen}
+          pendingCount={pendingTaskIds.size}
+          projectDetail={projectDetail}
+          visibleTasks={visibleTasks}
+          effectiveViewMode={effectiveViewMode}
+          showCpOnly={showCpOnly}
+          setShowCpOnly={setShowCpOnly}
+          focusModeEnabled={focusModeEnabled}
+          setFocusModeEnabled={setFocusModeEnabled}
+          showCriticalOnly={showCriticalOnly}
+          setShowCriticalOnly={setShowCriticalOnly}
+          showMilestonesOnly={showMilestonesOnly}
+          setShowMilestonesOnly={setShowMilestonesOnly}
+          visible={visible}
+          toggleColumn={toggleColumn}
+          chartPrefs={chartPrefs}
+          setDependencyLinesVisible={setDependencyLinesVisible}
+          activeNamePlacement={activeNamePlacement}
+          setTaskNamePlacement={setTaskNamePlacement}
+          setProgressPillsVisible={setProgressPillsVisible}
+          // Offered only when the project actually has a window to draw — an
+          // inert checkbox on a pure waterfall plan is a control that lies (#2738).
+          setSprintBandsVisible={sprintBands.length > 0 ? setSprintBandsVisible : undefined}
+          setBaselineBarsVisible={hasActiveBaseline ? setBaselineBarsVisible : undefined}
+          hiddenChartCount={hiddenChartCount}
+          breakpoint={breakpoint}
+          handleScrollToToday={handleScrollToToday}
+          engine={engine}
+          canImport={canImport}
+          isExporting={isExporting}
+          exportProject={exportProject}
+          scheduleExport={scheduleExport}
+          canShare={canShare}
+          canCaptureBaseline={canCaptureBaseline}
+          setImportOpen={setImportOpen}
+          canImportCsv={canImportCsv}
+          setCsvImportOpen={setCsvImportOpen}
+          setShareOpen={setShareOpen}
+          setCaptureBaselineConfirmOpen={setCaptureBaselineConfirmOpen}
+          setBaselineManagerOpen={setBaselineManagerOpen}
+          setTaskTrashOpen={setTaskTrashOpen}
+        />
+      )}
 
       {/* Downstream consent banner (ADR-0120 D2, #1480): shows only when another
           team has proposed inert cross-project links against this project's
@@ -4792,6 +4857,7 @@ export function ScheduleView() {
       )}
 
       <ScheduleMainArea
+        shellV2LegendPlacement={shellV2 ? legendV2Placement : null}
         isMobile={isMobile}
         allTasks={allTasks}
         projectId={projectId}
@@ -5000,7 +5066,10 @@ export function ScheduleView() {
           That is what keeps ADR-0144 / web rule 189 true across the move: one
           forecast surface, percentiles rendered once, and never the chip's P80
           alongside the popover's P50/P80/P95. */}
-      {surfaces.monte_carlo && !isDemoReadOnly && (
+      {/* Shell v2 (#4796) drops the docked strip: the context header's P80
+          stamp is the one forecast at rest, so a second percentile readout here
+          would be the duplicate web rule 189 forbids. */}
+      {surfaces.monte_carlo && !isDemoReadOnly && !shellV2 && (
         <ScheduleForecastBar projectId={projectIdUndef} cpmFinish={cpmFinish} tasks={allTasks} />
       )}
 
@@ -6700,6 +6769,12 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
 
 interface ScheduleMainAreaProps {
   /**
+   * Shell v2 (#4796): where the persistent legend sits — `null` on v1, where the
+   * floating toggleable legend renders instead. The timeline-header placement
+   * is the toolbar ladder's relocation rung; the legend itself never folds.
+   */
+  shellV2LegendPlacement: 'bar' | 'timeline-header' | null;
+  /**
    * Is drag-to-link on offer? (#3053) Distinct from `readOnly`, which is the
    * task-content gate — the two roles they admit are not nested. Threaded down so
    * the legend's standing "drag the handle" line goes with the handle itself.
@@ -7322,12 +7397,28 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
 
         {/* Floating legend overlay (#474, ADR-0064) — anchored to the bottom-left of
             the canvas viewport. Hidden below `lg` per design rule 12. */}
-        <ScheduleLegend
-          taskListWidth={overlayAnchorWidth}
-          canLink={props.canLinkDependencies}
-          closeFocusRef={props.legendTriggerRef}
-          baselineShown={props.chartOptions?.showBaselineBars === true}
-        />
+        {props.shellV2LegendPlacement === null ? (
+          <ScheduleLegend
+            taskListWidth={overlayAnchorWidth}
+            canLink={props.canLinkDependencies}
+            closeFocusRef={props.legendTriggerRef}
+            baselineShown={props.chartOptions?.showBaselineBars === true}
+          />
+        ) : (
+          props.shellV2LegendPlacement === 'timeline-header' && (
+            <div
+              className="pointer-events-none absolute right-2 top-1 z-10"
+              style={{ left: overlayAnchorWidth + 8 }}
+            >
+              <div className="flex justify-end">
+                <ScheduleLegendV2
+                  placement="timeline-header"
+                  baselineShown={props.chartOptions?.showBaselineBars === true}
+                />
+              </div>
+            </div>
+          )
+        )}
       </div>
 
       {/* Unscheduled gutter — tasks with no planned/CPM dates (#213). Desktop

@@ -16,6 +16,7 @@
  *   arrows (no critical-red), summary rollups excluded as endpoints. SS/FF/SF Bézier.
  */
 
+import { isNearCriticalByFloat } from '../nearCritical';
 import type { DeliveryMode, ExternalLinkStatus, Task, TaskLink } from '@/types';
 import type { CadenceSegment, SprintBand } from '../sprintBands';
 import type { RowMode, SingleModeKind } from '../deliveryModePresentation';
@@ -162,6 +163,8 @@ const HEADER_MINOR_HEIGHT = 14;
 // repeating the hex (globals.css --brand-primary / --semantic-on-track, ADR-0103).
 // The drag-to-link affordance preview (#1666) shares the exact affordance stop:
 // sage-700 on light, sage-400 on dark — the same value the on-track/today marks use.
+const AMBER_ACCENT = '#E8A020'; // brand-accent amber — milestones; near-critical frame on dark
+const ORANGE_700 = '#C2410C'; // orange-700 — draft links; near-critical frame on light
 const SAGE_600 = '#3E8C6D'; // sage-600 — light on-track / today
 const SAGE_700 = '#316F57'; // sage-700 — light brand-primary affordance, 5.93:1 on white
 const SAGE_400 = '#66B998'; // sage-400 — dark on-track / today / affordance, holds on navy
@@ -190,9 +193,10 @@ export const COLOR = {
   // var(--info).
   barNormal: '#2F6FD1', // info (--info light) — non-CP task
   barCritical: '#B91C1C', // semantic-critical — dark red, WCAG on light surface
+  barNearCritical: ORANGE_700, // shell v2 near-critical frame, 5.2:1 on white (#4796)
   barComplete: SAGE_600, // semantic on-track = sage-600 (brand v1.0, ADR-0103)
   barSummary: '#353E4B', // slate-700 (brand neutral) — visible on white
-  milestone: '#E8A020', // brand-accent (amber) — kept in sync with the PDF export renderer (rule 234)
+  milestone: AMBER_ACCENT, // brand-accent (amber) — kept in sync with the PDF export renderer (rule 234)
   // Dependency arrows are charcoal regardless of critical-path state.
   // Critical path is conveyed by red bar fill (rule 73), not by arrow color.
   // The previous "critical = red arrow" rule made arrows visually merge with
@@ -228,7 +232,7 @@ export const COLOR = {
   // (barCritical/barComplete/textSecondary) via LINK_DOT_FILL — same hue mapping
   // as the DOM badge. Darker 600/700 stops so the solid fill reads on the white
   // surface (brand §15 — strong fill, never white-on-color; the dot carries no text).
-  linkDraft: '#C2410C', // semantic-at-risk (orange-700)
+  linkDraft: ORANGE_700, // semantic-at-risk (orange-700)
   linkOpen: '#15803D', // semantic-on-track (green-700)
   // Drag-to-link preview line + valid-target ring (#1666). brand-primary =
   // sage-700 (the action/affordance token, globals.css) — the same hue the
@@ -292,9 +296,10 @@ export const COLOR_DARK: ColorPalette = {
   textSecondary: '#94A3B8', // Slate-400 — neutral-text-secondary dark
   barNormal: '#6FA0E8', // info (--info dark) — non-CP task, readable on the dark surface
   barCritical: '#F87171', // Red-400 — semantic-critical dark, 4.87:1 on #12141E
+  barNearCritical: AMBER_ACCENT, // shell v2 near-critical frame on dark (#4796)
   barComplete: SAGE_400, // sage-400 — semantic on-track, holds on dark (ADR-0103)
   barSummary: '#9AA4B2', // slate-400 (brand neutral)
-  milestone: '#E8A020', // brand-accent — unchanged
+  milestone: AMBER_ACCENT, // brand-accent — unchanged
   // Light charcoal for arrows on the dark surface. Unified — no red variant.
   arrowNormal: '#B8B5AE',
   arrowCritical: '#B8B5AE',
@@ -363,6 +368,7 @@ export const COLOR_FORCED: ColorPalette = {
   textSecondary: 'GrayText',
   barNormal: 'CanvasText',
   barCritical: 'Highlight', // critical-path frame reads via the accent, not red
+  barNearCritical: 'CanvasText', // near-critical reads by its dash, not hue (#4796)
   barComplete: 'GrayText',
   barSummary: 'CanvasText',
   milestone: 'CanvasText', // the diamond shape carries the distinction
@@ -455,6 +461,16 @@ export interface ChartRenderOptions {
    *  resolves this to `pref && an active baseline exists`, so the engine never
    *  has to know why it is off. */
   showBaselineBars?: boolean;
+  /**
+   * Shell v2 critical path at rest (#4796). When set, a critical bar wears a
+   * SOLID red frame and a near-critical one (not critical, total float at or
+   * under `nearCriticalDays` — the server's effective project threshold) a
+   * DASHED amber frame, so the two differ by line pattern as well as hue and
+   * survive grayscale. `nearCriticalDays` is null until the project has loaded:
+   * no near-critical frame is drawn from a guessed threshold. Absent (v1), the
+   * dashed critical frame of #4397 stands.
+   */
+  criticalAtRest?: { nearCriticalDays: number | null } | null;
 }
 
 // Active chart options — swapped by GanttEngineImpl before each paint pass,
@@ -1813,10 +1829,30 @@ export function drawTaskBar(
   // critical bar from an unframed one, but a selected non-critical bar also wears
   // a frame. The task-list red dot is a second COLOR cue in another pane and does
   // not satisfy 1.4.1 for the bar itself.
+  const atRest = _chartOptions.criticalAtRest;
+  // The drawer's predicate, so a framed bar and the drawer's "Why critical?"
+  // agree on every row: float 0 is critical, never near-critical, and no frame
+  // is drawn until the project's threshold has loaded.
+  const nearCriticalFrame =
+    atRest != null &&
+    !criticalFrame &&
+    !task.isExternal &&
+    !task.isSummary &&
+    isNearCriticalByFloat(task, atRest.nearCriticalDays);
+  if (nearCriticalFrame) {
+    ctx.strokeStyle = _palette.barNearCritical;
+    ctx.lineWidth = 2;
+    ctx.setLineDash(CRITICAL_FRAME_DASH);
+    ctx.beginPath();
+    ctx.roundRect(barLeft + 1, barTop + 1, barWidth - 2, BAR_HEIGHT - 2, 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
   if (criticalFrame) {
     ctx.strokeStyle = _palette.barCritical;
     ctx.lineWidth = 2;
-    ctx.setLineDash(CRITICAL_FRAME_DASH);
+    // v2 at rest: solid, because dashed now means near-critical (#4796).
+    ctx.setLineDash(atRest != null ? [] : CRITICAL_FRAME_DASH);
     ctx.beginPath();
     ctx.roundRect(barLeft + 1, barTop + 1, barWidth - 2, BAR_HEIGHT - 2, 2);
     ctx.stroke();
@@ -2108,6 +2144,11 @@ function drawSelectionRing(
   const inset = nest ? 3 : 1;
   ctx.strokeStyle = _palette.selectionRing;
   ctx.lineWidth = nest ? 1.5 : 2;
+  // Shell v2 at rest makes the critical frame SOLID (#4796), so the ring takes
+  // a dotted pattern of its own: selected-vs-critical must still differ by a
+  // non-hue property (WCAG 1.4.1, the #4397 invariant).
+  const atRest = _chartOptions.criticalAtRest != null;
+  if (atRest) ctx.setLineDash(SELECTION_RING_AT_REST_DASH);
   ctx.beginPath();
   ctx.roundRect(
     barLeft + inset,
@@ -2117,7 +2158,10 @@ function drawSelectionRing(
     nest ? 1.5 : 2,
   );
   ctx.stroke();
+  if (atRest) ctx.setLineDash([]);
 }
+
+const SELECTION_RING_AT_REST_DASH: number[] = [2, 2];
 
 /** Assignee initials, right-aligned inside the bar. */
 function drawAssigneeInitials(

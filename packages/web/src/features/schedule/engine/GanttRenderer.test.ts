@@ -603,6 +603,61 @@ describe('drawTaskBar — critical path as a red border frame (#1699)', () => {
     expect(both[COLOR.selectionRing]).toEqual([]);
   });
 
+  it('shell v2 at rest: solid critical frame, dashed amber near-critical frame (#4796)', () => {
+    // Grayscale-distinguishable: the two differ by line pattern, not only hue.
+    const strokeDash = (over: Partial<Parameters<typeof makeBarTask>[0]>) => {
+      const { ctx, calls } = makeCtxSpy();
+      drawTaskBar(ctx, makeBarTask({ progress: 40, ...over }), 0, scales, 0, false, VIEWPORT_W);
+      let dash: unknown = [];
+      let color: unknown;
+      const out: Record<string, unknown> = {};
+      for (const c of calls) {
+        if (c.name === 'setLineDash') dash = c.args[0];
+        if (c.name === 'strokeStyle') color = c.args[0];
+        if (c.name === 'stroke' && typeof color === 'string') out[color] = dash;
+      }
+      return out;
+    };
+    const base = { taskNamePlacement: 'next' as const, showProgressPills: true, showSprintBands: true };
+    try {
+      setRendererChartOptions({ ...base, criticalAtRest: { nearCriticalDays: 5 } });
+      const critical = strokeDash({ isCritical: true, totalFloat: 0 });
+      expect(critical[COLOR.barCritical]).toEqual([]);
+      const near = strokeDash({ isCritical: false, totalFloat: 2 });
+      expect(near[COLOR.barNearCritical]).toEqual([6, 3]);
+      expect(near[COLOR.barCritical]).toBeUndefined();
+      const slack = strokeDash({ isCritical: false, totalFloat: 9 });
+      expect(slack[COLOR.barNearCritical]).toBeUndefined();
+      // Float 0 on a non-critical row is the server's "critical" band, never
+      // near-critical: the drawer's predicate, shared (#4796 G4).
+      expect(strokeDash({ isCritical: false, totalFloat: 0 })[COLOR.barNearCritical]).toBeUndefined();
+      // Threshold not loaded yet: no frame from a guessed default.
+      setRendererChartOptions({ ...base, criticalAtRest: { nearCriticalDays: null } });
+      expect(strokeDash({ isCritical: false, totalFloat: 2 })[COLOR.barNearCritical]).toBeUndefined();
+      expect(strokeDash({ isCritical: true, totalFloat: 0 })[COLOR.barCritical]).toEqual([]);
+      setRendererChartOptions({ ...base, criticalAtRest: { nearCriticalDays: 5 } });
+      // v1 (option absent) keeps #4397's dashed critical frame and no amber frame.
+      // The solid critical frame no longer differs from the ring by pattern, so the
+      // ring goes dotted: selected-vs-critical still differs by a non-hue property.
+      const { ctx, calls } = makeCtxSpy();
+      drawTaskBar(ctx, makeBarTask({ isCritical: false, progress: 40 }), 0, scales, 0, true, VIEWPORT_W);
+      let dash: unknown = [];
+      let ringDash: unknown;
+      let color: unknown;
+      for (const c of calls) {
+        if (c.name === 'setLineDash') dash = c.args[0];
+        if (c.name === 'strokeStyle') color = c.args[0];
+        if (c.name === 'stroke' && color === COLOR.selectionRing) ringDash = dash;
+      }
+      expect(ringDash).toEqual([2, 2]);
+      setRendererChartOptions(base);
+      expect(strokeDash({ isCritical: true, totalFloat: 0 })[COLOR.barCritical]).toEqual([6, 3]);
+      expect(strokeDash({ isCritical: false, totalFloat: 2 })[COLOR.barNearCritical]).toBeUndefined();
+    } finally {
+      setRendererChartOptions(base);
+    }
+  });
+
   it('nests the selection ring inside the critical frame so both channels stay visible', () => {
     const { ctx, calls } = makeCtxSpy();
     const t = makeBarTask({ isCritical: true, progress: 40 });
