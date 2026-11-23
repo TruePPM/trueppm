@@ -266,7 +266,7 @@ role-route-matrix-check: ## Run the RBAC role-route-matrix oracle + route-table 
 	RUN=1; \
 	if ! git rev-parse --verify -q "$$BASE_REF" >/dev/null 2>&1; then \
 	  echo "→ role-route-matrix: cannot resolve $$BASE_REF, changed files unknown — running the oracle (fail open)"; \
-	elif ! git diff --name-only "$$BASE_REF"...HEAD 2>/dev/null | grep -qE '^packages/api/(.*/)?(urls\.py|[^/]*views[^/]*\.py|permissions[^/]*\.py|[^/]*viewsets[^/]*|pyproject\.toml)$|^packages/api/tests/apps/access/'; then \
+	elif ! git diff --name-only "$$BASE_REF"...HEAD 2>/dev/null | grep -qE '^packages/api/(.*/)?(urls\.py|[^/]*views[^/]*\.py|permissions[^/]*\.py|[^/]*viewsets[^/]*|pyproject\.toml)$$|^packages/api/tests/apps/access/'; then \
 	  RUN=0; \
 	  echo "→ role-route-matrix: no route-surface changes (urls/views/permissions/viewsets, access tests, api pyproject) — skipped"; \
 	fi; \
