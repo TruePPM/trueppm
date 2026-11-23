@@ -206,7 +206,7 @@ def edit_scope(
         row = _locked(token)
         before = grant_of(row)
         if not isinstance(requested, dict):
-            raise ScopeGrantError("scope must be an object of area → level.", code="invalid")
+            raise ScopeGrantError("scope must be an object of area → level.", code="invalid_scope")
         after = validate_grant({**before, **requested}, row.owner)
         if after != before:
             row.agent_scope = after

@@ -232,22 +232,22 @@ def validate_grant(requested: object, principal: Any) -> dict[str, str]:
     current grant before calling this, so a missing key here means ``none``.
 
     Raises:
-        ScopeGrantError: ``code="invalid"`` for an unknown area or level,
+        ScopeGrantError: ``code="invalid_scope"`` for an unknown area or level,
             ``code="write_not_grantable"`` for any ``write`` (the 0.6 path), and
             ``code="above_principal"`` when a level exceeds the principal's ceiling.
     """
     if not isinstance(requested, dict):
-        raise ScopeGrantError("scope must be an object of area → level.", code="invalid")
+        raise ScopeGrantError("scope must be an object of area → level.", code="invalid_scope")
     unknown = sorted(str(k) for k in requested if k not in AGENT_AREAS)
     if unknown:
-        raise ScopeGrantError(f"Unknown scope area: {', '.join(unknown)}.", code="invalid")
+        raise ScopeGrantError(f"Unknown scope area: {', '.join(unknown)}.", code="invalid_scope")
     grant: dict[str, str] = {}
     for area in AGENT_AREAS:
         level = requested.get(area, LEVEL_NONE)
         if not isinstance(level, str) or level not in _RANK:
             raise ScopeGrantError(
                 f"Unknown level for {area}: expected one of {', '.join(AGENT_LEVELS)}.",
-                code="invalid",
+                code="invalid_scope",
             )
         if level == LEVEL_WRITE:
             raise ScopeGrantError(

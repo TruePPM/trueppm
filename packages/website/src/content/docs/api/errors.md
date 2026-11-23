@@ -196,6 +196,9 @@ the envelope uses; every other field key is unambiguous.
 | `calendar_has_no_working_day` | The project's working calendar defines no usable working day, so sprint cadence/dates cannot be generated — fix the calendar in calendar settings first | — |
 | `not_a_sample` | `POST .../programs/{id}/shift-sample-dates/` refused: the program is not sample data, so it has no anchor date to shift from | — |
 | `no_anchor_recorded` | `POST .../programs/{id}/shift-sample-dates/` refused: the sample was loaded before #3481 and carries no recorded anchor date — reload the sample instead of shifting it | — |
+| `write_not_grantable` | Ships in 0.5. `PATCH /agents/{id}/scope/` asked for `write` on an area. The committing write path ships in 0.6, so the server refuses it whatever the client sends; nothing was changed. The message is in `scope` | — |
+| `above_principal` | Ships in 0.5. `PATCH /agents/{id}/scope/` asked for a level above what the person the agent acts for can do now. An agent never exceeds its person, including when a workspace Admin edits it; nothing was changed. The message is in `scope` | — |
+| `invalid_scope` | Ships in 0.5. `PATCH /agents/{id}/scope/` named an unknown area or level; nothing was changed. The message is in `scope` | — |
 
 ### Monte Carlo refusals
 
