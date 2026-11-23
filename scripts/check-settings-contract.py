@@ -25,7 +25,10 @@ BLIND SPOTS -- read before trusting a green run.
     non-test, non-migration Python, an attribute load ``obj.field`` (not an assignment
     target), a keyword ``field=`` / ``field__x=`` on a lookup call (``filter``, ``get``,
     ``Q``...), or a lowercase string constant; in a serializer module, only an attribute
-    load outside a ``validate*`` method (a ``get_*`` computed from it). In
+    load outside the write path (``validate*``, ``create`` / ``update`` / ``save`` /
+    ``perform_*`` / ``to_internal_value``), i.e. a ``get_*`` / ``to_representation``
+    computed from it. A write-path method NOT in that list (a ``_apply_x`` helper that
+    does ``instance.x = validated_data.get("x", instance.x)``) still counts as a read. In
     ``packages/web/src`` / ``packages/mcp`` (minus ``api/types.ts``): ``.field`` that is
     not assigned, ``"field"`` that is not an object key, or a name bound by
     ``const { .. } =``. NOT a read: ``obj.field = v``, ``field=`` passed to ``create`` /
@@ -393,6 +396,11 @@ _LOOKUP_CTORS = frozenset({"Q", "F", "Prefetch", "OuterRef", "Value"})
 _WRITE_NAME_KWARGS = frozenset({"update_fields", "defaults", "create_defaults"})
 
 
+_SERIALIZER_WRITE_METHODS = frozenset(
+    {"create", "update", "save", "bulk_create", "bulk_update", "to_internal_value"}
+)
+
+
 class _PyReads(ast.NodeVisitor):
     """Collect field names a Python module READS: attribute loads, lookup kwargs,
     string constants -- minus assignment targets, write-call kwargs, ``update_fields``
@@ -412,9 +420,14 @@ class _PyReads(ast.NodeVisitor):
                 self.reads.add(part)
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-        # A serializer's ``validate*`` reads the value only to check it on the way in:
-        # validating a write is not consuming it.
-        if not self.strings and node.name.startswith("validate"):
+        # In a serializer module, ``validate*`` reads the value only to check it on the
+        # way in, and ``create``/``update``/``save``/``perform_*``/``to_internal_value``
+        # are the WRITE path: ``instance.x = validated_data.get("x", instance.x)`` is
+        # the field's only writer, not a consumer.
+        if not self.strings and (
+            node.name.startswith(("validate", "perform_"))
+            or node.name in _SERIALIZER_WRITE_METHODS
+        ):
             return
         self.generic_visit(node)
 
@@ -756,6 +769,7 @@ def self_test() -> int:
             "    filtered = models.IntegerField()\n"
             "    validated_only = models.IntegerField()\n"
             "    computed_from = models.IntegerField()\n"
+            "    update_only = models.IntegerField()\n"
         )
         (app / "serializers.py").write_text(
             (app / "serializers.py").read_text()
@@ -764,10 +778,14 @@ def self_test() -> int:
             "        return self.instance.validated_only\n"
             "    def get_x(self, obj):\n"
             "        return obj.computed_from\n"
+            "    def update(self, instance, validated_data):\n"
+            "        instance.update_only = validated_data.get("
+            "'update_only', instance.update_only)\n"
+            "        return instance\n"
             "    class Meta:\n"
             "        model = Thing\n"
             "        fields = ['written_only', 'web_written', 'filtered',"
-            " 'validated_only', 'computed_from']\n"
+            " 'validated_only', 'computed_from', 'update_only']\n"
         )
         (app / "services.py").write_text(
             "def use(t):\n    return t.read_me\n"
@@ -842,6 +860,10 @@ def self_test() -> int:
         check(
             ("unread-writable", "Thing.validated_only") in rd,
             "a serializer validate*() read counts as a consumer",
+        )
+        check(
+            ("unread-writable", "Thing.update_only") in rd,
+            "a serializer update() read-back-and-assign counts as a consumer",
         )
         check(
             ("unread-writable", "Thing.computed_from") not in rd,

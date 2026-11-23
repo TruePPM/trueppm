@@ -1629,32 +1629,38 @@ class GroupProjectView(SessionOnlyWritesMixin, IdempotencyMixin, APIView):
 # ---------------------------------------------------------------------------
 
 
+# The Add/Remove subclasses narrow the verbs: a bare ``GroupMemberView`` answered both
+# verbs on both routes, so ``DELETE .../members/`` and ``POST .../members/{user_id}/``
+# died with a ``TypeError`` (500) on the missing/unexpected kwarg. Narrowing makes the
+# wrong verb a 405 and keeps the published schema to the operations that exist (as
+# ``TaskLabelAttachView`` does). The docstrings below are published as each operation's
+# description, so they stay user-facing.
 class GroupMemberAddView(GroupMemberView):
-    """``POST .../groups/{id}/members/`` only.
-
-    A bare ``GroupMemberView`` answered both verbs on both routes, so
-    ``DELETE .../members/`` and ``POST .../members/{user_id}/`` died with a ``TypeError``
-    (500) on the missing/unexpected kwarg; narrowing the verbs makes the wrong one a 405
-    and keeps the published schema to the operations that exist (as
-    ``TaskLabelAttachView`` does)."""
+    """Add a user to the group."""
 
     http_method_names = ["post", "options"]
 
 
 class GroupMemberRemoveView(GroupMemberView):
-    """``DELETE .../groups/{id}/members/{user_id}/`` only (see :class:`GroupMemberAddView`)."""
+    """Remove a user from the group."""
 
     http_method_names = ["delete", "options"]
 
 
 class GroupProjectAddView(GroupProjectView):
-    """``POST .../groups/{id}/projects/`` only (see :class:`GroupMemberAddView`)."""
+    """Link the group to a project.
+
+    Confers the chosen role on every group member via the cascade (ADR-0087 §5).
+    """
 
     http_method_names = ["post", "options"]
 
 
 class GroupProjectRemoveView(GroupProjectView):
-    """``DELETE .../groups/{id}/projects/{project_id}/`` only (see :class:`GroupMemberAddView`)."""
+    """Unlink the group from a project.
+
+    Withdraws the role it conferred on every group member via the cascade (ADR-0087 §5).
+    """
 
     http_method_names = ["delete", "options"]
 

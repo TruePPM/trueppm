@@ -727,6 +727,13 @@ documented behavior that never worked or never held:
   `500`. Adding is `POST .../members/` (or `.../projects/`) with a body; removing is
   `DELETE .../members/{user_id}/` (or `.../projects/{project_id}/`). Those are unchanged;
   the other four verbs now answer `405`.
+  Splitting the routes also renamed two generated `operationId`s: `DELETE
+  /workspace/groups/{group_id}/projects/{project_id}/` is now
+  `v1_workspace_groups_projects_destroy` (was `v1_workspace_groups_projects_destroy_2`)
+  and `DELETE /workspace/groups/{group_id}/members/{user_id}/` is now
+  `v1_workspace_groups_members_destroy` (was `v1_workspace_groups_members_destroy_2`),
+  so a client generated from the schema sees those two method names change; the `_create_2`
+  duplicates for the two add routes are gone for the same reason.
 - `count` on the task list is no longer `required` in `PaginatedTaskList`: a
   `pagination=keyset` response has never carried it.
 - `GET /programs/samples/{key}/download/` declared a binary string; the body is a JSON
