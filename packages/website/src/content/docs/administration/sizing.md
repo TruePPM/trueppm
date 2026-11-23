@@ -306,12 +306,29 @@ pgbouncer:
   enabled: true
   upstream: { host: mydb.example.com, database: trueppm }
   auth: { existingSecret: pgbouncer-auth }   # key userlist.txt: "trueppm" "SCRAM-SHA-256$..."
+  tls: { existingSecret: pgbouncer-tls }     # kubernetes.io/tls Secret; see "TLS on the pooled connection"
 env:
-  DATABASE_URL:        { secretKeyRef: { name: trueppm-db, key: pooled-url } }   # ...@<release>-trueppm-pgbouncer:6432/trueppm
-  DATABASE_DIRECT_URL: { secretKeyRef: { name: trueppm-db, key: direct-url } }   # ...@mydb.example.com:5432/trueppm
+  DATABASE_URL:        { secretKeyRef: { name: trueppm-db, key: pooled-url } }   # ...@<release>-trueppm-pgbouncer:6432/trueppm?sslmode=require
+  DATABASE_DIRECT_URL: { secretKeyRef: { name: trueppm-db, key: direct-url } }   # ...@mydb.example.com:5432/trueppm?sslmode=require
 ```
 
 The server pool is `defaultPoolSize` per PgBouncer replica, so total server connections are `pgbouncer.replicas × pgbouncer.defaultPoolSize` (40 by default). Keep that below `max_connections` minus what you reserve for migrations, backups and operators. `pgbouncer.maxClientConn` bounds the app-side connections. The image is pinned by digest (PgBouncer is ISC-licensed).
+
+### TLS on the pooled connection
+
+There are two hops. PgBouncer to the database is `pgbouncer.upstream.sslmode` (`require` by default). The app to PgBouncer is set by `pgbouncer.tls`, and the pooled `DATABASE_URL` has to match it:
+
+| `pgbouncer.tls.existingSecret` | PgBouncer accepts | Pooled `DATABASE_URL` |
+|---|---|---|
+| A `kubernetes.io/tls` Secret (keys `tls.crt`, `tls.key`; rename with `certKey` / `keyKey`) | TLS only (`client_tls_sslmode = require`) | `?sslmode=require` |
+| Empty (the default) | Plaintext only | `?sslmode=prefer` |
+
+Production refuses to start when `DATABASE_URL` has no `sslmode` parameter. That check only looks for the parameter. It does not check the value, so `sslmode=prefer` passes it.
+
+- **TLS on** is the recommended setting. The certificate's name should be the Service name (`<release>-trueppm-pgbouncer`, plus `.<namespace>.svc` if you want), for example one issued by cert-manager. `sslmode=require` encrypts the connection but does not check the certificate. With TLS on, PgBouncer rejects any client that tries plaintext.
+- **TLS off** keeps the app-to-PgBouncer hop **unencrypted inside the cluster**. Database queries and results cross the pod network in the clear. The password does not, because PgBouncer authenticates with SCRAM. `sslmode=require` does not work in this setting: the connection fails with `server does not support SSL, but SSL was required`. Use `prefer`, and accept the plaintext hop only where the pod network is trusted. With `networkPolicy.enabled` (the default), the chart allows only the TruePPM API, workers, beat, backup and demo-seed pods to reach PgBouncer on 6432. That limits who can connect. It does not encrypt anything.
+
+`DATABASE_DIRECT_URL` goes straight to the database and keeps `sslmode=require`, whichever setting you choose.
 
 ### A managed pooler instead
 

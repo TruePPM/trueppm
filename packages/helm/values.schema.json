@@ -522,6 +522,16 @@
             "userlistKey": { "type": "string" }
           }
         },
+        "tls": {
+          "description": "App-to-PgBouncer (client-side) TLS. A non-empty existingSecret turns on client_tls_sslmode=require.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "existingSecret": { "type": "string" },
+            "certKey": { "type": "string", "minLength": 1 },
+            "keyKey": { "type": "string", "minLength": 1 }
+          }
+        },
         "resources": { "type": "object" }
       }
     },

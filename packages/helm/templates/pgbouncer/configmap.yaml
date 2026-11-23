@@ -45,6 +45,14 @@ data:
     default_pool_size = {{ $pb.defaultPoolSize }}
     max_client_conn = {{ $pb.maxClientConn }}
     server_tls_sslmode = {{ $pb.upstream.sslmode }}
+    {{- if $pb.tls.existingSecret }}
+    ; Client-side TLS: every app connection must negotiate TLS (pooled
+    ; DATABASE_URL carries sslmode=require). Without this block PgBouncer answers
+    ; SSLRequest with 'N' and only plaintext clients can connect.
+    client_tls_sslmode = require
+    client_tls_cert_file = /etc/pgbouncer-tls/{{ $pb.tls.certKey }}
+    client_tls_key_file = /etc/pgbouncer-tls/{{ $pb.tls.keyKey }}
+    {{- end }}
     ; Django sends extra_float_digits on connect; PgBouncer would otherwise refuse it.
     ignore_startup_parameters = extra_float_digits,options
     log_connections = 0

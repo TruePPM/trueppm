@@ -744,6 +744,18 @@ pgbouncer:
     # "user" "SCRAM-SHA-256$..." or "user" "plaintext-password"). Required.
     existingSecret: ""
     userlistKey: userlist.txt
+  # TLS on the app -> PgBouncer hop. Empty (the default) means PgBouncer accepts
+  # only PLAINTEXT from the app: the pooled DATABASE_URL must then carry
+  # sslmode=prefer (or disable), because sslmode=require fails with "server does
+  # not support SSL". Name a kubernetes.io/tls Secret here (e.g. one cert-manager
+  # issues for <release>-trueppm-pgbouncer) to require TLS from every client;
+  # the pooled URL then carries sslmode=require. The PgBouncer -> database hop
+  # is upstream.sslmode and is independent of this.
+  # https://docs.trueppm.com/administration/sizing/#tls-on-the-pooled-connection
+  tls:
+    existingSecret: ""
+    certKey: tls.crt
+    keyKey: tls.key
   resources:
     requests:
       cpu: 100m

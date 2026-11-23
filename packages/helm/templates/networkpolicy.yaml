@@ -96,6 +96,36 @@ spec:
   # No egress rules → default-deny egress from the Valkey pod.
   egress: []
 {{- end }}
+{{- if .Values.pgbouncer.enabled }}
+{{- /* The optional PgBouncer (#2275) holds the database credential's upstream
+     side and, unless pgbouncer.tls is set, accepts PLAINTEXT from its clients, so
+     only the same datastore clients the postgresql policy admits may reach 6432.
+     Ingress only: its egress target is the operator's external database, whose
+     address the chart cannot know, so an egress allowlist would break it. No
+     egress counterpart on the clients is needed either — the chart does not
+     restrict api/worker/beat egress (the demo egress policies, which do, cannot
+     co-exist with pgbouncer: it refuses the bundled PostgreSQL the demo needs). */}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "trueppm.fullname" . }}-pgbouncer
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "trueppm.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: pgbouncer
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        {{- include "trueppm.datastoreClientSelectors" (dict "root" . "components" (concat (list "api" "celery-worker") (ternary (list "celery-worker-heavy") (list) .Values.heavyWorker.enabled) (list "celery-beat" "backup" "demo-seed"))) | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: 6432
+{{- end }}
 {{/*
 App-tier default-deny INGRESS (#3850). Unlike the two datastore policies above,
 these four render regardless of .Values.postgresql.enabled / .Values.valkey.enabled

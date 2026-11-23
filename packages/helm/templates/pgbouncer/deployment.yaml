@@ -33,6 +33,11 @@ spec:
         - name: auth
           secret:
             secretName: {{ $secret | quote }}
+        {{- if $pb.tls.existingSecret }}
+        - name: tls
+          secret:
+            secretName: {{ $pb.tls.existingSecret | quote }}
+        {{- end }}
       containers:
         - name: pgbouncer
           image: "{{ $pb.image.repository }}{{ if $pb.image.digest }}@{{ $pb.image.digest }}{{ else }}:{{ required "pgbouncer.image.tag or pgbouncer.image.digest is required" $pb.image.tag }}{{ end }}"
@@ -52,6 +57,11 @@ spec:
             - name: auth
               mountPath: /etc/pgbouncer-auth
               readOnly: true
+            {{- if $pb.tls.existingSecret }}
+            - name: tls
+              mountPath: /etc/pgbouncer-tls
+              readOnly: true
+            {{- end }}
           readinessProbe:
             tcpSocket:
               port: pgbouncer
