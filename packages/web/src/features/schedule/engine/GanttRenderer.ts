@@ -162,6 +162,8 @@ const HEADER_MINOR_HEIGHT = 14;
 // repeating the hex (globals.css --brand-primary / --semantic-on-track, ADR-0103).
 // The drag-to-link affordance preview (#1666) shares the exact affordance stop:
 // sage-700 on light, sage-400 on dark — the same value the on-track/today marks use.
+const AMBER_ACCENT = '#E8A020'; // brand-accent amber — milestones; near-critical frame on dark
+const ORANGE_700 = '#C2410C'; // orange-700 — draft links; near-critical frame on light
 const SAGE_600 = '#3E8C6D'; // sage-600 — light on-track / today
 const SAGE_700 = '#316F57'; // sage-700 — light brand-primary affordance, 5.93:1 on white
 const SAGE_400 = '#66B998'; // sage-400 — dark on-track / today / affordance, holds on navy
@@ -190,10 +192,10 @@ export const COLOR = {
   // var(--info).
   barNormal: '#2F6FD1', // info (--info light) — non-CP task
   barCritical: '#B91C1C', // semantic-critical — dark red, WCAG on light surface
-  barNearCritical: '#B45309', // amber-700 — shell v2 near-critical frame, 5.0:1 on white (#4796)
+  barNearCritical: ORANGE_700, // shell v2 near-critical frame, 5.2:1 on white (#4796)
   barComplete: SAGE_600, // semantic on-track = sage-600 (brand v1.0, ADR-0103)
   barSummary: '#353E4B', // slate-700 (brand neutral) — visible on white
-  milestone: '#E8A020', // brand-accent (amber) — kept in sync with the PDF export renderer (rule 234)
+  milestone: AMBER_ACCENT, // brand-accent (amber) — kept in sync with the PDF export renderer (rule 234)
   // Dependency arrows are charcoal regardless of critical-path state.
   // Critical path is conveyed by red bar fill (rule 73), not by arrow color.
   // The previous "critical = red arrow" rule made arrows visually merge with
@@ -229,7 +231,7 @@ export const COLOR = {
   // (barCritical/barComplete/textSecondary) via LINK_DOT_FILL — same hue mapping
   // as the DOM badge. Darker 600/700 stops so the solid fill reads on the white
   // surface (brand §15 — strong fill, never white-on-color; the dot carries no text).
-  linkDraft: '#C2410C', // semantic-at-risk (orange-700)
+  linkDraft: ORANGE_700, // semantic-at-risk (orange-700)
   linkOpen: '#15803D', // semantic-on-track (green-700)
   // Drag-to-link preview line + valid-target ring (#1666). brand-primary =
   // sage-700 (the action/affordance token, globals.css) — the same hue the
@@ -293,10 +295,10 @@ export const COLOR_DARK: ColorPalette = {
   textSecondary: '#94A3B8', // Slate-400 — neutral-text-secondary dark
   barNormal: '#6FA0E8', // info (--info dark) — non-CP task, readable on the dark surface
   barCritical: '#F87171', // Red-400 — semantic-critical dark, 4.87:1 on #12141E
-  barNearCritical: '#FBBF24', // Amber-400 — shell v2 near-critical frame on dark (#4796)
+  barNearCritical: AMBER_ACCENT, // shell v2 near-critical frame on dark (#4796)
   barComplete: SAGE_400, // sage-400 — semantic on-track, holds on dark (ADR-0103)
   barSummary: '#9AA4B2', // slate-400 (brand neutral)
-  milestone: '#E8A020', // brand-accent — unchanged
+  milestone: AMBER_ACCENT, // brand-accent — unchanged
   // Light charcoal for arrows on the dark surface. Unified — no red variant.
   arrowNormal: '#B8B5AE',
   arrowCritical: '#B8B5AE',

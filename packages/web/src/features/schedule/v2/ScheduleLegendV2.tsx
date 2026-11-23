@@ -67,7 +67,7 @@ export function ScheduleLegendV2({ placement, baselineShown }: ScheduleLegendV2P
       className={
         placement === 'bar'
           ? 'flex shrink-0 items-center gap-3 text-xs text-neutral-text-secondary'
-          : 'flex items-center gap-3 rounded-control bg-neutral-surface/90 px-2 py-0.5 text-xs text-neutral-text-secondary shadow-sm'
+          : 'flex items-center gap-3 rounded-control border border-neutral-border bg-neutral-surface/90 px-2 py-0.5 text-xs text-neutral-text-secondary'
       }
     >
       {entries.map((e) => (
