@@ -2615,7 +2615,9 @@ helm:template:
       for want in api web celery-worker celery-beat; do
         # matchLabels OR a matchExpressions `In` naming the component: the worker
         # policy selects celery-worker and celery-worker-heavy together (#2276).
-        yq ea "select(.kind == \"NetworkPolicy\" and (.spec.podSelector.matchLabels.\"app.kubernetes.io/component\" == \"${want}\" or ((.spec.podSelector.matchExpressions // []) | any_c(.key == \"app.kubernetes.io/component\" and .operator == \"In\" and (.values | contains([\"${want}\"])))))) | .metadata.name" /tmp/rendered-prod.yaml \
+        # Exact element match: `contains` on a string array is a SUBSTRING test,
+        # so a heavy-only policy would satisfy want=celery-worker.
+        yq ea "select(.kind == \"NetworkPolicy\" and (.spec.podSelector.matchLabels.\"app.kubernetes.io/component\" == \"${want}\" or ((.spec.podSelector.matchExpressions // []) | any_c(.key == \"app.kubernetes.io/component\" and .operator == \"In\" and (.values | any_c(. == \"${want}\")))))) | .metadata.name" /tmp/rendered-prod.yaml \
           | grep -q . \
           || { echo "PROD REGRESSION: values-prod.yaml renders no NetworkPolicy selecting component=${want} (#3850)"; exit 1; }
       done
@@ -3323,12 +3325,18 @@ scheduler:test-lowest:
   needs:
     - scheduler:lint
   <<: *rules-scheduler
+  variables:
+    # tests/test_result_stability.py needs the merge base with origin/main and
+    # fails NO_MERGE_BASE_CI_FIX on a shallow clone (#5116); mirrors scheduler:test.
+    GIT_DEPTH: "0"
   before_script:
     # git: the stock slim image does not bake it in, and
     # tests/test_public_surface.py shells out to it.
     - apt-get update -qq && apt-get install -y -qq --no-install-recommends git
     - bash scripts/ci/pip-floor.sh
     - pip install uv==0.9.5 --quiet
+    - git config --global --add safe.directory "$CI_PROJECT_DIR"
+    - 'git fetch origin "+refs/heads/main:refs/remotes/origin/main" || echo "warning: could not fetch origin/main; the stability fragment check may fail on a missing merge base"'
   script:
     - uv venv /tmp/lowest-venv
     - uv pip install --python /tmp/lowest-venv/bin/python --resolution lowest-direct -e packages/scheduler
