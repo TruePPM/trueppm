@@ -79910,7 +79910,7 @@
             },
             "ProjectTemplateDetail": {
                 "type": "object",
-                "description": "One template, plus the names of the rows applying it would write (#3084).\n\nThe class docstring above keeps the whole ``structure`` document off the\ngallery; this adds only the row *names*, kinds and depths, on the detail read\nalone. Names are not a wider disclosure than publishing already made: the\n``publish`` action records a ``TEMPLATE_PUBLISHED`` audit event precisely\nbecause it puts the source project's task names in front of everyone who can\nsee the template, and any Admin who applies it gets every name written into\ntheir own project. What stays withheld is everything else the document holds\n(notes, durations, the dependency edges).\n\nDetail-only rather than on every gallery row: a template carries up to\n``MAX_TEMPLATE_NODES`` rows, so putting the outline on the list would multiply\nthe gallery's payload by its largest template for a list the card shows\ncollapsed by default. The card fetches it when the reader expands it.",
+                "description": "One template, plus the names, kinds and depths of the rows applying it writes.\n\nThe outline is returned on the detail read only; the gallery list leaves it\nout. The template's frozen document itself is never returned.",
                 "properties": {
                     "id": {
                         "type": "string",

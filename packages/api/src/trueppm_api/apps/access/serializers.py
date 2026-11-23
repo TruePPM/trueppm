@@ -725,7 +725,8 @@ class ExternalStakeholderSerializer(serializers.ModelSerializer[ExternalStakehol
         # `LOWER(email) = LOWER(%s)`, deliberately not `email__iexact` (#3541).
         # `iexact` compiles to `UPPER(email::text) = UPPER(%s)`, and the only index
         # on this column is the partial unique constraint on `(program, Lower("email"))`
-        # — so `iexact` could never use it and scanned instead. Realigning the query
+        # — so `iexact` could never use it: the query was served by the `program_id`
+        # index and filtered `email` afterwards, row by row within the program. Realigning the query
         # to the constraint's own expression was chosen over adding a second, UPPER
         # index: it needs no migration, and it makes this friendly check agree with
         # the constraint it fronts by construction (the two case-folds differ on a

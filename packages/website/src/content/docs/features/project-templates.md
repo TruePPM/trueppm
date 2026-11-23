@@ -135,7 +135,7 @@ after a row is seeded, whether or not you ever open the banner again.
 
 ### When an apply doesn't finish
 
-Sometimes an apply fails — the template was deleted while the job sat in the
+Sometimes an apply fails — the template was no longer available while the job sat in the
 queue, the project was archived after you asked for it, or the server hit an
 error part way through. The surface you landed on tells you — the Schedule for a
 waterfall or hybrid template, the Product Backlog for an agile one — instead of
@@ -155,7 +155,7 @@ You have three ways forward:
 
 - **Try again** re-applies the same template to the same project. It appears for
   **Project Manager** and above, and only while the template still exists — if it
-  has since been deleted, the banner says so rather than offering a button that
+  is no longer available, the banner says so rather than offering a button that
   cannot work.
 - **Keep the empty project.** The ordinary blank schedule — or empty backlog — is
   right there under the banner with the first row waiting for you. Nothing was

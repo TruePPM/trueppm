@@ -399,23 +399,21 @@ _OUTLINE_ITEMS = inline_serializer(
 
 
 class ProjectTemplateDetailSerializer(ProjectTemplateSerializer):
-    """One template, plus the names of the rows applying it would write (#3084).
+    """One template, plus the names, kinds and depths of the rows applying it writes.
 
-    The class docstring above keeps the whole ``structure`` document off the
-    gallery; this adds only the row *names*, kinds and depths, on the detail read
-    alone. Names are not a wider disclosure than publishing already made: the
-    ``publish`` action records a ``TEMPLATE_PUBLISHED`` audit event precisely
-    because it puts the source project's task names in front of everyone who can
-    see the template, and any Admin who applies it gets every name written into
-    their own project. What stays withheld is everything else the document holds
-    (notes, durations, the dependency edges).
-
-    Detail-only rather than on every gallery row: a template carries up to
-    ``MAX_TEMPLATE_NODES`` rows, so putting the outline on the list would multiply
-    the gallery's payload by its largest template for a list the card shows
-    collapsed by default. The card fetches it when the reader expands it.
+    The outline is returned on the detail read only; the gallery list leaves it
+    out. The template's frozen document itself is never returned.
     """
 
+    # Why this shape (#3084): names are not a wider disclosure than publishing
+    # already made -- the ``publish`` action records a ``TEMPLATE_PUBLISHED`` audit
+    # event precisely because it puts the source project's task names in front of
+    # everyone who can see the template, and any Admin who applies it gets every
+    # name written into their own project. What stays withheld is everything else
+    # the document holds (notes, durations, the dependency edges). It is
+    # detail-only rather than on every gallery row because a template carries up
+    # to ``MAX_TEMPLATE_NODES`` rows, which would multiply the gallery's payload
+    # by its largest template for a list the card shows collapsed by default.
     outline = serializers.SerializerMethodField()
 
     class Meta(ProjectTemplateSerializer.Meta):

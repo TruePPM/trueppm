@@ -15,6 +15,10 @@ documentedFor: "0.5"
 | GET | `/api/v1/template-applications/` | Adoption records (filter: `?project=`) |
 | POST | `/api/v1/template-applications/{id}/undo/` | Reverse one application |
 
+:::note[Ships in 0.5]
+The current release has no `?source_project=` filter and the detail read has no
+`outline`. Both ship in 0.5, as described here.
+
 Both gallery filters only narrow what you can already see: `?program=` keeps that
 program's templates plus the workspace-wide ones, and `?source_project=` keeps the
 templates published from one project. A malformed id in either is a `400`. Neither can
@@ -25,6 +29,7 @@ The detail read adds `outline`, a list of `{name, kind, depth}` in WBS order, wh
 row. It is read off the same frozen document `apply` writes from. The list endpoint
 leaves it out, so the gallery stays small however large its templates are, and
 neither endpoint returns the document itself.
+:::
 
 Both writes take a JSON body. `publish` requires `project` and `name`; `apply`
 requires `project`:
