@@ -164,7 +164,7 @@ function V2Menu({
             data-testid={`${testId}-menu`}
             onKeyDown={onMenuKey}
             style={panelStyle}
-            className="z-50 overflow-y-auto rounded-control border border-neutral-border bg-neutral-surface py-1 shadow-pop"
+            className="z-50 max-h-[min(70vh,28rem)] overflow-y-auto rounded-control border border-neutral-border bg-neutral-surface py-1 shadow-pop"
           >
             {items.map((it, idx) => {
               if (it.kind === 'heading') {
