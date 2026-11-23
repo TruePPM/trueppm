@@ -638,8 +638,10 @@ else:
 # block the outbox drains and email on the default queue. A worker started
 # without ``-Q`` consumes only the default queue, so every worker command in this
 # repo (Helm, both compose files) names both queues explicitly; an operator's own
-# worker must do the same, or set TRUEPPM_CELERY_HEAVY_QUEUE=celery to keep a
-# single queue.
+# worker must do the same. The shipped worker commands hardcode
+# ``celery,heavy``, so the only supported value of TRUEPPM_CELERY_HEAVY_QUEUE is
+# ``celery`` (collapse to a single queue); any other name routes tasks to a queue
+# no stock worker consumes.
 from trueppm_api.core.celery_queues import (  # noqa: E402
     DEFAULT_HEAVY_QUEUE,
     DEFAULT_QUEUE,

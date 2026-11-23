@@ -262,7 +262,7 @@ Background work runs on two Celery queues. The `celery` queue carries latency-se
 | Team of 250, or regular large imports | Set `heavyWorker.enabled: true`. Imports queue behind other imports rather than in front of email and drains. Give `resources.heavyWorker` the memory the largest project needs (see [Toward 100,000 tasks](#toward-100000-tasks)). |
 | Bursty imports | Add `heavyWorker.keda.enabled: true` to scale the heavy worker on queue depth. CPU alone does not see a backlog while the tasks wait, so a CPU HPA scales too late. |
 
-Scale the two on different signals: the default worker on CPU (`autoscaling.worker.enabled`), the heavy worker on `heavy` list length. Keep `lifecycle.worker.terminationGracePeriodSeconds` above your longest heavy task. See [Heavy-queue worker](/administration/helm-values/#heavy-queue-worker) for every key. A `kubectl exec` into any worker and `celery -A trueppm_api.celery inspect active_queues` shows which queues it consumes.
+Scale the two on different signals: the default worker on CPU (`autoscaling.worker.enabled`), the heavy worker on `heavy` list length. Keep `lifecycle.worker.terminationGracePeriodSeconds` above your longest heavy task. See [Heavy-queue worker](/administration/helm-values/#heavy-queue-worker) for every key. To run a single queue everywhere, set `TRUEPPM_CELERY_HEAVY_QUEUE=celery` on the API and workers; `celery` is the only supported value, because the shipped worker commands hardcode `celery,heavy`. A `kubectl exec` into any worker and `celery -A trueppm_api.celery inspect active_queues` shows which queues it consumes.
 
 ## Database connections
 

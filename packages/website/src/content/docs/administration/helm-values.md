@@ -216,7 +216,7 @@ Long-running tasks (MS Project, Jira and CSV import; project, program and worksp
 | `heavyWorker.keda.listLength` | `5` | Target backlog per replica. |
 | `heavyWorker.keda.minReplicaCount` / `maxReplicaCount` / `cooldownPeriod` | `1` / `4` / `300` | Scaling bounds and scale-in delay in seconds. |
 
-The CPU HPA (`autoscaling.worker.enabled`) targets only the default worker. If you run your own `celery worker` outside this chart, pass `--queues=celery,heavy` (or `heavy` on a dedicated one); a worker started with no `--queues` consumes only the default queue and heavy tasks would wait forever. To keep a single queue everywhere, set `TRUEPPM_CELERY_HEAVY_QUEUE=celery` on the API and workers.
+The CPU HPA (`autoscaling.worker.enabled`) targets only the default worker. If you run your own `celery worker` outside this chart, pass `--queues=celery,heavy` (or `heavy` on a dedicated one); a worker started with no `--queues` consumes only the default queue and heavy tasks would wait forever. To keep a single queue everywhere, set `TRUEPPM_CELERY_HEAVY_QUEUE=celery` on the API and workers. `celery` is the only supported value: the chart's worker commands hardcode `celery,heavy`, so any other queue name would route tasks to a queue no stock worker consumes.
 
 ## Ingress
 
