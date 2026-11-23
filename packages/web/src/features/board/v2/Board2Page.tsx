@@ -105,7 +105,7 @@ function Popover({
         <div
           role="menu"
           aria-label={ariaLabel}
-          className={`absolute top-full z-30 mt-1 min-w-56 rounded-md border border-p1-hairline bg-p1-surface-1 p-1 shadow-lg ${align === 'right' ? 'right-0' : 'left-0'}`}
+          className={`absolute top-full z-30 mt-1 max-h-[min(70vh,24rem)] min-w-56 overflow-y-auto rounded-md border border-p1-hairline bg-p1-surface-1 p-1 shadow-pop ${align === 'right' ? 'right-0' : 'left-0'}`}
         >
           {children}
         </div>
