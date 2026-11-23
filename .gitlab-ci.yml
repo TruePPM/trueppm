@@ -2053,7 +2053,7 @@ nginx:syntax:
   # broken nginx (an unbalanced brace, a directive missing its `;`) is caught
   # only at pod crash-loop, in a cluster, well after the MR merged.
   # scripts/check-helm-nginx-syntax.sh closes that gap by running the pinned
-  # nginxinc/nginx-unprivileged image's own `nginx -t` against all four
+  # Red Hat ubi9/nginx-124 image's own `nginx -t` (the web image's base) against all four
   # rendered variants (production, demo share-link, demo interactive) — see
   # the script's header for why that needs a real container (the ConfigMap's
   # own comment: its text is meant to be included INTO nginx.conf's `http {}`
