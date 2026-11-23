@@ -119,6 +119,7 @@ from trueppm_api.apps.projects.metric_provenance import (
     METRIC_DEFINITIONS,
     MY_WORK_FORECAST_DEFINED,
     MY_WORK_SPRINT_BURN_DEFINED,
+    MY_WORK_UTILIZATION_DEFINED,
     OVERVIEW_DEFINED,
     STATUS_SUMMARY_DEFINED,
     UTILIZATION_DEFINED,
@@ -18318,7 +18319,19 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         self.check_object_permissions(request, sprint)
         # ADR-0104 ``capacity`` signal (#2854): a reader outside the audience gets the
         # aggregate totals but no per-member names/hours.
-        return Response(capacity_summary_for(request, sprint), status=status.HTTP_200_OK)
+        from trueppm_api.apps.projects.metric_provenance import (
+            SPRINT_CAPACITY_DEFINED,
+            definitions_by_field,
+        )
+
+        return Response(
+            {
+                **capacity_summary_for(request, sprint),
+                "as_of": timezone.now().isoformat(),
+                "definitions": definitions_by_field(SPRINT_CAPACITY_DEFINED),
+            },
+            status=status.HTTP_200_OK,
+        )
 
     @extend_schema(
         summary="Incoming carryover preview for a PLANNED sprint",
@@ -19916,7 +19929,16 @@ class MeWorkView(McpReadableViewMixin, generics.ListAPIView[Task]):
                                         "ratio": serializers.FloatField(),
                                         "is_over": serializers.BooleanField(),
                                         "label": serializers.CharField(),
+                                        "as_of": serializers.DateTimeField(),
+                                        "definitions": definitions_field_by_field(
+                                            "MeWorkUtilizationDefinitions",
+                                            MY_WORK_UTILIZATION_DEFINED,
+                                        ),
                                     },
+                                    help_text=(
+                                        "Sprint-scoped, not a person's load across projects "
+                                        "(that is GET /me/people-load/, ADR-1314 #4777)."
+                                    ),
                                 ),
                             },
                             help_text=(

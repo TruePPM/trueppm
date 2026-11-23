@@ -55,9 +55,7 @@ export function useSprints(projectId: string | null | undefined): UseSprintsResu
   const query = useQuery({
     queryKey: ['sprints', projectId],
     queryFn: async () => {
-      const res = await apiClient.get<PaginatedSprintResponse>(
-        `/projects/${projectId}/sprints/`,
-      );
+      const res = await apiClient.get<PaginatedSprintResponse>(`/projects/${projectId}/sprints/`);
       return res.data;
     },
     enabled: !!projectId,
@@ -109,10 +107,7 @@ export interface UseActiveSprintResult {
  */
 export function useActiveSprint(projectId: string | null | undefined): UseActiveSprintResult {
   const { sprints, isLoading, error, refetch } = useSprints(projectId);
-  const sprint = useMemo(
-    () => sprints.find((s) => s.state === 'ACTIVE') ?? null,
-    [sprints],
-  );
+  const sprint = useMemo(() => sprints.find((s) => s.state === 'ACTIVE') ?? null, [sprints]);
   return { sprint, isLoading, error, refetch };
 }
 
@@ -263,10 +258,7 @@ export function useSprintMutations(projectId: string | null | undefined) {
 
   const createSprint = useMutation({
     mutationFn: async (payload: CreateSprintPayload) => {
-      const res = await apiClient.post<ApiSprint>(
-        `/projects/${projectId}/sprints/`,
-        payload,
-      );
+      const res = await apiClient.post<ApiSprint>(`/projects/${projectId}/sprints/`, payload);
       return res.data;
     },
     onSuccess: () => {
@@ -282,10 +274,7 @@ export function useSprintMutations(projectId: string | null | undefined) {
       sprintId: string;
       payload: CloseSprintPayload;
     }) => {
-      const res = await apiClient.post<CloseSprintResponse>(
-        `/sprints/${sprintId}/close/`,
-        payload,
-      );
+      const res = await apiClient.post<CloseSprintResponse>(`/sprints/${sprintId}/close/`, payload);
       return res.data;
     },
     onSuccess: () => {
@@ -327,10 +316,7 @@ export function useSprintMutations(projectId: string | null | undefined) {
       sprintId: string;
       payload: UpdateSprintPayload;
     }) => {
-      const res = await apiClient.patch<ApiSprint>(
-        `/sprints/${sprintId}/`,
-        payload,
-      );
+      const res = await apiClient.patch<ApiSprint>(`/sprints/${sprintId}/`, payload);
       return res.data;
     },
     onSuccess: () => {
@@ -644,6 +630,10 @@ export interface SprintCapacity {
    * (ADR-0104, #2854): `members` is empty and only `totals` is real.
    */
   capacity_suppressed: boolean;
+  /** When the server computed it (ADR-1314, #4777). */
+  as_of?: string;
+  /** Names sprint capacity as one sprint on one project, not load across projects. */
+  definitions?: { ratio: string };
 }
 
 /** GET /api/v1/sprints/{id}/capacity/ — per-person + aggregate capacity (#228). */
@@ -734,9 +724,7 @@ export function useSprintScopeChanges(sprintId: string | null | undefined) {
   return useQuery({
     queryKey: ['sprint', sprintId, 'scope-changes'],
     queryFn: async () => {
-      const res = await apiClient.get<SprintScopeChanges>(
-        `/sprints/${sprintId}/scope-changes/`,
-      );
+      const res = await apiClient.get<SprintScopeChanges>(`/sprints/${sprintId}/scope-changes/`);
       return res.data;
     },
     enabled: !!sprintId,
@@ -940,7 +928,6 @@ export function useProjectForecast(
   });
 }
 
-
 /**
  * GET /api/v1/projects/{id}/sprint-forecast/ — backlog delivery forecast (#487).
  *
@@ -989,9 +976,7 @@ export function useSprintForecast(
   return useQuery({
     queryKey: ['project', projectId, 'sprint-forecast'],
     queryFn: async () => {
-      const res = await apiClient.get<SprintForecast>(
-        `/projects/${projectId}/sprint-forecast/`,
-      );
+      const res = await apiClient.get<SprintForecast>(`/projects/${projectId}/sprint-forecast/`);
       return res.data;
     },
     enabled: !!projectId && enabled,
@@ -1058,7 +1043,6 @@ export function useFlowMetrics(
     enabled: !!projectId && enabled,
   });
 }
-
 
 /** One task that was in the sprint at close but didn't complete (#985). */
 export interface DidntShipItem {
@@ -1438,7 +1422,6 @@ export function useSprintDailyDelta(
   });
 }
 
-
 // ---------------------------------------------------------------------------
 // Sprint-health signals (issue #988, ADR-0101 §4)
 // ---------------------------------------------------------------------------
@@ -1472,9 +1455,7 @@ export function useSprintHealth(projectId: string | null | undefined) {
   return useQuery({
     queryKey: ['project', projectId, 'sprint-health'],
     queryFn: async () => {
-      const res = await apiClient.get<SprintHealth>(
-        `/projects/${projectId}/sprint-health/`,
-      );
+      const res = await apiClient.get<SprintHealth>(`/projects/${projectId}/sprint-health/`);
       return res.data;
     },
     enabled: !!projectId,
@@ -1571,10 +1552,7 @@ export function useSaveSprintRetro(sprintId: string | null | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (payload: SaveRetroPayload) => {
-      const res = await apiClient.post<SprintRetroResponse>(
-        `/sprints/${sprintId}/retro/`,
-        payload,
-      );
+      const res = await apiClient.post<SprintRetroResponse>(`/sprints/${sprintId}/retro/`, payload);
       return res.data;
     },
     onSuccess: () => {
@@ -1653,13 +1631,7 @@ export function usePromoteRetroActionItem(sprintId: string | null | undefined) {
 export function usePullCarryoverToSprint(sprintId: string | null | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({
-      itemId,
-      targetSprintId,
-    }: {
-      itemId: string;
-      targetSprintId: string;
-    }) => {
+    mutationFn: async ({ itemId, targetSprintId }: { itemId: string; targetSprintId: string }) => {
       const res = await apiClient.post<PromotedTaskPayload>(
         `/sprints/${sprintId}/retrospective/action-items/${itemId}/pull-to-sprint/`,
         { target_sprint_id: targetSprintId },
@@ -1716,13 +1688,7 @@ interface SuggestionMutationResponse {
 function useSuggestionAction(action: 'accept' | 'decline' | 'revoke') {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({
-      taskId,
-      suggestionId,
-    }: {
-      taskId: string;
-      suggestionId: string;
-    }) => {
+    mutationFn: async ({ taskId, suggestionId }: { taskId: string; suggestionId: string }) => {
       const res = await apiClient.post<SuggestionMutationResponse>(
         `/tasks/${taskId}/suggestions/${suggestionId}/${action}/`,
       );
@@ -1746,7 +1712,6 @@ export function useDeclineSuggestion() {
 export function useRevokeSuggestion() {
   return useSuggestionAction('revoke');
 }
-
 
 /** Helper exposed for tests — keeps the bucketing logic hot-swappable. */
 export const __testing = {

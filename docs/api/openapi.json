@@ -8455,6 +8455,94 @@
                 }
             }
         },
+        "/api/v1/me/people-load/": {
+            "get": {
+                "operationId": "v1_me_people_load_retrieve",
+                "description": "``GET /api/v1/me/people-load/`` — weekly load per person across your projects.\n\n**Scope is the viewer's own project roles, and nothing wider.** The projects\ncounted are the live, non-draft projects the requester holds a live\n``ProjectMembership`` on, narrowed to one program with ``?program=``. A program\nrole alone adds no projects: program membership does not grant project access\n(ADR-0070 \"explicit grants only\"), and a load figure is project data. Nothing\nhere is org-wide or cross-portfolio; that heat map is Enterprise.\n\n**A project counts only where the viewer may already read per-person load on\nit**: Scheduler or above, the gate on ``/projects/{id}/utilization/``. And **the\nper-person breakdown is the ADR-0104 ``capacity`` signal**, the same one\nthe sprint capacity panel's member rows sit behind. A project whose policy keeps\nper-person capacity from this reader is dropped from the scope before anything\nis computed. Both gates' drops are counted in ``scope.withheld_project_count``;\nthe capacity-gated ones alone in ``scope.capacity_withheld_project_count``, so the\nfigure says what it leaves out and the UI states only the cause that is true.\nGating at every sink keeps this lens from being a side channel around the\npanel's suppression.\n\nDrafts are excluded for the reason the My Work aggregates exclude them: a\nhalf-built plan's bookings would put someone over capacity on paper.",
+                "summary": "A person's weekly load across the projects you have a role in",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "program",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "Count only your projects in this program."
+                    },
+                    {
+                        "in": "query",
+                        "name": "week_start",
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        },
+                        "description": "Any date in the first week; snapped to its Monday. Default: this week."
+                    },
+                    {
+                        "in": "query",
+                        "name": "weeks",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "Number of weeks, 1 to 26. Default 8."
+                    }
+                ],
+                "tags": [
+                    "me"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PeopleLoad"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "A parameter failed validation."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/me/recent-projects/": {
             "get": {
                 "operationId": "v1_me_recent_projects_list",
@@ -66098,7 +66186,12 @@
                         "description": "Echo of the sprint burn owner, GET /sprints/{id}/burndown/ (ADR-1314): the same snapshots and the same pace computation."
                     },
                     "utilization": {
-                        "$ref": "#/components/schemas/MeWorkUtilizationSignal"
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/MeWorkUtilizationSignal"
+                            }
+                        ],
+                        "description": "Sprint-scoped, not a person's load across projects (that is GET /me/people-load/, ADR-1314 #4777)."
                     }
                 }
             },
@@ -66369,6 +66462,18 @@
                     "url"
                 ]
             },
+            "MeWorkUtilizationDefinitions": {
+                "type": "object",
+                "properties": {
+                    "ratio": {
+                        "type": "string",
+                        "description": "Your committed hours on your soonest-ending active sprint divided by your available hours in it, computed as the sprint capacity panel does. One sprint on one project; not your load across projects."
+                    }
+                },
+                "required": [
+                    "ratio"
+                ]
+            },
             "MeWorkUtilizationSignal": {
                 "type": "object",
                 "properties": {
@@ -66396,11 +66501,25 @@
                     },
                     "label": {
                         "type": "string"
+                    },
+                    "as_of": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "definitions": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/MeWorkUtilizationDefinitions"
+                            }
+                        ],
+                        "description": "One sentence per figure on this payload saying what it measures (ADR-1314). Render it verbatim; never substitute a client-written definition."
                     }
                 },
                 "required": [
+                    "as_of",
                     "available_hours",
                     "committed_hours",
+                    "definitions",
                     "is_over",
                     "label",
                     "ratio",
@@ -72206,6 +72325,103 @@
                 ],
                 "type": "string",
                 "description": "* `carry` - carry\n* `reject` - reject",
+                "x-trueppm-enum": "open"
+            },
+            "PeopleLoad": {
+                "type": "object",
+                "description": "Response for ``GET /api/v1/me/people-load/`` (#4777).",
+                "properties": {
+                    "as_of": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "When the server computed this payload."
+                    },
+                    "window": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/_PeopleLoadWindow"
+                            }
+                        ],
+                        "description": "The range covered, inclusive."
+                    },
+                    "weeks": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "date"
+                        },
+                        "description": "Week-start Mondays."
+                    },
+                    "scope": {
+                        "$ref": "#/components/schemas/_PeopleLoadScope"
+                    },
+                    "people": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/_PeopleLoadPerson"
+                        },
+                        "description": "Most loaded first (peak load, then name)."
+                    },
+                    "over_allocated_count": {
+                        "type": "integer"
+                    },
+                    "reason": {
+                        "nullable": true,
+                        "description": "Why `people` is empty (rule 119): `no_projects` when no project is in scope, `no_people` when the scoped projects have nobody on their roster and nobody booked in the range, `all_withheld` when you hold Scheduler or above on at least one project but every such project's team has not shared its capacity signal with your role band (see `scope.capacity_withheld_project_count`). Null otherwise.\n\n* `no_projects` - no_projects\n* `no_people` - no_people\n* `all_withheld` - all_withheld",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/PeopleLoadReasonEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "definitions": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/PeopleLoadDefinitions"
+                            }
+                        ],
+                        "description": "One sentence per figure on this payload saying what it measures (ADR-1314). Render it verbatim; never substitute a client-written definition."
+                    }
+                },
+                "required": [
+                    "as_of",
+                    "definitions",
+                    "over_allocated_count",
+                    "people",
+                    "reason",
+                    "scope",
+                    "weeks",
+                    "window"
+                ]
+            },
+            "PeopleLoadDefinitions": {
+                "type": "object",
+                "properties": {
+                    "load_pct": {
+                        "type": "string",
+                        "description": "Load = booked ÷ capacity, time off removed: a person's booked days in a week, summed over the projects where you hold the Scheduler role or above and the project's team has shared its capacity signal with your role band, divided by their default units on each working day of their own calendar (Monday to Friday when they have none), as a percentage. Bookings on other projects are not counted."
+                    },
+                    "over_allocated_count": {
+                        "type": "string",
+                        "description": "People whose load is over 100% in at least one week of the range."
+                    }
+                },
+                "required": [
+                    "load_pct",
+                    "over_allocated_count"
+                ]
+            },
+            "PeopleLoadReasonEnum": {
+                "enum": [
+                    "no_projects",
+                    "no_people",
+                    "all_withheld"
+                ],
+                "type": "string",
+                "description": "* `no_projects` - no_projects\n* `no_people` - no_people\n* `all_withheld` - all_withheld",
                 "x-trueppm-enum": "open"
             },
             "Phase": {
@@ -83436,14 +83652,42 @@
                         "type": "boolean",
                         "readOnly": true,
                         "description": "True when the requester is outside the project's `capacity` signal audience (ADR-0104): `members` is then empty and only `totals` is real."
+                    },
+                    "as_of": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "description": "When the server computed this."
+                    },
+                    "definitions": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/SprintCapacityDefinitions"
+                            }
+                        ],
+                        "description": "One sentence per figure on this payload saying what it measures (ADR-1314). Render it verbatim; never substitute a client-written definition."
                     }
                 },
                 "required": [
+                    "as_of",
                     "capacity_suppressed",
+                    "definitions",
                     "hours_per_day",
                     "members",
                     "totals",
                     "working_days"
+                ]
+            },
+            "SprintCapacityDefinitions": {
+                "type": "object",
+                "properties": {
+                    "ratio": {
+                        "type": "string",
+                        "description": "Sprint capacity: committed hours on the sprint's tasks divided by available hours in the sprint window (units on this project times the sprint's working days times hours per day). One sprint on one project; not a person's load across projects."
+                    }
+                },
+                "required": [
+                    "ratio"
                 ]
             },
             "SprintCapacityHint": {
@@ -93008,6 +93252,144 @@
                 "type": "string",
                 "description": "* `holidays` - Holidays\n* `workspace` - Workspace / shutdown",
                 "x-trueppm-enum": "open"
+            },
+            "_PeopleLoadCell": {
+                "type": "object",
+                "properties": {
+                    "week_start": {
+                        "type": "string",
+                        "format": "date",
+                        "description": "The Monday that starts the week."
+                    },
+                    "load_pct": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Whole-number percent; null when `reason` is set."
+                    },
+                    "overallocated": {
+                        "type": "boolean",
+                        "description": "`load_pct` is over 100."
+                    },
+                    "reason": {
+                        "nullable": true,
+                        "description": "Why `load_pct` is null (rule 119): `no_capacity` when the person has no working time that week (all of it time off, or zero units). Null when computed.\n\n* `no_capacity` - no_capacity",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/_PeopleLoadCellReasonEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    }
+                },
+                "required": [
+                    "load_pct",
+                    "overallocated",
+                    "reason",
+                    "week_start"
+                ]
+            },
+            "_PeopleLoadCellReasonEnum": {
+                "enum": [
+                    "no_capacity"
+                ],
+                "type": "string",
+                "description": "* `no_capacity` - no_capacity",
+                "x-trueppm-enum": "open"
+            },
+            "_PeopleLoadPerson": {
+                "type": "object",
+                "properties": {
+                    "resource_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "initials": {
+                        "type": "string"
+                    },
+                    "job_role": {
+                        "type": "string"
+                    },
+                    "overallocated": {
+                        "type": "boolean",
+                        "description": "Over 100% in at least one week."
+                    },
+                    "peak_load_pct": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "The highest weekly `load_pct`; null when no week is computable."
+                    },
+                    "project_count": {
+                        "type": "integer",
+                        "description": "Projects in scope that book this person in the range."
+                    },
+                    "cells": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/_PeopleLoadCell"
+                        },
+                        "description": "One per entry of `weeks`, in order."
+                    }
+                },
+                "required": [
+                    "cells",
+                    "initials",
+                    "job_role",
+                    "name",
+                    "overallocated",
+                    "peak_load_pct",
+                    "project_count",
+                    "resource_id"
+                ]
+            },
+            "_PeopleLoadScope": {
+                "type": "object",
+                "properties": {
+                    "project_count": {
+                        "type": "integer",
+                        "description": "Projects whose bookings are counted."
+                    },
+                    "withheld_project_count": {
+                        "type": "integer",
+                        "description": "Projects you have a role in but whose per-person load you may not read (below Scheduler, the gate on /projects/{id}/utilization/, or outside the ADR-0104 `capacity` signal audience); their bookings are not counted."
+                    },
+                    "capacity_withheld_project_count": {
+                        "type": "integer",
+                        "description": "The subset of withheld projects dropped only by the ADR-0104 `capacity` signal gate: you hold Scheduler or above on them, but their team has not shared its capacity signal with your role band. Projects withheld for your role (below Scheduler) are in `withheld_project_count` only."
+                    },
+                    "program_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "capacity_withheld_project_count",
+                    "program_id",
+                    "project_count",
+                    "withheld_project_count"
+                ]
+            },
+            "_PeopleLoadWindow": {
+                "type": "object",
+                "properties": {
+                    "start": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "end": {
+                        "type": "string",
+                        "format": "date"
+                    }
+                },
+                "required": [
+                    "end",
+                    "start"
+                ]
             },
             "_SignalPair": {
                 "type": "object",

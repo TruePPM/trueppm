@@ -52,6 +52,7 @@ from trueppm_api.apps.projects.metric_provenance import (
     METRIC_DEFINITIONS,
     OVERVIEW_DEFINED,
     SPRINT_BURNDOWN_DEFINED,
+    SPRINT_CAPACITY_DEFINED,
     UTILIZATION_DEFINED,
     definitions_field,
     definitions_field_by_field,
@@ -10713,6 +10714,11 @@ class SprintCapacitySerializer(serializers.Serializer[dict[str, Any]]):
             "audience (ADR-0104): `members` is then empty and only `totals` is real."
         ),
     )
+    # ADR-1314 / #4777: sprint capacity is its own figure, not a person's load
+    # across projects (that is GET /me/people-load/). Named and dated so the two
+    # cannot be read as one.
+    as_of = serializers.DateTimeField(read_only=True, help_text="When the server computed this.")
+    definitions = definitions_field_by_field("SprintCapacityDefinitions", SPRINT_CAPACITY_DEFINED)
 
 
 class _BlockedUserRefSerializer(serializers.Serializer[dict[str, Any]]):

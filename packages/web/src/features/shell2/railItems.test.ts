@@ -41,6 +41,10 @@ describe('resolveRailItems', () => {
     expect(active('/work')).toEqual(['work']);
     expect(active('/projects/ATL/schedule')).toEqual(['work']);
     expect(active('/resources')).toEqual(['people']);
+    expect(active('/people')).toEqual(['people']);
+    expect(resolveRailItems({ ...base, pathname: '/x' }).find((i) => i.key === 'people')?.to).toBe(
+      '/people',
+    );
     expect(active('/programs/PM/agents', { programAgentsPath: '/programs/PM/agents' })).toEqual([
       'agents',
     ]);

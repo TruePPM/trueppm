@@ -25,6 +25,7 @@ from trueppm_api.apps.projects.ceremony_views import (
 from trueppm_api.apps.projects.cost_views import ProjectCostView
 from trueppm_api.apps.projects.decisions_views import ProjectDecisionsPolicyView
 from trueppm_api.apps.projects.key_views import KeySuggestionView, ResolveView
+from trueppm_api.apps.projects.people_load_views import MePeopleLoadView
 from trueppm_api.apps.projects.poker_views import (
     PokerCancelView,
     PokerCommitView,
@@ -758,6 +759,12 @@ urlpatterns = [
         "me/active-sprints/",
         MeActiveSprintsView.as_view(),
         name="me-active-sprints",
+    ),
+    # A person's weekly load across the viewer's projects (#4777, ADR-1314)
+    path(
+        "me/people-load/",
+        MePeopleLoadView.as_view(),
+        name="me-people-load",
     ),
     # Recently-visited projects — ⌘K "Recent" group (ADR-0508, issue #1557)
     path(

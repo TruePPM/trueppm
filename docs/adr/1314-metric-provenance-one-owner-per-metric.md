@@ -460,3 +460,67 @@ grow with the number of projects. A test pins this.
 Implementation: `program_rollup.py` (`p80_completion_entry`,
 `_kpi_entries`, `_variance_entry`), `ProgramRollupSerializer`, tests in
 `tests/apps/projects/test_program_rollup_provenance.py`.
+
+## Amendment — person load across projects (2026-11-23, #4777)
+
+Status: Accepted (2026-11-23, #4777). Implemented in the same change. Settles the
+Consequences line that left "a person's load across projects" without an owner, and
+the reconciliation of `/sprints/{id}/capacity/` and `/me/work` `signals.utilization`.
+
+### Owner
+
+| Metric | Owner | Field | as_of |
+|---|---|---|---|
+| Person load across projects | `GET /me/people-load/` | `people[].cells[].load_pct` | `as_of` |
+| People over capacity | me/people-load | `over_allocated_count` | `as_of` |
+
+`load_pct = round(100 × booked unit-days ÷ (Resource.max_units × working days))` per
+ISO week. Booked unit-days come from the same daily engine as `/utilization/`
+(`utilization.compute_people_load`), each project's day hours divided by that row's
+hours per day, so a full-time booking on a 10-hour calendar is one unit-day and not
+125%. Capacity is the person's default units on their own calendar (Monday to
+Friday when they have none) with its time off removed; a per-project
+`units_override` describes one project and does not shrink a total. For one
+project, a person with their own calendar and no override reads the same weekly
+figure here and on that project's weekly heat map; a test pins it.
+
+### Scope (the boundary)
+
+The projects counted are the viewer's live, non-draft project memberships at
+**Scheduler or above** — the gate on `/projects/{id}/utilization/` — and inside the
+ADR-0104 `capacity` signal audience, the gate on the sprint panel's member rows.
+`?program=` narrows to one program. A program role alone adds no projects
+(ADR-0070, explicit grants only). Projects the viewer has a role in but fails a
+gate on are counted in `scope.withheld_project_count`; the ones dropped by the
+capacity gate alone are also in `scope.capacity_withheld_project_count`, which the
+UI copy and the `all_withheld` reason rest on (role-withheld projects are not
+capacity-withheld). Nothing is org-wide or
+cross-portfolio; that heat map stays Enterprise.
+
+### Not computable (rule 119)
+
+The payload's `reason` is `no_projects` or `no_people`; a week's `reason` is
+`no_capacity` (no working time, `load_pct: null`). A computable 0% is not a reason.
+
+### The sprint figures are named, not merged
+
+`/sprints/{id}/capacity/` and the My Work `signals.utilization` card measure one
+sprint on one project against per-project units, which is a different question
+from weekly load across projects. They keep their math and gain `as_of` and a
+`definitions.ratio` sentence that says they are sprint-scoped, so neither can be
+read as this figure.
+
+### Gates, inline
+
+- **enterprise-check:** OSS. Projects the viewer already reads per-person load on,
+  one at a time; no org-wide or portfolio scope, no upsell on the empty state.
+- **ai-review:** each figure has a definition and an as_of a client can cite, and
+  `scope.withheld_project_count` says what the figure leaves out, and
+  `scope.capacity_withheld_project_count` the part the team can fix by sharing its signal. Read-only. The
+  endpoint is not exposed to `mcp:read` tokens in this change.
+- **threat-model:** n/a. No new trust boundary: the two existing gates are applied
+  at this sink, so it exposes nothing a viewer could not read through
+  `/utilization/` project by project.
+
+Cost: a constant number of queries however many projects are in scope (one task
+query with prefetches, one roster query, one resource query); a test pins it.

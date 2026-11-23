@@ -11,7 +11,9 @@ summary, the forecast's commitment fields (`commitment_date`,
 `burn_status_reason` ship in 0.5. In 0.4 the figures below exist on the same
 endpoints, but without a definition, an `as_of`, or a commitment comparison,
 and the My Work ship-date forecast can lag the project's own forecast by up to
-a day. Also in 0.5: P80 completion computes (in 0.4 it is unavailable).
+a day. Also in 0.5: P80 completion computes (in 0.4 it is unavailable), and a person's
+load across projects gets its own endpoint, `GET /me/people-load/`; the sprint
+capacity panel and the My Work capacity card gain a definition and an `as_of`.
 :::
 
 The same project figure can appear in several places: the project header, the
@@ -42,6 +44,9 @@ Each owning endpoint returns two extra things beside its figures:
 | P95 finish | `p95` | `GET /projects/{id}/monte-carlo/latest/` | `last_run_at` | The finish date 95% of the simulated schedules finish on or before. |
 | P80 vs commitment | `p80_delta_vs_commitment_days` | `GET /projects/{id}/monte-carlo/latest/` | `last_run_at` | The P80 finish minus the commitment date, in calendar days measured in working time; positive means the forecast is later than the commitment. |
 | Person load | `days[].load_pct` | `GET /projects/{id}/utilization/` | `as_of` | A person's booked hours on a working day divided by their capacity that day (hours per day times their units on this project), as a percentage; non-working days and calendar time off carry no capacity and are omitted. |
+| Person load across projects | `people[].cells[].load_pct` | `GET /me/people-load/` | `as_of` | Load = booked ÷ capacity, time off removed: a person's booked days in a week, summed over the projects where you hold the Scheduler role or above and the project's team has shared its capacity signal with your role band, divided by their default units on each working day of their own calendar (Monday to Friday when they have none), as a percentage. Bookings on other projects are not counted. |
+| People over capacity | `over_allocated_count` | `GET /me/people-load/` | `as_of` | People whose load is over 100% in at least one week of the range. |
+| Sprint capacity | `members[].ratio`, `totals.ratio` | `GET /sprints/{id}/capacity/` | `as_of` | Sprint capacity: committed hours on the sprint's tasks divided by available hours in the sprint window (units on this project times the sprint's working days times hours per day). One sprint on one project; not a person's load across projects. |
 | Open risks | `open_risk_count` | `GET /projects/{id}/overview/` | `as_of` | Risks in the register whose status is open or mitigating. |
 | Team utilization | `team_utilization_pct` | `GET /projects/{id}/overview/` | `as_of` | Booked hours across the project roster this week divided by the roster's working-time capacity this week, as a percentage. |
 | Schedule performance | `schedule_health` | `GET /projects/{id}/overview/` | `as_of` | The schedule performance band from the SPI proxy (completed planned work divided by work planned by today); unknown when nothing is planned yet. Not the project health band. |
@@ -52,6 +57,7 @@ Each owning endpoint returns two extra things beside its figures:
 | Sprint burn pace | `burn_status` | `GET /sprints/{id}/burndown/` | `as_of` | The sprint's burn pace: ahead or behind when the latest snapshot's remaining points are more than 10% of the committed points (at least 1 point) below or above the straight ideal line from the committed points to zero, on track otherwise, and no data when nothing was committed or no snapshot exists yet. |
 | Sprint trend | `trend_points` (`trend_pts` on the active-sprints card) | `GET /sprints/{id}/burndown/` | `as_of` | The ideal line's remaining points for today minus the latest snapshot's remaining points; positive means ahead of the ideal line. |
 | Sprint projected finish | `projected_finish_date` | `GET /sprints/{id}/burndown/` | `as_of` | Today plus the remaining points divided by the points burned per elapsed sprint day so far; null when nothing has burned yet or nothing remains. |
+| My Work capacity | `signals.utilization.ratio` | `GET /me/work/` | `signals.utilization.as_of` | Your committed hours on your soonest-ending active sprint divided by your available hours in it, computed as the sprint capacity panel does. One sprint on one project; not your load across projects. |
 | My Work ship date | `signals.forecast.p80_finish` | `GET /projects/{id}/monte-carlo/latest/`, echoed by `GET /me/work/` | the driving project's `last_run_at`, as `signals.forecast.as_of` | The latest P80 finish among your member projects that are not drafts, each read from that project's latest Monte Carlo result: the same date its forecast endpoint serves. |
 
 ## Status updates
@@ -149,6 +155,15 @@ The My Work `signals` block follows its own older rule: a card whose figure has
 no backing data is left out of `signals` rather than sent as `null`. A missing
 `signals.forecast` means none of your projects has a P80 forecast yet.
 
+`GET /me/people-load/` says why a figure is missing at two levels. The
+payload's `reason` is `no_projects` when no project is in scope, `all_withheld`
+when you hold Scheduler or above on a project but every such project's team has
+not shared its capacity signal with your role band (`scope.capacity_withheld_project_count`
+says how many; `scope.withheld_project_count` also counts projects withheld for your role), and `no_people` when the projects in scope have nobody on their
+roster and nobody booked in the range. A week's `reason` is `no_capacity` when the person has no working time
+that week, for example a week of time off; its `load_pct` is then null rather
+than 0%.
+
 On the program rollup, a KPI keeps its `value` (`null`, or `unknown` for a band)
 and gains a `reason`:
 
@@ -174,12 +189,6 @@ the date is shown. The program's name and its other projects stay behind program
 membership. A soft-deleted program's date is never used.
 
 ## Figures without an owner yet
-
-These figures appear on some screens but do not have an owning endpoint yet. They
-should not be read as the forecast, load or burn figures above:
-
-- A person's load across several projects, `/sprints/{id}/capacity/`, and the
-  My Work `signals.utilization` figure (#4777).
 
 Older screens that show schedule performance under the word "Health" are being
 relabeled in #4780.
@@ -214,6 +223,13 @@ value and carry the owner's definition, so they cannot disagree with it:
   the daily snapshots. The project burn (`GET /projects/{id}/burn/`) counts
   every task in the project, replayed from task history. For a project with one
   active sprint the two still differ by every task outside the sprint.
+- **Person load across projects** and **sprint capacity** are different
+  figures. Load (`GET /me/people-load/`) is weekly, sums every project in your
+  scope, and divides by the person's default units. Sprint capacity
+  (`GET /sprints/{id}/capacity/`, and the My Work `signals.utilization` card that
+  reuses it) covers one sprint on one project and divides by the person's units
+  on that project. Load also differs from the per-project `load_pct` on
+  `/utilization/`, which covers one project.
 - **Blocked count** on the status summary is the full count. The `count` on
   `GET /projects/{id}/blocked/` is the number of rows in that list, which stops
   at the list's row limit.

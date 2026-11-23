@@ -11,6 +11,7 @@
  * - Aria: role="dialog" aria-modal aria-label={title}
  */
 
+import { OverallocBadge } from '@/components/Overalloc';
 import { useRef, type RefObject } from 'react';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
 import { useQuery } from '@tanstack/react-query';
@@ -85,7 +86,11 @@ function DrawerBody({
     isError: tasksError,
     refetch: refetchTasks,
   } = useQuery({
-    queryKey: ['overallocation-drawer-tasks', projectId, [...taskIds].sort((a, b) => a.localeCompare(b))],
+    queryKey: [
+      'overallocation-drawer-tasks',
+      projectId,
+      [...taskIds].sort((a, b) => a.localeCompare(b)),
+    ],
     queryFn: async () => {
       const res = await apiClient.get<{ results: ResolvedTask[] }>('/tasks/', {
         params: { project: projectId, id__in: taskIds.join(',') },
@@ -121,8 +126,7 @@ function DrawerBody({
             focus-visible:ring-offset-1
           "
         >
-          {/* U+00D7 MULTIPLICATION SIGN — matches TaskDetailDrawer and RiskDrawer */}
-          ×
+          {/* U+00D7 MULTIPLICATION SIGN — matches TaskDetailDrawer and RiskDrawer */}×
         </button>
       </div>
 
@@ -142,7 +146,9 @@ function DrawerBody({
               <dl className="grid grid-cols-2 gap-3 text-sm">
                 <div>
                   <dt className="text-xs text-neutral-text-secondary">Hours scheduled</dt>
-                  <dd className="font-medium text-neutral-text-primary">{target.entry.hours.toFixed(1)}h</dd>
+                  <dd className="font-medium text-neutral-text-primary">
+                    {target.entry.hours.toFixed(1)}h
+                  </dd>
                 </div>
                 <div>
                   <dt className="text-xs text-neutral-text-secondary">Capacity</dt>
@@ -154,7 +160,9 @@ function DrawerBody({
                 </div>
                 <div>
                   <dt className="text-xs text-neutral-text-secondary">Load</dt>
-                  <dd className="font-medium text-semantic-critical">{Math.round(pct)}%</dd>
+                  <dd className="font-medium">
+                    <OverallocBadge value={`${Math.round(pct)}%`} />
+                  </dd>
                 </div>
               </dl>
             </section>
@@ -166,7 +174,12 @@ function DrawerBody({
                   Contributing tasks ({taskIds.length})
                 </h3>
                 {tasksLoading ? (
-                  <ul role="status" className="space-y-1.5" aria-busy="true" aria-label="Loading contributing tasks">
+                  <ul
+                    role="status"
+                    className="space-y-1.5"
+                    aria-busy="true"
+                    aria-label="Loading contributing tasks"
+                  >
                     {taskIds.map((taskId) => (
                       <li
                         key={taskId}
@@ -220,8 +233,8 @@ function DrawerBody({
                   </p>
                 )}
                 <p className="mt-3 text-xs text-neutral-text-secondary">
-                  To resolve, reassign or delay one of the contributing tasks so this
-                  resource is not scheduled beyond their daily capacity.
+                  To resolve, reassign or delay one of the contributing tasks so this resource is
+                  not scheduled beyond their daily capacity.
                 </p>
               </section>
             )}
@@ -269,11 +282,7 @@ export function ResourceOverallocationDrawer({ projectId, target, isOpen, onClos
     <>
       {/* Backdrop — mobile only */}
       {isOpen && isMobile && (
-        <div
-          className="fixed inset-0 bg-black/30 z-30"
-          aria-hidden="true"
-          onClick={onClose}
-        />
+        <div className="fixed inset-0 bg-black/30 z-30" aria-hidden="true" onClick={onClose} />
       )}
 
       {isMobile ? (

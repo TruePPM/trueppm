@@ -64,6 +64,9 @@ ALIASES: dict[str, str] = {
     "UserSummary": "_UserSummary",
     "ProjectMembership": "ProjectMembershipRead",
     "ProgramMembership": "ProgramMembershipRead",
+    "PeopleLoadCell": "_PeopleLoadCell",
+    "PeopleLoadPerson": "_PeopleLoadPerson",
+    "PeopleLoadResponse": "PeopleLoad",
 }
 
 # Interfaces with no response schema to compare against, each with the reason.

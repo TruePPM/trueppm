@@ -256,6 +256,52 @@ heatmap and daily utilization will still count assignee-only tasks as zero
 ([#4936](https://gitlab.com/trueppm/trueppm/-/issues/4936)).
 :::
 
+## Load across your projects (People)
+
+:::note[Ships in 0.5]
+The cross-project load view and `GET /api/v1/me/people-load/` ship in 0.5, behind
+the shell v2 preview flag (`?ff=shell_v2`; see
+[Shell v2 preview](/features/interface/#shell-v2-preview-behind-a-flag)). In 0.4
+you read load one project at a time, on that project's resource heatmap.
+:::
+
+With shell v2 on, the rail's **People** item opens `/people` on the **Capacity**
+tab: a heat map with one row per person and one column per week, eight weeks from
+the current one. The roster you know as the resource catalog is the second tab,
+**Directory**. A person's cell is their load that week across every project where
+you hold the **Scheduler** role or above. That is the same role you need to read a
+project's own resource heatmap, so this view never shows you load you could not
+already see one project at a time. A Member or Viewer role on a project, and a
+program role on its own, adds nothing. Draft projects are left out. A project whose team has not shared its capacity signal with your role band is left out too.
+
+- **Load = booked ÷ capacity, time off removed.** Booked is the person's assigned
+  units on each working day, summed across those projects. Capacity is their
+  default units (the catalog's capacity, not a per-project override) on each
+  working day of their own calendar, or Monday to Friday when they have none.
+  Time off on their calendar removes that day's capacity.
+- Cells are banded **<40 · 40–59 · 60–79 · 80–100 · ▲ 101–115 · ▲ >115** percent.
+  Over-allocated cells carry a **▲** as well as a color, and a line above the grid
+  says how many people are over capacity in the range.
+- A week with no working time (all of it time off) shows a dash, not 0%.
+- The grid is keyboard navigable: Tab reaches one cell, and the arrow keys, Home
+  and End move from there.
+- The page states the definition and when the figures were computed. Both come
+  from the server.
+
+If you hold Scheduler or above on no project, or nobody is on those projects'
+rosters or booked in the range, the view says **No bookings in this range**. If you
+hold Scheduler or above but every such project's team has not shared its capacity
+signal with your role band, it says **Load is withheld for your projects** and
+counts them. A count of projects withheld for that reason also shows under the grid
+whenever it is above zero; projects you hold below Scheduler on are not counted in it. The resource manager home shows the same grid (see
+[Shell v2 preview](/features/interface/#shell-v2-preview-behind-a-flag)).
+
+The figure is `people[].cells[].load_pct` on `GET /api/v1/me/people-load/`
+(parameters `week_start`, `weeks` from 1 to 26, and `program` to count one
+program's projects only). It is a different figure from a sprint's capacity panel,
+which covers one sprint on one project; the
+[metric vocabulary](/features/metric-vocabulary/) explains the difference.
+
 ## What a resource manager can do today
 
 1. Maintain the Workspace resource catalog (name, role, capacity, calendar). From

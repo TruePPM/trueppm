@@ -221,6 +221,7 @@
 -++++++  GET api/v1/me/notification-settings/::get
 -++++++  GET api/v1/me/notifications/::list
 -++++++  GET api/v1/me/notifications/<uuid:pk>/::retrieve
+-++++++  GET api/v1/me/people-load/::get
 -++++++  GET api/v1/me/recent-projects/::get
 -++++++  GET api/v1/me/search/::get
 -++++++  GET api/v1/me/time-entries/::get
