@@ -153,7 +153,7 @@ drag-to-plan stay on the desktop canvas.
 This section describes the redesigned Schedule page that ships in 0.5 behind the `shell_v2` preview flag (add `?ff=shell_v2` to the URL). The current release uses the toolbar described in [Schedule toolbar](/features/schedule-toolbar/), with a show/hide **Legend** button and a forecast strip docked under the chart.
 :::
 
-In 0.5 the redesigned Schedule page will put a smaller set of controls in its toolbar. It does not yet offer every action the current toolbar has; the ones it leaves out are listed under [Not in the redesigned toolbar yet](#not-in-the-redesigned-toolbar-yet). With the preview flag on, those actions are not reachable from the Schedule page at all. The redesigned toolbar will hold:
+In 0.5 the redesigned Schedule page will put a smaller set of controls in its toolbar. It does not yet offer every action the current toolbar has; the ones it leaves out are listed under [Not in the redesigned Schedule page yet](#not-in-the-redesigned-schedule-page-yet). With the preview flag on, those actions are not reachable from the Schedule page at all. The redesigned toolbar will hold:
 
 - **Filter**, **Zoom** and **Add task** will always stay in the bar.
 - **Today**, **Baseline** and **Critical only** will sit in the bar when the window has room, and move into the **More** menu as it narrows. **Baseline** will only appear when the project has an active baseline.
@@ -178,9 +178,9 @@ The near-critical threshold is the one set in project settings (10 working days 
 
 The forecast strip under the chart will go away in the redesigned page. The P80 date in the project header will be the one forecast shown at rest.
 
-### Not in the redesigned toolbar yet
+### Not in the redesigned Schedule page yet
 
-The redesigned toolbar is a first pass. These are not part of it yet, and no release is promised for any of them. Until they are, turn the preview flag off to use them:
+The redesigned page is a first pass, and so far it covers the toolbar, the legend and the critical-path outlines. These are not part of it yet, and no release is promised for any of them. Until they are, turn the preview flag off to use them:
 
 - **Import** from Microsoft Project or CSV, and **Share**.
 - **Capture baseline**, the **baseline manager**, and **Trash** (deleted tasks).
@@ -192,6 +192,14 @@ The redesigned toolbar is a first pass. These are not part of it yet, and no rel
 - Filters other than **Milestones only**. The **Filter** menu holds that one filter for now.
 - The ▲ (critical) and ◆ (near-critical) symbols the design gives the **Float** column. The chart and the column do not draw them yet, so the legend does not list them.
 - Grouping recurring tasks under one row. Each occurrence is stored per task already; the plan is to group them for display in the browser from what the server sends, but nothing is built.
+- A phone layout for the toolbar. Below 768 pixels wide the redesigned toolbar is not shown at all; the phone's schedule list has no toolbar controls, as in the current release.
+- Touch-sized targets for the **Zoom** stepper buttons. The **Zoom** − and + buttons are 28 pixels square for now; the rest of the toolbar's controls and the **More** menu rows are 44 pixels.
+- The page's loading, empty and error states, redrawn to the new design.
+- The opening state of a project: a 448-pixel item list, a 12-week zoom, today's phase expanded, and a "N more" count for what is off screen.
+- The "one warning" items: a blocked-only pill, a footer summary, and a roll-up for phases with no committed start.
+- Solid red critical dependency arrows.
+- The **Commit** marker and the **P80** tick on the chart, with their definitions.
+- Plain-text **Float** values in the **Float** column, in the design's wording.
 - An as-of date beside the commitment and the P50 / P80 forecast dates, which depends on the server reporting when each was computed ([#4760](https://gitlab.com/trueppm/trueppm/-/issues/4760)).
 
 ## Canvas renderer

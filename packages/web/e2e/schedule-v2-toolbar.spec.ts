@@ -2,8 +2,8 @@
  * Shell v2 Schedule toolbar, legend and forecast strip (#4796), behind `shell_v2`.
  *
  * The ladder is MEASURED (rule 343), so the only honest assertions are
- * Playwright's: every child's right edge inside the bar's, at each of the four
- * widths the issue names, and the concessions monotonic as the bar narrows.
+ * Playwright's: every child's right edge inside the bar's, at 1440, 1024 and
+ * 768 (below 768 the phone schedule renders and the bar is absent), and the concessions monotonic as the bar narrows.
  * `toBeVisible()` alone is not the assertion — a clipped child of an
  * `overflow-hidden` parent still has a box (#2974).
  */
@@ -11,10 +11,6 @@ import AxeBuilder from '@axe-core/playwright';
 import { test, expect, type Page } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 import { setupTaskStore } from './fixtures/task-store';
-import { SCHEDULE_V2_LADDER } from '../src/features/schedule/v2/scheduleV2Ladder';
-
-/** The step at which only tier A's own collapse is left unspent. */
-const ADD_TASK_ICON_STEP = SCHEDULE_V2_LADDER.findIndex((r) => r.id === 'add-task-icon');
 
 const PROJECT_ID = 'e2e-v2-00000000-0000-0000-0000-000000004796';
 const BASE_URL = `/projects/${PROJECT_ID}/schedule`;
@@ -110,7 +106,21 @@ const MC_RESULT = {
 const toolbar = (page: Page) => page.getByRole('toolbar', { name: 'Schedule toolbar' });
 const outline = (page: Page) => page.getByRole('treegrid', { name: 'Item list' });
 
-async function goto(page: Page, { v2 = true }: { v2?: boolean } = {}) {
+const BASELINE = {
+  id: 'b1',
+  project: PROJECT_ID,
+  name: 'Baseline 1',
+  created_by: null,
+  created_at: '2026-04-01T10:00:00Z',
+  is_active: true,
+  has_cpm_dates: true,
+  task_count: 1,
+};
+
+async function goto(
+  page: Page,
+  { v2 = true, baseline = false }: { v2?: boolean; baseline?: boolean } = {},
+) {
   await page.addInitScript((on: boolean) => {
     localStorage.setItem('trueppm.featureFlags', JSON.stringify({ shell_v2: on }));
   }, v2);
@@ -119,6 +129,37 @@ async function goto(page: Page, { v2 = true }: { v2?: boolean } = {}) {
   await setupApiMocks(page, { projects: PROJECTS, projectId: PROJECT_ID, tasks: TASKS });
   // Registered last so it wins over the default list mock: the reads echo writes.
   await setupTaskStore(page, { tasks: TASKS });
+  if (baseline) {
+    // An active baseline makes the Baseline toggle (and the legend's Baseline
+    // entry) exist, so the ladder is measured with its widest inventory.
+    await page.route('**/api/v1/projects/*/baselines/', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: 1, next: null, previous: null, results: [BASELINE] }),
+      }),
+    );
+    await page.route('**/api/v1/projects/*/baselines/b1/', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ...BASELINE,
+          tasks: [
+            {
+              task_id: 'c1',
+              task_name: 'Inventory legacy schemas',
+              start: '2026-04-03',
+              finish: '2026-04-07',
+              duration: 5,
+              actual_start: null,
+              actual_finish: null,
+            },
+          ],
+        }),
+      }),
+    );
+  }
   await page.route(`**/api/v1/projects/${PROJECT_ID}/monte-carlo/latest/`, (route) =>
     route.fulfill({
       status: 200,
@@ -144,6 +185,16 @@ async function clipped(page: Page): Promise<string[] | null> {
       .map((c) => (c.textContent ?? '').trim().slice(0, 30) || c.tagName);
   });
 }
+
+/**
+ * Narrows the bar's own box (as a docked rail or detail panel would) so the
+ * demotion rungs are reachable at a desktop viewport, where the phone layout
+ * (below 768) replaces the bar and no viewport width demotes this fixture.
+ */
+const narrowBar = (page: Page, px: number) =>
+  page.getByTestId('schedule-toolbar-v2').evaluate((el, w) => {
+    (el as HTMLElement).style.maxWidth = `${w}px`;
+  }, px);
 
 const step = async (page: Page) =>
   Number(await page.getByTestId('schedule-toolbar-v2').getAttribute('data-fit-step'));
@@ -178,12 +229,14 @@ test.describe('shell v2 Schedule toolbar (#4796)', () => {
     await expect.poll(() => clipped(page)).toEqual([]);
   });
 
-  test('ladder is measured and monotonic across 1440 / 1024 / 768 / 390', async ({ page }) => {
+  test('ladder is measured and monotonic across 1440 / 1024 / 768, with an active baseline', async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await goto(page);
+    await goto(page, { baseline: true });
     await expect(toolbar(page)).toBeVisible({ timeout: 10_000 });
     let previous = -1;
-    for (const width of [1440, 1024, 768, 390]) {
+    for (const width of [1440, 1024, 768]) {
       await page.setViewportSize({ width, height: 900 });
       await expect.poll(() => clipped(page), { message: `nothing clips at ${width}` }).toEqual([]);
       const s = await step(page);
@@ -207,25 +260,47 @@ test.describe('shell v2 Schedule toolbar (#4796)', () => {
       await page.keyboard.press('Escape');
       await expect(page.getByRole('menu')).toHaveCount(0);
     }
-    // At 390 every collapse and every demotion has been spent; only tier A's
-    // own collapse (Add task to an icon) may remain, because the ladder spends
-    // it only when nothing else is left (rule 343 (e)) and the labeled button
-    // still fits this fixture at 390.
-    expect(previous).toBeGreaterThanOrEqual(ADD_TASK_ICON_STEP);
-    const bar = toolbar(page);
-    await expect(bar.getByRole('button', { name: 'Today', exact: true })).toHaveCount(0);
-    await expect(bar.getByRole('button', { name: 'Critical only' })).toHaveCount(0);
-    await expect(bar.getByRole('button', { name: 'Baseline', exact: true })).toHaveCount(0);
-    // The legend has left the bar (relocated, never folded into the overflow).
-    await expect(bar.getByTestId('schedule-legend-v2')).toHaveCount(0);
+    // Whatever the bar has conceded by 768, the legend never reaches the
+    // overflow: it stays in the bar or relocates, it is not a menu row.
+    await expect(page.getByRole('menuitem', { name: /legend/i })).toHaveCount(0);
+  });
+
+  test('on a phone the v2 toolbar is absent and the phone schedule still renders', async ({
+    page,
+  }) => {
+    // MobileSchedule ignores every toolbar control, as v1's toolbar knows
+    // (it renders nothing on a phone), so a v2 bar here would be inert.
+    await page.setViewportSize({ width: 390, height: 900 });
+    await goto(page);
+    await expect(page.getByTestId('schedule-toolbar-v2')).toHaveCount(0);
+    await expect(page.getByRole('toolbar', { name: 'Schedule toolbar' })).toHaveCount(0);
+    await expect(page.getByText('Inventory legacy schemas')).toBeVisible({ timeout: 10_000 });
+  });
+
+  test('demoting the focused control moves focus to More and says where it went', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await goto(page, { baseline: true });
+    await expect(toolbar(page)).toBeVisible({ timeout: 10_000 });
+    const today = toolbar(page).getByRole('button', { name: 'Today', exact: true });
+    await expect(today).toBeVisible();
+    await today.focus();
+    await narrowBar(page, 340);
+    await expect(toolbar(page).getByRole('button', { name: 'Today', exact: true })).toHaveCount(0);
+    await expect(
+      toolbar(page).getByRole('button', { name: /^More schedule actions/ }),
+    ).toBeFocused();
+    await expect(page.getByTestId('v2-demotion-live')).toHaveText('Today moved to More');
   });
 
   test('menus are hittable: a real pointer click on a demoted Critical only turns the filter on', async ({
     page,
   }) => {
-    await page.setViewportSize({ width: 390, height: 900 });
-    await goto(page);
+    await page.setViewportSize({ width: 768, height: 900 });
+    await goto(page, { baseline: true });
     await expect(toolbar(page)).toBeVisible({ timeout: 10_000 });
+    await narrowBar(page, 460);
     await expect.poll(() => clipped(page)).toEqual([]);
     await expect(toolbar(page).getByRole('button', { name: 'Critical only' })).toHaveCount(0);
     await expect(page).not.toHaveURL(/[?&]crit=1/);
@@ -272,7 +347,7 @@ test.describe('shell v2 Schedule toolbar (#4796)', () => {
   test('every bar control has a 44x44 hit target without growing past 32px (rules 5, 330)', async ({
     page,
   }) => {
-    for (const width of [1440, 390]) {
+    for (const width of [1440, 768]) {
       await page.setViewportSize({ width, height: 900 });
       await goto(page);
       await expect(toolbar(page)).toBeVisible({ timeout: 10_000 });
@@ -356,5 +431,8 @@ test.describe('shell v2 Schedule toolbar (#4796)', () => {
 
 /** Today and Baseline demoted alongside Critical only (Baseline absent: no baseline). */
 async function demotedOthers(page: Page): Promise<number> {
-  return page.getByRole('menuitem', { name: 'Today', exact: true }).count();
+  return (
+    (await page.getByRole('menuitem', { name: 'Today', exact: true }).count()) +
+    (await page.getByRole('menuitemcheckbox', { name: 'Baseline', exact: true }).count())
+  );
 }

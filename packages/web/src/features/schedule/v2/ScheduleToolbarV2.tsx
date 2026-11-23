@@ -10,6 +10,8 @@ import {
 import { createPortal } from 'react-dom';
 import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
 import { ZoomControl } from '../ZoomControl';
+import { useScheduleStore } from '@/stores/scheduleStore';
+import { useDemotionAnnounce } from '../toolbar/useDemotionAnnounce';
 import { TOOLBAR_SPACER_ATTR } from '../toolbar/toolbarLadder';
 import {
   demotedCommands,
@@ -261,8 +263,31 @@ export interface ScheduleToolbarV2Props {
  */
 export function ScheduleToolbarV2(props: ScheduleToolbarV2Props) {
   const ref = useRef<HTMLDivElement>(null);
-  const signature = `${props.baselineAvailable}|${props.canAddTask}`;
+  const zoomLevel = useScheduleStore((s) => s.zoomLevel);
+  // Everything that changes the bar's CONTENT width without changing its box
+  // (rule 343): the legend gains/loses its Baseline entry, "Filter" becomes
+  // "Filter · 1", and the collapsed Zoom trigger shows the tier name.
+  const signature = [
+    props.baselineAvailable,
+    props.canAddTask,
+    props.baselineShown,
+    props.milestonesOnly,
+    zoomLevel,
+  ].join('|');
   const step = useLadderFit(ref, SCHEDULE_V2_LADDER, signature);
+  const liveRef = useRef<HTMLSpanElement>(null);
+  const overflowTriggerRef = useRef<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    overflowTriggerRef.current =
+      ref.current?.querySelector<HTMLElement>('[data-testid="schedule-v2-overflow"]') ?? null;
+  });
+  useDemotionAnnounce({
+    toolbarRef: ref,
+    overflowTriggerRef,
+    liveRegionRef: liveRef,
+    step,
+    overflowLabel: 'More',
+  });
   const c = resolveV2Composition(step);
   const { onLegendPlacementChange } = props;
 
@@ -462,6 +487,14 @@ export function ScheduleToolbarV2(props: ScheduleToolbarV2Props) {
         }
         accessibleName={overflowLabel(overflowCount)}
         items={overflowItems}
+      />
+      {/* Polite, mounted unconditionally, written to only on a demotion. */}
+      <span
+        ref={liveRef}
+        role="status"
+        aria-live="polite"
+        data-testid="v2-demotion-live"
+        className="sr-only"
       />
     </div>
   );

@@ -4653,7 +4653,7 @@ export function ScheduleView() {
   const mainView = (() => (
     <div className="flex flex-col h-full overflow-hidden">
       <h1 className="sr-only">Schedule</h1>
-      {shellV2 ? (
+      {shellV2 && !isMobile ? (
         <ScheduleToolbarV2
           onFit={() => engine?.fitToProject()}
           canAddTask={hasEditRights && !readOnly}
