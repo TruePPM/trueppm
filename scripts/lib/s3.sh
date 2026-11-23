@@ -105,14 +105,14 @@ _s3_mc_alias() {
 # _s3_endpoint_looks_incluster HOST — best-effort heuristic: succeeds when HOST
 # looks like it resolves inside the cluster or on a private network, i.e.
 # plaintext to it is the documented, expected shape (packages/website/src/content/docs/administration/
-# backup-restore.md and configuration.md both show http://minio:9000 as the
+# backup-restore.md and configuration.md both show http://seaweedfs:8333 as the
 # in-cluster default). Fails otherwise, including for anything this heuristic
 # cannot classify — a false "in-cluster" verdict silences the warning that
 # _s3_warn_if_remote_plaintext exists to give (the bug it fixes), while a false
 # "remote" verdict only costs an operator one extra log line. Bias accordingly.
 #
 # Recognized as in-cluster/local:
-#   - a bare, dot-free short name (Kubernetes Service DNS, e.g. "minio")
+#   - a bare, dot-free short name (Kubernetes Service DNS, e.g. "seaweedfs")
 #   - a name ending in .svc (Kubernetes Service DNS, partially qualified)
 #   - a name ending in .local — this also covers .svc.cluster.local and
 #     .cluster.local (fully-qualified Kubernetes Service DNS), and mDNS / a
@@ -141,7 +141,7 @@ _s3_endpoint_looks_incluster() {
 # look in-cluster. The upload artifact is a full PostgreSQL dump (every
 # project, task, and user email in the deployment); plaintext to a remote
 # endpoint puts that dump on the wire in the clear, and nothing else in this
-# path objects. In-cluster plaintext (the documented http://minio:9000
+# path objects. In-cluster plaintext (the documented http://seaweedfs:8333
 # default) is fine and must stay silent — see _s3_endpoint_looks_incluster.
 #
 # The warning text below deliberately does NOT spell out the "http" + "://"

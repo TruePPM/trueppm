@@ -1,4 +1,4 @@
-"""Live S3 round-trip against a real MinIO service (#2559).
+"""Live S3 round-trip against a real SeaweedFS service (#2559, #4065).
 
 This is the test that closes the gap the issue is about. `test_s3_storage_options`
 proves the options are *built* right and that presigning is SigV4; nothing proved
@@ -8,10 +8,10 @@ import.
 
 Skipped unless ``TRUEPPM_S3_ENDPOINT_URL`` points at an S3-compatible endpoint, so
 a developer's `pytest` stays offline and hermetic. The `api:s3-drill` CI job
-supplies a MinIO service and sets it (see .gitlab-ci.yml).
+supplies a SeaweedFS service and sets it (see .gitlab-ci.yml).
 
 Marked ``enable_socket`` because conftest bans outbound sockets to non-infra hosts
-(#1653) and MinIO is deliberately a real network dependency here.
+(#1653) and the object store is deliberately a real network dependency here.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ _ENDPOINT = os.environ.get("TRUEPPM_S3_ENDPOINT_URL", "")
 pytestmark = [
     pytest.mark.skipif(
         not _ENDPOINT,
-        reason="TRUEPPM_S3_ENDPOINT_URL unset — run under the api:s3-drill job or a local MinIO",
+        reason="TRUEPPM_S3_ENDPOINT_URL unset — run under api:s3-drill or a local SeaweedFS",
     ),
     pytest.mark.enable_socket,
 ]
@@ -48,7 +48,7 @@ def s3_options() -> dict[str, Any]:
 
 @pytest.fixture
 def storage(s3_options: dict[str, Any]) -> Iterator[Any]:
-    """A real S3Storage against MinIO, with its bucket created and then removed."""
+    """A real S3Storage against SeaweedFS, with its bucket created and then removed."""
     import boto3
     from storages.backends.s3 import S3Storage
 
@@ -112,7 +112,7 @@ def test_unsigned_url_is_rejected(storage: Any) -> None:
 
 
 def test_per_call_expiry_is_honored_by_the_server(storage: Any) -> None:
-    """A URL signed with expire=1 must be REJECTED by MinIO once it lapses, proving
+    """A URL signed with expire=1 must be REJECTED by the store once it lapses, proving
     the per-call TTL the signed_url action passes is enforced server-side and not
     merely echoed in the query string (#2559)."""
     import time

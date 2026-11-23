@@ -282,7 +282,7 @@ backup:
     enabled: true
     bucket: "my-trueppm-backups"
     region: "eu-west-1"
-    endpoint: ""            # set for MinIO/SeaweedFS; empty for real S3
+    endpoint: ""            # set for SeaweedFS/MinIO; empty for real S3
     prefix: "prod"
     existingSecret: "trueppm-backup-s3"   # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
   persistence:

@@ -24,7 +24,7 @@ The logical backup here is the foundation those build on, not a lesser version o
 | Data | In backup? | Why |
 |---|---|---|
 | PostgreSQL (`trueppm` database) | **Yes** | The authoritative store — every project, task, sprint, dependency, baseline, comment, and setting. The `pg_dump --format=custom` artifact preserves the `ltree`, `pg_trgm`, and `btree_gist` extensions and the `wbs_path` GiST index. |
-| Media / attachments (local disk) | **Yes**, when local | `TaskAttachment` files when `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE` is on. When you use S3-compatible object storage instead (MinIO, SeaweedFS, etc.), the bucket is backed up by the object store — not by this artifact (see below). |
+| Media / attachments (local disk) | **Yes**, when local | `TaskAttachment` files when `TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE` is on. When you use S3-compatible object storage instead (SeaweedFS, MinIO, etc.), the bucket is backed up by the object store — not by this artifact (see below). |
 | Redis / Valkey (cache + broker) | **No** (by design) | Valkey holds only **ephemeral, reconstructible** state: the Django cache, the Celery broker queue, and the Channels real-time layer. None of it is a source of truth. Restoring a stale Redis snapshot onto a running instance would resurrect dead queue entries and serve stale cache — worse than an empty cache, which simply refills on first read. In-flight Celery tasks are re-triggered by the next write; WebSocket clients reconnect. So the backup omits it deliberately. |
 | `INTEGRATION_ENCRYPTION_KEY` | **No** — and the dump is **useless without it** | Lives in a Kubernetes Secret / `.env`, not in PostgreSQL. See the warning immediately below. |
 
@@ -137,14 +137,14 @@ The script writes a single timestamped `trueppm-backup-<UTC>.tar.gz` containing
 `db.dump`, `media.tar.gz` (when a media dir is given), and a `MANIFEST`.
 
 To upload the artifact to a bucket in the same run, add `--s3-bucket` (and
-`--s3-endpoint` for MinIO, SeaweedFS, or another self-hosted S3-compatible store):
+`--s3-endpoint` for SeaweedFS, MinIO, or another self-hosted S3-compatible store):
 
 ```bash
 export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=...
 DATABASE_URL="postgres://trueppm:trueppm@localhost:5432/trueppm" \
   ./scripts/backup.sh --output-dir ./backups \
     --s3-bucket trueppm-backups \
-    --s3-endpoint http://minio.example.internal:9000 \
+    --s3-endpoint http://seaweedfs.example.internal:8333 \
     --s3-prefix prod/daily
 ```
 
@@ -352,7 +352,7 @@ export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=...
 DATABASE_URL="postgres://trueppm:trueppm@localhost:5432/trueppm" \
   ./scripts/restore.sh --from-s3 latest \
     --s3-bucket trueppm-backups \
-    --s3-endpoint http://minio.example.internal:9000 \
+    --s3-endpoint http://seaweedfs.example.internal:8333 \
     --s3-prefix prod/daily --yes
 ```
 
@@ -490,7 +490,7 @@ backup:
   s3:
     enabled: true
     bucket: trueppm-backups
-    endpoint: ""              # empty for real AWS S3; set it for MinIO/SeaweedFS
+    endpoint: ""              # empty for real AWS S3; set it for SeaweedFS/MinIO
     region: us-east-1
     prefix: prod/daily        # optional key prefix
     existingSecret: trueppm-backup-s3   # keys: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
@@ -502,14 +502,14 @@ The object key is `<prefix>/trueppm-backup-<UTC timestamp>.tar.gz`.
 PVC while the CronJob reports success — a green backup job means the copy really
 did leave the cluster.
 
-For MinIO, SeaweedFS, or another self-hosted store, set `endpoint` to its URL:
+For SeaweedFS, MinIO, or another self-hosted store, set `endpoint` to its URL:
 
 ```yaml
 backup:
   s3:
     enabled: true
     bucket: trueppm-backups
-    endpoint: http://minio.storage.svc.cluster.local:9000
+    endpoint: http://seaweedfs.storage.svc.cluster.local:8333
     region: us-east-1
     existingSecret: trueppm-backup-s3
 ```
@@ -522,7 +522,7 @@ self-hosted store reached by IP or by a single hostname can actually serve.
 
 `endpoint` takes whatever URL you give it, scheme included — TruePPM never
 hardcodes `http://` or `https://`. In-cluster plaintext (the example above,
-`http://minio.storage.svc.cluster.local:9000`) is expected and fine: the
+`http://seaweedfs.storage.svc.cluster.local:8333`) is expected and fine: the
 traffic never leaves the pod network. But the artifact is a **full database
 dump** — every project, task, dependency, comment, and user email in the
 deployment — and if `endpoint` is repointed at an off-cluster or cross-VPC

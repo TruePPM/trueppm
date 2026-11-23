@@ -84,7 +84,7 @@ def test_credentials_from_environ_are_forwarded() -> None:
 
 
 def test_minio_shaped_environ() -> None:
-    """The configuration the docs now give for MinIO, end to end."""
+    """The configuration the docs give for MinIO, end to end (SeaweedFS is covered below)."""
     opts = build_s3_storage_options(
         {
             "TRUEPPM_S3_BUCKET_NAME": "trueppm-attachments",
@@ -98,6 +98,22 @@ def test_minio_shaped_environ() -> None:
     assert opts["bucket_name"] == "trueppm-attachments"
     assert opts["endpoint_url"] == "http://minio:9000"
     assert opts["addressing_style"] == "path"
+
+
+def test_seaweedfs_shaped_environ() -> None:
+    """The reference backend (#4065): path-style, SeaweedFS's S3 gateway port, a '/+:' secret."""
+    opts = build_s3_storage_options(
+        {
+            "TRUEPPM_S3_BUCKET_NAME": "trueppm-attachments",
+            "TRUEPPM_S3_ENDPOINT_URL": "http://seaweedfs:8333",
+            "TRUEPPM_S3_ADDRESSING_STYLE": "path",
+            "TRUEPPM_S3_ACCESS_KEY_ID": "drillkey",
+            "TRUEPPM_S3_SECRET_ACCESS_KEY": "dr/ill+sec:ret12345",
+        }
+    )
+    assert opts["endpoint_url"] == "http://seaweedfs:8333"
+    assert opts["addressing_style"] == "path"
+    assert opts["secret_key"] == "dr/ill+sec:ret12345"
 
 
 def test_explicit_overrides_win() -> None:

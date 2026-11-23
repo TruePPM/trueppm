@@ -17,7 +17,7 @@ development, `docker-compose.yml` sets sensible defaults.
 - [Optional and advanced settings](/administration/configuration/advanced/) — optional and advanced environment variables, and the in-product feedback settings.
 - [Rate limits and import caps](/administration/configuration/limits/) — aPI and login rate limiting, the MCP read-surface limits, and the size caps on MS Project, Jira, CSV/Excel and seed imports and on Monte Carlo runs.
 - [Logging, telemetry and retention](/administration/configuration/logging-and-telemetry/) — log output, OpenTelemetry export, and data-retention settings.
-- [Object storage, TLS and split-origin deploys](/administration/configuration/storage-and-networking/) — S3-compatible (MinIO, SeaweedFS, etc.) object storage, the TLS redirect posture, and the settings for deploys that split the web and API origins.
+- [Object storage, TLS and split-origin deploys](/administration/configuration/storage-and-networking/) — S3-compatible (SeaweedFS, MinIO, etc.) object storage, the TLS redirect posture, and the settings for deploys that split the web and API origins.
 
 ## Environment variable naming and precedence
 

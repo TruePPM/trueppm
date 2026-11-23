@@ -355,7 +355,7 @@ def build_and_store_project_archive(job_id: str) -> tuple[str, int, str]:
     archive's ``manifest.json`` (:mod:`export_integrity`).
 
     The archive is assembled on local disk (the tar streams to a temp file and each
-    table streams into the tar) then handed to ``default_storage`` so S3/MinIO and
+    table streams into the tar) then handed to ``default_storage`` so S3/SeaweedFS and
     FileSystemStorage are both supported. Mirrors
     ``workspace.export.build_and_store_archive`` (ADR-0174).
     """

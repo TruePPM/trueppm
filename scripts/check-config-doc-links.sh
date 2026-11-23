@@ -121,11 +121,11 @@ self_test() {
   {
     printf '# Configuration\n\n## Required in production\n'
     for i in $(seq 1 200); do printf '\n## Filler section %s\n' "$i"; done
-    printf '\n## Object storage (S3 / MinIO)\n'
+    printf '\n## Object storage (S3-compatible)\n'
   } > "$tmp/$DOCS_ROOT/administration/configuration.md"
 
   # Case 1: a good page + anchor must pass.
-  printf '# %s/administration/configuration/#object-storage-s3--minio\n' "$SITE" \
+  printf '# %s/administration/configuration/#object-storage-s3-compatible\n' "$SITE" \
     > "$tmp/packages/helm/values.yaml"
   : > "$tmp/.env.example"
   status=0; run_check "$tmp" >/dev/null 2>&1 || status=$?

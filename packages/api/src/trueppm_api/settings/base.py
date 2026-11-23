@@ -281,7 +281,7 @@ if env.bool("TRUEPPM_DB_TRANSACTION_POOLING", default=False):
 
 # Default file-storage backend. TaskAttachment.file is stored here. The
 # FileSystemStorage default is fine for local dev, but a containerized prod
-# deploy must point this at a remote object-storage backend (S3/MinIO via
+# deploy must point this at a remote object-storage backend (S3/SeaweedFS via
 # django-storages) or attachment uploads are lost on every pod restart. prod.py
 # refuses to boot on the local default unless the operator explicitly opts in.
 STORAGES = {
@@ -296,7 +296,7 @@ STORAGES = {
     },
 }
 
-# S3 / MinIO options, attached ONLY for an S3-family backend — a FileSystemStorage
+# S3-compatible options, attached ONLY for an S3-family backend — a FileSystemStorage
 # deploy must not be handed S3 kwargs it would reject. See core.storage_config for
 # why this plumbing is required rather than cosmetic (#2559): the backend the docs
 # recommend reads its bucket from Django settings, not the environment, so setting

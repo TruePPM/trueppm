@@ -233,7 +233,7 @@ set_env DB_PASSWORD "$(gen_secret)"
 set_env REDIS_PASSWORD "$(gen_secret)"
 set_env INTEGRATION_ENCRYPTION_KEY "$(gen_fernet)"
 # Attachment-storage choice (b): local disk. The drill uploads nothing, and (a)
-# would need a live S3/MinIO endpoint — the guard being drilled is that the api
+# would need a live S3 (SeaweedFS) endpoint — the guard being drilled is that the api
 # refuses to boot until a choice is MADE, not that either backend works.
 set_env TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE true
 set_env DJANGO_SUPERUSER_EMAIL "${ADMIN_EMAIL}"

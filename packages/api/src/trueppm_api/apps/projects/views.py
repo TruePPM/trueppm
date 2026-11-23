@@ -22023,7 +22023,7 @@ class AttachmentSigningNotSupported(APIException):
     status_code = status.HTTP_501_NOT_IMPLEMENTED
     default_detail = (
         "This server's attachment storage backend does not support signed "
-        "download URLs. Configure a signing-capable backend (e.g. S3/MinIO or "
+        "download URLs. Configure a signing-capable backend (e.g. S3/SeaweedFS or "
         "GCS via django-storages) for production use. See the self-hosting "
         "storage documentation for setup instructions."
     )
@@ -22258,7 +22258,7 @@ class TaskAttachmentViewSet(
             )
 
         # The backend check above already confirmed this is a signing-capable
-        # backend (S3/MinIO, GCS, Azure Blob via django-storages), so .url()
+        # backend (S3/SeaweedFS, GCS, Azure Blob via django-storages), so .url()
         # returns a real query-string-signed, time-limited URL.
         #
         # The requested TTL must reach the SIGNATURE, not just the response body
