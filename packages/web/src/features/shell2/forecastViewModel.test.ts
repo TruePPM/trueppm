@@ -90,6 +90,16 @@ describe('runRefusalText', () => {
       'Too many runs. Try again.',
     );
   });
+  it('does not double the retry sentence the server already carries', () => {
+    const text = runRefusalText(
+      refusal(503, {
+        detail: 'The simulation could not be queued. Try again shortly.',
+        status_code: 503,
+      }),
+    );
+    expect(text).toBe('The simulation could not be queued. Try again shortly.');
+    expect(text?.match(/try again/gi)).toHaveLength(1);
+  });
   it('falls back for a failure with no body', () => {
     expect(runRefusalText(new Error('boom'))).toBe("Couldn't run the forecast. Try again.");
   });

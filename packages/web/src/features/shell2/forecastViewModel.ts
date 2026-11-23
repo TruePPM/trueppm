@@ -58,5 +58,7 @@ export function staleMessage(staleness: MonteCarloResult['forecastStaleness']): 
 export function runRefusalText(error: unknown): string | null {
   const refusal = describeWriteRefusal(error, "Couldn't run the forecast.");
   if (!refusal) return null;
-  return refusal.retryable ? `${refusal.message} Try again.` : refusal.message;
+  // The server's own sentence may already say it (the queue-failure 503 does).
+  if (!refusal.retryable || /try again/i.test(refusal.message)) return refusal.message;
+  return `${refusal.message} Try again.`;
 }

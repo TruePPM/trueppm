@@ -169,15 +169,17 @@ test.describe('shell v2 forecast view', () => {
       await route.fulfill({
         status: 429,
         contentType: 'application/json',
-        body: JSON.stringify({ detail: 'Too many forecast runs. Wait a minute.' }),
+        body: JSON.stringify({
+          detail: 'Request was throttled. Expected available in 42 seconds.',
+        }),
       });
     });
     await page.goto(`/projects/${PROJECT_ID}/forecast`);
     await page.getByRole('button', { name: 'Run forecast' }).click();
     await expect(
-      page
-        .getByRole('alert')
-        .filter({ hasText: 'Too many forecast runs. Wait a minute. Try again.' }),
+      page.getByRole('alert').filter({
+        hasText: 'Request was throttled. Expected available in 42 seconds. Try again.',
+      }),
     ).toBeVisible();
     await expect(page.getByRole('button', { name: 'Run forecast' })).toBeEnabled();
   });
@@ -189,12 +191,16 @@ test.describe('shell v2 forecast view', () => {
       await route.fulfill({
         status: 403,
         contentType: 'application/json',
-        body: JSON.stringify({ detail: 'This project is archived.' }),
+        body: JSON.stringify({
+          detail: 'This project is archived and cannot be modified. Unarchive it first.',
+        }),
       });
     });
     await page.goto(`/projects/${PROJECT_ID}/forecast`);
     await page.getByRole('button', { name: 'Run forecast' }).click();
-    const alert = page.getByRole('alert').filter({ hasText: 'This project is archived.' });
+    const alert = page
+      .getByRole('alert')
+      .filter({ hasText: 'This project is archived and cannot be modified. Unarchive it first.' });
     await expect(alert).toBeVisible();
     await expect(alert).not.toContainText('Try again');
   });
