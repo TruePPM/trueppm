@@ -1953,10 +1953,8 @@ describe('<SettingsShell> under shell_v2 (#4800)', () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     renderShell();
     act(() => registerSection({ onSave }));
-    await act(async () => {
-      fireEvent.keyDown(window, { key: 's', ctrlKey: true });
-    });
-    expect(onSave).toHaveBeenCalled();
+    fireEvent.keyDown(window, { key: 's', ctrlKey: true });
+    await vi.waitFor(() => expect(onSave).toHaveBeenCalled());
   });
 
   it('asks before leaving with unsaved changes (guarded scope switch)', () => {
