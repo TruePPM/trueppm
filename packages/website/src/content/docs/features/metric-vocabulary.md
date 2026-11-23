@@ -44,7 +44,7 @@ Each owning endpoint returns two extra things beside its figures:
 | P95 finish | `p95` | `GET /projects/{id}/monte-carlo/latest/` | `last_run_at` | The finish date 95% of the simulated schedules finish on or before. |
 | P80 vs commitment | `p80_delta_vs_commitment_days` | `GET /projects/{id}/monte-carlo/latest/` | `last_run_at` | The P80 finish minus the commitment date, in calendar days measured in working time; positive means the forecast is later than the commitment. |
 | Person load | `days[].load_pct` | `GET /projects/{id}/utilization/` | `as_of` | A person's booked hours on a working day divided by their capacity that day (hours per day times their units on this project), as a percentage; non-working days and calendar time off carry no capacity and are omitted. |
-| Person load across projects | `people[].cells[].load_pct` | `GET /me/people-load/` | `as_of` | Load = booked ÷ capacity, time off removed: a person's booked days in a week, summed over the projects where you hold the Scheduler role or above, divided by their default units on each working day of their own calendar (Monday to Friday when they have none), as a percentage. Bookings on other projects are not counted. |
+| Person load across projects | `people[].cells[].load_pct` | `GET /me/people-load/` | `as_of` | Load = booked ÷ capacity, time off removed: a person's booked days in a week, summed over the projects where you hold the Scheduler role or above and the project's team has shared its capacity signal with your role band, divided by their default units on each working day of their own calendar (Monday to Friday when they have none), as a percentage. Bookings on other projects are not counted. |
 | People over capacity | `over_allocated_count` | `GET /me/people-load/` | `as_of` | People whose load is over 100% in at least one week of the range. |
 | Sprint capacity | `members[].ratio`, `totals.ratio` | `GET /sprints/{id}/capacity/` | `as_of` | Sprint capacity: committed hours on the sprint's tasks divided by available hours in the sprint window (units on this project times the sprint's working days times hours per day). One sprint on one project; not a person's load across projects. |
 | Open risks | `open_risk_count` | `GET /projects/{id}/overview/` | `as_of` | Risks in the register whose status is open or mitigating. |
@@ -156,9 +156,11 @@ no backing data is left out of `signals` rather than sent as `null`. A missing
 `signals.forecast` means none of your projects has a P80 forecast yet.
 
 `GET /me/people-load/` says why a figure is missing at two levels. The
-payload's `reason` is `no_projects` when no project is in scope and `no_people`
-when the projects in scope have nobody on their roster and nobody booked in the
-range. A week's `reason` is `no_capacity` when the person has no working time
+payload's `reason` is `no_projects` when no project is in scope, `all_withheld`
+when you hold Scheduler or above on a project but every such project's team has
+not shared its capacity signal with your role band (`scope.withheld_project_count`
+says how many), and `no_people` when the projects in scope have nobody on their
+roster and nobody booked in the range. A week's `reason` is `no_capacity` when the person has no working time
 that week, for example a week of time off; its `load_pct` is then null rather
 than 0%.
 

@@ -1,5 +1,5 @@
 import { useRef, useState, type KeyboardEvent } from 'react';
-import type { PeopleLoadPerson, PeopleLoadResponse } from '@/api/types';
+import type { PeopleLoadPerson, PeopleLoadReason, PeopleLoadResponse } from '@/api/types';
 import { heatFill, heatInk } from '@/features/charts/heat';
 import { OverallocBadge } from '@/components/Overalloc';
 import { EmptyState } from '@/components/EmptyState';
@@ -26,18 +26,45 @@ export interface LoadHeatMapProps {
   label: string;
 }
 
+const projectsWord = (n: number) => `${n} ${n === 1 ? 'project' : 'projects'}`;
+
+/**
+ * The sentence for projects whose load the viewer may not read through this lens,
+ * or null when none were withheld. The cause is the team's `capacity` signal
+ * audience (ADR-0104), so the fix is the team sharing it with the viewer's role
+ * band, not the viewer asking for a role (rule 231: no upsell).
+ */
+export function withheldNote(count: number): string | null {
+  if (count <= 0) return null;
+  return `${projectsWord(count)} withheld: the team on ${count === 1 ? 'it has' : 'each has'} to share its capacity signal with your role band.`;
+}
+
 /** What the empty state says for each rule-119 reason. No upsell (rule 231). */
-const EMPTY_COPY: Record<'no_projects' | 'no_people', { title: string; description: string }> = {
-  no_projects: {
-    title: 'No bookings in this range',
-    description:
-      'Load shows for projects where you are a Scheduler, Admin or Owner. Ask a project owner for that role to see its people here.',
-  },
-  no_people: {
-    title: 'No bookings in this range',
-    description: 'Nobody is on the roster of your projects or booked in these weeks.',
-  },
-};
+function emptyCopy(
+  reason: PeopleLoadReason | null,
+  withheld: number,
+): { title: string; description: string } {
+  switch (reason) {
+    case 'no_projects':
+      return {
+        title: 'No bookings in this range',
+        description:
+          'Load shows for projects where you are a Scheduler, Admin or Owner. Ask a project owner for that role to see its people here.',
+      };
+    case 'all_withheld':
+      return {
+        title: 'Load is withheld for your projects',
+        description:
+          withheldNote(withheld) ??
+          'The teams on your projects have to share their capacity signal with your role band.',
+      };
+    default:
+      return {
+        title: 'No bookings in this range',
+        description: 'Nobody is on the roster of your projects or booked in these weeks.',
+      };
+  }
+}
 
 // A cell's text and accessible name. `none` is a week the server could not compute
 // (no working time), which is a dash and never a 0%.
@@ -77,7 +104,7 @@ export function LoadHeatMap({ data, isLoading, isError, onRetry, label }: LoadHe
     return <LoadingSkeleton label="Loading team load…" variant="rows" rows={5} />;
   }
   if (data.people.length === 0) {
-    const copy = EMPTY_COPY[data.reason ?? 'no_people'];
+    const copy = emptyCopy(data.reason, data.scope.withheld_project_count);
     return <EmptyState icon={ResourcesIcon} title={copy.title} description={copy.description} />;
   }
   return <HeatGrid data={data} label={label} />;
@@ -87,6 +114,7 @@ function HeatGrid({ data, label }: { data: PeopleLoadResponse; label: string }) 
   const [active, setActive] = useState<[number, number]>([0, 0]);
   const cellRefs = useRef(new Map<string, HTMLDivElement>());
   const rows = data.people.length;
+  const withheld = withheldNote(data.scope.withheld_project_count);
   const cols = data.weeks.length;
   const [ar, ac] = [Math.min(active[0], rows - 1), Math.min(active[1], cols - 1)];
   // Every row shares one column template, so the header lines up with the cells.
@@ -205,6 +233,7 @@ function HeatGrid({ data, label }: { data: PeopleLoadResponse; label: string }) 
         {data.definitions.load_pct}{' '}
         <span className="text-p1-text-3">· as of {formatRelative(new Date(data.as_of))}</span>
       </p>
+      {withheld && <p className="text-xs text-p1-text-2">{withheld}</p>}
     </div>
   );
 }

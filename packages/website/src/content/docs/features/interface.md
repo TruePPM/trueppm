@@ -408,7 +408,8 @@ Other changes you will notice with the flag on:
     home is planned for a later release.
   - **Resource manager home**: **Team load**, the same load heat map as the
     People destination, over the projects where you hold the Scheduler role or
-    above, with a count of people over capacity and a link to People. Turn it on
+    above and whose team has shared its capacity signal with your role band,
+    with a count of people over capacity and a link to People. Turn it on
     under **Settings > Preferences > Home screen**
     (**Open on the Resource Manager home**); turning it off returns you to the
     home that fits your role. Saving a **Default landing screen** also turns it

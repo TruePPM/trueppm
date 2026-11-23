@@ -72367,7 +72367,7 @@
                     },
                     "reason": {
                         "nullable": true,
-                        "description": "Why `people` is empty (rule 119): `no_projects` when no project is in scope, `no_people` when the scoped projects have nobody on their roster and nobody booked in the range. Null otherwise.\n\n* `no_projects` - no_projects\n* `no_people` - no_people",
+                        "description": "Why `people` is empty (rule 119): `no_projects` when no project is in scope, `no_people` when the scoped projects have nobody on their roster and nobody booked in the range, `all_withheld` when you hold Scheduler or above on at least one project but every such project's team has not shared its capacity signal with your role band (see `scope.withheld_project_count`). Null otherwise.\n\n* `no_projects` - no_projects\n* `no_people` - no_people\n* `all_withheld` - all_withheld",
                         "oneOf": [
                             {
                                 "$ref": "#/components/schemas/PeopleLoadReasonEnum"
@@ -72402,7 +72402,7 @@
                 "properties": {
                     "load_pct": {
                         "type": "string",
-                        "description": "Load = booked ÷ capacity, time off removed: a person's booked days in a week, summed over the projects where you hold the Scheduler role or above, divided by their default units on each working day of their own calendar (Monday to Friday when they have none), as a percentage. Bookings on other projects are not counted."
+                        "description": "Load = booked ÷ capacity, time off removed: a person's booked days in a week, summed over the projects where you hold the Scheduler role or above and the project's team has shared its capacity signal with your role band, divided by their default units on each working day of their own calendar (Monday to Friday when they have none), as a percentage. Bookings on other projects are not counted."
                     },
                     "over_allocated_count": {
                         "type": "string",
@@ -72417,10 +72417,11 @@
             "PeopleLoadReasonEnum": {
                 "enum": [
                     "no_projects",
-                    "no_people"
+                    "no_people",
+                    "all_withheld"
                 ],
                 "type": "string",
-                "description": "* `no_projects` - no_projects\n* `no_people` - no_people",
+                "description": "* `no_projects` - no_projects\n* `no_people` - no_people\n* `all_withheld` - all_withheld",
                 "x-trueppm-enum": "open"
             },
             "Phase": {

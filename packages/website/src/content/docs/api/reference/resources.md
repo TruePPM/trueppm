@@ -252,8 +252,8 @@ the parameter.
 The response carries `as_of`, `window`, `weeks` (the Mondays), `scope`
 (`project_count`, `withheld_project_count`, `program_id`), `people` (most loaded
 first; each with `cells[]` of `week_start`, `load_pct`, `overallocated` and
-`reason`), `over_allocated_count`, a payload `reason` (`no_projects` or
-`no_people` when `people` is empty) and `definitions`. A week with no working time
+`reason`), `over_allocated_count`, a payload `reason` (`no_projects`,
+`no_people` or `all_withheld` when `people` is empty) and `definitions`. A week with no working time
 has `load_pct: null` and `reason: "no_capacity"`. Capacity is the person's
 catalog-wide `max_units`, not a roster override.
 

@@ -53,6 +53,14 @@ const LOAD = {
 
 const EMPTY = { ...LOAD, people: [], over_allocated_count: 0, reason: 'no_projects' };
 
+// An Owner whose every project withholds the ADR-0104 `capacity` signal: the real
+// server shape (reason `all_withheld`, count in scope), not the no-role `no_projects`.
+const ALL_WITHHELD = {
+  ...EMPTY,
+  scope: { project_count: 0, withheld_project_count: 2, program_id: null },
+  reason: 'all_withheld',
+};
+
 async function setup(
   page: Page,
   opts: { home?: 'rm' | 'contributor'; load?: unknown; status?: number },
@@ -157,6 +165,18 @@ test.describe('shell v2 People destination', () => {
     await expect(page.getByText(/enterprise|upgrade/i)).toHaveCount(0);
     await expect(page.getByTestId('overalloc-banner')).toHaveCount(0);
   });
+
+  test('every project withheld names the count and the team signal, not a missing role', async ({
+    page,
+  }) => {
+    await setup(page, { load: ALL_WITHHELD });
+    await page.goto('/people');
+    await expect(page.getByText('Load is withheld for your projects')).toBeVisible();
+    await expect(page.getByText(/2 projects withheld/)).toBeVisible();
+    await expect(page.getByText(/share its capacity signal with your role band/)).toBeVisible();
+    await expect(page.getByText(/Ask a project owner/)).toHaveCount(0);
+    await expect(page.getByText(/enterprise|upgrade/i)).toHaveCount(0);
+  });
 });
 
 test.describe('shell v2 People destination, dark theme', () => {
@@ -199,6 +219,13 @@ test.describe('shell v2 Resource Manager home', () => {
     await expect(grid.getByRole('gridcell', { name: /Alice Lee, .*120% load/ })).toContainText('▲');
     await page.getByRole('link', { name: 'Open People' }).click();
     await expect(page).toHaveURL(/\/people$/);
+  });
+
+  test('home = rm with every project withheld says so', async ({ page }) => {
+    await setup(page, { home: 'rm', load: ALL_WITHHELD });
+    await page.goto('/home');
+    await expect(page.getByText('Load is withheld for your projects')).toBeVisible();
+    await expect(page.getByText(/2 projects withheld/)).toBeVisible();
   });
 
   test('a failed load read is retryable', async ({ page }) => {

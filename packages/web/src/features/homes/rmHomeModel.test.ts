@@ -56,6 +56,6 @@ describe('rmHomeState', () => {
       projects: 3,
       withheldProjects: 1,
     });
-    if (state.kind === 'ready') expect(rmScopeLine(state)).toBe('1 person · 3 projects');
+    if (state.kind === 'ready') expect(rmScopeLine(state)).toBe('1 person · 3 projects · 1 withheld');
   });
 });

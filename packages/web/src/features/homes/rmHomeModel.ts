@@ -40,5 +40,6 @@ export function rmHomeState({ data, isLoading, isError }: RmHomeQuery): RmHomeSt
 export function rmScopeLine(state: Extract<RmHomeState, { kind: 'ready' }>): string {
   const people = `${state.people} ${state.people === 1 ? 'person' : 'people'}`;
   const projects = `${state.projects} ${state.projects === 1 ? 'project' : 'projects'}`;
-  return `${people} · ${projects}`;
+  const base = `${people} · ${projects}`;
+  return state.withheldProjects > 0 ? `${base} · ${state.withheldProjects} withheld` : base;
 }

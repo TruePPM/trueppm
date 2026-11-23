@@ -103,4 +103,37 @@ describe('LoadHeatMap', () => {
     // No upsell in the over-reach state (rule 231).
     expect(screen.queryByText(/enterprise|upgrade/i)).toBeNull();
   });
+
+  it('says the team has to share its capacity signal when every project is withheld', () => {
+    render(
+      <LoadHeatMap
+        {...props}
+        data={payload({
+          people: [],
+          over_allocated_count: 0,
+          reason: 'all_withheld',
+          scope: { project_count: 0, withheld_project_count: 2, program_id: null },
+        })}
+      />,
+    );
+    expect(screen.getByText('Load is withheld for your projects')).toBeInTheDocument();
+    expect(screen.getByText(/2 projects withheld/)).toBeInTheDocument();
+    expect(screen.getByText(/share its capacity signal with your role band/)).toBeInTheDocument();
+    expect(screen.queryByText(/ask a project owner/i)).toBeNull();
+    expect(screen.queryByText(/enterprise|upgrade/i)).toBeNull();
+  });
+
+  it('shows the withheld count under a populated grid, and nothing when none', () => {
+    const { rerender } = render(
+      <LoadHeatMap
+        {...props}
+        data={payload({
+          scope: { project_count: 2, withheld_project_count: 1, program_id: null },
+        })}
+      />,
+    );
+    expect(screen.getByText(/1 project withheld/)).toBeInTheDocument();
+    rerender(<LoadHeatMap {...props} data={payload()} />);
+    expect(screen.queryByText(/withheld/)).toBeNull();
+  });
 });

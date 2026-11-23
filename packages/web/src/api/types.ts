@@ -1081,7 +1081,7 @@ export interface ScheduleDrivingChain {
 // and never derives a load (metricProvenance.conformance.test.ts).
 
 /** Why a whole people-load payload has no rows (rule 119). */
-export type PeopleLoadReason = 'no_projects' | 'no_people';
+export type PeopleLoadReason = 'no_projects' | 'no_people' | 'all_withheld';
 
 /** One person-week. `load_pct` is null exactly when `reason` is set. */
 export interface PeopleLoadCell {

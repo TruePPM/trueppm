@@ -242,6 +242,35 @@ class TestScope:
         assert body["scope"]["project_count"] == 1
         assert body["scope"]["withheld_project_count"] == 1
 
+    def test_every_schedulable_project_withheld_is_all_withheld_not_no_projects(
+        self, client: APIClient, viewer: object, cal: Calendar
+    ) -> None:
+        """An Owner/Admin whose projects all withhold the capacity signal holds the role.
+
+        ``no_projects`` would tell them to ask for a role they already have, so the
+        payload carries ``all_withheld`` and the count of what was withheld.
+        """
+        erin = Resource.objects.create(name="Erin", max_units="1.0", calendar=cal)
+        for name in ("Gated A", "Gated B"):
+            p = _project(name, cal, viewer, role=Role.OWNER)
+            _book(p, erin, "0.5", MONDAY, MONDAY + timedelta(days=4))
+
+        body = client.get(URL, {"week_start": MONDAY.isoformat(), "weeks": 1}).json()
+
+        assert body["people"] == []
+        assert body["reason"] == "all_withheld"
+        assert body["scope"]["project_count"] == 0
+        assert body["scope"]["withheld_project_count"] == 2
+
+    def test_only_member_role_projects_stays_no_projects(
+        self, client: APIClient, viewer: object, cal: Calendar
+    ) -> None:
+        """Below Scheduler the role copy is true, so the reason stays ``no_projects``."""
+        _project("Member only", cal, viewer, role=Role.MEMBER)
+        body = client.get(URL, {"week_start": MONDAY.isoformat()}).json()
+        assert body["reason"] == "no_projects"
+        assert body["scope"]["withheld_project_count"] == 1
+
     def test_a_person_booked_only_outside_scope_is_not_listed(
         self, client: APIClient, viewer: object, cal: Calendar
     ) -> None:

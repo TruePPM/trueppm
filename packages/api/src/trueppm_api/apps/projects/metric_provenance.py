@@ -208,7 +208,8 @@ METRIC_DEFINITIONS: dict[str, str] = {
     # ── me/people-load (#4777): a person's load across projects ─────────
     "people_load.load_pct": (
         "Load = booked ÷ capacity, time off removed: a person's booked days in a week, "
-        "summed over the projects where you hold the Scheduler role or above, divided "
+        "summed over the projects where you hold the Scheduler role or above and the "
+        "project's team has shared its capacity signal with your role band, divided "
         "by their default units on each working day of their own calendar (Monday to "
         "Friday when they have none), as a percentage. Bookings on other projects are "
         "not counted."

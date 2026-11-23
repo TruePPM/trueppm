@@ -289,8 +289,11 @@ program role on its own, adds nothing. Draft projects are left out. A project wh
   from the server.
 
 If you hold Scheduler or above on no project, or nobody is on those projects'
-rosters or booked in the range, the view says **No bookings in this range**. The
-resource manager home shows the same grid (see
+rosters or booked in the range, the view says **No bookings in this range**. If you
+hold Scheduler or above but every such project's team has not shared its capacity
+signal with your role band, it says **Load is withheld for your projects** and
+counts them. A count of withheld projects also shows under the grid whenever it
+is above zero. The resource manager home shows the same grid (see
 [Shell v2 preview](/features/interface/#shell-v2-preview-behind-a-flag)).
 
 The figure is `people[].cells[].load_pct` on `GET /api/v1/me/people-load/`

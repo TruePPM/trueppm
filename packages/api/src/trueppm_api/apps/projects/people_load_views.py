@@ -27,6 +27,7 @@ from trueppm_api.apps.projects.metric_provenance import (
     definitions_field_by_field,
 )
 from trueppm_api.apps.projects.utilization import (
+    PEOPLE_LOAD_ALL_WITHHELD,
     PEOPLE_LOAD_CELL_REASON_CHOICES,
     PEOPLE_LOAD_REASON_CHOICES,
     compute_people_load,
@@ -104,7 +105,10 @@ class PeopleLoadSerializer(serializers.Serializer[dict[str, Any]]):
         help_text=(
             "Why `people` is empty (rule 119): `no_projects` when no project is in "
             "scope, `no_people` when the scoped projects have nobody on their roster "
-            "and nobody booked in the range. Null otherwise."
+            "and nobody booked in the range, `all_withheld` when you hold Scheduler or "
+            "above on at least one project but every such project's team has not "
+            "shared its capacity signal with your role band (see "
+            "`scope.withheld_project_count`). Null otherwise."
         ),
     )
     definitions = definitions_field_by_field("PeopleLoadDefinitions", PEOPLE_LOAD_DEFINED)
@@ -235,6 +239,11 @@ class MePeopleLoadView(APIView):
         project_ids = [pid for pid in schedulable if readable.get(pid)]
 
         payload = compute_people_load(project_ids, week_start, weeks)
+        if not project_ids and schedulable:
+            # An Owner/Admin whose every project withholds the capacity signal is
+            # not "without a role": say so, so the UI does not tell them to ask
+            # for a role they already hold.
+            payload["reason"] = PEOPLE_LOAD_ALL_WITHHELD
         return Response(
             {
                 "as_of": timezone.now().isoformat(),
