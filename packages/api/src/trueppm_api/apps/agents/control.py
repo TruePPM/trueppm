@@ -50,7 +50,7 @@ if TYPE_CHECKING:
 CONTROL_CAPABILITY = "agent:control"
 
 #: Window over which refusal Inbox items for one (agent, constraint) are coalesced.
-#: Matches ADR-1463's 15-minute push window, so a looping agent produces one row.
+#: A looping agent therefore produces one Inbox row per window, not one per call.
 REFUSAL_COALESCE_WINDOW = timedelta(minutes=15)
 
 #: Notification event type for a refused or paused agent call
@@ -267,7 +267,7 @@ def revoke(request: Request, token: ApiToken, actor: Any, reason: str = "") -> A
 
 
 def notify_refusal(action: AgentAction) -> None:
-    """Put a refused agent call in its principal's Inbox, coalesced (#4814, ADR-1463).
+    """Put a refused agent call in its principal's Inbox, coalesced (#4814).
 
     Only for a refusal of the agent's own configuration (paused, out of scope) by an
     agent token, sent to the principal. One row per (agent, constraint) per

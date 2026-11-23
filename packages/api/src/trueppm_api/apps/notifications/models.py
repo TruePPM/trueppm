@@ -186,7 +186,7 @@ class NotificationEventType(models.TextChoices):
     MEMBERSHIP_ROLE_CHANGED = "membership.role_changed", "Role changed on a project or program"
     # A call by one of my agents was refused because it is paused or out of its
     # capability scope (#4814). Sent to the agent's principal only, coalesced per
-    # (agent, constraint) per 15 minutes (ADR-1463). In-app only.
+    # (agent, constraint) per 15 minutes. In-app only.
     AGENT_REFUSED = "agent.refused", "One of my agents was refused"
 
 
