@@ -375,6 +375,46 @@ def test_prod_boots_with_sslmode_require() -> None:
     assert prod.DEBUG is False
 
 
+# The chart's PgBouncer Service URL (#2275, docs: sizing "TLS on the pooled
+# connection"). The guard is the same for a pooled URL as for a direct one.
+_POOLED = "postgres://trueppm:p@trueppm-trueppm-pgbouncer:6432/trueppm"
+
+
+def test_prod_refuses_pooled_url_without_sslmode() -> None:
+    """The documented pooled URL must carry sslmode, or production refuses to boot."""
+    with pytest.raises(RuntimeError, match="sslmode=require"):
+        _load_prod(backend=_S3, allow_local=False, database_url=_POOLED)
+
+
+@pytest.mark.parametrize("mode", ["require", "prefer"])
+def test_prod_boots_on_both_documented_pooled_url_postures(mode: str) -> None:
+    """``require`` (pgbouncer.tls on) and ``prefer`` (off) both pass the guard.
+
+    Pins that the guard checks for the parameter, not its value: the TLS-off
+    posture's ``prefer`` reaches a plaintext PgBouncer and still boots, which is
+    why the sizing guide spells out that hop's plaintext caveat itself.
+    """
+    prod = _load_prod(backend=_S3, allow_local=False, database_url=f"{_POOLED}?sslmode={mode}")
+    assert prod.DEBUG is False
+
+
+def test_prod_refuses_direct_url_without_sslmode() -> None:
+    """DATABASE_DIRECT_URL is the pooler-bypassing hop; the #1550 rule covers it too."""
+    direct = "postgres://trueppm:p@db.example.com:5432/trueppm"
+    with (
+        mock.patch.dict(os.environ, {"DATABASE_DIRECT_URL": direct}),
+        pytest.raises(RuntimeError, match="DATABASE_DIRECT_URL does not include sslmode"),
+    ):
+        _load_prod(backend=_S3, allow_local=False, database_url=f"{_POOLED}?sslmode=require")
+
+
+def test_prod_boots_with_direct_url_carrying_sslmode() -> None:
+    direct = "postgres://trueppm:p@db.example.com:5432/trueppm?sslmode=require"
+    with mock.patch.dict(os.environ, {"DATABASE_DIRECT_URL": direct}):
+        prod = _load_prod(backend=_S3, allow_local=False, database_url=f"{_POOLED}?sslmode=require")
+    assert prod.DEBUG is False
+
+
 def test_prod_boots_on_unencrypted_db_when_opted_in() -> None:
     """TRUEPPM_ALLOW_UNENCRYPTED_DB lets a plaintext DATABASE_URL through (#1550)."""
     prod = _load_prod(

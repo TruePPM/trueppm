@@ -973,7 +973,7 @@ with every other volume. If you point `TRUEPPM_MEDIA_ROOT` somewhere else,
 move the volume mount in `docker-compose.prod.yml` to match — the API probes the
 path at boot and refuses to start if it cannot write there, rather than failing
 on the first upload. See [Configuration](/administration/configuration/) for the
-full S3 variable list, including non-AWS endpoints such as MinIO, SeaweedFS, or Ceph.
+full S3 variable list, including non-AWS endpoints such as SeaweedFS, MinIO, or Ceph.
 :::
 
 You do not need to set `sslmode` on a database URL here. The stack composes its

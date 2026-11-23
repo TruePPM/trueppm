@@ -1,140 +1,18 @@
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: {{ include "trueppm.fullname" . }}-celery-worker
-  labels:
-    {{- include "trueppm.labels" . | nindent 4 }}
-    app.kubernetes.io/component: celery-worker
-spec:
-  # Celery workers are stateless; replica count is independent of the API tier.
-  # Same HPA interaction as the api tier — see #3188. The worker HPA is gated
-  # separately (autoscaling.worker.enabled), so both flags are consulted.
-  {{- if not (and .Values.autoscaling.enabled .Values.autoscaling.worker.enabled) }}
-  replicas: {{ .Values.replicaCount }}
-  {{- end }}
-  {{- with (include "trueppm.rollout" (dict "root" $ "tier" "worker")) }}
-  {{- . | nindent 2 }}
-  {{- end }}
-  selector:
-    matchLabels:
-      {{- include "trueppm.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: celery-worker
-  template:
-    metadata:
-      labels:
-        {{- include "trueppm.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: celery-worker
-    spec:
-      automountServiceAccountToken: false
-      {{- include "trueppm.terminationGrace" (dict "root" $ "tier" "worker") | nindent 6 }}
-      {{- include "trueppm.podPlacement" (dict "root" $ "component" "celery-worker") | nindent 6 }}
-      securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
-      volumes:
-        # /tmp is the only writable path the worker needs (tempfile-backed
-        # MS Project parsing and workspace export run in the worker too).
-        - name: tmp
-          emptyDir: {}
-        # The api tier writes a seed-import payload through default_storage and a
-        # task in this worker opens it back, so the worker reads the SAME media
-        # volume — it is not per-pod scratch (#3184).
-        {{- with (include "trueppm.mediaVolume" .) }}
-        {{- . | nindent 8 }}
-        {{- end }}
-      containers:
-        - name: celery-worker
-          image: "{{ .Values.image.repository }}:{{ include "trueppm.imageTag" . }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          securityContext:
-            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
-          # --concurrency is PINNED, never left to Celery's cpu_count() default:
-          # cpu_count() reads the node's cores, not the cgroup limit, so an
-          # unpinned worker forks a node-sized prefork pool into a 2Gi pod and
-          # OOMKills the whole background tier at zero load (#2571).
-          #
-          # 0 is rejected rather than passed through: `--concurrency=0` does not
-          # mean "no workers", it means "fall back to the default" — i.e. exactly
-          # the cpu_count() behavior this flag exists to prevent. Failing the
-          # render is the only way that footgun stays unreachable.
-          {{- $concurrency := int (required "processes.worker.concurrency must be set (Celery's cpu_count() default OOMKills the worker on multi-core nodes)" .Values.processes.worker.concurrency) }}
-          {{- if lt $concurrency 1 }}
-            {{- fail (printf "processes.worker.concurrency must be >= 1, got %d — 0 makes Celery fall back to cpu_count(), which is the OOMKill this setting prevents (#2571)" $concurrency) }}
-          {{- end }}
-          command:
-            - celery
-            - -A
-            - trueppm_api.celery
-            - worker
-            - --loglevel=info
-            - --concurrency={{ $concurrency }}
-            {{- with .Values.processes.worker.maxTasksPerChild }}
-            {{- /* Validated, not interpolated raw: a string value carrying a
-                   newline would otherwise inject extra argv entries into the
-                   command list, and a bare `| int` would silently coerce any
-                   non-numeric value to 0 rather than saying so. */}}
-            {{- if not (regexMatch "^[0-9]+$" (toString .)) }}
-              {{- fail (printf "processes.worker.maxTasksPerChild must be a non-negative integer, got %q" (toString .)) }}
-            {{- end }}
-            - --max-tasks-per-child={{ . | int }}
-            {{- end }}
-            {{- range .Values.processes.worker.extraArgs }}
-            - {{ . | quote }}
-            {{- end }}
-          {{- with .Values.envFrom }}
-          envFrom:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          env:
-            {{- include "trueppm.appEnv" . | nindent 12 }}
-            # Keeps the signal handler's write path (trueppm_api.core.worker_heartbeat)
-            # and this Deployment's startup/readiness exec probes reading the SAME
-            # file (#3346) even when an operator overrides probes.worker.heartbeatFile.
-            - name: TRUEPPM_CELERY_WORKER_HEARTBEAT_FILE
-              value: {{ .Values.probes.worker.heartbeatFile | quote }}
-          volumeMounts:
-            - name: tmp
-              mountPath: /tmp
-            {{- with (include "trueppm.mediaVolumeMount" .) }}
-            {{- . | nindent 12 }}
-            {{- end }}
-          {{- if include "trueppm.celeryProbeEnabled" (dict "probe" .Values.probes.worker "kind" "startup") }}
-          # Heartbeat-file EXISTENCE check (#3346): true once the worker has fired
-          # worker_ready at least once (trueppm_api.core.worker_heartbeat), which
-          # only happens after mingle/gossip complete — i.e. the broker connection
-          # this pod needs is genuinely established. A filesystem stat, so unlike
-          # the ping-based probes it costs nothing to poll every few seconds.
-          # While a startup probe is in play kubelet suspends liveness, so a slow
-          # first boot cannot restart-loop; a worker that never reaches
-          # worker_ready is still caught once failureThreshold is exhausted.
-          startupProbe:
-            {{- include "trueppm.celeryProbe" (dict "probe" .Values.probes.worker "kind" "startup" "mode" "heartbeat-exists" "file" .Values.probes.worker.heartbeatFile) | nindent 12 }}
-          {{- end }}
-          {{- if include "trueppm.celeryProbeEnabled" (dict "probe" .Values.probes.worker "kind" "liveness") }}
-          # `inspect ping` against this pod's own worker node — a wedged event loop
-          # stops answering the control-plane ping even while the process lingers.
-          #
-          # Liveness and readiness resolve their timings SEPARATELY (#3230). They
-          # were one rendered body until then, which forced identical numbers onto
-          # two probes with opposite costs: a readiness failure is free backpressure,
-          # a liveness failure kills the container and burns the 300s worker grace.
-          # Liveness keeps this ping-based mechanism on purpose (#3346): a missed
-          # liveness check only restarts the container, a bounded cost, unlike
-          # readiness below, which has none.
-          livenessProbe:
-            {{- include "trueppm.celeryProbe" (dict "probe" .Values.probes.worker "kind" "liveness" "app" "trueppm_api.celery" "destination" "celery@$HOSTNAME") | nindent 12 }}
-          {{- end }}
-          {{- if include "trueppm.celeryProbeEnabled" (dict "probe" .Values.probes.worker "kind" "readiness") }}
-          # Heartbeat-file FRESHNESS check (#3236, #3346) — NOT `inspect ping`.
-          # An exec probe runs INSIDE the container it measures, so a worker busy
-          # processing a full queue could miss the ping's window and fail the
-          # probe while doing exactly the job it exists to do; readiness has no
-          # failure budget to widen around that (one success is all it needs, so
-          # a probe that never gets one cannot be repaired by any timing value).
-          # The heartbeat file is refreshed by celery's own heartbeat_sent signal
-          # on a fixed ~2s timer independent of task load, so this check is a
-          # plain filesystem stat with no fork of Django, Celery, or the broker.
-          readinessProbe:
-            {{- include "trueppm.celeryProbe" (dict "probe" .Values.probes.worker "kind" "readiness" "mode" "heartbeat-fresh" "file" .Values.probes.worker.heartbeatFile) | nindent 12 }}
-          {{- end }}
-          resources:
-            {{- toYaml .Values.resources.worker | nindent 12 }}
+{{- /*
+Default (light) worker. Consumes the "celery" queue — and, until
+heavyWorker.enabled splits it out, the "heavy" queue too, so a stock install
+still runs every task on one worker (#2276). The body lives in _worker.tpl.
+*/ -}}
+{{- $replicas := $.Values.replicaCount -}}
+{{- if and .Values.autoscaling.enabled .Values.autoscaling.worker.enabled -}}
+  {{- /* Same HPA interaction as the api tier — see #3188. */ -}}
+  {{- $replicas = "" -}}
+{{- end -}}
+{{- include "trueppm.celeryWorkerDeployment" (dict
+      "root" .
+      "suffix" ""
+      "label" "processes.worker"
+      "cfg" .Values.processes.worker
+      "resources" .Values.resources.worker
+      "queues" (ternary "celery" "celery,heavy" .Values.heavyWorker.enabled)
+      "replicas" $replicas) }}

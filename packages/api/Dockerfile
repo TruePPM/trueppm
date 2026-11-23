@@ -5,8 +5,15 @@
 # don't pull Docker Hub anonymously (#4201); the default keeps local and
 # release builds unchanged.
 ARG DOCKERHUB_PREFIX=docker.io
+# Red Hat UBI 9 base images (#4336, ADR-1466): registry.access.redhat.com is
+# anonymous and not behind the Docker Hub Dependency Proxy, so it has its own knob.
+ARG REDHAT_PREFIX=registry.access.redhat.com
 
-FROM ${DOCKERHUB_PREFIX}/python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535 AS builder
+FROM ${REDHAT_PREFIX}/ubi9/python-311@sha256:a0bdb55576fc5b8d6704279307817828ef027e1065533ceba133fe9516003a6c AS builder
+
+# The UBI python image runs as uid 1001 (s2i); package installs need root. This
+# stage never ships, so there is no USER to restore.
+USER root
 
 # `apt-get upgrade` (not just `update`) so this layer carries the Debian
 # security team's latest point-release patches even when the upstream
@@ -34,13 +41,15 @@ FROM ${DOCKERHUB_PREFIX}/python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9
 # web:publish:arm64, and ci:arm64-smoke in .gitlab-ci.yml, and
 # preflight_image_scan() in scripts/release.sh. Bumping this digest again in
 # the future does NOT re-close this gap by itself.
-RUN apt-get update -qq && \
-    apt-get upgrade -y -qq && \
-    apt-get install -y -qq --no-install-recommends build-essential libpq-dev && \
-    rm -rf /var/lib/apt/lists/*
+RUN dnf -y upgrade --security --setopt=install_weak_deps=0 && \
+    dnf -y install --setopt=install_weak_deps=0 gcc libpq-devel python3.11-devel && \
+    dnf clean all && rm -rf /var/cache/dnf
 
 ENV VIRTUAL_ENV=/venv
-RUN python -m venv "$VIRTUAL_ENV"
+# /usr/bin/python3.11, not `python`: the UBI image puts an s2i venv first on PATH,
+# and the runtime stage has only the RPM interpreter at this path, so the venv's
+# `python` symlink must point there.
+RUN /usr/bin/python3.11 -m venv "$VIRTUAL_ENV"
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # pip >= 26.2.2 (emSign CA incident, #4642): pip always trusts its OWN vendored
@@ -172,15 +181,20 @@ RUN /venv/bin/python -c "import django; import trueppm_scheduler; django.setup()
 # ---------------------------------------------------------------------------
 # Stage 2: runtime — lean image with only what is needed to run
 # ---------------------------------------------------------------------------
-FROM ${DOCKERHUB_PREFIX}/python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535 AS runtime
+FROM ${REDHAT_PREFIX}/ubi9/ubi-minimal@sha256:08d4c70f1baf6537a0728656cf7942d561e74a35916509d205b6519861266352 AS runtime
 
 # See the matching comment in the builder stage above — this is the stage that
 # actually ships, so this `upgrade` is the one that matters for the Trivy gate.
 # It is also the one the stale-cache gap in that comment actually bit (#4245).
-RUN apt-get update -qq && \
-    apt-get upgrade -y -qq && \
-    apt-get install -y -qq --no-install-recommends libpq5 && \
-    rm -rf /var/lib/apt/lists/*
+# python3.11 is the same RPM interpreter the builder's venv was created from
+# (same path, same glibc), libpq is the runtime half of the compiled psycopg
+# extension, shadow-utils provides useradd (removed again right after it runs,
+# below: it ships setuid newgrp/gpasswd/chage and cap_setuid newuidmap/newgidmap,
+# which a runtime image has no use for).
+# microdnf has no --security; a full upgrade matches what the Debian base did.
+RUN microdnf -y upgrade --setopt=install_weak_deps=0 && \
+    microdnf -y install --setopt=install_weak_deps=0 --nodocs python3.11 libpq shadow-utils && \
+    microdnf clean all && rm -rf /var/cache/dnf /var/cache/yum
 
 COPY --from=builder /venv /venv
 
@@ -198,9 +212,8 @@ COPY --from=builder /venv /venv
 # pkg_resources, and `manage.py check` passes without them. `python` is the
 # system interpreter here (this runs before ENV PATH=/venv/bin); pip uninstalls
 # itself last when listed after its peers.
-RUN python -m pip uninstall -y wheel setuptools pip \
- && /venv/bin/python -m pip uninstall -y wheel setuptools pip \
- && rm -f /usr/local/lib/python3.11/ensurepip/_bundled/*.whl
+RUN /venv/bin/python -m pip uninstall -y wheel setuptools pip \
+ && find / -xdev \( -path '*/ensurepip/_bundled/*.whl' -o -path '/usr/share/python*-wheels/*.whl' \) -delete
 # The base image's ensurepip carries its own pip wheel (24.0 here, with the same
 # vendored certifi); deleted so `python -m ensurepip` cannot resurrect an old pip (#4642).
 
@@ -266,6 +279,7 @@ COPY NOTICE /app/NOTICE
 # unwritable, so the guard refuses the deploy instead of letting the first
 # upload EROFS. Mount a volume here to make uploads durable.
 RUN useradd --uid 1000 --no-create-home --shell /sbin/nologin trueppm && \
+    microdnf -y remove shadow-utils && microdnf clean all && \
     mkdir -p /app/staticfiles /run/trueppm /var/lib/trueppm/media && \
     chown trueppm /app/staticfiles /run/trueppm /var/lib/trueppm/media
 

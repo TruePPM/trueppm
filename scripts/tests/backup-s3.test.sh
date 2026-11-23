@@ -11,7 +11,7 @@
 # that record their argv and the environment they were invoked with. That makes
 # the *shape* of the request assertable — which is where the real bugs live
 # (addressing style, key construction, credential handling). The genuine
-# end-to-end proof against a live MinIO is the backup:s3-drill CI job.
+# end-to-end proof against a live SeaweedFS is the backup:s3-drill CI job.
 #
 # Run: bash scripts/tests/backup-s3.test.sh
 set -euo pipefail

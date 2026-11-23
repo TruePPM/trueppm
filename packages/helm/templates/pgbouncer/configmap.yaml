@@ -1,0 +1,60 @@
+{{- if .Values.pgbouncer.enabled }}
+{{- /*
+Optional PgBouncer (transaction pooling) in front of an EXTERNAL PostgreSQL (#2275).
+ATOMIC_REQUESTS holds one server connection per in-flight request, so server
+connections grow with replicaCount x processes.*.workers/concurrency. A pooler
+multiplexes those onto a fixed pool, so the app tier scales without exhausting
+max_connections.
+
+The chart does NOT rewrite DATABASE_URL: it is the operator's secret and may be
+any shape. Point env.DATABASE_URL at the Service below and env.DATABASE_DIRECT_URL
+at the real database (docs: administration/sizing, "Database connections").
+*/ -}}
+{{- if .Values.postgresql.enabled }}
+  {{- fail "pgbouncer.enabled requires postgresql.enabled=false: the bundled PostgreSQL is a dev/demo database and the chart does not re-point its generated DATABASE_URL at the pooler. Use a managed database, or run your own PgBouncer." }}
+{{- end }}
+{{- $pb := .Values.pgbouncer }}
+{{- $host := required "pgbouncer.upstream.host is required when pgbouncer.enabled (the real PostgreSQL host)" $pb.upstream.host }}
+{{- $db := required "pgbouncer.upstream.database is required when pgbouncer.enabled" $pb.upstream.database }}
+{{- $secret := required "pgbouncer.auth.existingSecret is required when pgbouncer.enabled: a Secret holding PgBouncer's userlist.txt (see the sizing guide)" $pb.auth.existingSecret }}
+{{- if not (has $pb.poolMode (list "transaction" "session")) }}
+  {{- fail (printf "pgbouncer.poolMode must be transaction or session, got %q (statement mode breaks multi-statement requests)" $pb.poolMode) }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "trueppm.fullname" . }}-pgbouncer
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: pgbouncer
+data:
+  pgbouncer.ini: |
+    [databases]
+    ; connect_query runs on every NEW server connection, so JIT stays off even
+    ; though the app's own `SET jit = off` (core/db_session.py) lands on whichever
+    ; server connection happened to serve it (#3829).
+    {{ $db }} = host={{ $host }} port={{ $pb.upstream.port }} dbname={{ $db }} connect_query='SET jit = off'
+
+    [pgbouncer]
+    listen_addr = 0.0.0.0
+    listen_port = 6432
+    unix_socket_dir =
+    auth_type = scram-sha-256
+    auth_file = /etc/pgbouncer-auth/{{ $pb.auth.userlistKey }}
+    pool_mode = {{ $pb.poolMode }}
+    default_pool_size = {{ $pb.defaultPoolSize }}
+    max_client_conn = {{ $pb.maxClientConn }}
+    server_tls_sslmode = {{ $pb.upstream.sslmode }}
+    {{- if $pb.tls.existingSecret }}
+    ; Client-side TLS: every app connection must negotiate TLS (pooled
+    ; DATABASE_URL carries sslmode=require). Without this block PgBouncer answers
+    ; SSLRequest with 'N' and only plaintext clients can connect.
+    client_tls_sslmode = require
+    client_tls_cert_file = /etc/pgbouncer-tls/{{ $pb.tls.certKey }}
+    client_tls_key_file = /etc/pgbouncer-tls/{{ $pb.tls.keyKey }}
+    {{- end }}
+    ; Django sends extra_float_digits on connect; PgBouncer would otherwise refuse it.
+    ignore_startup_parameters = extra_float_digits,options
+    log_connections = 0
+    log_disconnections = 0
+{{- end }}

@@ -1,6 +1,7 @@
 ---
 title: Installation
 description: Run TruePPM locally with Docker Compose in a few minutes. For Helm/Kubernetes, single-server production with systemd, and image/chart signature verification, see Deployment.
+documentedFor: "0.5"
 ---
 
 This page gets you from nothing installed to a running TruePPM instance you can open in a browser, using Docker Compose. If you have never run Docker before, see [Set up a container host](/getting-started/container-host/) first — it explains what a container is and gets one running on your machine.
@@ -41,11 +42,16 @@ to) uses the **`v`-prefixed** form, `v<version>`; the two are not
 interchangeable. To avoid pulling at all, build locally with the development
 stack below.
 
-**Both paths need outbound network access** to Docker Hub (`python:3.11-slim`,
-`node:22-alpine`, `nginxinc/nginx-unprivileged`, `postgres:16-alpine`,
-`valkey/valkey:8-alpine`), PyPI, and the npm registry. On an air-gapped or
+**Both paths need outbound network access** to Docker Hub (`node:22-alpine`,
+`postgres:16-alpine`, `valkey/valkey:8-alpine`), Red Hat's anonymous registry
+(`registry.access.redhat.com`, the UBI 9 base of the API and web images), PyPI,
+and the npm registry. On an air-gapped or
 egress-filtered host, mirror those into an internal registry first and point the
 compose files or `image.repository` / `image.webRepository` at it.
+:::
+
+:::note[Ships in 0.5]
+The Red Hat registry (`registry.access.redhat.com`) is needed for 0.5 images, which build on Red Hat UBI 9. To build 0.4.0 locally, you need Docker Hub's `python:3.11-slim` and `nginxinc/nginx-unprivileged` images instead.
 :::
 
 :::note[ARM64 images: `v0.4.0-beta.4` and later]

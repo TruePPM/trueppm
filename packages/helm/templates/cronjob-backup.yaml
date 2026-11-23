@@ -166,7 +166,7 @@ racing a concurrent write.
 {{/*
 The upload step. Runs only when backup.s3.enabled, in an image that carries the
 AWS CLI. Path-style addressing is forced whenever a custom endpoint is set,
-because a self-hosted object store (MinIO, SeaweedFS, etc.) is normally reached
+because a self-hosted object store (SeaweedFS, MinIO, etc.) is normally reached
 by IP or by a single hostname with no wildcard DNS, so virtual-hosted-style
 requests resolve to nothing.
 
@@ -186,7 +186,7 @@ repo. Keep the two heuristics in sync if either changes (#2650).
 - |
   set -eu
   # backup.s3.region is optional in values; the CLI still requires a region to
-  # sign with. us-east-1 is what MinIO reports unless reconfigured, and it is
+  # sign with. us-east-1 is what SeaweedFS and MinIO report unless reconfigured, and it is
   # the correct signing region for a bucket whose location is unset.
   AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-us-east-1}"
   export AWS_DEFAULT_REGION

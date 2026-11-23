@@ -131,6 +131,28 @@ retried, so a delivery attempted during the window is not replayed automatically
 once you fix the list. Set the new variables on the API, Celery worker, and Celery
 beat processes. See [Networking](/administration/networking/#split-horizon-and-internal-only-names).
 
+### Workers must consume the `heavy` queue
+
+:::note[Ships in 0.5]
+0.5 routes long-running tasks to a separate `heavy` Celery queue. On 0.4 every task
+shares the single `celery` queue and needs no worker change.
+:::
+
+A worker started without `-Q`/`--queues` consumes only `celery`. From 0.5, heavy
+tasks (imports, exports, Monte Carlo, CPM recalculation) wait on `heavy` forever
+with no error on such a worker. If you run your own Celery workers, start them
+with `--queues=celery,heavy`. The stock Helm chart and the shipped compose files
+already do this. To keep a single queue instead, set
+`TRUEPPM_CELERY_HEAVY_QUEUE=celery` on the API and workers. See
+[Sizing](/administration/sizing/) and
+[Helm values](/administration/helm-values/#heavy-queue-worker).
+
+**Rolling back to 0.4 strands queued heavy work.** A 0.4 worker never reads the
+`heavy` queue, so any task already waiting there is never run after a rollback.
+Before you roll back, stop new imports and exports and keep the 0.5 workers (or
+one started with `-Q heavy`) running until the `heavy` queue is empty:
+`redis-cli -n <db> LLEN heavy` reads `0`.
+
 ### Successors of weekend actuals move on recalculation
 
 A non-working `actual_start` or `actual_finish` (a Saturday, Sunday, or calendar

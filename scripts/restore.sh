@@ -49,7 +49,7 @@ Options:
   -y, --yes              Do not prompt before overwriting the target database.
       --s3-bucket NAME   Bucket to download from with --from-s3 (default: $S3_BUCKET).
       --s3-endpoint URL  S3-compatible endpoint (default: $S3_ENDPOINT). Omit for
-                         real AWS S3; set it for MinIO and friends.
+                         real AWS S3; set it for SeaweedFS, MinIO and friends.
       --s3-prefix PATH   Key prefix searched by --from-s3 latest (default: $S3_PREFIX).
   -h, --help             Show this help and exit.
 

@@ -485,6 +485,82 @@
       "description": "Rendered wholesale with toYaml into every container spec. Open for the same reason as podSecurityContext.",
       "type": "object"
     },
+    "pgbouncer": {
+      "description": "Optional PgBouncer transaction pooler in front of an external PostgreSQL (#2275).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": { "type": "string" },
+            "tag": { "type": "string" },
+            "digest": { "type": "string" }
+          }
+        },
+        "replicas": { "type": "integer", "minimum": 1 },
+        "poolMode": { "type": "string" },
+        "defaultPoolSize": { "type": "integer", "minimum": 1 },
+        "maxClientConn": { "type": "integer", "minimum": 1 },
+        "upstream": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "host": { "type": "string" },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "database": { "type": "string" },
+            "sslmode": { "type": "string", "enum": ["disable", "allow", "prefer", "require", "verify-ca", "verify-full"] }
+          }
+        },
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "existingSecret": { "type": "string" },
+            "userlistKey": { "type": "string" }
+          }
+        },
+        "tls": {
+          "description": "App-to-PgBouncer (client-side) TLS. A non-empty existingSecret turns on client_tls_sslmode=require.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "existingSecret": { "type": "string" },
+            "certKey": { "type": "string", "minLength": 1 },
+            "keyKey": { "type": "string", "minLength": 1 }
+          }
+        },
+        "resources": { "type": "object" }
+      }
+    },
+    "heavyWorker": {
+      "description": "Optional dedicated worker for the heavy Celery queue (#2276), with optional KEDA queue-depth autoscaling.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replicas": { "type": "integer", "minimum": 0 },
+        "concurrency": { "type": "integer", "minimum": 1 },
+        "maxTasksPerChild": { "type": "integer", "minimum": 0 },
+        "extraArgs": { "type": "array", "items": { "type": "string" } },
+        "keda": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "redisAddress": { "type": "string" },
+            "authenticationRef": { "type": "string" },
+            "enableTLS": { "type": "boolean" },
+            "listLength": { "type": "integer", "minimum": 1 },
+            "minReplicaCount": { "type": "integer", "minimum": 0 },
+            "maxReplicaCount": { "type": "integer", "minimum": 1 },
+            "cooldownPeriod": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
     "processes": {
       "description": "Per-pod process model, keyed by tier like resources (ADR-1248). Leaf names are the flags of the binary each one sets.",
       "type": "object",

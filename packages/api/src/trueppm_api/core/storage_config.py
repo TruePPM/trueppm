@@ -1,4 +1,4 @@
-"""Pure builder for the S3 / MinIO attachment-storage options (#2559).
+"""Pure builder for the S3-compatible attachment-storage options (#2559).
 
 Deliberately free of any Django import, for the same reason as
 ``core.valkey_config``: ``settings/base.py`` needs :func:`build_s3_storage_options`
@@ -38,7 +38,7 @@ S3_STORAGE_BACKENDS = frozenset(
 DEFAULT_SIGNATURE_VERSION = "s3v4"
 
 #: Region must be concrete for SigV4: the signature embeds it in the credential
-#: scope, so an empty region yields an unusable signature even against MinIO.
+#: scope, so an empty region yields an unusable signature even against SeaweedFS or MinIO.
 DEFAULT_REGION_NAME = "us-east-1"
 
 #: Presigned-URL lifetime, in seconds, for TaskAttachmentViewSet.signed_url.
@@ -90,10 +90,10 @@ def build_s3_storage_options(environ: Mapping[str, str]) -> dict[str, Any]:
         "default_acl": None,
     }
 
-    # Non-AWS S3-compatible endpoint (MinIO, Ceph RGW, Cloudflare R2, Wasabi).
+    # Non-AWS S3-compatible endpoint (SeaweedFS, MinIO, Ceph RGW, Cloudflare R2, Wasabi).
     if endpoint := environ.get("TRUEPPM_S3_ENDPOINT_URL", ""):
         options["endpoint_url"] = endpoint
-    # MinIO and Ceph need path-style addressing; AWS prefers virtual-hosted, and
+    # SeaweedFS, MinIO and Ceph need path-style addressing; AWS prefers virtual-hosted, and
     # boto3's own "auto" default already gets AWS right — so only override on ask.
     if addressing := environ.get("TRUEPPM_S3_ADDRESSING_STYLE", ""):
         options["addressing_style"] = addressing

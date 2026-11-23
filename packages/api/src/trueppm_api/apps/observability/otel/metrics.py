@@ -79,7 +79,7 @@ from collections.abc import Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
 
-from django.db import DatabaseError, connections
+from django.db import DatabaseError, connections, transaction
 from django.utils import timezone
 from opentelemetry.metrics import Observation
 
@@ -435,12 +435,16 @@ def _db_connection_rows() -> list[tuple[str, int]]:
     the metric never explodes dimension count.
     """
     conn = connections["default"]
-    with conn.cursor() as cursor:
-        # set_config() accepts a bind parameter where bare SET does not, so the
-        # timeout is passed as a parameter rather than interpolated into SQL.
-        # is_local=false keeps it session-scoped, matching SET statement_timeout.
+    # One transaction with is_local=true, NOT a session-scoped set_config: behind a
+    # transaction pooler (#2275) the session outlives this probe and belongs to
+    # the next client of that server connection, so a session-level
+    # statement_timeout would silently cap every query some other worker runs.
+    # Transaction-local also resets itself on commit, with no restore step.
+    with transaction.atomic(using="default"), conn.cursor() as cursor:
+        # set_config() accepts a bind parameter where bare SET LOCAL does not, so
+        # the timeout is passed as a parameter rather than interpolated into SQL.
         cursor.execute(
-            "SELECT set_config('statement_timeout', %s, false)",
+            "SELECT set_config('statement_timeout', %s, true)",
             [str(int(_DB_PROBE_TIMEOUT_MS))],
         )
         cursor.execute(

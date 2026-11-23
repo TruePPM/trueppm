@@ -2053,7 +2053,7 @@ nginx:syntax:
   # broken nginx (an unbalanced brace, a directive missing its `;`) is caught
   # only at pod crash-loop, in a cluster, well after the MR merged.
   # scripts/check-helm-nginx-syntax.sh closes that gap by running the pinned
-  # nginxinc/nginx-unprivileged image's own `nginx -t` against all four
+  # Red Hat ubi9/nginx-124 image's own `nginx -t` (the web image's base) against all four
   # rendered variants (production, demo share-link, demo interactive) — see
   # the script's header for why that needs a real container (the ConfigMap's
   # own comment: its text is meant to be included INTO nginx.conf's `http {}`
@@ -2610,7 +2610,9 @@ helm:template:
       [ "$netpol_count" -gt 0 ] \
         || { echo "PROD REGRESSION: values-prod.yaml (postgresql.enabled=false, valkey.enabled=false) renders ZERO NetworkPolicy objects — the api/worker/web pods are unprotected in the recommended production overlay (#3850)"; exit 1; }
       for want in api web celery-worker celery-beat; do
-        yq ea "select(.kind == \"NetworkPolicy\" and .spec.podSelector.matchLabels.\"app.kubernetes.io/component\" == \"${want}\") | .metadata.name" /tmp/rendered-prod.yaml \
+        # matchLabels OR a matchExpressions `In` naming the component: the worker
+        # policy selects celery-worker and celery-worker-heavy together (#2276).
+        yq ea "select(.kind == \"NetworkPolicy\" and (.spec.podSelector.matchLabels.\"app.kubernetes.io/component\" == \"${want}\" or ((.spec.podSelector.matchExpressions // []) | any_c(.key == \"app.kubernetes.io/component\" and .operator == \"In\" and (.values | contains([\"${want}\"])))))) | .metadata.name" /tmp/rendered-prod.yaml \
           | grep -q . \
           || { echo "PROD REGRESSION: values-prod.yaml renders no NetworkPolicy selecting component=${want} (#3850)"; exit 1; }
       done
@@ -3066,7 +3068,8 @@ api:image-lock-check:
     - 'echo "--- pip tripwire (#4642): the runtime image ships NO pip (uninstalled, bundled ensurepip wheel deleted); fail if one is reintroduced. The 26.2.2 floor itself is asserted in the Dockerfile builder stage; self-test first ---"'
     - docker run --rm -i "$IMAGE" /venv/bin/python - < scripts/check-image-pip.py --self-test
     - docker run --rm -i "$IMAGE" /venv/bin/python - < scripts/check-image-pip.py
-    - docker run --rm -i "$IMAGE" /usr/local/bin/python3 - < scripts/check-image-pip.py
+    # The UBI runtime's system interpreter is the python3.11 RPM (#4336); there is no /usr/local/bin/python3.
+    - docker run --rm -i "$IMAGE" /usr/bin/python3.11 - < scripts/check-image-pip.py
     - echo "--- diff the image's installed set against packages/api/uv.lock ---"
     - docker run --rm -i "$IMAGE" /venv/bin/python - < scripts/check-api-image-lock.py
     - 'echo "--- boot smoke self-test first (scripts/check-api-wheel-imports.py, same job per #3194) ---"'
@@ -4512,7 +4515,7 @@ api:test:
     when: always
 
 api:s3-drill:
-  # Live object-storage drill against a real MinIO service (#2559).
+  # Live object-storage drill against a real SeaweedFS service (#2559, #4065).
   #
   # The gap this closes: four operator-facing surfaces (the configuration
   # reference, the Helm README, a shipped values.yaml comment, .env.example) tell
@@ -4520,7 +4523,7 @@ api:s3-drill:
   # and settings/prod.py refuses to boot on the local default (#775) — so the boot
   # guard steered operators at that value while django-storages was not a
   # dependency at all and the import crashed. No job set TRUEPPM_DEFAULT_FILE_STORAGE
-  # to an object-storage backend and there was no S3/MinIO service anywhere in this
+  # to an object-storage backend and there was no S3 service anywhere in this
   # file, so nothing could have caught it.
   #
   # tests/test_s3_round_trip.py skips itself unless TRUEPPM_S3_ENDPOINT_URL is set,
@@ -4530,7 +4533,7 @@ api:s3-drill:
   # presigned URL is security theater), and file_overwrite=False holds.
   #
   # Deliberately its own small job rather than a service bolted onto api:test:
-  # api:test is sharded x4, so a MinIO service there would spawn four idle copies
+  # api:test is sharded x4, so an S3 service there would spawn four idle copies
   # for a handful of tests.
   extends: .api
   stage: test
@@ -4546,46 +4549,61 @@ api:s3-drill:
       alias: postgres
     - name: valkey/valkey:8-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507
       alias: valkey
-    # `minio/minio` was pulled from Docker Hub entirely in Sept 2026 after MinIO
-    # moved Community Edition to source-only distribution (repo archived April
-    # 2026) — `quay.io/minio/minio`, its documented fallback mirror, now also
-    # 401s on anonymous pull. `bitnamilegacy/minio` is Bitnami's frozen
-    # pre-restructure mirror and is confirmed pullable; pinned by digest (same
-    # convention as postgres/valkey above) rather than a tag, since this mirror
-    # gets no new pushes to re-pin against.
+    # SeaweedFS (Apache 2.0) is the reference S3 backend (#4065). It replaced
+    # MinIO, whose images left Docker Hub in Sept 2026 (Community Edition went
+    # source-only; the archived-repo mirror and Bitnami's legacy mirror followed
+    # the same path). Pinned by digest, same convention as postgres/valkey above.
     #
-    # The image's default non-root user (uid 1001) cannot create `/data` at the
-    # container root — GitLab CI's services: syntax has no per-service `user:`
-    # override to work around that — so this points MinIO at
-    # `/bitnami/minio/data`, the pre-owned data directory the image ships with.
-    # `server /bitnami/minio/data` is the command MinIO needs to start; the
-    # console port is unused here.
-    - name: bitnamilegacy/minio@sha256:451fe6858cb770cc9d0e77ba811ce287420f781c7c1b806a386f6896471a349c
-      alias: minio
-      command: ["server", "/bitnami/minio/data"]
+    # `server -s3 -dir=/data` runs master + volume + filer + S3 gateway in one
+    # process; the image runs as root so /data is writable (GitLab CI's services:
+    # syntax has no per-service `user:`). The S3 gateway listens on 8333. Its admin
+    # identity comes from AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY in the
+    # SERVICE's own environment — no identities file, no bootstrap call. Buckets
+    # are created by the test itself through the S3 API. SeaweedFS needs
+    # path-style addressing, set below.
+    - name: chrislusf/seaweedfs@sha256:7ca46aeae2f223b37e5d91593c17ab37738eec6df6ab69b48a0487f7643342b9
+      alias: seaweedfs
+      command: ["server", "-s3", "-dir=/data"]
+      variables:
+        AWS_ACCESS_KEY_ID: drillkey
+        AWS_SECRET_ACCESS_KEY: "dr/ill+sec:ret12345"
   variables:
-    # Throwaway root credentials for a service container that lives for one job,
-    # has no persistence and no ingress. NOT a pattern to copy into a deploy: the
-    # docs deliberately tell operators to change the MinIO root password and give
-    # TruePPM a bucket-scoped access key instead. See the "Object storage" section
-    # of packages/website/src/content/docs/administration/configuration.md.
-    MINIO_ROOT_USER: minioadmin
-    MINIO_ROOT_PASSWORD: minioadmin
-    TRUEPPM_S3_ENDPOINT_URL: "http://minio:9000"
-    # MinIO serves path-style; virtual-hosted addressing would need per-bucket DNS.
+    # Throwaway credentials for a service container that lives for one job, has no
+    # persistence and no ingress. NOT a pattern to copy into a deploy: the docs
+    # tell operators to give TruePPM a bucket-scoped access key instead. See the
+    # "Object storage" section of
+    # packages/website/src/content/docs/administration/configuration/storage-and-networking.md.
+    # The secret deliberately carries "/" "+" and ":" — a real 40-char AWS secret
+    # is base64 and routinely does, and credential handling that round-trips
+    # through a URL corrupts exactly those.
+    TRUEPPM_S3_ENDPOINT_URL: "http://seaweedfs:8333"
+    # SeaweedFS serves path-style; virtual-hosted addressing would need per-bucket DNS.
     TRUEPPM_S3_ADDRESSING_STYLE: path
-    TRUEPPM_S3_ACCESS_KEY_ID: minioadmin
-    TRUEPPM_S3_SECRET_ACCESS_KEY: minioadmin
+    TRUEPPM_S3_ACCESS_KEY_ID: drillkey
+    TRUEPPM_S3_SECRET_ACCESS_KEY: "dr/ill+sec:ret12345"
   script:
     - cd packages/api
     # The drill skips itself when TRUEPPM_S3_ENDPOINT_URL is unset, and a skip
     # exits 0 — so a green job proving nothing is the exact false assurance #2559
     # was about. Write the report to a file and fail on any skip, so renaming the
     # env var or dropping it from `variables` breaks the job loudly.
+    # SeaweedFS needs a few seconds after the container starts before the S3
+    # gateway answers; wait on the port so the first test does not race it.
+    - |
+      python - <<'PY'
+      import socket, sys, time
+      for _ in range(90):
+          try:
+              socket.create_connection(("seaweedfs", 8333), 2).close()
+              sys.exit(0)
+          except OSError:
+              time.sleep(1)
+      sys.exit("seaweedfs S3 gateway not ready after 90s")
+      PY
     - python -m pytest tests/test_s3_round_trip.py -v -rs --tb=short | tee s3-drill.log
     - |
       if grep -qE '^SKIPPED|skipped' s3-drill.log; then
-        echo "FAIL: the S3 drill skipped — MinIO env is not reaching the tests" >&2
+        echo "FAIL: the S3 drill skipped — the SeaweedFS env is not reaching the tests" >&2
         exit 1
       fi
     # The documented configuration must also satisfy the deploy checks it ships

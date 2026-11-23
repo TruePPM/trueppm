@@ -1,0 +1,18 @@
+{{- if .Values.pgbouncer.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "trueppm.fullname" . }}-pgbouncer
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: pgbouncer
+spec:
+  type: ClusterIP
+  ports:
+    - name: pgbouncer
+      port: 6432
+      targetPort: pgbouncer
+  selector:
+    {{- include "trueppm.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: pgbouncer
+{{- end }}

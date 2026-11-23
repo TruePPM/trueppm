@@ -56,7 +56,7 @@ Options:
       --s3-bucket NAME   Upload the finished artifact to this S3-compatible
                          bucket (default: $S3_BUCKET). Enables the upload step.
       --s3-endpoint URL  S3-compatible endpoint (default: $S3_ENDPOINT). Omit for
-                         real AWS S3; set it for MinIO and friends.
+                         real AWS S3; set it for SeaweedFS, MinIO and friends.
       --s3-prefix PATH   Key prefix within the bucket (default: $S3_PREFIX, else
                          none). The object key is <prefix>/<artifact filename>.
   -h, --help             Show this help and exit.

@@ -257,13 +257,31 @@ DATABASES["default"]["CONN_MAX_AGE"] = 60
 # callbacks to after commit rather than firing immediately in autocommit mode.
 DATABASES["default"]["ATOMIC_REQUESTS"] = True
 
+# Transaction-pooling mode (#2275). Set TRUEPPM_DB_TRANSACTION_POOLING=true when
+# DATABASE_URL points at PgBouncer (or RDS Proxy) in transaction-pooling mode. A
+# transaction pooler hands the server connection to another client between
+# transactions, so anything that lives on the *session* stops being yours:
+#   * server-side cursors (QuerySet.iterator() uses a named cursor) are declared
+#     on one server connection and fetched from another -> "cursor does not
+#     exist". Django's own switch for this is DISABLE_SERVER_SIDE_CURSORS;
+#     iterator() then falls back to client-side chunking.
+#   * CONN_HEALTH_CHECKS pings a reused persistent connection before the request
+#     uses it, so a pooler restart costs one retried ping instead of a 500.
+# CONN_MAX_AGE stays as configured: it governs the client<->pooler connection,
+# which is cheap to keep open and is what ATOMIC_REQUESTS holds per request.
+# Session advisory locks (migrate_locked) and session-scoped SETs are handled at
+# their own call sites; see DATABASE_DIRECT_URL in migrate_locked.
+if env.bool("TRUEPPM_DB_TRANSACTION_POOLING", default=False):
+    DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
+    DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
+
 # ---------------------------------------------------------------------------
 # File / object storage (#775)
 # ---------------------------------------------------------------------------
 
 # Default file-storage backend. TaskAttachment.file is stored here. The
 # FileSystemStorage default is fine for local dev, but a containerized prod
-# deploy must point this at a remote object-storage backend (S3/MinIO via
+# deploy must point this at a remote object-storage backend (S3/SeaweedFS via
 # django-storages) or attachment uploads are lost on every pod restart. prod.py
 # refuses to boot on the local default unless the operator explicitly opts in.
 STORAGES = {
@@ -278,7 +296,7 @@ STORAGES = {
     },
 }
 
-# S3 / MinIO options, attached ONLY for an S3-family backend — a FileSystemStorage
+# S3-compatible options, attached ONLY for an S3-family backend — a FileSystemStorage
 # deploy must not be handed S3 kwargs it would reject. See core.storage_config for
 # why this plumbing is required rather than cosmetic (#2559): the backend the docs
 # recommend reads its bucket from Django settings, not the environment, so setting
@@ -614,6 +632,26 @@ else:
     # one slow import into two concurrent ones. Raise it if you raise
     # terminationGracePeriodSeconds on the worker past this.
     CELERY_BROKER_TRANSPORT_OPTIONS = {"visibility_timeout": 900}
+
+# Queue topology (#2276). Heavy tasks (imports, exports, Monte Carlo, CPM
+# recalculation) go to their own queue so a burst of them cannot head-of-line
+# block the outbox drains and email on the default queue. A worker started
+# without ``-Q`` consumes only the default queue, so every worker command in this
+# repo (Helm, both compose files) names both queues explicitly; an operator's own
+# worker must do the same. The shipped worker commands hardcode
+# ``celery,heavy``, so the only supported value of TRUEPPM_CELERY_HEAVY_QUEUE is
+# ``celery`` (collapse to a single queue); any other name routes tasks to a queue
+# no stock worker consumes.
+from trueppm_api.core.celery_queues import (  # noqa: E402
+    DEFAULT_HEAVY_QUEUE,
+    DEFAULT_QUEUE,
+    build_task_routes,
+)
+
+CELERY_TASK_DEFAULT_QUEUE = DEFAULT_QUEUE
+CELERY_TASK_ROUTES = build_task_routes(
+    env("TRUEPPM_CELERY_HEAVY_QUEUE", default=DEFAULT_HEAVY_QUEUE) or DEFAULT_QUEUE
+)
 
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"

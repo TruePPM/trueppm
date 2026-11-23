@@ -112,3 +112,44 @@ def test_non_postgres_backend_skips_the_lock() -> None:
         call_command("migrate_locked")
     assert ran == [True]
     assert not _lock_is_held(), "the non-PostgreSQL path must take no lock"
+
+
+def test_lock_is_taken_on_the_direct_connection_not_the_pooled_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#2275: behind a transaction pooler the lock must live on a real session.
+
+    With DATABASE_DIRECT_URL set, the advisory lock is taken by a separate
+    connection (its own backend pid), so the pooled default connection never
+    carries a session-level lock that the pooler could hand to another client.
+    """
+    cfg = connection.settings_dict
+    url = (
+        f"postgresql://{cfg['USER']}:{cfg['PASSWORD']}@{cfg['HOST'] or 'localhost'}"
+        f":{cfg['PORT'] or 5432}/{cfg['NAME']}"
+    )
+    monkeypatch.setenv("DATABASE_DIRECT_URL", url)
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_backend_pid()")
+        django_pid = cursor.fetchone()[0]  # type: ignore[index]
+
+    holders: list[int] = []
+
+    def _observe(*args: object, **kwargs: object) -> None:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pid FROM pg_locks WHERE locktype = 'advisory' AND "
+                "((classid::bigint << 32) | objid::bigint) = %s AND granted",
+                [MIGRATION_ADVISORY_LOCK_KEY],
+            )
+            holders.extend(r[0] for r in cursor.fetchall())
+
+    with mock.patch(
+        "trueppm_api.apps.access.management.commands.migrate_locked.call_command",
+        side_effect=_observe,
+    ):
+        call_command("migrate_locked")
+
+    assert len(holders) == 1, "the lock was not held during migrate"
+    assert holders[0] != django_pid, "the lock sits on the (poolable) default connection"
+    assert not _lock_is_held(), "the lock survived the command"

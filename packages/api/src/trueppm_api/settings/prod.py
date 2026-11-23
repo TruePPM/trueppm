@@ -249,25 +249,33 @@ if _retention_errors:
 # `manage.py check`. Operators terminating TLS at the proxy/sidecar layer (where
 # the app-to-DB link is already encrypted) opt in via
 # TRUEPPM_ALLOW_UNENCRYPTED_DB=true and keep the warning instead.
-_db_url_raw: str = env("DATABASE_URL", default="")
-if _db_url_raw:
+#
+# DATABASE_DIRECT_URL (#2275) gets the same rule: behind a pooler it is the one
+# connection that reaches the real database straight, so leaving it without
+# sslmode would reopen exactly the plaintext hop this guard closes on DATABASE_URL.
+for _db_url_var in ("DATABASE_URL", "DATABASE_DIRECT_URL"):
+    _db_url_raw: str = env(_db_url_var, default="")
+    if not _db_url_raw:
+        continue
     _db_url_qs = urllib.parse.parse_qs(urllib.parse.urlparse(_db_url_raw).query)
-    if "sslmode" not in _db_url_qs:
-        if ALLOW_UNENCRYPTED_DB:
-            logging.getLogger(_SETTINGS_LOGGER_NAME).warning(
-                "DATABASE_URL does not include sslmode=require. "
-                "Database connections may use unencrypted transport. "
-                "Proceeding because TRUEPPM_ALLOW_UNENCRYPTED_DB=true is set; "
-                "ensure TLS is enforced at the network layer."
-            )
-        else:
-            raise RuntimeError(
-                "Refusing to start: DATABASE_URL does not include sslmode=require "
-                "in a non-DEBUG environment; database connections may use "
-                "unencrypted transport. Set sslmode=require in DATABASE_URL, or set "
-                "TRUEPPM_ALLOW_UNENCRYPTED_DB=true if TLS is enforced at the network "
-                "layer."
-            )
+    if "sslmode" in _db_url_qs:
+        continue
+    if ALLOW_UNENCRYPTED_DB:
+        logging.getLogger(_SETTINGS_LOGGER_NAME).warning(
+            "%s does not include sslmode=require. "
+            "Database connections may use unencrypted transport. "
+            "Proceeding because TRUEPPM_ALLOW_UNENCRYPTED_DB=true is set; "
+            "ensure TLS is enforced at the network layer.",
+            _db_url_var,
+        )
+    else:
+        raise RuntimeError(
+            f"Refusing to start: {_db_url_var} does not include sslmode=require "
+            "in a non-DEBUG environment; database connections may use "
+            f"unencrypted transport. Set sslmode=require in {_db_url_var}, or set "
+            "TRUEPPM_ALLOW_UNENCRYPTED_DB=true if TLS is enforced at the network "
+            "layer."
+        )
 
 # Refuse to boot on a placeholder datastore credential (#3176). Compose's
 # ``${DB_PASSWORD:?...}`` only asserts the variable is non-empty, and .env.example

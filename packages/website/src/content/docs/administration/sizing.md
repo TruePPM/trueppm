@@ -146,9 +146,10 @@ own pool and PgBouncer is mandatory.
 | Valkey / Redis (managed, persistent) | 1 | `1 vCPU / 2Gi` | `2 / 4Gi` |
 
 - **Cluster total (with headroom):** ~16 vCPU / 32 GB, **2–3 nodes**, ~100Gi Postgres disk.
-- **PgBouncer:** **required.** `ATOMIC_REQUESTS=true` + `CONN_MAX_AGE=60` means every
+- **PgBouncer:** **required.** `ATOMIC_REQUESTS=true` + persistent connections mean every
   API and Celery worker holds a Postgres connection; 6 API pods × 3 workers + 4
   Celery pods × 4 will exceed the default `max_connections=100` without pooling.
+  See [Database connections](#database-connections).
 - **Celery pinning:** set `processes.worker.concurrency: 4` to match the pod CPU
   limit. The chart pins concurrency for you — it defaults to `2` — so the worker
   never falls back to Celery's `cpu_count()` default, which reads the *node's*
@@ -244,8 +245,96 @@ Items 1 and 2 are measured; items 3, 4 and 5 are reasoned from the deployment sh
 1. **Project size in the Schedule.** Opening a project fetches every task. Up to about 2,000 tasks that takes about a second; past 8,000 it rises steeply, and every change someone makes costs each open Schedule that load again. This is fixed in code, not hardware — see [Toward 100,000 tasks](#toward-100000-tasks). On 0.4.0-beta.1, [PostgreSQL JIT](#postgresql-jit) makes this far worse.
 2. **Single uvicorn worker per pod.** Request CPU is a single process per pod, and it pins at one core: eight concurrent opens of an 8,000-task Schedule took 22.5 s each with one process and 7.3 s with four. WebSocket collaboration keeps connections open (the Channels capacity of 1500 is fine). Add `--workers` or scale replicas before reaching 100 users — see [Raising the uvicorn worker count](#raising-the-uvicorn-worker-count). **This is the single most important non-default change.**
 3. **Celery / recalculation and Monte Carlo.** The scheduler is the heavy part. A full CPM recalculation runs on every change, costs about 1 ms per task, and holds about 30 KB of memory per task — a program with cross-project dependencies counts its whole task total ([#3831](https://gitlab.com/trueppm/trueppm/-/issues/3831)). A portfolio reforecast or a Monte Carlo run is a CPU-bound burst. Scale Celery replicas, and raise `processes.worker.concurrency` to match the pod's CPU limit. The chart pins this at `2` by default precisely so it never falls back to Celery's `cpu_count()` auto-detection, which reads the node's cores rather than the cgroup limit, over-allocates, and gets OOM-killed (the dev compose file caps it at 2 for the same reason).
-4. **Postgres connection ceiling.** `CONN_MAX_AGE=60` and `ATOMIC_REQUESTS=true` mean every request runs inside a transaction and holds a connection. With many API and Celery workers, you approach PostgreSQL's default `max_connections=100` at the 200-user tier — add **PgBouncer** or raise `max_connections` ([#2275](https://gitlab.com/trueppm/trueppm/-/issues/2275)). With four workers, eight concurrent users kept 11 PostgreSQL cores busy, so give the database cores to match the API tier you scale to.
+4. **Postgres connection ceiling.** `ATOMIC_REQUESTS=true` means every request runs inside a transaction and holds a connection, and production keeps connections open for reuse (`CONN_MAX_AGE=600`). With many API and Celery workers, you approach PostgreSQL's default `max_connections=100` at the 200-user tier — add **PgBouncer** or raise `max_connections`. See [Database connections](#database-connections). With four workers, eight concurrent users kept 11 PostgreSQL cores busy, so give the database cores to match the API tier you scale to.
 5. **Per-project write serialization.** The first synced write in a request allocates the project's sync sequence number with an `UPDATE` on the project row, and that row lock is held until the request commits. Writes to one project therefore run one at a time, so per-project write throughput is capped at roughly one over the request latency. A long operation against a single project (an MS Project import, a template apply, a bulk paste) holds up every other edit to that project until it finishes, and interactive saves queued behind it can hit proxy timeouts. Writes to different projects do not contend. Schedule large imports outside working hours, and keep proxy timeouts above your longest import. The lock is what keeps the offline sync cursor from skipping rows, so it is not a setting you can turn off. Shrinking the lock window is tracked in [#4469](https://gitlab.com/trueppm/trueppm/-/issues/4469).
+
+## Worker topology and queue-depth autoscaling
+
+:::note[Ships in 0.5]
+Separate queues and the heavy worker ship in 0.5. In 0.4 all tasks share one queue.
+:::
+
+Background work runs on two Celery queues. The `celery` queue carries latency-sensitive work: outbox drains (every 30 seconds), notification and invite email, webhook delivery. The `heavy` queue carries MS Project, Jira and CSV import, project, program and workspace export, template application, Monte Carlo, CPM recalculation (per project and program-wide), the child cascade after a project is deleted, and the nightly retention purge, which run for seconds to minutes.
+
+| Install size | Recommended topology |
+|---|---|
+| Team of 25 | One worker on both queues (the chart default). Nothing to configure. |
+| Team of 250, or regular large imports | Set `heavyWorker.enabled: true`. Imports queue behind other imports rather than in front of email and drains. Give `resources.heavyWorker` the memory the largest project needs (see [Toward 100,000 tasks](#toward-100000-tasks)). |
+| Bursty imports | Add `heavyWorker.keda.enabled: true` to scale the heavy worker on queue depth. CPU alone does not see a backlog while the tasks wait, so a CPU HPA scales too late. |
+
+**With a dedicated heavy worker, schedule recalculation waits behind imports.** CPM recalculation runs on `heavy`, so when every heavy slot is busy with a multi-minute import or export, a task edit's recalculated dates (and the critical path) appear only once a slot frees up. The split moves the head-of-line delay from email to schedule freshness; it does not remove it. Keep recalculation fresh by leaving headroom: set `heavyWorker.concurrency` (or `replicas`) above the number of imports you expect at once, or turn on KEDA so a backlog adds replicas. Recalculation stays on `heavy` because a large project's recalculation holds a worker for tens of seconds, which on the default worker would compete with the 30-second outbox drains.
+
+Scale the two on different signals: the default worker on CPU (`autoscaling.worker.enabled`), the heavy worker on `heavy` list length. Keep `lifecycle.worker.terminationGracePeriodSeconds` above your longest heavy task. See [Heavy-queue worker](/administration/helm-values/#heavy-queue-worker) for every key. To run a single queue everywhere, set `TRUEPPM_CELERY_HEAVY_QUEUE=celery` on the API and workers; `celery` is the only supported value, because the shipped worker commands hardcode `celery,heavy`. A `kubectl exec` into any worker and `celery -A trueppm_api.celery inspect active_queues` shows which queues it consumes.
+
+## Database connections
+
+:::note[Ships in 0.5]
+The `pgbouncer` chart block, `TRUEPPM_DB_TRANSACTION_POOLING` and `DATABASE_DIRECT_URL` ship in 0.5. In 0.4 there is no pooler path in the chart.
+:::
+
+Every API worker process and every Celery worker child keeps one PostgreSQL connection open, and each in-flight request holds it for its whole duration (`ATOMIC_REQUESTS`). The steady-state count is:
+
+```
+connections ≈ replicaCount × processes.api.workers            (API)
+            + worker replicas × processes.worker.concurrency  (default worker)
+            + heavy replicas × heavyWorker.concurrency        (heavy worker, if enabled)
+            + 1 (beat) + 1 (metrics exporter per API pod) + migrations at rollout
+```
+
+With the Profile B shape above (6 API pods × 3 workers, 4 worker pods × 4) that is about 40 connections before a rollout surges the pod count, against PostgreSQL's default `max_connections=100` (RDS and most managed services size it from memory, often lower). A rolling upgrade briefly runs old and new pods side by side, so leave 30 to 50 percent headroom.
+
+Past that, put a **transaction pooler** between the app and PostgreSQL. It multiplexes many client connections onto a small server pool, so the app tier scales without raising `max_connections`.
+
+### What the app does behind a transaction pooler
+
+Set `TRUEPPM_DB_TRANSACTION_POOLING=true` on the API and workers (the chart does this when `pgbouncer.enabled`). It:
+
+- turns on Django's `DISABLE_SERVER_SIDE_CURSORS`, because a named cursor is created on one server connection and fetched from another (`cursor "…" does not exist`); `.iterator()` then chunks on the client;
+- turns on `CONN_HEALTH_CHECKS`, so a pooler restart costs one retried ping instead of a failed request.
+
+`ATOMIC_REQUESTS` is compatible: a transaction pins one server connection for its duration and the pooler releases it on commit. Two things in TruePPM are session-scoped and are already handled: the migration advisory lock (below) and the metrics exporter's `statement_timeout`, which is now transaction-local so it cannot leak to another client.
+
+**Migrations need a direct connection.** `migrate_locked` serializes concurrent rollouts with a session-level advisory lock, which a pooler cannot hold. Set `DATABASE_DIRECT_URL` to the real database (not the pooler) and the lock is taken there; `migrate` itself runs through the pooler normally.
+
+**JIT.** The app sets `jit = off` on connect, but behind a pooler that lands on whichever server connection served it. The chart's PgBouncer runs `SET jit = off` on every new server connection; with another pooler, run `ALTER DATABASE <name> SET jit = off`.
+
+### The chart's PgBouncer
+
+Set `pgbouncer.enabled: true` with an **external** PostgreSQL (`postgresql.enabled: false`; the bundled database is a dev/demo database and is not re-pointed). The chart renders a transaction-pooling PgBouncer Deployment and a `<release>-trueppm-pgbouncer:6432` Service. It does not rewrite `DATABASE_URL`, which is your secret:
+
+```yaml
+postgresql: { enabled: false }
+pgbouncer:
+  enabled: true
+  upstream: { host: mydb.example.com, database: trueppm }
+  auth: { existingSecret: pgbouncer-auth }   # key userlist.txt: "trueppm" "SCRAM-SHA-256$..."
+  tls: { existingSecret: pgbouncer-tls }     # kubernetes.io/tls Secret; see "TLS on the pooled connection"
+env:
+  DATABASE_URL:        { secretKeyRef: { name: trueppm-db, key: pooled-url } }   # ...@<release>-trueppm-pgbouncer:6432/trueppm?sslmode=require
+  DATABASE_DIRECT_URL: { secretKeyRef: { name: trueppm-db, key: direct-url } }   # ...@mydb.example.com:5432/trueppm?sslmode=require
+```
+
+The server pool is `defaultPoolSize` per PgBouncer replica, so total server connections are `pgbouncer.replicas × pgbouncer.defaultPoolSize` (40 by default). Keep that below `max_connections` minus what you reserve for migrations, backups and operators. `pgbouncer.maxClientConn` bounds the app-side connections. The image is pinned by digest (PgBouncer is ISC-licensed).
+
+### TLS on the pooled connection
+
+There are two hops. PgBouncer to the database is `pgbouncer.upstream.sslmode` (`require` by default). The app to PgBouncer is set by `pgbouncer.tls`, and the pooled `DATABASE_URL` has to match it:
+
+| `pgbouncer.tls.existingSecret` | PgBouncer accepts | Pooled `DATABASE_URL` |
+|---|---|---|
+| A `kubernetes.io/tls` Secret (keys `tls.crt`, `tls.key`; rename with `certKey` / `keyKey`) | TLS only (`client_tls_sslmode = require`) | `?sslmode=require` |
+| Empty (the default) | Plaintext only | `?sslmode=prefer` |
+
+Production refuses to start when `DATABASE_URL` has no `sslmode` parameter. That check only looks for the parameter. It does not check the value, so `sslmode=prefer` passes it.
+
+- **TLS on** is the recommended setting. The certificate's name should be the Service name (`<release>-trueppm-pgbouncer`, plus `.<namespace>.svc` if you want), for example one issued by cert-manager. `sslmode=require` encrypts the connection but does not check the certificate. With TLS on, PgBouncer rejects any client that tries plaintext.
+- **TLS off** keeps the app-to-PgBouncer hop **unencrypted inside the cluster**. Database queries and results cross the pod network in the clear. The password does not, because PgBouncer authenticates with SCRAM. `sslmode=require` does not work in this setting: the connection fails with `server does not support SSL, but SSL was required`. Use `prefer`, and accept the plaintext hop only where the pod network is trusted. With `networkPolicy.enabled` (the default), the chart allows only the TruePPM API, workers, beat, backup and demo-seed pods to reach PgBouncer on 6432. That limits who can connect. It does not encrypt anything.
+
+`DATABASE_DIRECT_URL` goes straight to the database and keeps `sslmode=require`, whichever setting you choose.
+
+### A managed pooler instead
+
+RDS Proxy, Cloud SQL's connection pooling and PgBouncer you already run work the same way: point `DATABASE_URL` at the pooler, `DATABASE_DIRECT_URL` at the database, and set `env.TRUEPPM_DB_TRANSACTION_POOLING: "true"`. Session pinning (an RDS Proxy behavior triggered by session-level `SET`) reduces the benefit but not correctness.
 
 ## Startup budget
 

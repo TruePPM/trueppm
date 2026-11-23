@@ -60,7 +60,7 @@ spec:
          container and load_sample_project (ADR-0658). Both are off by default, but
          both break under enforcement if omitted. */}}
     - from:
-        {{- include "trueppm.datastoreClientSelectors" (dict "root" . "components" (list "api" "celery-worker" "celery-beat" "backup" "demo-seed")) | nindent 8 }}
+        {{- include "trueppm.datastoreClientSelectors" (dict "root" . "components" (concat (list "api" "celery-worker") (ternary (list "celery-worker-heavy") (list) .Values.heavyWorker.enabled) (list "celery-beat" "backup" "demo-seed"))) | nindent 8 }}
       ports:
         - protocol: TCP
           port: 5432
@@ -89,12 +89,42 @@ spec:
          that does not exist. demo-seed runs Django, which resolves CACHES and the
          channel layer against Valkey. */}}
     - from:
-        {{- include "trueppm.datastoreClientSelectors" (dict "root" . "components" (list "api" "celery-worker" "celery-beat" "demo-seed")) | nindent 8 }}
+        {{- include "trueppm.datastoreClientSelectors" (dict "root" . "components" (concat (list "api" "celery-worker") (ternary (list "celery-worker-heavy") (list) .Values.heavyWorker.enabled) (list "celery-beat" "demo-seed"))) | nindent 8 }}
       ports:
         - protocol: TCP
           port: 6379
   # No egress rules → default-deny egress from the Valkey pod.
   egress: []
+{{- end }}
+{{- if .Values.pgbouncer.enabled }}
+{{- /* The optional PgBouncer (#2275) holds the database credential's upstream
+     side and, unless pgbouncer.tls is set, accepts PLAINTEXT from its clients, so
+     only the same datastore clients the postgresql policy admits may reach 6432.
+     Ingress only: its egress target is the operator's external database, whose
+     address the chart cannot know, so an egress allowlist would break it. No
+     egress counterpart on the clients is needed either — the chart does not
+     restrict api/worker/beat egress (the demo egress policies, which do, cannot
+     co-exist with pgbouncer: it refuses the bundled PostgreSQL the demo needs). */}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "trueppm.fullname" . }}-pgbouncer
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "trueppm.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: pgbouncer
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        {{- include "trueppm.datastoreClientSelectors" (dict "root" . "components" (concat (list "api" "celery-worker") (ternary (list "celery-worker-heavy") (list) .Values.heavyWorker.enabled) (list "celery-beat" "backup" "demo-seed"))) | nindent 8 }}
+      ports:
+        - protocol: TCP
+          port: 6432
 {{- end }}
 {{/*
 App-tier default-deny INGRESS (#3850). Unlike the two datastore policies above,
@@ -227,7 +257,10 @@ spec:
   podSelector:
     matchLabels:
       {{- include "trueppm.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: celery-worker
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: [celery-worker{{ if .Values.heavyWorker.enabled }}, celery-worker-heavy{{ end }}]
   policyTypes:
     - Ingress
   # No `ingress:` rules → default-deny. The worker has no Service and nothing in
@@ -345,7 +378,10 @@ spec:
   podSelector:
     matchLabels:
       {{- include "trueppm.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: celery-worker
+    matchExpressions:
+      - key: app.kubernetes.io/component
+        operator: In
+        values: [celery-worker{{ if .Values.heavyWorker.enabled }}, celery-worker-heavy{{ end }}]
   policyTypes:
     - Egress
   egress:

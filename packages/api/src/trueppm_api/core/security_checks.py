@@ -467,7 +467,7 @@ def validate_attachment_storage(
                 "are lost on container/pod restart.",
                 hint=(
                     "Point STORAGES['default']['BACKEND'] at a remote object-storage "
-                    "backend (e.g. S3/MinIO via django-storages) using the "
+                    "backend (e.g. S3/SeaweedFS via django-storages) using the "
                     "TRUEPPM_DEFAULT_FILE_STORAGE env var, or set "
                     "TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE=true if local storage is "
                     "backed by a persistent volume (and TRUEPPM_MEDIA_ROOT points at "
@@ -657,7 +657,7 @@ def validate_storage_backend(
                 "attachment uploads would fail with 'Required parameter name not set'.",
                 hint=(
                     "Set TRUEPPM_S3_BUCKET_NAME to the bucket that holds task "
-                    "attachments. For a non-AWS endpoint (MinIO, Ceph, R2) also set "
+                    "attachments. For a non-AWS endpoint (SeaweedFS, MinIO, Ceph, R2) also set "
                     "TRUEPPM_S3_ENDPOINT_URL and TRUEPPM_S3_ADDRESSING_STYLE=path."
                 ),
                 id="trueppm.E008",
@@ -713,7 +713,7 @@ def storage_backend_supports_signed_urls(
     """Whether ``backend_path``'s ``.url()`` produces a real time-limited signed URL.
 
     ``TaskAttachment.file.url`` is a genuine signed URL only for object-storage
-    backends that sign the query string with an expiry (S3/MinIO, GCS, Azure Blob
+    backends that sign the query string with an expiry (S3/SeaweedFS, GCS, Azure Blob
     via django-storages). ``FileSystemStorage`` — and any backend this function
     doesn't recognize — returns the same indefinite-lifetime path on every call, so
     the ``expires_at`` the ``signed-url`` action promises would be fiction. Fails

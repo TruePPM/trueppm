@@ -2578,6 +2578,116 @@ for other_name in default sharelink; do
   fi
 done
 
+# 4b. Celery queue topology (#2276). settings/base.py routes the long-running
+# tasks to the "heavy" queue; a worker started without --queues consumes only
+# "celery", which would strand every import/export/Monte Carlo/CPM task. So the
+# stock single worker must name BOTH queues, and when heavyWorker splits them
+# out the two Deployments must cover the pair exactly once between them.
+wq_default="$(worker_cmd)"
+grep -q -- '--queues=celery,heavy' <<<"$wq_default" \
+  || fail "default worker does not consume --queues=celery,heavy — heavy tasks routed by CELERY_TASK_ROUTES would never be picked up (#2276)"
+heavy_off="$(helm template trueppm "$CHART" --set image.tag=latest --show-only templates/celery-worker/deployment-heavy.yaml 2>&1 || true)"
+grep -q 'celery-worker-heavy' <<<"$heavy_off" \
+  && fail "heavy worker Deployment rendered with heavyWorker.enabled=false (#2276)"
+wq_split="$(worker_cmd --set heavyWorker.enabled=true)"
+grep -q -- '--queues=celery ' <<<"$wq_split " \
+  || fail "with heavyWorker.enabled the default worker must consume only --queues=celery (#2276)"
+wq_heavy="$(helm template trueppm "$CHART" --set image.tag=latest --set heavyWorker.enabled=true \
+  --show-only templates/celery-worker/deployment-heavy.yaml \
+  | yq '.spec.template.spec.containers[0].command | join(" ")')"
+grep -q -- '--queues=heavy' <<<"$wq_heavy" \
+  || fail "heavy worker does not consume --queues=heavy (#2276)"
+grep -q -- '--concurrency=[0-9]' <<<"$wq_heavy" \
+  || fail "heavy worker has no pinned --concurrency (#2571)"
+# KEDA: absent unless asked for, needs an address, and owns replicas when on.
+keda_off="$(helm template trueppm "$CHART" --set image.tag=latest --set heavyWorker.enabled=true 2>&1)"
+grep -q 'kind: ScaledObject' <<<"$keda_off" \
+  && fail "ScaledObject rendered with heavyWorker.keda.enabled=false (#2276)"
+if helm template trueppm "$CHART" --set image.tag=latest --set heavyWorker.enabled=true \
+     --set heavyWorker.keda.enabled=true >/dev/null 2>&1; then
+  fail "heavyWorker.keda.enabled=true rendered with no redisAddress (#2276)"
+fi
+keda_on="$(helm template trueppm "$CHART" --set image.tag=latest --set heavyWorker.enabled=true \
+  --set heavyWorker.keda.enabled=true --set heavyWorker.keda.redisAddress=valkey:6379)"
+grep -q 'kind: ScaledObject' <<<"$keda_on" && grep -q 'listName: "heavy"' <<<"$keda_on" \
+  || fail "heavyWorker.keda.enabled did not render a ScaledObject on the heavy list (#2276)"
+heavy_replicas="$(helm template trueppm "$CHART" --set image.tag=latest --set heavyWorker.enabled=true \
+  --set heavyWorker.keda.enabled=true --set heavyWorker.keda.redisAddress=valkey:6379 \
+  --show-only templates/celery-worker/deployment-heavy.yaml | yq '.spec.replicas')"
+[ "$heavy_replicas" = "null" ] \
+  || fail "heavy Deployment sets replicas=$heavy_replicas while KEDA owns the count — every helm upgrade would fight the scaler (#2276)"
+
+# 4c. PgBouncer pooling path (#2275). Off by default; refuses the bundled
+# database (its URL is chart-generated, so the pooler could never be wired in);
+# needs an upstream, a database and an auth Secret; sets the pooling switch on
+# api/worker/beat exactly once, and yields to an operator-set value.
+pgb_base=(--set image.tag=latest --set postgresql.enabled=false --set valkey.enabled=false
+  --set env.DATABASE_URL=postgres://u:p@h/d --set env.REDIS_URL=redis://v:6379)
+pgb_on=(--set pgbouncer.enabled=true --set pgbouncer.upstream.host=db.example
+  --set pgbouncer.upstream.database=trueppm --set pgbouncer.auth.existingSecret=pgb-auth)
+pgb_off_render="$(helm template trueppm "$CHART" "${pgb_base[@]}")"
+grep -q 'component: pgbouncer' <<<"$pgb_off_render" \
+  && fail "pgbouncer objects rendered with pgbouncer.enabled=false (#2275)"
+grep -q 'TRUEPPM_DB_TRANSACTION_POOLING' <<<"$pgb_off_render" \
+  && fail "TRUEPPM_DB_TRANSACTION_POOLING set with pgbouncer.enabled=false (#2275)"
+if helm template trueppm "$CHART" --set image.tag=latest --set pgbouncer.enabled=true "${pgb_on[@]:2}" >/dev/null 2>&1; then
+  fail "pgbouncer.enabled with the bundled postgresql rendered — DATABASE_URL would silently bypass the pooler (#2275)"
+fi
+# Each required key refuses the render on its own.
+pgb_need() { # $1 = key to omit
+  helm template trueppm "$CHART" "${pgb_base[@]}" --set pgbouncer.enabled=true \
+    --set pgbouncer.upstream.host=db.example --set pgbouncer.upstream.database=trueppm \
+    --set pgbouncer.auth.existingSecret=pgb-auth --set "$1=" >/dev/null 2>&1
+}
+for key in pgbouncer.upstream.host pgbouncer.upstream.database pgbouncer.auth.existingSecret; do
+  if pgb_need "$key"; then
+    fail "pgbouncer.enabled rendered with $key empty (#2275)"
+  fi
+done
+pgb_on_render="$(helm template trueppm "$CHART" "${pgb_base[@]}" "${pgb_on[@]}")"
+grep -q 'edoburu/pgbouncer@sha256:' <<<"$pgb_on_render" \
+  || fail "pgbouncer image is not pinned by digest (#2275)"
+[ "$(grep -c 'name: TRUEPPM_DB_TRANSACTION_POOLING' <<<"$pgb_on_render")" = "3" ] \
+  || fail "pgbouncer.enabled must set TRUEPPM_DB_TRANSACTION_POOLING on exactly api, worker and beat (#2275)"
+grep -q "connect_query='SET jit = off'" <<<"$pgb_on_render" \
+  || fail "PgBouncer config lost the per-connection 'SET jit = off' (#3829 behind a pooler)"
+grep -q 'pool_mode = transaction' <<<"$pgb_on_render" \
+  || fail "PgBouncer is not in transaction pooling mode by default (#2275)"
+# Both client-TLS postures. Off (no pgbouncer.tls.existingSecret): no client_tls_*
+# and no TLS volume, so the pooled URL must use sslmode=prefer — `require` fails
+# "server does not support SSL" (docs: sizing, TLS on the pooled connection).
+# On: client_tls_sslmode=require with the Secret's cert/key mounted where the
+# config points, so a pooled URL with sslmode=require connects.
+grep -q 'client_tls_' <<<"$pgb_on_render" \
+  && fail "PgBouncer configures client TLS with no pgbouncer.tls.existingSecret (#2275)"
+pgb_tls_render="$(helm template trueppm "$CHART" "${pgb_base[@]}" "${pgb_on[@]}" --set pgbouncer.tls.existingSecret=pgb-tls)"
+for want in 'client_tls_sslmode = require' 'client_tls_cert_file = /etc/pgbouncer-tls/tls.crt' 'client_tls_key_file = /etc/pgbouncer-tls/tls.key'; do
+  grep -qF "$want" <<<"$pgb_tls_render" || fail "pgbouncer.tls.existingSecret set but the PgBouncer config lacks '$want' (#2275)"
+done
+pgb_tls_mount="$(yq 'select(.kind == "Deployment" and .metadata.labels["app.kubernetes.io/component"] == "pgbouncer") | (.spec.template.spec.volumes[] | select(.name == "tls") | .secret.secretName) + "@" + (.spec.template.spec.containers[0].volumeMounts[] | select(.name == "tls") | .mountPath)' <<<"$pgb_tls_render")"
+[ "$pgb_tls_mount" = "pgb-tls@/etc/pgbouncer-tls" ] \
+  || fail "PgBouncer Deployment does not mount pgbouncer.tls.existingSecret at /etc/pgbouncer-tls (got '$pgb_tls_mount') (#2275)"
+# NetworkPolicy: with networkPolicy on (the default) PgBouncer admits exactly the
+# postgresql policy's datastore clients on 6432, and nothing renders when it is off.
+# One yq pass per question over the whole stream, then drop blank and `---`
+# lines: older yq (v4.35.2, the --self-test shim) emits a separator for every
+# document select() skips (#3147).
+pgb_np_q() { yq "select(.kind == \"NetworkPolicy\" and .metadata.name == \"trueppm-pgbouncer\") | $1" <<<"$pgb_on_render" | grep -vx -e '---' -e '' || true; }
+pgb_np_port="$(pgb_np_q '.spec.ingress[0].ports[0].port')"
+[ -n "$pgb_np_port" ] || fail "pgbouncer.enabled rendered no PgBouncer NetworkPolicy (#2275)"
+[ "$pgb_np_port" = "6432" ] \
+  || fail "PgBouncer NetworkPolicy does not scope ingress to 6432 (#2275)"
+pgb_np_from="$(pgb_np_q '.spec.ingress[0].from[].podSelector.matchLabels["app.kubernetes.io/component"]' | sort | tr '\n' ' ')"
+[ "$pgb_np_from" = "api backup celery-beat celery-worker demo-seed " ] \
+  || fail "PgBouncer NetworkPolicy admits '$pgb_np_from', want the datastore clients api backup celery-beat celery-worker demo-seed (#2275)"
+pgb_np_heavy="$(helm template trueppm "$CHART" "${pgb_base[@]}" "${pgb_on[@]}" --set heavyWorker.enabled=true \
+  | yq 'select(.kind == "NetworkPolicy" and .metadata.name == "trueppm-pgbouncer") | .spec.ingress[0].from[].podSelector.matchLabels["app.kubernetes.io/component"]')"
+grep -qx 'celery-worker-heavy' <<<"$pgb_np_heavy" \
+  || fail "heavyWorker.enabled with pgbouncer: the heavy worker is not admitted to PgBouncer (#2275, #2276)"
+pgb_np_off="$(helm template trueppm "$CHART" "${pgb_base[@]}" "${pgb_on[@]}" --set networkPolicy.enabled=false \
+  | yq 'select(.kind == "NetworkPolicy") | .metadata.name')"
+grep -qx 'trueppm-pgbouncer' <<<"$pgb_np_off" \
+  && fail "PgBouncer NetworkPolicy rendered with networkPolicy.enabled=false (#2275)"
 echo "helm structure check GREEN:"
 echo "  - init order: migrate -> bootstrap"
 echo "  - operator envFrom secret reaches all $env_checked containers that import settings.prod"
@@ -2618,3 +2728,6 @@ echo "  - web pod template carries checksum/nginx-conf, and it changes when the 
 echo "  - interactive demo edge: the fenced /api/ 403 routes to an internal @demo_read_only location returning the middleware JSON body; share-link and production ConfigMaps carry none of it (#4053)"
 echo "  - values-prod.yaml's Ingress overlay routes /api and /ws to the api Service and / to the web Service, so the SPA stays reachable once the overlay replaces values.yaml's default host list (#4349)"
 echo "  - web readinessProbe.httpGet.path is not '/' (the SPA fallback answers it unconditionally), and all three rendered ConfigMap branches (production, share-link demo, interactive demo) give that path its own non-SPA-falling-back, '=404'-on-a-miss location (#4359)"
+
+echo "  - celery queues (#2276): the default worker consumes --queues=celery,heavy until heavyWorker.enabled splits it (then celery vs heavy, no overlap); the heavy Deployment and the KEDA ScaledObject are absent by default, KEDA needs a redisAddress, and KEDA leaves replicas unset"
+echo "  - pgbouncer (#2275): absent by default; refuses the bundled database and a missing upstream; digest-pinned image, transaction pool_mode, per-connection jit=off; TRUEPPM_DB_TRANSACTION_POOLING set on api/worker/beat only when enabled; no client TLS by default, client_tls_sslmode=require plus the mounted cert/key with pgbouncer.tls.existingSecret; a NetworkPolicy admits only the datastore clients (heavy worker included when enabled) on 6432"

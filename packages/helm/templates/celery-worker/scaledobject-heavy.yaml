@@ -1,0 +1,38 @@
+{{- if and .Values.heavyWorker.enabled .Values.heavyWorker.keda.enabled }}
+{{- /*
+Optional KEDA queue-depth autoscaling for the heavy worker (#2276). The Celery
+Redis transport keeps each queue as a Redis list named after the queue, so list
+length IS the backlog. Requires the KEDA operator (keda.sh/v1alpha1) in the
+cluster. Off by default; the CPU HPA in hpa.yaml targets only the default worker.
+Not supported with Valkey Sentinel: the redis scaler cannot follow a failover.
+*/ -}}
+{{- $keda := .Values.heavyWorker.keda -}}
+{{- if .Values.valkey.sentinel.enabled | default false }}
+  {{- fail "heavyWorker.keda is not supported with Valkey Sentinel (the KEDA redis scaler cannot follow a master failover) — scale heavyWorker.replicas manually or use the CPU HPA" }}
+{{- end }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "trueppm.fullname" . }}-celery-worker-heavy
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: celery-worker-heavy
+spec:
+  scaleTargetRef:
+    name: {{ include "trueppm.fullname" . }}-celery-worker-heavy
+  minReplicaCount: {{ $keda.minReplicaCount }}
+  maxReplicaCount: {{ $keda.maxReplicaCount }}
+  cooldownPeriod: {{ $keda.cooldownPeriod }}
+  triggers:
+    - type: redis
+      metadata:
+        address: {{ required "heavyWorker.keda.redisAddress is required when heavyWorker.keda.enabled (host:port of the broker)" $keda.redisAddress | quote }}
+        listName: "heavy"
+        listLength: {{ $keda.listLength | quote }}
+        databaseIndex: "0"
+        enableTLS: {{ $keda.enableTLS | quote }}
+      {{- with $keda.authenticationRef }}
+      authenticationRef:
+        name: {{ . | quote }}
+      {{- end }}
+{{- end }}

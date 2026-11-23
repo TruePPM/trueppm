@@ -194,6 +194,30 @@ responses too, not just `200`s.
 | `processes.worker.maxTasksPerChild` | `100` | Recycle each prefork child after this many tasks so long-running jobs (workspace export, MS Project import) cannot accumulate RSS for the pod's lifetime. `0` disables recycling. |
 | `processes.worker.extraArgs` | `[]` | Extra `celery worker` flags, appended verbatim and in order — e.g. `["--queues=exports", "--prefetch-multiplier=1"]`. |
 
+### Heavy-queue worker
+
+:::note[Ships in 0.5]
+Queue separation and the `heavyWorker` block ship in 0.5. In 0.4 every task shares one queue and one worker Deployment.
+:::
+
+Long-running tasks (MS Project, Jira and CSV import; project, program and workspace export; Monte Carlo; CPM recalculation) are routed to a `heavy` queue. Everything else (outbox drains, notification and invite email, webhook delivery, purges) stays on the default `celery` queue. A stock install runs **one** worker that consumes both (`--queues=celery,heavy`), so nothing changes until you split them.
+
+| Key | Default | What it does |
+|---|---|---|
+| `heavyWorker.enabled` | `false` | Render a second worker Deployment (`<release>-celery-worker-heavy`) consuming only `heavy`. The default worker then consumes only `celery`. Adds a matching PodDisruptionBudget (when `podDisruptionBudget.enabled`) and NetworkPolicy coverage. |
+| `heavyWorker.replicas` | `1` | Fixed replica count. Ignored while `heavyWorker.keda.enabled`. |
+| `heavyWorker.concurrency` | `2` | Pinned prefork pool size, same rule as `processes.worker.concurrency`. Must be at least 1. |
+| `heavyWorker.maxTasksPerChild` | `10` | Recycle children quickly; imports and exports hold large buffers. |
+| `heavyWorker.extraArgs` | `[]` | Extra `celery worker` flags, appended verbatim. |
+| `resources.heavyWorker` | `resources.worker` | Optional resource override for the heavy pod. Give it the memory headroom, not the default worker. |
+| `heavyWorker.keda.enabled` | `false` | Render a KEDA `ScaledObject` that scales the heavy worker on the length of the `heavy` Redis list. Needs the [KEDA](https://keda.sh) operator installed. Not supported with `valkey.sentinel.enabled`. |
+| `heavyWorker.keda.redisAddress` | `""` | `host:port` of the broker as KEDA reaches it. Required when KEDA is enabled. |
+| `heavyWorker.keda.authenticationRef` | `""` | Name of a `TriggerAuthentication` holding the broker password (parameter `password`). |
+| `heavyWorker.keda.listLength` | `5` | Target backlog per replica. |
+| `heavyWorker.keda.minReplicaCount` / `maxReplicaCount` / `cooldownPeriod` | `1` / `4` / `300` | Scaling bounds and scale-in delay in seconds. |
+
+The CPU HPA (`autoscaling.worker.enabled`) targets only the default worker. If you run your own `celery worker` outside this chart, pass `--queues=celery,heavy` (or `heavy` on a dedicated one); a worker started with no `--queues` consumes only the default queue and heavy tasks would wait forever. To keep a single queue everywhere, set `TRUEPPM_CELERY_HEAVY_QUEUE=celery` on the API and workers. `celery` is the only supported value: the chart's worker commands hardcode `celery,heavy`, so any other queue name would route tasks to a queue no stock worker consumes.
+
 ## Ingress
 
 Off by default — the ingress class, hostnames, and certificate source are
@@ -487,7 +511,7 @@ instead and carry no WebSocket traffic either way. Whether that production
 api Service, bypassing the web pod's nginx entirely; this directive matters
 on a topology that instead routes `/ws` through the web tier (no Ingress, or
 one configured to do so). On such a topology, the base image
-(`nginx-unprivileged`) stops on `SIGQUIT` — a graceful shutdown that, with no
+(Red Hat UBI nginx) stops on `SIGQUIT` — a graceful shutdown that, with no
 bound, waits for open connections to close on their own — so a terminating
 pod with live WebSocket viewers held those sockets open until the full
 termination grace ran out and Kubernetes SIGKILLed it. Either way the client

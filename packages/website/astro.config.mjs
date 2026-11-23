@@ -304,7 +304,7 @@ export default defineConfig({
             // `check-version-status.sh` badge/documentedFor pairing reds if a
             // badge lingers past its version's promotion to Shipped.
             //
-            { slug: "getting-started/installation" },
+            { slug: "getting-started/installation", badge: { text: "0.5", variant: "caution" } },
             { slug: "getting-started/quickstart" },
             { slug: "getting-started/bring-your-plan-in", badge: { text: "0.5", variant: "caution" } },
             { slug: "getting-started/waterfall-day-one" },

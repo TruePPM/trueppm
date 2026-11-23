@@ -1,0 +1,21 @@
+{{- if .Values.heavyWorker.enabled }}
+{{- /*
+Optional dedicated worker for the "heavy" queue (#2276): MS Project / Jira / CSV
+import, project / program / workspace export, Monte Carlo, CPM recalculation.
+Splitting it out means a burst of imports queues behind other imports instead of
+in front of the outbox drains and notification email. Replica count is owned by
+KEDA (queue depth) when heavyWorker.keda.enabled, else by heavyWorker.replicas.
+*/ -}}
+{{- $replicas := .Values.heavyWorker.replicas -}}
+{{- if .Values.heavyWorker.keda.enabled -}}
+  {{- $replicas = "" -}}
+{{- end -}}
+{{- include "trueppm.celeryWorkerDeployment" (dict
+      "root" .
+      "suffix" "-heavy"
+      "label" "heavyWorker"
+      "cfg" .Values.heavyWorker
+      "resources" (.Values.resources.heavyWorker | default .Values.resources.worker)
+      "queues" "heavy"
+      "replicas" $replicas) }}
+{{- end }}

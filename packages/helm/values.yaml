@@ -707,6 +707,102 @@ processes:
     # order after the flags above — e.g. ["--queues=exports", "--prefetch-multiplier=1"].
     extraArgs: []
 
+# PgBouncer connection pooler (#2275). OFF by default. The API holds one server
+# connection per in-flight request (ATOMIC_REQUESTS), so PostgreSQL connections
+# grow with replicaCount x processes.api.workers (+ worker concurrency); past a
+# few replicas max_connections is the first wall. Enabling this renders a
+# transaction-pooling PgBouncer Deployment + Service in front of an EXTERNAL
+# PostgreSQL (postgresql.enabled=false is required). The chart does not rewrite
+# DATABASE_URL: set env.DATABASE_URL to the `<release>-trueppm-pgbouncer:6432`
+# Service and env.DATABASE_DIRECT_URL to the real database (migrate_locked takes
+# its session advisory lock there; a pooler cannot hold one). The chart sets
+# TRUEPPM_DB_TRANSACTION_POOLING=true for you, which turns off server-side
+# cursors and enables connection health checks. The connection math and a
+# managed-pooler alternative (RDS Proxy etc.) are in the sizing guide.
+# https://docs.trueppm.com/administration/sizing/#database-connections
+pgbouncer:
+  enabled: false
+  image:
+    repository: edoburu/pgbouncer
+    tag: ""
+    # PgBouncer 1.26.1 (ISC). Pinned by digest, not by the mutable `latest` tag.
+    digest: sha256:8638aa563607256d3c7440437534195f1066a92b68015d89ae9d6b935b444a6d
+  replicas: 2
+  # transaction pooling is what multiplexes connections. `session` is accepted
+  # for diagnosis only: it pools nothing a persistent connection does not.
+  poolMode: transaction
+  # Server connections per (database, user) pair, PER pgbouncer replica.
+  defaultPoolSize: 20
+  maxClientConn: 500
+  upstream:
+    host: ""
+    port: 5432
+    database: ""
+    sslmode: require
+  auth:
+    # Secret carrying PgBouncer's auth file (userlist.txt: lines of
+    # "user" "SCRAM-SHA-256$..." or "user" "plaintext-password"). Required.
+    existingSecret: ""
+    userlistKey: userlist.txt
+  # TLS on the app -> PgBouncer hop. Empty (the default) means PgBouncer accepts
+  # only PLAINTEXT from the app: the pooled DATABASE_URL must then carry
+  # sslmode=prefer (or disable), because sslmode=require fails with "server does
+  # not support SSL". Name a kubernetes.io/tls Secret here (e.g. one cert-manager
+  # issues for <release>-trueppm-pgbouncer) to require TLS from every client;
+  # the pooled URL then carries sslmode=require. The PgBouncer -> database hop
+  # is upstream.sslmode and is independent of this.
+  # https://docs.trueppm.com/administration/sizing/#tls-on-the-pooled-connection
+  tls:
+    existingSecret: ""
+    certKey: tls.crt
+    keyKey: tls.key
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+# Dedicated heavy-queue worker (#2276). OFF by default: a stock install runs ONE
+# worker Deployment that consumes both queues (`--queues=celery,heavy`), exactly
+# the old single-queue behavior. Enable this to give the long-running tasks —
+# MS Project / Jira / CSV import, project / program / workspace export, Monte
+# Carlo, CPM recalculation — their own worker, so a burst of imports cannot sit in
+# front of outbox drains and notification email. When enabled, the default worker
+# (processes.worker, resources.worker, replicaCount) consumes only the light
+# "celery" queue and this one consumes only "heavy". Queue names are fixed; they
+# match settings/base.py's CELERY_TASK_ROUTES.
+# https://docs.trueppm.com/administration/helm-values/#heavy-queue-worker
+heavyWorker:
+  enabled: false
+  # Fixed replica count; ignored when keda.enabled (KEDA then owns it).
+  replicas: 1
+  # Pinned for the same reason as processes.worker.concurrency (#2571). Must be >= 1.
+  concurrency: 2
+  # Imports and exports hold large parse buffers; recycle children aggressively.
+  maxTasksPerChild: 10
+  extraArgs: []
+  # Queue-depth autoscaling through KEDA (https://keda.sh) — scales on the
+  # length of the Redis list that IS the heavy queue, which CPU never sees while
+  # tasks wait. Needs the KEDA operator installed; not supported with
+  # valkey.sentinel. Resources come from resources.heavyWorker, falling back to
+  # resources.worker.
+  keda:
+    enabled: false
+    # host:port of the broker as the KEDA operator reaches it, e.g.
+    # "my-release-valkey.ns.svc:6379". Required when enabled.
+    redisAddress: ""
+    # Name of a KEDA TriggerAuthentication in this namespace carrying the broker
+    # password (parameter `password`). Empty for a passwordless broker.
+    authenticationRef: ""
+    enableTLS: false
+    # Target backlog per replica: scale out when more than this many heavy tasks wait.
+    listLength: 5
+    minReplicaCount: 1
+    maxReplicaCount: 4
+    cooldownPeriod: 300
+
 # Default resource requests/limits for the API and Celery worker containers.
 # Tune for your workload; these are conservative single-team defaults.
 # https://docs.trueppm.com/administration/sizing/
@@ -1368,7 +1464,7 @@ env:
 # See administration/security "Rotating secrets without downtime".
 #
 # The API image bundles the S3 backend, so those two keys suffice on AWS S3
-# (credentials resolve via IRSA / instance profile). For MinIO, SeaweedFS, or
+# (credentials resolve via IRSA / instance profile). For SeaweedFS, MinIO, or
 # another non-AWS endpoint also set TRUEPPM_S3_ENDPOINT_URL,
 # TRUEPPM_S3_ADDRESSING_STYLE=path, and TRUEPPM_S3_ACCESS_KEY_ID /
 # TRUEPPM_S3_SECRET_ACCESS_KEY -- scoped to the attachments bucket, not the
@@ -1683,7 +1779,7 @@ backup:
   outputDir: /backups
   # Include the local media/attachment directory in the artifact. Only relevant
   # when attachments are on a local PVC (TRUEPPM_ALLOW_LOCAL_ATTACHMENT_STORAGE);
-  # with object storage (S3/MinIO/SeaweedFS) the bucket is backed up by the object store and
+  # with object storage (S3/SeaweedFS/MinIO) the bucket is backed up by the object store and
   # this should stay empty. Set it to persistence.media.mountPath (default
   # /var/lib/trueppm/media) and mount that same claim read-only through
   # extraVolumes / extraVolumeMounts below.
@@ -1735,7 +1831,7 @@ backup:
     enabled: false
     bucket: ""
     # S3-compatible endpoint. Leave empty for real AWS S3 (the region below
-    # selects the endpoint). Set it for MinIO, SeaweedFS, and friends — when it is set, the
+    # selects the endpoint). Set it for SeaweedFS, MinIO, and friends — when it is set, the
     # upload forces path-style addressing, because a self-hosted object store is
     # normally reached by IP or by a single hostname with no wildcard DNS, and
     # virtual-hosted-style requests would resolve to nothing.

@@ -1,6 +1,7 @@
 ---
 title: OpenShift Deployment
 description: Running the TruePPM Helm chart on OpenShift — what already satisfies the restricted-v2 SCC, the values you must override, Ingress-to-Route conversion, and what does not work today.
+documentedFor: "0.5"
 ---
 
 This page audits the TruePPM Helm chart (`packages/helm/`) against OpenShift's
@@ -64,9 +65,13 @@ verbatim — one override, every pod. `values.schema.json` leaves both keys as a
 open `object` (they are rendered wholesale with `toYaml`), so this is not
 rejected by schema validation either.
 
+:::note[Ships in 0.5]
+The Red Hat UBI 9 base images described in the next paragraph ship in 0.5. The 0.4.0 web image is `nginxinc/nginx-unprivileged` (`USER 101`) and the 0.4.0 API image is built on `python:3.11-slim`. The argument is the same for both: OpenShift's injected `runAsUser` overrides the image's `USER` either way.
+:::
+
 **Why the images themselves do not block this.** The API image
 (`packages/api/Dockerfile`) bakes `USER trueppm` (a named uid-1000 account) and
-the web image uses `nginxinc/nginx-unprivileged` (`USER 101`), but neither
+the web image uses Red Hat UBI nginx (`USER 1001`, group 0), but neither
 Dockerfile's `USER` line matters once OpenShift injects a pod-level
 `runAsUser`: Kubernetes' `securityContext.runAsUser` always overrides an image's
 `USER` directive. What the arbitrary UID actually needs is **read** access to

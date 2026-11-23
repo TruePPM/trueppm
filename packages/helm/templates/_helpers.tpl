@@ -419,6 +419,7 @@ topologySpreadConstraints:
 {{ include "trueppm.envVars" . }}
 {{ include "trueppm.connectionEnv" . }}
 {{ include "trueppm.datastoreSecurityEnv" . }}
+{{ include "trueppm.poolingEnv" . }}
 {{ include "trueppm.mediaEnv" . }}
 {{ include "trueppm.observabilityEnv" . }}
 {{ include "trueppm.loggingEnv" . }}
@@ -744,6 +745,19 @@ backups only, silently, on the one workload nobody watches until a restore.
   valueFrom:
     secretKeyRef:
       {{- include "trueppm.connectionSecretRef" (dict "root" . "var" "DATABASE_URL" "external" (include "trueppm.databaseUrlIsExternalRef" .)) | nindent 6 }}
+{{- end -}}
+
+{{/*
+Transaction-pooling switch (#2275). Emitted only when the chart's own PgBouncer is
+enabled; an operator fronting the database with a managed pooler (RDS Proxy ...)
+sets env.TRUEPPM_DB_TRANSACTION_POOLING themselves, which trueppm.envVars renders,
+so this stays silent then and no duplicate key is emitted.
+*/}}
+{{- define "trueppm.poolingEnv" -}}
+{{- if and .Values.pgbouncer.enabled (not (hasKey .Values.env "TRUEPPM_DB_TRANSACTION_POOLING")) }}
+- name: TRUEPPM_DB_TRANSACTION_POOLING
+  value: "true"
+{{- end }}
 {{- end -}}
 
 {{/*

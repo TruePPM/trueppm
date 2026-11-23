@@ -223,7 +223,7 @@ def build_and_store_archive(job_id: str) -> tuple[str, int]:
     """Build the full-workspace ``.tar.gz`` and store it; return (storage path, bytes).
 
     The archive is assembled on local disk (the tar streams to a temp file and
-    each table streams into the tar) then handed to ``default_storage`` so S3/MinIO
+    each table streams into the tar) then handed to ``default_storage`` so S3/SeaweedFS
     and FileSystemStorage are both supported.
     """
     from trueppm_api.apps.workspace.models import Workspace
