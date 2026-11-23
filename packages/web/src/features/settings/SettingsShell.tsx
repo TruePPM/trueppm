@@ -19,6 +19,18 @@ import { SettingsSectionErrorBoundary } from './SettingsSectionErrorBoundary';
 import { settingsDocsSlug } from './settingsDocs';
 import { docsUrl } from '../../lib/docsUrl';
 import { formatRelative } from '../../lib/formatRelative';
+import { useFeatureFlag } from '../../lib/featureFlags';
+import { FOCUS_RING, PAGE_BUTTON } from '../../components/page2/classes';
+
+/**
+ * The shell v2 client flag (`?ff=shell_v2`). Mirrors `SHELL_V2_FLAG` in
+ * `features/shell2/ShellGate.tsx`, which is not imported here: that module pulls
+ * both app shells into every settings page's import graph.
+ */
+const SHELL_V2 = 'shell_v2';
+
+/** Where the Personal segment of the v2 scope switch goes (`/me/settings/*` has no rail of its own). */
+export const PERSONAL_SETTINGS_PATH = '/me/settings/general';
 
 export type { SettingsContextOption } from './SettingsContextSwitcher';
 
@@ -275,6 +287,7 @@ export function SettingsShell({
   // below it — conditional render, not a CSS `hidden`, so only one set of scope
   // and context controls exists in the DOM at a time (issue 539).
   const isMobile = useBreakpoint() === 'sm';
+  const v2 = useFeatureFlag(SHELL_V2);
 
   const dirty = useSettingsSaveStore((s) => s.dirty);
   const isSaving = useSettingsSaveStore((s) => s.isSaving);
@@ -284,6 +297,14 @@ export function SettingsShell({
   const savedSectionCount = useSettingsSaveStore((s) => s.savedSectionIds.length);
   const unsavedSectionCount = useSettingsSaveStore(
     (s) => Object.values(s.sections).filter((e) => e.dirty).length,
+  );
+  // Ids of the sections with unsaved edits, joined so the selector returns a
+  // primitive (a fresh array per call would re-render on every store write).
+  const dirtySectionKey = useSettingsSaveStore((s) =>
+    Object.entries(s.sections)
+      .filter(([, e]) => e.dirty)
+      .map(([id]) => id)
+      .join('\u0000'),
   );
   // Name the failed section only when it has a real heading to name. A standalone
   // surface (DEFAULT_SECTION_KEY) or a section without a rendered heading would
@@ -569,7 +590,7 @@ export function SettingsShell({
       >
         {/* Scope switcher + context selector */}
         <div className="px-3.5 pt-3 pb-2 shrink-0 space-y-2">
-          <ScopeSwitcher scope={scope} scopeLinks={scopeLinks} onNavigate={navGuarded} />
+          <ScopeSwitcher scope={scope} scopeLinks={scopeLinks} onNavigate={navGuarded} v2={v2} />
           <ContextRow
             scope={scope}
             contextName={contextName}
@@ -821,7 +842,7 @@ export function SettingsShell({
             </svg>
             Back to {exitLabel}
           </button>
-          <ScopeSwitcher scope={scope} scopeLinks={scopeLinks} onNavigate={navGuarded} />
+          <ScopeSwitcher scope={scope} scopeLinks={scopeLinks} onNavigate={navGuarded} v2={v2} />
           <ContextRow
             scope={scope}
             contextName={contextName}
@@ -911,7 +932,40 @@ export function SettingsShell({
         )}
 
         {/* Save bar — armed when any section reports dirty=true. */}
-        {dirty && (
+        {dirty && v2 && (
+          <div
+            data-testid="settings-save-bar"
+            className="shrink-0 flex flex-wrap items-center gap-x-3 gap-y-2 px-4 md:px-6 py-2.5 bg-p1-surface-2 border-t border-p1-hairline-strong motion-safe:animate-save-bar-slide"
+          >
+            <span
+              className="text-[13px] font-medium text-p1-text-1"
+              role={failureSectionTitle ? undefined : 'status'}
+            >
+              {failureSectionTitle
+                ? saveFailureSummary(failureSectionTitle, savedSectionCount, unsavedSectionCount)
+                : (saveError ?? dirtySummary(dirtySectionKey))}
+            </span>
+            <div className="flex-1" />
+            <button
+              type="button"
+              onClick={triggerDiscard}
+              disabled={isSaving}
+              className={`h-9 px-3 rounded-control text-[13px] text-p1-text-2 hover:text-p1-text-1 [@media(pointer:coarse)]:h-11 max-md:h-11 disabled:cursor-not-allowed disabled:opacity-60 ${FOCUS_RING}`}
+            >
+              Discard
+            </button>
+            <button
+              type="button"
+              onClick={() => void triggerSave()}
+              disabled={isSaving}
+              aria-keyshortcuts="Meta+S Control+S"
+              className={`h-9 px-3.5 rounded-control bg-p1-brand text-p1-on-brand text-[13px] font-semibold hover:bg-p1-brand-hover disabled:opacity-60 ${PAGE_BUTTON} ${FOCUS_RING}`}
+            >
+              {isSaving ? 'Saving…' : 'Save changes'}
+            </button>
+          </div>
+        )}
+        {dirty && !v2 && (
           <div className="shrink-0 flex items-center gap-3 px-6 py-2.5 bg-brand-primary border-t border-brand-primary-dark motion-safe:animate-save-bar-slide">
             <svg
               width="14"
@@ -973,17 +1027,25 @@ function ScopeSwitcher({
   scope,
   scopeLinks,
   onNavigate,
+  v2 = false,
 }: {
   scope: 'workspace' | 'project' | 'program';
   scopeLinks: SettingsScopeLink[];
   onNavigate: (to: string) => void;
+  /** Shell v2: adds the Personal segment and the Pass 2 target + ring treatment. */
+  v2?: boolean;
 }) {
   // Segments a program/project scope can NEVER apply to (System Health,
   // Observability, Trash) are hidden, not shown disabled (#2251). If hiding
   // collapses the switcher to a single scope, render a static identity label
   // rather than a lone segmented "tab" (which reads as a broken control and, as
   // a one-item tablist, confuses screen readers).
-  const visible = scopeLinks.filter((sl) => !sl.hidden);
+  const visibleLinks = scopeLinks.filter((sl) => !sl.hidden);
+  // Shell v2 puts Personal first. It is a segment, not a scope of this shell:
+  // /me/settings/* are flat pages with their own subnav, so it only navigates.
+  const visible: Array<Omit<SettingsScopeLink, 'scope'> & { scope: string }> = v2
+    ? [{ scope: 'personal', label: 'Personal', to: PERSONAL_SETTINGS_PATH }, ...visibleLinks]
+    : visibleLinks;
   const soleScope = visible.length <= 1 ? (visible[0] ?? scopeLinks.find((sl) => sl.scope === scope)) : null;
 
   return (
@@ -1020,7 +1082,9 @@ function ScopeSwitcher({
                 }}
                 className={[
                   'py-1.5 px-1 rounded-control text-xs font-medium text-center transition-colors',
-                  'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
+                  v2
+                    ? `[@media(pointer:coarse)]:min-h-11 max-md:min-h-11 ${FOCUS_RING}`
+                    : 'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
                   isActive
                     ? 'bg-neutral-surface text-neutral-text-primary'
                     : isDisabled
@@ -1156,6 +1220,20 @@ function settingsHeadingId(sectionId: string): string {
 /** Visible title of a section, read from its rendered heading (falls back to the id). */
 function sectionTitle(sectionId: string): string {
   return document.getElementById(settingsHeadingId(sectionId))?.textContent?.trim() || sectionId;
+}
+
+/** Save-bar line naming what changed: "Unsaved changes in General and Members". */
+function dirtySummary(key: string): string {
+  const titles = key
+    .split('\u0000')
+    .filter(Boolean)
+    .map((id) => (id === DEFAULT_SECTION_KEY ? 'this page' : sectionTitle(id)));
+  if (titles.length === 0) return 'You have unsaved changes';
+  const list =
+    titles.length === 1
+      ? titles[0]
+      : `${titles.slice(0, -1).join(', ')} and ${titles[titles.length - 1]}`;
+  return `Unsaved changes in ${list}`;
 }
 
 /** Save-bar line after a run stopped partway: which section failed and what landed. */
@@ -1546,6 +1624,7 @@ interface FieldRowProps {
  * associated with the control rather than being merely adjacent text.
  */
 export function FieldRow({ label, hint, help, children, error, errorId }: FieldRowProps) {
+  const v2 = useFeatureFlag(SHELL_V2);
   // Generate ids unconditionally (hooks can't be called conditionally), then
   // only surface the ones whose nodes actually render — a control must never
   // `aria-describedby` an id that isn't in the DOM.
@@ -1579,7 +1658,14 @@ export function FieldRow({ label, hint, help, children, error, errorId }: FieldR
           </div>
         )}
       </div>
-      <div className="min-w-0">
+      <div
+        className={
+          v2
+            ? // Pass 2: control column capped at 420px; text inputs 36px, 44px on touch.
+              'min-w-0 max-w-[420px] [&_input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file])]:min-h-9 [&_select]:min-h-9 [@media(pointer:coarse)]:[&_input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file])]:min-h-11 [@media(pointer:coarse)]:[&_select]:min-h-11 max-md:[&_input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file])]:min-h-11 max-md:[&_select]:min-h-11 [&_input:focus-visible]:ring-2 [&_input:focus-visible]:ring-p1-focus'
+            : 'min-w-0'
+        }
+      >
         {content}
         {error && (
           <p id={resolvedErrorId} role="alert" className="mt-1 text-[12px] text-semantic-critical">

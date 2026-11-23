@@ -96,6 +96,12 @@ The same affordance appears throughout the
 
 ---
 
+## Settings under the new shell
+
+:::note[Ships in 0.5]
+With the new shell turned on (`?ff=shell_v2`), settings keeps every page and every setting it has today and changes how they look and behave. The scope switch at the top of the settings navigation gains a **Personal** segment beside Workspace, Program and Project. Form rows keep a 240px label column with a hint and cap the control at 420px, and toggles write their state in words ("Enabled"). A **save bar** appears only while something is unsaved and names the sections that changed; **Cmd/Ctrl+S** saves, and leaving with unsaved changes asks first. In the current release these pages use the existing settings layout.
+:::
+
 ## General (`/settings/general`)
 
 ### Fields

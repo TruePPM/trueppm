@@ -310,6 +310,7 @@ These rules are enforced at review time. Violations block merge.
 459. **A canvas Gantt label that would overdraw an arrowhead, a through-passing arrow segment, or another label is suppressed — never truncated or moved; labels are the lowest paint priority.** → [rule](../../docs/design/invariants/459-gantt-labels-yield-to-arrows.md)
 460. **A canvas baseline mark is a halo behind the live bar, and the legend names it only while it is drawn.** → [rule](../../docs/design/invariants/460-a-canvas-baseline-mark-is-a-halo-behind-the-bar-and-the-legend-names-it-only-while-drawn.md)
 461. **A disclosure on a `role="radio"` card is a sibling of the radio inside a shared box, never inside it, and its Tab stop rides the group's roving index; arrows rove from the radios and toggles but NOT from the scrollable list.** → [rule](../../docs/design/invariants/461-a-disclosure-on-a-radio-card-is-a-sibling-of-the-radio-on-its-roving-stop.md)
+462. **On shell v2 the settings save bar appears only when dirty, names the dirty sections, saves on Cmd/Ctrl+S and guards exits with `ConfirmDiscardDialog`; archiving a project is confirmed by typing its code.** → [rule](../../docs/design/invariants/462-shell-v2-settings-save-bar-and-archive-confirmation.md)
 
 ---
 

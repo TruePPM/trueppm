@@ -1,3 +1,6 @@
+import { useFeatureFlag } from '../../../lib/featureFlags';
+import { FOCUS_RING } from '../../../components/page2/classes';
+
 export interface ToggleProps {
   on: boolean;
   onChange: (on: boolean) => void;
@@ -44,6 +47,8 @@ export function Toggle({
   softDisabled = false,
 }: ToggleProps) {
   const label = on ? onLabel : offLabel;
+  // Shell v2: 36x20 track inside a 44px target; the state is always written out.
+  const v2 = useFeatureFlag('shell_v2');
   return (
     <button
       type="button"
@@ -59,14 +64,16 @@ export function Toggle({
         onChange(!on);
       }}
       className={[
-        'inline-flex items-center gap-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded disabled:opacity-60 disabled:cursor-not-allowed',
+        v2
+          ? `inline-flex min-h-11 items-center gap-2.5 rounded disabled:opacity-60 disabled:cursor-not-allowed ${FOCUS_RING}`
+          : 'inline-flex items-center gap-2.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 rounded disabled:opacity-60 disabled:cursor-not-allowed',
         softDisabled ? 'opacity-60 cursor-not-allowed' : '',
         busy ? 'opacity-70 cursor-progress' : '',
       ].join(' ')}
     >
       <span
         className={[
-          'relative w-8 h-[18px] rounded-full border transition-colors shrink-0',
+          v2 ? 'relative w-9 h-5 rounded-full border transition-colors shrink-0' : 'relative w-8 h-[18px] rounded-full border transition-colors shrink-0',
           on
             ? 'bg-brand-primary border-brand-primary-dark'
             : 'bg-neutral-surface-sunken border-neutral-border',
@@ -74,8 +81,9 @@ export function Toggle({
       >
         <span
           className={[
-            'absolute top-[2px] w-3 h-3 rounded-full bg-white transition-[left] duration-150',
-            on ? 'left-[14px]' : 'left-[2px]',
+            'absolute top-[2px] rounded-full bg-white transition-[left] duration-150',
+            v2 ? 'w-4 h-4' : 'w-3 h-3',
+            on ? (v2 ? 'left-[18px]' : 'left-[14px]') : 'left-[2px]',
           ].join(' ')}
         />
       </span>
