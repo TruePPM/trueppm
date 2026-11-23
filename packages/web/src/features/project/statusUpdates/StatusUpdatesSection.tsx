@@ -1,3 +1,4 @@
+import { mintIdempotencyKey } from '../../../lib/mintIdempotencyKey';
 import { useId, useRef, useState } from 'react';
 import { Banner } from '@/components/page2/Banner';
 import { FOCUS_RING } from '@/components/page2/classes';
@@ -67,7 +68,7 @@ export function StatusUpdateComposer({
   const wide = useMinWidth(640);
   const post = usePostStatusUpdate(projectId);
   // One key per draft: stable across retries of the same call, new once the content changes.
-  const idempotencyKey = useRef<string>(crypto.randomUUID());
+  const idempotencyKey = useRef<string | null>(null);
   const narrativeId = useId();
   const counterId = useId();
   const band = asHealthBand(computedBand);
@@ -78,17 +79,17 @@ export function StatusUpdateComposer({
     if (next.rag !== undefined) setRag(next.rag);
     if (next.narrative !== undefined) setNarrative(next.narrative);
     saveDraft(projectId, userId, { rag: r, narrative: n });
-    idempotencyKey.current = crypto.randomUUID();
+    idempotencyKey.current = null;
   };
 
   const submit = () => {
     if (!rag || !online) return;
     setFailed(false);
     post.mutate(
-      { rag, narrative, idempotencyKey: idempotencyKey.current },
+      { rag, narrative, idempotencyKey: (idempotencyKey.current ??= mintIdempotencyKey()) },
       {
         onSuccess: () => {
-          idempotencyKey.current = crypto.randomUUID();
+          idempotencyKey.current = null;
           clearDraft(projectId, userId);
           onClose();
         },
