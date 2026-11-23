@@ -7628,7 +7628,15 @@ class TaskReorderSerializer(serializers.Serializer[Any]):
         ambiguous gaps in the WBS sequence.
     """
 
-    parent_path = serializers.CharField(allow_blank=True, default="")
+    # Labels are positional integers (_build_wbs_path), so a path is digits joined by
+    # dots. An unvalidated string reaches ltree casts and an f-string regex in the
+    # view: "\x1b" raised a Postgres ltree syntax error, which surfaced as a 500.
+    parent_path = serializers.RegexField(
+        r"^(\d+(\.\d+)*)?$",
+        allow_blank=True,
+        default="",
+        error_messages={"invalid": "parent_path must be dot-separated integers, e.g. 1.2."},
+    )
     ordered_ids = serializers.ListField(
         child=serializers.UUIDField(),
         min_length=1,

@@ -1496,10 +1496,8 @@ AUTH_ONLY_PERMISSION_CLASSES: frozenset[str] = frozenset(
 _P = "api/v1/projects/<project_pk>/tasks/<task_pk>"
 AUTH_ONLY_BODY_CHECK_ENTRIES: dict[str, str] = {
     "api/v1/^task-relations/$::create": "TaskRelationViewSet.perform_create: source",
-    f"{_P}/labels/::post": "TaskLabelView: resolved task",
-    f"{_P}/labels/::delete": "TaskLabelView: resolved task",
-    f"{_P}/labels/<label_id>/::post": "TaskLabelView: resolved task",
-    f"{_P}/labels/<label_id>/::delete": "TaskLabelView: resolved task",
+    f"{_P}/labels/::post": "TaskLabelAttachView/TaskLabelDetachView: resolved task",
+    f"{_P}/labels/<label_id>/::delete": "TaskLabelAttachView/TaskLabelDetachView: resolved task",
     f"{_P}/field-values/<field_id>/::put": "TaskCustomFieldValueView: resolved task",
     f"{_P}/field-values/<field_id>/::delete": "TaskCustomFieldValueView: resolved task",
     "api/v1/tasks/<uuid:task_pk>/time-entries/::post": "timetracking TaskTimeEntryView: task",

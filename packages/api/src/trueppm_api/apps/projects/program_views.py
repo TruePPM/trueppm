@@ -2180,7 +2180,9 @@ class ProgramViewSet(
         summary="Download a bundled demo sample's JSON seed file",
         responses={
             200: OpenApiResponse(
-                response=OpenApiTypes.BINARY,
+                # The body IS JSON (served `application/json`), so declaring it
+                # `string/binary` made every real response fail schema validation.
+                response=OpenApiTypes.OBJECT,
                 description=(
                     "The exact committed fixture bytes, as a JSON file attachment. "
                     "`ETag` is the same SHA-256 the catalog advertises."
