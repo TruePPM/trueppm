@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
+import type { KeyboardEvent } from 'react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@/test/utils';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -139,7 +140,7 @@ describe('TemplateOutlineDisclosure (#3084)', () => {
   });
 
   it('keeps arrow keys for scrolling: the roving handler above never sees them', async () => {
-    const roving = vi.fn((e: React.KeyboardEvent) => e.preventDefault());
+    const roving = vi.fn((e: KeyboardEvent) => e.preventDefault());
     renderWithProviders(
       // Stand-in for the gallery radiogroup, which preventDefaults arrows for any target.
       // eslint-disable-next-line jsx-a11y/no-static-element-interactions

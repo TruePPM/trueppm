@@ -256,6 +256,7 @@ export function TemplateOutlineDisclosure({
           </p>
         )}
         {open && data && (
+          // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- focusable scroll region (tabIndex); the handler only stops key bubbling
           <ol
             aria-label={`Rows ${templateName} writes`}
             // Scrolls past ~12 rows, and a scroll region a keyboard cannot reach
