@@ -7,7 +7,9 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router';
+import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
 import { DefinitionTip } from '@/components/page2/DefinitionTip';
 import { PageFrame } from '@/components/page2/PageFrame';
 import { PageTitle } from '@/components/page2/PageTitle';
@@ -58,17 +60,13 @@ function Popover({
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (root.current && !root.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [open]);
+  const { triggerRef, popoverRef, popoverStyle } = useAnchoredPopover<
+    HTMLButtonElement,
+    HTMLDivElement
+  >({ open, width: 224, estimatedHeight: 140, align, onDismiss: () => setOpen(false) });
   return (
-    // The key handler only routes keys that bubble up from the menu's own buttons.
+    // The key handler only routes keys that bubble up from the menu's own buttons
+    // (React bubbles through the portal, so the panel's keys reach it too).
     // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <div
       ref={root}
@@ -77,11 +75,11 @@ function Popover({
         if (e.key === 'Escape' && open) {
           e.stopPropagation();
           setOpen(false);
-          trigger.current?.focus();
+          triggerRef.current?.focus();
         }
         if (open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
           const items = [
-            ...(root.current?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? []),
+            ...(popoverRef.current?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? []),
           ];
           const i = items.indexOf(document.activeElement as HTMLElement);
           const next = e.key === 'ArrowDown' ? i + 1 : i - 1;
@@ -91,7 +89,7 @@ function Popover({
       }}
     >
       <button
-        ref={trigger}
+        ref={triggerRef}
         type="button"
         className={TOOL}
         aria-haspopup="menu"
@@ -101,15 +99,20 @@ function Popover({
       >
         {label}
       </button>
-      {open && (
-        <div
-          role="menu"
-          aria-label={ariaLabel}
-          className={`absolute top-full z-30 mt-1 max-h-[min(70vh,24rem)] min-w-56 overflow-y-auto rounded-md border border-p1-hairline bg-p1-surface-1 p-1 shadow-pop ${align === 'right' ? 'right-0' : 'left-0'}`}
-        >
-          {children}
-        </div>
-      )}
+      {open &&
+        popoverStyle &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            role="menu"
+            aria-label={ariaLabel}
+            style={popoverStyle}
+            className="z-30 overflow-y-auto rounded-md border border-p1-hairline bg-p1-surface-1 p-1 shadow-pop"
+          >
+            {children}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
