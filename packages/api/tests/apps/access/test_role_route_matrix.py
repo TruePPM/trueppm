@@ -773,10 +773,8 @@ ROLE_GATE_EXEMPT_ENTRIES: frozenset[str] = frozenset(
         "POST api/v1/integrations/projects/<uuid:project_pk>/git-webhook/::post",
         "DELETE api/v1/projects/<project_pk>/tasks/<task_pk>/field-values/<field_id>/::delete",
         "PUT api/v1/projects/<project_pk>/tasks/<task_pk>/field-values/<field_id>/::put",
-        "DELETE api/v1/projects/<project_pk>/tasks/<task_pk>/labels/::delete",
         "POST api/v1/projects/<project_pk>/tasks/<task_pk>/labels/::post",
         "DELETE api/v1/projects/<project_pk>/tasks/<task_pk>/labels/<label_id>/::delete",
-        "POST api/v1/projects/<project_pk>/tasks/<task_pk>/labels/<label_id>/::post",
     }
 )
 

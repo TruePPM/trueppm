@@ -119,7 +119,8 @@ from trueppm_api.apps.projects.views import (
     TaskGroupView,
     TaskHistoryView,
     TaskIndentView,
-    TaskLabelView,
+    TaskLabelAttachView,
+    TaskLabelDetachView,
     TaskNoteViewSet,
     TaskOutdentView,
     TaskRecurrenceRuleViewSet,
@@ -365,12 +366,12 @@ urlpatterns = [
     # ... and idempotent attach/detach of a label to a task (never a replace-set PATCH).
     path(
         "projects/<project_pk>/tasks/<task_pk>/labels/",
-        TaskLabelView.as_view(),
+        TaskLabelAttachView.as_view(),
         name="project-task-labels-attach",
     ),
     path(
         "projects/<project_pk>/tasks/<task_pk>/labels/<label_id>/",
-        TaskLabelView.as_view(),
+        TaskLabelDetachView.as_view(),
         name="project-task-labels-detach",
     ),
     # Idempotent set/clear of a typed custom-field value on a task (#2143, ADR-0528).

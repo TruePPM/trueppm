@@ -233,10 +233,8 @@ POST /api/v1/projects/{project_pk}/tasks/{task_pk}/comments/{id}/acknowledge/
 DELETE /api/v1/projects/{project_pk}/tasks/{task_pk}/field-values/{field_id}/
 PUT /api/v1/projects/{project_pk}/tasks/{task_pk}/field-values/{field_id}/
 GET /api/v1/projects/{project_pk}/tasks/{task_pk}/history/
-DELETE /api/v1/projects/{project_pk}/tasks/{task_pk}/labels/
 POST /api/v1/projects/{project_pk}/tasks/{task_pk}/labels/
 DELETE /api/v1/projects/{project_pk}/tasks/{task_pk}/labels/{label_id}/
-POST /api/v1/projects/{project_pk}/tasks/{task_pk}/labels/{label_id}/
 GET /api/v1/projects/{project_pk}/tasks/{task_pk}/links/
 POST /api/v1/projects/{project_pk}/tasks/{task_pk}/links/
 DELETE /api/v1/projects/{project_pk}/tasks/{task_pk}/links/{id}/
@@ -335,10 +333,6 @@ GET /api/v1/workspace/export/
 POST /api/v1/workspace/export/
 GET /api/v1/workspace/export/{job_id}/
 GET /api/v1/workspace/export/{job_id}/download/
-DELETE /api/v1/workspace/groups/{group_id}/members/
-POST /api/v1/workspace/groups/{group_id}/members/{user_id}/
-DELETE /api/v1/workspace/groups/{group_id}/projects/
-POST /api/v1/workspace/groups/{group_id}/projects/{project_id}/
 POST /api/v1/workspace/invites/resend-all/
 POST /api/v1/workspace/invites/{invite_id}/resend/
 DELETE /api/v1/workspace/logo/

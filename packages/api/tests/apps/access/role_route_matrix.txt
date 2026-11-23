@@ -35,6 +35,7 @@
 -++++++  DELETE api/v1/^acceptance-criteria/(?P<pk>[^/.]+)/$::destroy
 -------  DELETE api/v1/^calendars/(?P<pk>[^/.]+)/$::destroy
 -++++++  DELETE api/v1/^dependencies/(?P<pk>[^/.]+)/$::destroy
+-++++++  DELETE api/v1/^me/timesheets/(?P<week_start>[^/]+)/submit/?$::delete
 -++++++  DELETE api/v1/^programs/(?P<pk>[^/.]+)/$::destroy
 -++++++  DELETE api/v1/^programs/(?P<pk>[^/.]+)/pin/$::pin
 -----++  DELETE api/v1/^programs/(?P<program_pk>[^/.]+)/webhooks/(?P<pk>[^/.]+)/$::destroy
@@ -55,7 +56,6 @@
 -++++++  DELETE api/v1/me/connections/<slug:source>/::delete
 -++++++  DELETE api/v1/me/credentials/<slug:provider>/::destroy
 -++++++  DELETE api/v1/me/time-entries/<uuid:pk>/::delete
--++++++  DELETE api/v1/^me/timesheets/(?P<week_start>[^/]+)/submit/?$::delete
 -----++  DELETE api/v1/programs/<program_pk>/api-tokens/<pk>/::destroy
 ---++++  DELETE api/v1/programs/<program_pk>/backlog-items/<pk>/::destroy
 -----++  DELETE api/v1/programs/<program_pk>/ceremonies/<pk>/::destroy
@@ -75,7 +75,6 @@
 ---++++  DELETE api/v1/projects/<project_pk>/tasks/<task_pk>/comments/<pk>/::destroy
 ---++++  DELETE api/v1/projects/<project_pk>/tasks/<task_pk>/comments/<pk>/acknowledge/::acknowledge
 -++++++  DELETE api/v1/projects/<project_pk>/tasks/<task_pk>/field-values/<field_id>/::delete
--++++++  DELETE api/v1/projects/<project_pk>/tasks/<task_pk>/labels/::delete
 -++++++  DELETE api/v1/projects/<project_pk>/tasks/<task_pk>/labels/<label_id>/::delete
 ---++++  DELETE api/v1/projects/<project_pk>/tasks/<task_pk>/links/<pk>/::destroy
 ---++++  DELETE api/v1/projects/<project_pk>/tasks/<task_pk>/notes/<pk>/::destroy
@@ -85,9 +84,7 @@
 -++++++  DELETE api/v1/sprints/<pk>/::destroy
 -------  DELETE api/v1/workspace/::delete
 -------  DELETE api/v1/workspace/groups/<uuid:group_id>/::delete
--------  DELETE api/v1/workspace/groups/<uuid:group_id>/members/::delete
 -------  DELETE api/v1/workspace/groups/<uuid:group_id>/members/<int:user_id>/::delete
--------  DELETE api/v1/workspace/groups/<uuid:group_id>/projects/::delete
 -------  DELETE api/v1/workspace/groups/<uuid:group_id>/projects/<uuid:project_id>/::delete
 -------  DELETE api/v1/workspace/invites/<uuid:invite_id>/::delete
 -------  DELETE api/v1/workspace/logo/::delete
@@ -429,6 +426,9 @@
 -++++++  POST api/v1/^dependencies/$::create
 -++++++  POST api/v1/^dependencies/(?P<pk>[^/.]+)/accept/$::accept
 -++++++  POST api/v1/^dependencies/(?P<pk>[^/.]+)/reject/$::reject
+-++++++  POST api/v1/^me/timer/start/?$::post
+-++++++  POST api/v1/^me/timer/stop/?$::post
+-++++++  POST api/v1/^me/timesheets/(?P<week_start>[^/]+)/submit/?$::post
 -++++++  POST api/v1/^paste-many-operations/(?P<pk>[^/.]+)/undo/$::undo
 -++++++  POST api/v1/^programs/$::create
 -++++++  POST api/v1/^programs/(?P<pk>[^/.]+)/bulk-project-fields/$::bulk_project_fields
@@ -437,6 +437,7 @@
 -++++++  POST api/v1/^programs/(?P<pk>[^/.]+)/pin/$::pin
 -++++++  POST api/v1/^programs/(?P<pk>[^/.]+)/remove-sample/$::remove_sample
 -++++++  POST api/v1/^programs/(?P<pk>[^/.]+)/reopen/$::reopen
+-++++++  POST api/v1/^programs/(?P<pk>[^/.]+)/restore/$::restore
 -++++++  POST api/v1/^programs/(?P<pk>[^/.]+)/shift-sample-dates/$::shift_sample_dates
 -++++++  POST api/v1/^programs/(?P<pk>[^/.]+)/split/$::split
 -++++++  POST api/v1/^programs/(?P<pk>[^/.]+)/transfer-sponsorship/$::transfer_sponsorship
@@ -446,7 +447,6 @@
 -++++++  POST api/v1/^programs/import/$::import_seed
 -++++++  POST api/v1/^programs/import/validate/$::validate_import
 -++++++  POST api/v1/^programs/load-sample/$::load_sample
--++++++  POST api/v1/^programs/(?P<pk>[^/.]+)/restore/$::restore
 -++++++  POST api/v1/^project-resources/$::create
 -++++++  POST api/v1/^project-templates/(?P<pk>[^/.]+)/apply/$::apply
 -++++++  POST api/v1/^project-templates/publish/$::publish
@@ -499,9 +499,6 @@
 -++++++  POST api/v1/me/notification-preferences/apply-preset/::apply_preset
 -++++++  POST api/v1/me/notifications/<uuid:pk>/snooze/::snooze
 -++++++  POST api/v1/me/notifications/mark-all-read/::mark_all_read
--++++++  POST api/v1/^me/timer/start/?$::post
--++++++  POST api/v1/^me/timer/stop/?$::post
--++++++  POST api/v1/^me/timesheets/(?P<week_start>[^/]+)/submit/?$::post
 -++++++  POST api/v1/poker/<pk>/cancel/::post
 -++++++  POST api/v1/poker/<pk>/commit/::post
 -++++++  POST api/v1/poker/<pk>/reopen/::post
@@ -559,7 +556,6 @@
 ---++++  POST api/v1/projects/<project_pk>/tasks/<task_pk>/comments/<comment_pk>/reactions/::create
 ---++++  POST api/v1/projects/<project_pk>/tasks/<task_pk>/comments/<pk>/acknowledge/::acknowledge
 -++++++  POST api/v1/projects/<project_pk>/tasks/<task_pk>/labels/::post
--++++++  POST api/v1/projects/<project_pk>/tasks/<task_pk>/labels/<label_id>/::post
 ---++++  POST api/v1/projects/<project_pk>/tasks/<task_pk>/links/::create
 --+++++  POST api/v1/projects/<project_pk>/tasks/<task_pk>/links/<pk>/refresh/::refresh
 ---++++  POST api/v1/projects/<project_pk>/tasks/<task_pk>/notes/::create
@@ -604,9 +600,7 @@
 -------  POST api/v1/workspace/export/::post
 -------  POST api/v1/workspace/groups/::post
 -------  POST api/v1/workspace/groups/<uuid:group_id>/members/::post
--------  POST api/v1/workspace/groups/<uuid:group_id>/members/<int:user_id>/::post
 -------  POST api/v1/workspace/groups/<uuid:group_id>/projects/::post
--------  POST api/v1/workspace/groups/<uuid:group_id>/projects/<uuid:project_id>/::post
 -------  POST api/v1/workspace/invites/::post
 -------  POST api/v1/workspace/invites/<uuid:invite_id>/resend/::post
 +++++++  POST api/v1/workspace/invites/accept/::post

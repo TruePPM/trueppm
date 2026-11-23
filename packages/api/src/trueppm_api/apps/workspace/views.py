@@ -1629,6 +1629,42 @@ class GroupProjectView(SessionOnlyWritesMixin, IdempotencyMixin, APIView):
 # ---------------------------------------------------------------------------
 
 
+# The Add/Remove subclasses narrow the verbs: a bare ``GroupMemberView`` answered both
+# verbs on both routes, so ``DELETE .../members/`` and ``POST .../members/{user_id}/``
+# died with a ``TypeError`` (500) on the missing/unexpected kwarg. Narrowing makes the
+# wrong verb a 405 and keeps the published schema to the operations that exist (as
+# ``TaskLabelAttachView`` does). The docstrings below are published as each operation's
+# description, so they stay user-facing.
+class GroupMemberAddView(GroupMemberView):
+    """Add a user to the group."""
+
+    http_method_names = ["post", "options"]
+
+
+class GroupMemberRemoveView(GroupMemberView):
+    """Remove a user from the group."""
+
+    http_method_names = ["delete", "options"]
+
+
+class GroupProjectAddView(GroupProjectView):
+    """Link the group to a project.
+
+    Confers the chosen role on every group member via the cascade (ADR-0087 §5).
+    """
+
+    http_method_names = ["post", "options"]
+
+
+class GroupProjectRemoveView(GroupProjectView):
+    """Unlink the group from a project.
+
+    Withdraws the role it conferred on every group member via the cascade (ADR-0087 §5).
+    """
+
+    http_method_names = ["delete", "options"]
+
+
 class TransferOwnershipView(IdempotencyMixin, APIView):
     """POST /api/v1/workspace/transfer-ownership/ — hand the workspace to a member.
 

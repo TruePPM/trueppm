@@ -888,6 +888,10 @@ pytest tests/benchmarks/bench_engine.py --benchmark-only --benchmark-json=bench.
 
 ## Status and roadmap
 
+What the test suites check, and what they do not, is laid out in the
+[scheduler conformance and verification](https://docs.trueppm.com/architecture/scheduler-conformance/)
+page — the oracle coverage matrix, the shapes the reference refuses, and the fuzzing budgets.
+
 **0.4 — the current release.** The CPM pass (all four dependency types,
 calendar-day lag snapped to working days, cycle detection) and Monte Carlo simulation (PERT-Beta,
 velocity sampling, `derive_value()` explainability) are stable and exercised

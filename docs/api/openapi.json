@@ -19199,8 +19199,8 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "string",
-                                    "format": "binary"
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },
@@ -38824,7 +38824,7 @@
         "/api/v1/projects/{project_pk}/tasks/{task_pk}/labels/": {
             "post": {
                 "operationId": "v1_projects_tasks_labels_create",
-                "description": "Idempotent attach/detach of a label to a task (ADR-0400 §D4).\n\nDeliberately NOT a replace-set PATCH: attaching label X and detaching label Y\nare commutative single-row operations, so two concurrent clients toggling\n*different* labels never clobber each other (the lost-update race a replace-set\n``label_ids`` PATCH would carry — Nadia's 🔴). ``unique(task, label)`` makes a\nduplicate attach a no-op. Both operations bump ``Task.server_version`` (only when\nthe set actually changed) so the WS ``task_updated`` broadcast and the sync-delta\nreconcile; the pull carries the flat ``label_ids`` array (SyncTaskSerializer).\n\nAssignment is a *task edit*, not vocabulary management, so it is gated by the\nsame ``IsProjectMemberWriteOrOwn`` predicate the task write endpoints use — a\nMember may label their own editable tasks; a Viewer cannot. Label writes stay\nhuman-only (no MCP token guard) until the 0.6 agent write surface (ADR-0186).\n\nRefusal posture (#3657): a non-member gets **404** whether or not the task id is\nreal — the lookup is membership-scoped, so existence is never leaked. A member who\nlacks write authority on the task (Viewer, or a Member on someone else's task) gets\n**403**, because their task resolves and only the role check refuses them.",
+                "description": "Idempotent attach of a label to a task (ADR-0400 §D4); ``POST .../labels/`` only.\n\nA bare ``TaskLabelView`` answered every method on both\nlabel routes, so ``POST .../labels/{id}/`` died with a ``TypeError`` (500) on the\nunexpected ``label_id`` kwarg; narrowing the verbs makes the wrong one a 405 and keeps\nthe published schema to the operations that exist.",
                 "summary": "Attach a label to a task",
                 "parameters": [
                     {
@@ -38963,94 +38963,6 @@
                                     },
                                     "additionalProperties": {
                                         "$ref": "#/components/schemas/ValidationErrorDetail"
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "422": {
-                        "$ref": "#/components/responses/IdempotencyKeyConflict"
-                    }
-                }
-            },
-            "delete": {
-                "operationId": "v1_projects_tasks_labels_destroy",
-                "description": "Idempotent attach/detach of a label to a task (ADR-0400 §D4).\n\nDeliberately NOT a replace-set PATCH: attaching label X and detaching label Y\nare commutative single-row operations, so two concurrent clients toggling\n*different* labels never clobber each other (the lost-update race a replace-set\n``label_ids`` PATCH would carry — Nadia's 🔴). ``unique(task, label)`` makes a\nduplicate attach a no-op. Both operations bump ``Task.server_version`` (only when\nthe set actually changed) so the WS ``task_updated`` broadcast and the sync-delta\nreconcile; the pull carries the flat ``label_ids`` array (SyncTaskSerializer).\n\nAssignment is a *task edit*, not vocabulary management, so it is gated by the\nsame ``IsProjectMemberWriteOrOwn`` predicate the task write endpoints use — a\nMember may label their own editable tasks; a Viewer cannot. Label writes stay\nhuman-only (no MCP token guard) until the 0.6 agent write surface (ADR-0186).\n\nRefusal posture (#3657): a non-member gets **404** whether or not the task id is\nreal — the lookup is membership-scoped, so existence is never leaked. A member who\nlacks write authority on the task (Viewer, or a Member on someone else's task) gets\n**403**, because their task resolves and only the role check refuses them.",
-                "summary": "Detach a label from a task",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "project_pk",
-                        "schema": {
-                            "type": "string",
-                            "format": "uuid"
-                        },
-                        "required": true
-                    },
-                    {
-                        "in": "path",
-                        "name": "task_pk",
-                        "schema": {
-                            "type": "string",
-                            "format": "uuid"
-                        },
-                        "required": true
-                    },
-                    {
-                        "in": "header",
-                        "name": "Idempotency-Key",
-                        "required": false,
-                        "schema": {
-                            "type": "string",
-                            "maxLength": 255
-                        },
-                        "description": "Optional client-generated key (a UUIDv4 is recommended) that makes a retry of this request safe: a retry with the same key and a byte-identical request replays the stored response instead of repeating the write. Scoped per authenticated user. Reusing a key for a different request is refused with ``422``. See the Idempotency guide."
-                    }
-                ],
-                "tags": [
-                    "tasks"
-                ],
-                "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
-                    {
-                        "jwtAuth": []
-                    },
-                    {
-                        "cookieAuth": []
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "Detached (idempotent)",
-                        "headers": {
-                            "Idempotent-Replay": {
-                                "description": "``true`` when this response is a replay of the stored response for the request's ``Idempotency-Key``; absent on a first execution.",
-                                "schema": {
-                                    "type": "string",
-                                    "example": "true"
-                                }
-                            }
-                        }
-                    },
-                    "403": {
-                        "description": "Caller is a project member but lacks write authority on this task (Viewer, or a Member on someone else's task)."
-                    },
-                    "404": {
-                        "description": "No such task, or the caller is not a member of its project — the two are deliberately indistinguishable (#3657)."
-                    },
-                    "429": {
-                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string",
-                                            "example": "Request was throttled. Expected available in 42 seconds."
-                                        }
                                     }
                                 }
                             }
@@ -39063,168 +38975,9 @@
             }
         },
         "/api/v1/projects/{project_pk}/tasks/{task_pk}/labels/{label_id}/": {
-            "post": {
-                "operationId": "v1_projects_tasks_labels_create_2",
-                "description": "Idempotent attach/detach of a label to a task (ADR-0400 §D4).\n\nDeliberately NOT a replace-set PATCH: attaching label X and detaching label Y\nare commutative single-row operations, so two concurrent clients toggling\n*different* labels never clobber each other (the lost-update race a replace-set\n``label_ids`` PATCH would carry — Nadia's 🔴). ``unique(task, label)`` makes a\nduplicate attach a no-op. Both operations bump ``Task.server_version`` (only when\nthe set actually changed) so the WS ``task_updated`` broadcast and the sync-delta\nreconcile; the pull carries the flat ``label_ids`` array (SyncTaskSerializer).\n\nAssignment is a *task edit*, not vocabulary management, so it is gated by the\nsame ``IsProjectMemberWriteOrOwn`` predicate the task write endpoints use — a\nMember may label their own editable tasks; a Viewer cannot. Label writes stay\nhuman-only (no MCP token guard) until the 0.6 agent write surface (ADR-0186).\n\nRefusal posture (#3657): a non-member gets **404** whether or not the task id is\nreal — the lookup is membership-scoped, so existence is never leaked. A member who\nlacks write authority on the task (Viewer, or a Member on someone else's task) gets\n**403**, because their task resolves and only the role check refuses them.",
-                "summary": "Attach a label to a task",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "label_id",
-                        "schema": {
-                            "type": "string"
-                        },
-                        "required": true
-                    },
-                    {
-                        "in": "path",
-                        "name": "project_pk",
-                        "schema": {
-                            "type": "string",
-                            "format": "uuid"
-                        },
-                        "required": true
-                    },
-                    {
-                        "in": "path",
-                        "name": "task_pk",
-                        "schema": {
-                            "type": "string",
-                            "format": "uuid"
-                        },
-                        "required": true
-                    },
-                    {
-                        "in": "header",
-                        "name": "Idempotency-Key",
-                        "required": false,
-                        "schema": {
-                            "type": "string",
-                            "maxLength": 255
-                        },
-                        "description": "Optional client-generated key (a UUIDv4 is recommended) that makes a retry of this request safe: a retry with the same key and a byte-identical request replays the stored response instead of repeating the write. Scoped per authenticated user. Reusing a key for a different request is refused with ``422``. See the Idempotency guide."
-                    }
-                ],
-                "tags": [
-                    "tasks"
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/TaskLabelAttachRequestRequest"
-                            }
-                        },
-                        "application/x-www-form-urlencoded": {
-                            "schema": {
-                                "$ref": "#/components/schemas/TaskLabelAttachRequestRequest"
-                            }
-                        },
-                        "multipart/form-data": {
-                            "schema": {
-                                "$ref": "#/components/schemas/TaskLabelAttachRequestRequest"
-                            }
-                        }
-                    },
-                    "required": true
-                },
-                "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
-                    {
-                        "jwtAuth": []
-                    },
-                    {
-                        "cookieAuth": []
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "array",
-                                    "items": {
-                                        "$ref": "#/components/schemas/TaskLabelChip"
-                                    }
-                                }
-                            }
-                        },
-                        "description": "",
-                        "headers": {
-                            "Idempotent-Replay": {
-                                "description": "``true`` when this response is a replay of the stored response for the request's ``Idempotency-Key``; absent on a first execution.",
-                                "schema": {
-                                    "type": "string",
-                                    "example": "true"
-                                }
-                            }
-                        }
-                    },
-                    "403": {
-                        "description": "Caller is a project member but lacks write authority on this task (Viewer, or a Member on someone else's task)."
-                    },
-                    "404": {
-                        "description": "No such task, or the caller is not a member of its project — the two are deliberately indistinguishable (#3657)."
-                    },
-                    "429": {
-                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string",
-                                            "example": "Request was throttled. Expected available in 42 seconds."
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
-                                                }
-                                            ],
-                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
-                                            "example": "Request body must be a JSON object."
-                                        },
-                                        "code": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
-                                                }
-                                            ],
-                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
-                                            "example": "invalid_body"
-                                        }
-                                    },
-                                    "additionalProperties": {
-                                        "$ref": "#/components/schemas/ValidationErrorDetail"
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "422": {
-                        "$ref": "#/components/responses/IdempotencyKeyConflict"
-                    }
-                }
-            },
             "delete": {
-                "operationId": "v1_projects_tasks_labels_destroy_2",
-                "description": "Idempotent attach/detach of a label to a task (ADR-0400 §D4).\n\nDeliberately NOT a replace-set PATCH: attaching label X and detaching label Y\nare commutative single-row operations, so two concurrent clients toggling\n*different* labels never clobber each other (the lost-update race a replace-set\n``label_ids`` PATCH would carry — Nadia's 🔴). ``unique(task, label)`` makes a\nduplicate attach a no-op. Both operations bump ``Task.server_version`` (only when\nthe set actually changed) so the WS ``task_updated`` broadcast and the sync-delta\nreconcile; the pull carries the flat ``label_ids`` array (SyncTaskSerializer).\n\nAssignment is a *task edit*, not vocabulary management, so it is gated by the\nsame ``IsProjectMemberWriteOrOwn`` predicate the task write endpoints use — a\nMember may label their own editable tasks; a Viewer cannot. Label writes stay\nhuman-only (no MCP token guard) until the 0.6 agent write surface (ADR-0186).\n\nRefusal posture (#3657): a non-member gets **404** whether or not the task id is\nreal — the lookup is membership-scoped, so existence is never leaked. A member who\nlacks write authority on the task (Viewer, or a Member on someone else's task) gets\n**403**, because their task resolves and only the role check refuses them.",
+                "operationId": "v1_projects_tasks_labels_destroy",
+                "description": "Idempotent detach of a label from a task (ADR-0400 §D4).\n\n``DELETE .../labels/{label_id}/`` only (see :class:`TaskLabelAttachView`).",
                 "summary": "Detach a label from a task",
                 "parameters": [
                     {
@@ -56597,7 +56350,7 @@
         "/api/v1/workspace/groups/{group_id}/members/": {
             "post": {
                 "operationId": "v1_workspace_groups_members_create",
-                "description": "POST/DELETE /api/v1/workspace/groups/{id}/members/[{user_id}/] (#519).",
+                "description": "Add a user to the group.",
                 "parameters": [
                     {
                         "in": "path",
@@ -56757,286 +56510,12 @@
                     }
                 },
                 "summary": "Create member"
-            },
-            "delete": {
-                "operationId": "v1_workspace_groups_members_destroy",
-                "description": "POST/DELETE /api/v1/workspace/groups/{id}/members/[{user_id}/] (#519).",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "group_id",
-                        "schema": {
-                            "type": "string",
-                            "format": "uuid"
-                        },
-                        "required": true
-                    },
-                    {
-                        "in": "header",
-                        "name": "Idempotency-Key",
-                        "required": false,
-                        "schema": {
-                            "type": "string",
-                            "maxLength": 255
-                        },
-                        "description": "Optional client-generated key (a UUIDv4 is recommended) that makes a retry of this request safe: a retry with the same key and a byte-identical request replays the stored response instead of repeating the write. Scoped per authenticated user. Reusing a key for a different request is refused with ``422``. See the Idempotency guide."
-                    }
-                ],
-                "tags": [
-                    "workspace"
-                ],
-                "security": [
-                    {
-                        "jwtAuth": []
-                    },
-                    {
-                        "cookieAuth": []
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No response body",
-                        "headers": {
-                            "Idempotent-Replay": {
-                                "description": "``true`` when this response is a replay of the stored response for the request's ``Idempotency-Key``; absent on a first execution.",
-                                "schema": {
-                                    "type": "string",
-                                    "example": "true"
-                                }
-                            }
-                        }
-                    },
-                    "429": {
-                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string",
-                                            "example": "Request was throttled. Expected available in 42 seconds."
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "422": {
-                        "$ref": "#/components/responses/IdempotencyKeyConflict"
-                    },
-                    "403": {
-                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string",
-                                            "example": "API tokens cannot manage credentials, sign-in configuration, memberships or workspace exports. Sign in to perform this action."
-                                        },
-                                        "refusal": {
-                                            "type": "object",
-                                            "properties": {
-                                                "verdict": {
-                                                    "type": "string",
-                                                    "example": "refused"
-                                                },
-                                                "reason": {
-                                                    "type": "string",
-                                                    "example": "policy"
-                                                },
-                                                "constraint": {
-                                                    "type": "string",
-                                                    "example": "capability_scope"
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                "summary": "Delete member"
             }
         },
         "/api/v1/workspace/groups/{group_id}/members/{user_id}/": {
-            "post": {
-                "operationId": "v1_workspace_groups_members_create_2",
-                "description": "POST/DELETE /api/v1/workspace/groups/{id}/members/[{user_id}/] (#519).",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "group_id",
-                        "schema": {
-                            "type": "string",
-                            "format": "uuid"
-                        },
-                        "required": true
-                    },
-                    {
-                        "in": "path",
-                        "name": "user_id",
-                        "schema": {
-                            "type": "integer"
-                        },
-                        "required": true
-                    },
-                    {
-                        "in": "header",
-                        "name": "Idempotency-Key",
-                        "required": false,
-                        "schema": {
-                            "type": "string",
-                            "maxLength": 255
-                        },
-                        "description": "Optional client-generated key (a UUIDv4 is recommended) that makes a retry of this request safe: a retry with the same key and a byte-identical request replays the stored response instead of repeating the write. Scoped per authenticated user. Reusing a key for a different request is refused with ``422``. See the Idempotency guide."
-                    }
-                ],
-                "tags": [
-                    "workspace"
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/GroupMemberAddRequest"
-                            }
-                        },
-                        "application/x-www-form-urlencoded": {
-                            "schema": {
-                                "$ref": "#/components/schemas/GroupMemberAddRequest"
-                            }
-                        },
-                        "multipart/form-data": {
-                            "schema": {
-                                "$ref": "#/components/schemas/GroupMemberAddRequest"
-                            }
-                        }
-                    },
-                    "required": true
-                },
-                "security": [
-                    {
-                        "jwtAuth": []
-                    },
-                    {
-                        "cookieAuth": []
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/Group"
-                                }
-                            }
-                        },
-                        "description": "",
-                        "headers": {
-                            "Idempotent-Replay": {
-                                "description": "``true`` when this response is a replay of the stored response for the request's ``Idempotency-Key``; absent on a first execution.",
-                                "schema": {
-                                    "type": "string",
-                                    "example": "true"
-                                }
-                            }
-                        }
-                    },
-                    "429": {
-                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string",
-                                            "example": "Request was throttled. Expected available in 42 seconds."
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
-                                                }
-                                            ],
-                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
-                                            "example": "Request body must be a JSON object."
-                                        },
-                                        "code": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
-                                                }
-                                            ],
-                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
-                                            "example": "invalid_body"
-                                        }
-                                    },
-                                    "additionalProperties": {
-                                        "$ref": "#/components/schemas/ValidationErrorDetail"
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "422": {
-                        "$ref": "#/components/responses/IdempotencyKeyConflict"
-                    },
-                    "403": {
-                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string",
-                                            "example": "API tokens cannot manage credentials, sign-in configuration, memberships or workspace exports. Sign in to perform this action."
-                                        },
-                                        "refusal": {
-                                            "type": "object",
-                                            "properties": {
-                                                "verdict": {
-                                                    "type": "string",
-                                                    "example": "refused"
-                                                },
-                                                "reason": {
-                                                    "type": "string",
-                                                    "example": "policy"
-                                                },
-                                                "constraint": {
-                                                    "type": "string",
-                                                    "example": "capability_scope"
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                "summary": "Update member"
-            },
             "delete": {
-                "operationId": "v1_workspace_groups_members_destroy_2",
-                "description": "POST/DELETE /api/v1/workspace/groups/{id}/members/[{user_id}/] (#519).",
+                "operationId": "v1_workspace_groups_members_destroy",
+                "description": "Remove a user from the group.",
                 "parameters": [
                     {
                         "in": "path",
@@ -57149,7 +56628,7 @@
         "/api/v1/workspace/groups/{group_id}/projects/": {
             "post": {
                 "operationId": "v1_workspace_groups_projects_create",
-                "description": "POST/DELETE /api/v1/workspace/groups/{id}/projects/[{project_id}/] (#519).\n\nLinking a group to a project confers the chosen role on every group member\nvia the cascade (ADR-0087 §5).",
+                "description": "Link the group to a project.\n\nConfers the chosen role on every group member via the cascade (ADR-0087 §5).",
                 "parameters": [
                     {
                         "in": "path",
@@ -57309,287 +56788,12 @@
                     }
                 },
                 "summary": "Create project"
-            },
-            "delete": {
-                "operationId": "v1_workspace_groups_projects_destroy",
-                "description": "POST/DELETE /api/v1/workspace/groups/{id}/projects/[{project_id}/] (#519).\n\nLinking a group to a project confers the chosen role on every group member\nvia the cascade (ADR-0087 §5).",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "group_id",
-                        "schema": {
-                            "type": "string",
-                            "format": "uuid"
-                        },
-                        "required": true
-                    },
-                    {
-                        "in": "header",
-                        "name": "Idempotency-Key",
-                        "required": false,
-                        "schema": {
-                            "type": "string",
-                            "maxLength": 255
-                        },
-                        "description": "Optional client-generated key (a UUIDv4 is recommended) that makes a retry of this request safe: a retry with the same key and a byte-identical request replays the stored response instead of repeating the write. Scoped per authenticated user. Reusing a key for a different request is refused with ``422``. See the Idempotency guide."
-                    }
-                ],
-                "tags": [
-                    "workspace"
-                ],
-                "security": [
-                    {
-                        "jwtAuth": []
-                    },
-                    {
-                        "cookieAuth": []
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No response body",
-                        "headers": {
-                            "Idempotent-Replay": {
-                                "description": "``true`` when this response is a replay of the stored response for the request's ``Idempotency-Key``; absent on a first execution.",
-                                "schema": {
-                                    "type": "string",
-                                    "example": "true"
-                                }
-                            }
-                        }
-                    },
-                    "429": {
-                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string",
-                                            "example": "Request was throttled. Expected available in 42 seconds."
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "422": {
-                        "$ref": "#/components/responses/IdempotencyKeyConflict"
-                    },
-                    "403": {
-                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string",
-                                            "example": "API tokens cannot manage credentials, sign-in configuration, memberships or workspace exports. Sign in to perform this action."
-                                        },
-                                        "refusal": {
-                                            "type": "object",
-                                            "properties": {
-                                                "verdict": {
-                                                    "type": "string",
-                                                    "example": "refused"
-                                                },
-                                                "reason": {
-                                                    "type": "string",
-                                                    "example": "policy"
-                                                },
-                                                "constraint": {
-                                                    "type": "string",
-                                                    "example": "capability_scope"
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                "summary": "Delete project"
             }
         },
         "/api/v1/workspace/groups/{group_id}/projects/{project_id}/": {
-            "post": {
-                "operationId": "v1_workspace_groups_projects_create_2",
-                "description": "POST/DELETE /api/v1/workspace/groups/{id}/projects/[{project_id}/] (#519).\n\nLinking a group to a project confers the chosen role on every group member\nvia the cascade (ADR-0087 §5).",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "group_id",
-                        "schema": {
-                            "type": "string",
-                            "format": "uuid"
-                        },
-                        "required": true
-                    },
-                    {
-                        "in": "path",
-                        "name": "project_id",
-                        "schema": {
-                            "type": "string",
-                            "format": "uuid"
-                        },
-                        "required": true
-                    },
-                    {
-                        "in": "header",
-                        "name": "Idempotency-Key",
-                        "required": false,
-                        "schema": {
-                            "type": "string",
-                            "maxLength": 255
-                        },
-                        "description": "Optional client-generated key (a UUIDv4 is recommended) that makes a retry of this request safe: a retry with the same key and a byte-identical request replays the stored response instead of repeating the write. Scoped per authenticated user. Reusing a key for a different request is refused with ``422``. See the Idempotency guide."
-                    }
-                ],
-                "tags": [
-                    "workspace"
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/GroupProjectWriteRequest"
-                            }
-                        },
-                        "application/x-www-form-urlencoded": {
-                            "schema": {
-                                "$ref": "#/components/schemas/GroupProjectWriteRequest"
-                            }
-                        },
-                        "multipart/form-data": {
-                            "schema": {
-                                "$ref": "#/components/schemas/GroupProjectWriteRequest"
-                            }
-                        }
-                    },
-                    "required": true
-                },
-                "security": [
-                    {
-                        "jwtAuth": []
-                    },
-                    {
-                        "cookieAuth": []
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/Group"
-                                }
-                            }
-                        },
-                        "description": "",
-                        "headers": {
-                            "Idempotent-Replay": {
-                                "description": "``true`` when this response is a replay of the stored response for the request's ``Idempotency-Key``; absent on a first execution.",
-                                "schema": {
-                                    "type": "string",
-                                    "example": "true"
-                                }
-                            }
-                        }
-                    },
-                    "429": {
-                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string",
-                                            "example": "Request was throttled. Expected available in 42 seconds."
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "400": {
-                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
-                                                }
-                                            ],
-                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
-                                            "example": "Request body must be a JSON object."
-                                        },
-                                        "code": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
-                                                }
-                                            ],
-                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
-                                            "example": "invalid_body"
-                                        }
-                                    },
-                                    "additionalProperties": {
-                                        "$ref": "#/components/schemas/ValidationErrorDetail"
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "422": {
-                        "$ref": "#/components/responses/IdempotencyKeyConflict"
-                    },
-                    "403": {
-                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string",
-                                            "example": "API tokens cannot manage credentials, sign-in configuration, memberships or workspace exports. Sign in to perform this action."
-                                        },
-                                        "refusal": {
-                                            "type": "object",
-                                            "properties": {
-                                                "verdict": {
-                                                    "type": "string",
-                                                    "example": "refused"
-                                                },
-                                                "reason": {
-                                                    "type": "string",
-                                                    "example": "policy"
-                                                },
-                                                "constraint": {
-                                                    "type": "string",
-                                                    "example": "capability_scope"
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                "summary": "Update project"
-            },
             "delete": {
-                "operationId": "v1_workspace_groups_projects_destroy_2",
-                "description": "POST/DELETE /api/v1/workspace/groups/{id}/projects/[{project_id}/] (#519).\n\nLinking a group to a project confers the chosen role on every group member\nvia the cascade (ADR-0087 §5).",
+                "operationId": "v1_workspace_groups_projects_destroy",
+                "description": "Unlink the group from a project.\n\nWithdraws the role it conferred on every group member via the cascade (ADR-0087 §5).",
                 "parameters": [
                     {
                         "in": "path",
@@ -70140,7 +69344,6 @@
             "PaginatedTaskList": {
                 "type": "object",
                 "required": [
-                    "count",
                     "results"
                 ],
                 "properties": {
@@ -89578,8 +88781,17 @@
                 "description": "Validate the body for POST /api/v1/projects/{pk}/tasks/reorder/.\n\nAccepts the sibling list for a single WBS parent level and returns the new\nwbs_path for every repositioned task so the frontend can update its cache\nwithout a full refetch.\n\nparent_path: ltree string of the parent task (e.g. \"1.2\") or empty string\n    for the root level.  The server validates that all ordered_ids are\n    live siblings under this parent.\nordered_ids: UUIDs of the siblings in the desired order.  Every live sibling\n    under parent_path must appear — partial lists are rejected to prevent\n    ambiguous gaps in the WBS sequence.",
                 "properties": {
                     "parent_path": {
-                        "type": "string",
-                        "default": ""
+                        "oneOf": [
+                            {
+                                "type": "string",
+                                "default": "",
+                                "pattern": "^(\\d+(\\.\\d+)*)?$"
+                            },
+                            {
+                                "type": "string",
+                                "maxLength": 0
+                            }
+                        ]
                     },
                     "ordered_ids": {
                         "type": "array",

@@ -1,0 +1,9 @@
+# Recorded settings-contract findings -- a ceiling that can only shrink (scripts/check-settings-contract.py, #3248).
+# Format: `<kind> | <key> | <issue> | <reason>`. Kinds: env-undocumented, default-drift, unread-writable.
+# Seeded 2026-11-23 from main so the gate lands green. A SEEDED entry is a grandfathered snapshot,
+# NOT a review: nobody has verified that each one is dead rather than a false positive. Fix the
+# finding (document the variable / wire a reader / correct the default), then drop its line with
+# `python3 scripts/check-settings-contract.py --update-baseline`, which refuses to add.
+# A new line against the merge base fails unless the line above it is `# raise-ok: <reason>`.
+unread-writable | ProjectResource.engaged_from | #5112 | #3840 ADR-0190 Phase 1 shipped the field + serializer validation only; the overlay, roll-off summary and capacity composition that read it are #5112
+unread-writable | ProjectResource.ramp_state | #5112 | #3840 ADR-0190 Phase 1 shipped the field + serializer validation only; the capacity composition that reads it is #5112

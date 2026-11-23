@@ -563,6 +563,7 @@ export default defineConfig({
             { slug: "architecture/rbac" },
             { slug: "architecture/auth" },
             { slug: "architecture/offline-sync" },
+            { slug: "architecture/scheduler-conformance" },
             { slug: "architecture/broadcast-pipeline" },
             { slug: "architecture/decisions" },
             { slug: "architecture/websocket-events" },

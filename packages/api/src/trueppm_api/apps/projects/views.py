@@ -6731,6 +6731,11 @@ class TaskListPagination(ScheduleFetchPagination):
         response_schema["properties"]["count"]["description"] = (
             "Total matching rows. Omitted when `pagination=keyset`."
         )
+        # The description above promised an omission the schema's `required` list then
+        # denied: a keyset response is `{next, previous, results}` and failed validation.
+        required = response_schema.get("required")
+        if required and "count" in required:
+            response_schema["required"] = [name for name in required if name != "count"]
         return response_schema
 
     def get_schema_operation_parameters(self, view: Any) -> list[dict[str, Any]]:
@@ -12573,6 +12578,26 @@ class TaskLabelView(IdempotencyMixin, APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class TaskLabelAttachView(TaskLabelView):
+    """Idempotent attach of a label to a task (ADR-0400 §D4); ``POST .../labels/`` only.
+
+    A bare ``TaskLabelView`` answered every method on both
+    label routes, so ``POST .../labels/{id}/`` died with a ``TypeError`` (500) on the
+    unexpected ``label_id`` kwarg; narrowing the verbs makes the wrong one a 405 and keeps
+    the published schema to the operations that exist."""
+
+    http_method_names = ["post", "options"]
+
+
+class TaskLabelDetachView(TaskLabelView):
+    """Idempotent detach of a label from a task (ADR-0400 §D4).
+
+    ``DELETE .../labels/{label_id}/`` only (see :class:`TaskLabelAttachView`).
+    """
+
+    http_method_names = ["delete", "options"]
+
+
 class TaskCustomFieldValueView(IdempotencyMixin, APIView):
     """Idempotent set/clear of one custom-field value on a task (#2143, ADR-0528).
 
@@ -16580,20 +16605,26 @@ class PhaseViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVie
         self.check_object_permissions(self.request, project)
 
         with transaction.atomic():
-            # Append at the end of the root list — match the convention used by
-            # TaskViewSet.perform_create when no parent_id is supplied.
-            root_count = (
-                Task.objects.select_for_update()
-                .filter(project=project, is_deleted=False, wbs_path__regex=_ROOT_WBS_RE)
-                .count()
-            )
+            # Not `root_count + 1`: that hands out a number a tombstoned or gapped root
+            # still holds, and two concurrent creates both compute it — the deferred
+            # `unique_task_wbs_path_per_project_live` constraint then fails at COMMIT
+            # as a 500. The helper takes the Project lock and reads past tombstones (#3071).
+            #
+            # It runs FIRST, before the cap count: Postgres refuses ``FOR UPDATE`` with an
+            # aggregate, so a ``.count()`` is never locked, and a count taken before the
+            # Project lock let two creates at PHASE_MAX-1 both pass the cap and derive the
+            # same priority_rank. After the lock, a plain count is a fresh READ COMMITTED
+            # snapshot that already includes any earlier creator's committed phase.
+            wbs_path = _next_root_wbs_path(project)
+            root_count = Task.objects.filter(
+                project=project, is_deleted=False, wbs_path__regex=_ROOT_WBS_RE
+            ).count()
             if root_count >= PHASE_MAX:
                 from rest_framework.exceptions import ValidationError as DRFValidationError
 
                 raise DRFValidationError(
                     {"detail": f"A project can have at most {PHASE_MAX} phases."}
                 )
-            wbs_path = str(root_count + 1)
             # priority_rank uses the existing 10-step convention from PhaseReorderView
             # so new phases sit at the bottom of the swim-lane order.
             priority_rank = (root_count + 1) * 10

@@ -125,3 +125,15 @@ status-removed | POST /api/v1/projects/{id}/monte-carlo/ 200 | monte-carlo-run-a
 # #4652 - the Monte Carlo cap refusal moves from 402 (tier: "team") to 400.
 status-removed | POST /api/v1/projects/{id}/monte-carlo/ 402 | monte-carlo-cap-refusal-is-400-not-402-4652 | pricing vocabulary in the OSS contract; no edition has a team tier
 status-removed | GET /api/v1/projects/{id}/monte-carlo/whatif/ 402 | monte-carlo-cap-refusal-is-400-not-402-4652 | same refusal on the what-if endpoint
+
+# #5093 - declaration corrections surfaced by the api:fuzz nightly. The two removed label
+# operations answered 500 on every call (wrong route for the handler); the other two are
+# declarations that never matched the wire.
+endpoint-removed | DELETE /api/v1/projects/{project_pk}/tasks/{task_pk}/labels/ | api-fuzz-declaration-corrections-5093 | the operation answered 500 on every call; detach is DELETE .../labels/{label_id}/
+endpoint-removed | POST /api/v1/projects/{project_pk}/tasks/{task_pk}/labels/{label_id}/ | api-fuzz-declaration-corrections-5093 | the operation answered 500 on every call; attach is POST .../labels/
+became-optional | response #/PaginatedTaskList.count | api-fuzz-declaration-corrections-5093 | a keyset-mode page has never carried count
+type-changed | response GET /api/v1/programs/samples/{key}/download/ 200 | api-fuzz-declaration-corrections-5093 | body was always a JSON object; the declaration said binary string
+endpoint-removed | DELETE /api/v1/workspace/groups/{group_id}/members/ | api-fuzz-declaration-corrections-5093 | the operation answered 500 on every call; remove is DELETE .../members/{user_id}/
+endpoint-removed | POST /api/v1/workspace/groups/{group_id}/members/{user_id}/ | api-fuzz-declaration-corrections-5093 | the operation answered 500 on every call; add is POST .../members/
+endpoint-removed | DELETE /api/v1/workspace/groups/{group_id}/projects/ | api-fuzz-declaration-corrections-5093 | the operation answered 500 on every call; unlink is DELETE .../projects/{project_id}/
+endpoint-removed | POST /api/v1/workspace/groups/{group_id}/projects/{project_id}/ | api-fuzz-declaration-corrections-5093 | the operation answered 500 on every call; link is POST .../projects/

@@ -4454,8 +4454,8 @@ def _create_milestone_for_sprint(
     Any valid ``target_date`` is accepted — ``planned_start`` is a
     start-no-earlier-than floor the existing CPM/project-start guards reconcile.
 
-    Zero duration, appended at the WBS root. The root-count SELECT is locked to
-    stop two concurrent root creates racing to the same ``wbs_path`` — mirrors
+    Zero duration, appended at the WBS root via ``_next_root_wbs_path`` (locked, so two
+    concurrent root creates cannot race to the same ``wbs_path``) — mirrors
     ``TaskViewSet.perform_create``. The caller already holds the sprint row lock.
     """
     from trueppm_api.apps.projects.models import DeliveryMode, Task, TaskStatus
@@ -4463,11 +4463,12 @@ def _create_milestone_for_sprint(
     default_name = (sprint.goal or "").strip() or f"{sprint.name} milestone"
     resolved_name = ((name or "").strip() or default_name)[:255]
     planned_start = target_date or sprint.finish_date
-    root_count = (
-        Task.objects.select_for_update()
-        .filter(project_id=sprint.project_id, is_deleted=False, wbs_path__regex=r"^\d+$")
-        .count()
-    )
+    # Imported here: views imports this module at load time. The shared allocator
+    # reads past tombstones and takes the Project lock; a bare live-root count handed two
+    # concurrent promotes the same path and failed at COMMIT as a 500.
+    from trueppm_api.apps.projects.views import _next_root_wbs_path
+
+    wbs_path = _next_root_wbs_path(sprint.project)
     return Task.objects.create(
         project_id=sprint.project_id,
         name=resolved_name,
@@ -4478,7 +4479,7 @@ def _create_milestone_for_sprint(
         duration=0,
         status=TaskStatus.NOT_STARTED,
         planned_start=planned_start,
-        wbs_path=str(root_count + 1),
+        wbs_path=wbs_path,
     )
 
 
