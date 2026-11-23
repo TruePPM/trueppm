@@ -21,6 +21,10 @@ interface WorkspaceMemberRaw {
   status: 'active' | 'guest' | 'deactivated';
   sso: boolean;
   two_fa: boolean;
+  availability_percent?: number;
+  availability_effective_from?: string | null;
+  availability_effective_to?: string | null;
+  availability_notes?: string;
 }
 
 /** snake_case shape of an invite row from GET /workspace/invites/ */
@@ -53,6 +57,11 @@ function mapMember(raw: WorkspaceMemberRaw): WorkspaceMember {
     status: raw.status,
     sso: raw.sso,
     twoFa: raw.two_fa,
+    // `??` defaults: a client talking to an API that predates #542 sees these absent.
+    availabilityPercent: raw.availability_percent ?? 100,
+    availabilityEffectiveFrom: raw.availability_effective_from ?? null,
+    availabilityEffectiveTo: raw.availability_effective_to ?? null,
+    availabilityNotes: raw.availability_notes ?? '',
   };
 }
 

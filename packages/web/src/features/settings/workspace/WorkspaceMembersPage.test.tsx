@@ -524,6 +524,10 @@ describe('buildMembersCsv — member CSV export (issue 969)', () => {
       status: 'active',
       sso: true,
       twoFa: true,
+      availabilityPercent: 100,
+      availabilityEffectiveFrom: null,
+      availabilityEffectiveTo: null,
+      availabilityNotes: '',
       ...overrides,
     };
   }
@@ -759,6 +763,92 @@ describe('WorkspaceMembersPage — loading state', () => {
     expect(screen.queryByRole('searchbox')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Export CSV' })).not.toBeInTheDocument();
     expect(container.querySelectorAll('.motion-safe\\:animate-pulse')).toHaveLength(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Availability baseline (#542)
+// ---------------------------------------------------------------------------
+
+describe('WorkspaceMembersPage — availability baseline (#542)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupMocks();
+  });
+
+  it('defaults a row from an API that predates the field to 100%', async () => {
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+    expect(
+      await screen.findByRole('button', { name: 'Availability for Anika Krishnan: 100%. Edit' }),
+    ).toBeInTheDocument();
+  });
+
+  it('PATCHes the baseline from the editor and closes it, returning focus to the trigger', async () => {
+    const user = userEvent.setup();
+    patchMock.mockResolvedValue({ data: {} });
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+
+    const trigger = await screen.findByRole('button', { name: /Availability for Anika Krishnan/ });
+    await user.click(trigger);
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    const form = screen.getByRole('form', { name: 'Availability for Anika Krishnan' });
+    const pct = within(form).getByLabelText('Availability (%)');
+    await user.clear(pct);
+    await user.type(pct, '0');
+    await user.type(within(form).getByLabelText('Effective from'), '2026-07-01');
+    await user.type(within(form).getByLabelText('Notes'), 'Leave');
+    await user.click(within(form).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() =>
+      expect(patchMock).toHaveBeenCalledWith('/workspace/members/1/', {
+        availability_percent: 0,
+        availability_effective_from: '2026-07-01',
+        availability_effective_to: null,
+        availability_notes: 'Leave',
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole('form', { name: /Availability for/ })).toBeNull(),
+    );
+    expect(trigger).toHaveFocus();
+  });
+
+  it.each([['101'], ['-1'], ['']])('refuses %j before any request', async (value) => {
+    const user = userEvent.setup();
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+    await user.click(
+      await screen.findByRole('button', { name: /Availability for Anika Krishnan/ }),
+    );
+    const form = screen.getByRole('form', { name: 'Availability for Anika Krishnan' });
+    const pct = within(form).getByLabelText('Availability (%)');
+    await user.clear(pct);
+    if (value) await user.type(pct, value);
+    await user.click(within(form).getByRole('button', { name: 'Save' }));
+    expect(within(form).getByRole('alert')).toHaveTextContent('whole number from 0 to 100');
+    expect(patchMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses an inverted date range and shows the server failure inline', async () => {
+    const user = userEvent.setup();
+    render(<WorkspaceMembersPage />, { wrapper: makeWrapper() });
+    await user.click(
+      await screen.findByRole('button', { name: /Availability for Anika Krishnan/ }),
+    );
+    const form = screen.getByRole('form', { name: 'Availability for Anika Krishnan' });
+    await user.type(within(form).getByLabelText('Effective from'), '2026-09-30');
+    await user.type(within(form).getByLabelText('Effective to'), '2026-07-01');
+    await user.click(within(form).getByRole('button', { name: 'Save' }));
+    expect(within(form).getByRole('alert')).toHaveTextContent('on or after the start date');
+    expect(patchMock).not.toHaveBeenCalled();
+
+    await user.clear(within(form).getByLabelText('Effective to'));
+    patchMock.mockRejectedValue(new Error('500'));
+    await user.click(within(form).getByRole('button', { name: 'Save' }));
+    expect(await within(form).findByRole('alert')).toHaveTextContent('Could not save availability');
+    // The editor stays open so the admin's input is not lost.
+    expect(
+      screen.getByRole('form', { name: 'Availability for Anika Krishnan' }),
+    ).toBeInTheDocument();
   });
 });
 

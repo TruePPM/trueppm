@@ -418,6 +418,21 @@ carve-out (log in via your own IdP → OSS; provision/deprovision/govern from a
 directory → Enterprise) and a dated comparison against the open-core competition,
 see [SSO Is Not an Enterprise Feature](/overview/sso-is-not-enterprise/).
 
+### Availability baseline
+
+Each member row carries an **availability** chip (for example `80%`) under the role
+selector. It is the share of full time that person is available, before any project
+allocates them: a part-time contract is 60%, parental leave 40%, and the default is
+100%. Click the chip to open the editor, set a whole number from 0 to 100, optionally
+bound it with **Effective from** and **Effective to** dates (leave both empty to apply
+indefinitely), and add a note. **Workspace Admin+** can edit it; the end date must be
+on or after the start date.
+
+The baseline is stored and returned by `GET` and `PATCH /api/v1/workspace/members/{user_id}/`
+as `availability_percent`, `availability_effective_from`, `availability_effective_to` and
+`availability_notes`. Nothing reads it yet: project allocation and over-allocation
+warnings still measure against the resource's own capacity, not this baseline.
+
 ### Export members as CSV
 
 The Members page provides an **Export CSV** action that downloads the member

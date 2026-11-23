@@ -1,4 +1,4 @@
-import { type CSSProperties, type FormEvent, useId, useMemo, useState } from 'react';
+import { type CSSProperties, type FormEvent, useId, useMemo, useRef, useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
 import { useWorkspaceMembers, type WorkspaceMember } from '../hooks/useWorkspaceMembers';
 import {
@@ -19,6 +19,9 @@ import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 import { CheckIcon, CloseIcon } from '@/components/Icons';
 import { escapeField } from '@/utils/exportCsv';
 import { useDownloadAnnouncer } from '@/hooks/useDownloadAnnouncer';
+
+/** Shared by the header, member rows and pending-invite rows so the columns line up. */
+const MEMBER_GRID_COLUMNS = '32px 1.5fr 100px 1.4fr 60px 110px 100px 72px';
 
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T/;
 
@@ -130,152 +133,340 @@ function Avatar({
   );
 }
 
+interface AvailabilityEditorProps {
+  m: WorkspaceMember;
+  onSave: (
+    userId: string,
+    values: {
+      availabilityPercent: number;
+      availabilityEffectiveFrom: string | null;
+      availabilityEffectiveTo: string | null;
+      availabilityNotes: string;
+    },
+  ) => Promise<void>;
+  onClose: () => void;
+}
+
+/**
+ * Inline editor for a member's baseline availability (#542). Opens beneath the
+ * row rather than in a modal so the member's name stays in view, and returns
+ * focus to the trigger on close. Validation mirrors the server (0–100, from <= to)
+ * so a bad range is caught before the round trip; the server stays authoritative.
+ */
+function AvailabilityEditor({ m, onSave, onClose }: AvailabilityEditorProps) {
+  const baseId = useId();
+  const [percent, setPercent] = useState(String(m.availabilityPercent));
+  const [from, setFrom] = useState(m.availabilityEffectiveFrom ?? '');
+  const [to, setTo] = useState(m.availabilityEffectiveTo ?? '');
+  const [notes, setNotes] = useState(m.availabilityNotes);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    const n = Number(percent);
+    if (percent.trim() === '' || !Number.isInteger(n) || n < 0 || n > 100) {
+      setError('Availability must be a whole number from 0 to 100.');
+      return;
+    }
+    if (from !== '' && to !== '' && from > to) {
+      setError('The end date must be on or after the start date.');
+      return;
+    }
+    setError(null);
+    setSaving(true);
+    try {
+      await onSave(m.id, {
+        availabilityPercent: n,
+        availabilityEffectiveFrom: from === '' ? null : from,
+        availabilityEffectiveTo: to === '' ? null : to,
+        availabilityNotes: notes,
+      });
+      onClose();
+    } catch {
+      setError('Could not save availability. Try again.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const inputClass =
+    'h-8 px-2 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary';
+  const labelClass = 'text-[11px] font-medium text-neutral-text-secondary';
+
+  return (
+    <form
+      onSubmit={(e) => void handleSubmit(e)}
+      aria-label={`Availability for ${m.name}`}
+      noValidate
+      className="px-3.5 py-3 bg-neutral-surface-sunken border-b border-neutral-border/55 flex flex-wrap items-end gap-3"
+    >
+      <div className="flex flex-col gap-0.5">
+        <label htmlFor={`${baseId}-pct`} className={labelClass}>
+          Availability (%)
+        </label>
+        <input
+          id={`${baseId}-pct`}
+          type="number"
+          min={0}
+          max={100}
+          step={1}
+          value={percent}
+          onChange={(e) => setPercent(e.target.value)}
+          aria-describedby={error ? `${baseId}-err` : undefined}
+          className={`${inputClass} w-[88px]`}
+        />
+      </div>
+      <div className="flex flex-col gap-0.5">
+        <label htmlFor={`${baseId}-from`} className={labelClass}>
+          Effective from
+        </label>
+        <input
+          id={`${baseId}-from`}
+          type="date"
+          value={from}
+          onChange={(e) => setFrom(e.target.value)}
+          className={inputClass}
+        />
+      </div>
+      <div className="flex flex-col gap-0.5">
+        <label htmlFor={`${baseId}-to`} className={labelClass}>
+          Effective to
+        </label>
+        <input
+          id={`${baseId}-to`}
+          type="date"
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
+          className={inputClass}
+        />
+      </div>
+      <div className="flex flex-col gap-0.5 flex-1 min-w-[200px]">
+        <label htmlFor={`${baseId}-notes`} className={labelClass}>
+          Notes
+        </label>
+        <input
+          id={`${baseId}-notes`}
+          type="text"
+          maxLength={2000}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          className={inputClass}
+        />
+      </div>
+      <div className="flex items-center gap-2">
+        <button
+          type="submit"
+          disabled={saving}
+          className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          className="h-8 px-3 rounded-control border border-neutral-border text-[13px] text-neutral-text-primary hover:bg-neutral-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+        >
+          Cancel
+        </button>
+      </div>
+      {error && (
+        <span
+          id={`${baseId}-err`}
+          role="alert"
+          className="w-full text-semantic-critical text-[11px]"
+        >
+          {error}
+        </span>
+      )}
+    </form>
+  );
+}
+
 interface MemberTableRowProps {
   m: WorkspaceMember;
   last: boolean;
   onRoleChange: (userId: string, roleValue: number) => void;
   onRemove: (userId: string) => void;
+  onAvailabilitySave: AvailabilityEditorProps['onSave'];
   /** True when the most recent mutation for this row failed. */
   hasError?: boolean;
 }
 
-function MemberTableRow({ m, last, onRoleChange, onRemove, hasError }: MemberTableRowProps) {
+function MemberTableRow({
+  m,
+  last,
+  onRoleChange,
+  onRemove,
+  onAvailabilitySave,
+  hasError,
+}: MemberTableRowProps) {
   const { fmtDateLong } = useUserDateFormat();
   // Two-step destructive confirm: the ✕ reveals an inline "Remove? · Confirm ·
   // Cancel" control rather than firing the DELETE immediately, so a misclick
   // does not silently strip a member's workspace access.
   const [confirming, setConfirming] = useState(false);
+  const [editingAvailability, setEditingAvailability] = useState(false);
+  const availabilityTriggerRef = useRef<HTMLButtonElement>(null);
   return (
-    <div
-      className={[
-        'grid items-center gap-2.5 px-3.5 py-2.5 text-[13px]',
-        !last ? 'border-b border-neutral-border/55' : '',
-      ].join(' ')}
-      style={{ gridTemplateColumns: '32px 1.5fr 100px 1.4fr 60px 110px 100px 72px' }}
-    >
-      {/* Checkbox */}
-      <span
-        className="w-3.5 h-3.5 rounded-control border border-neutral-border inline-block shrink-0"
-        aria-hidden="true"
-      />
-      {/* Name */}
-      <span className="flex items-center gap-2.5 min-w-0">
-        <Avatar initials={m.initials} color={m.color} />
-        <span className="flex flex-col min-w-0">
-          <span className="font-medium truncate text-neutral-text-primary flex items-center gap-1.5">
-            {m.name}
-            {m.status === 'guest' && (
-              <span className="text-[11px] px-1 py-px rounded-chip bg-brand-accent-light dark:bg-brand-accent/20 text-brand-accent-text dark:text-brand-accent font-semibold">
-                GUEST
-              </span>
-            )}
-          </span>
-          <span className="text-[11px] text-neutral-text-secondary truncate">{m.email}</span>
-        </span>
-      </span>
-      {/* Role — editable select */}
-      <span>
-        <select
-          aria-label={`Role for ${m.name}`}
-          value={m.roleValue}
-          onChange={(e) => onRoleChange(m.id, Number(e.target.value))}
-          className="h-7 pl-1.5 pr-5 rounded-control border border-neutral-border text-[11px] bg-neutral-surface-raised appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-        >
-          {renderRoleOptions(m.roleValue, m.role)}
-        </select>
-      </span>
-      {/* Groups */}
-      <span className="flex flex-wrap gap-1">
-        {m.groups.slice(0, 2).map((g) => (
-          <span
-            key={g}
-            className="text-[11px] px-1.5 py-px rounded-chip border border-neutral-border/55 bg-neutral-surface-sunken text-neutral-text-secondary font-medium"
-          >
-            {g}
-          </span>
-        ))}
-        {m.groups.length > 2 && (
-          <span className="text-[11px] text-neutral-text-disabled">+{m.groups.length - 2}</span>
-        )}
-      </span>
-      {/* Projects */}
-      <span className="tppm-mono text-[12px] text-neutral-text-secondary">
-        <span aria-hidden="true">{m.projectCount}</span>
-        <span className="sr-only">
-          {m.projectCount} {m.projectCount === 1 ? 'project' : 'projects'}
-        </span>
-      </span>
-      {/* Last active */}
-      <span className="text-[12px] text-neutral-text-secondary">
-        {formatLastActive(m.lastActive, fmtDateLong)}
-      </span>
-      {/* Status */}
-      <span className="flex items-center gap-1.5">
+    <>
+      <div
+        className={[
+          'grid items-center gap-2.5 px-3.5 py-2.5 text-[13px]',
+          !last ? 'border-b border-neutral-border/55' : '',
+        ].join(' ')}
+        style={{ gridTemplateColumns: MEMBER_GRID_COLUMNS }}
+      >
+        {/* Checkbox */}
         <span
-          className={`w-[7px] h-[7px] rounded-full shrink-0 ${STATUS_DOT[m.status] ?? 'bg-neutral-text-disabled'}`}
+          className="w-3.5 h-3.5 rounded-control border border-neutral-border inline-block shrink-0"
           aria-hidden="true"
         />
-        <span className="text-[11px] text-neutral-text-secondary capitalize">{m.status}</span>
-      </span>
-      {/* Actions + badges */}
-      <span className="flex flex-col items-end gap-0.5">
-        <span className="flex items-center gap-1 justify-end">
-          {m.sso && (
-            <span className="text-[11px] px-1 py-px rounded-chip bg-neutral-surface-sunken text-neutral-text-secondary font-bold">
-              SSO
+        {/* Name */}
+        <span className="flex items-center gap-2.5 min-w-0">
+          <Avatar initials={m.initials} color={m.color} />
+          <span className="flex flex-col min-w-0">
+            <span className="font-medium truncate text-neutral-text-primary flex items-center gap-1.5">
+              {m.name}
+              {m.status === 'guest' && (
+                <span className="text-[11px] px-1 py-px rounded-chip bg-brand-accent-light dark:bg-brand-accent/20 text-brand-accent-text dark:text-brand-accent font-semibold">
+                  GUEST
+                </span>
+              )}
             </span>
-          )}
-          {m.twoFa && (
-            <span className="text-[11px] px-1 py-px rounded-chip bg-semantic-on-track-bg text-semantic-on-track font-bold">
-              2FA
-            </span>
-          )}
-          {confirming ? (
+            <span className="text-[11px] text-neutral-text-secondary truncate">{m.email}</span>
+          </span>
+        </span>
+        {/* Role — editable select, plus the availability baseline chip (#542) */}
+        <span className="flex flex-col items-start gap-1">
+          <select
+            aria-label={`Role for ${m.name}`}
+            value={m.roleValue}
+            onChange={(e) => onRoleChange(m.id, Number(e.target.value))}
+            className="h-7 pl-1.5 pr-5 rounded-control border border-neutral-border text-[11px] bg-neutral-surface-raised appearance-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+          >
+            {renderRoleOptions(m.roleValue, m.role)}
+          </select>
+          {/* Availability baseline (#542) — the denominator the project allocation check compares against */}
+          <button
+            ref={availabilityTriggerRef}
+            type="button"
+            onClick={() => setEditingAvailability((v) => !v)}
+            aria-expanded={editingAvailability}
+            aria-label={`Availability for ${m.name}: ${m.availabilityPercent}%. Edit`}
+            className={[
+              'tppm-mono text-[12px] px-1.5 py-0.5 rounded-chip border focus:outline-none focus:ring-2 focus:ring-brand-primary',
+              m.availabilityPercent < 100
+                ? 'border-brand-accent bg-brand-accent-light dark:bg-brand-accent/20 text-brand-accent-text dark:text-brand-accent font-semibold'
+                : 'border-neutral-border/55 text-neutral-text-secondary',
+            ].join(' ')}
+          >
+            {m.availabilityPercent}%
+          </button>
+        </span>
+        {/* Groups */}
+        <span className="flex flex-wrap gap-1">
+          {m.groups.slice(0, 2).map((g) => (
             <span
-              className="flex items-center gap-1.5 text-[11px]"
-              role="group"
-              aria-label={`Confirm remove ${m.name}`}
+              key={g}
+              className="text-[11px] px-1.5 py-px rounded-chip border border-neutral-border/55 bg-neutral-surface-sunken text-neutral-text-secondary font-medium"
             >
-              <button
-                type="button"
-                onClick={() => {
-                  setConfirming(false);
-                  onRemove(m.id);
-                }}
-                className="text-semantic-critical font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical rounded-control"
-              >
-                Confirm
-              </button>
-              <span className="text-neutral-text-disabled" aria-hidden="true">
-                ·
-              </span>
-              <button
-                type="button"
-                onClick={() => setConfirming(false)}
-                className="text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control"
-              >
-                Cancel
-              </button>
+              {g}
             </span>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setConfirming(true)}
-              aria-label={`Remove ${m.name}`}
-              aria-expanded={confirming}
-              className="ml-1 text-[10px] text-neutral-text-disabled hover:text-semantic-critical focus:outline-none focus:ring-2 focus:ring-semantic-critical rounded-control"
-            >
-              <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
-            </button>
+          ))}
+          {m.groups.length > 2 && (
+            <span className="text-[11px] text-neutral-text-disabled">+{m.groups.length - 2}</span>
           )}
         </span>
-        {hasError && (
-          <span role="alert" className="text-semantic-critical text-[11px]">
-            Action failed. Try again.
+        {/* Projects */}
+        <span className="tppm-mono text-[12px] text-neutral-text-secondary">
+          <span aria-hidden="true">{m.projectCount}</span>
+          <span className="sr-only">
+            {m.projectCount} {m.projectCount === 1 ? 'project' : 'projects'}
           </span>
-        )}
-      </span>
-    </div>
+        </span>
+        {/* Last active */}
+        <span className="text-[12px] text-neutral-text-secondary">
+          {formatLastActive(m.lastActive, fmtDateLong)}
+        </span>
+        {/* Status */}
+        <span className="flex items-center gap-1.5">
+          <span
+            className={`w-[7px] h-[7px] rounded-full shrink-0 ${STATUS_DOT[m.status] ?? 'bg-neutral-text-disabled'}`}
+            aria-hidden="true"
+          />
+          <span className="text-[11px] text-neutral-text-secondary capitalize">{m.status}</span>
+        </span>
+        {/* Actions + badges */}
+        <span className="flex flex-col items-end gap-0.5">
+          <span className="flex items-center gap-1 justify-end">
+            {m.sso && (
+              <span className="text-[11px] px-1 py-px rounded-chip bg-neutral-surface-sunken text-neutral-text-secondary font-bold">
+                SSO
+              </span>
+            )}
+            {m.twoFa && (
+              <span className="text-[11px] px-1 py-px rounded-chip bg-semantic-on-track-bg text-semantic-on-track font-bold">
+                2FA
+              </span>
+            )}
+            {confirming ? (
+              <span
+                className="flex items-center gap-1.5 text-[11px]"
+                role="group"
+                aria-label={`Confirm remove ${m.name}`}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfirming(false);
+                    onRemove(m.id);
+                  }}
+                  className="text-semantic-critical font-semibold hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical rounded-control"
+                >
+                  Confirm
+                </button>
+                <span className="text-neutral-text-disabled" aria-hidden="true">
+                  ·
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setConfirming(false)}
+                  className="text-neutral-text-secondary hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control"
+                >
+                  Cancel
+                </button>
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirming(true)}
+                aria-label={`Remove ${m.name}`}
+                aria-expanded={confirming}
+                className="ml-1 text-[10px] text-neutral-text-disabled hover:text-semantic-critical focus:outline-none focus:ring-2 focus:ring-semantic-critical rounded-control"
+              >
+                <CloseIcon className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            )}
+          </span>
+          {hasError && (
+            <span role="alert" className="text-semantic-critical text-[11px]">
+              Action failed. Try again.
+            </span>
+          )}
+        </span>
+      </div>
+      {editingAvailability && (
+        <AvailabilityEditor
+          m={m}
+          onSave={onAvailabilitySave}
+          onClose={() => {
+            setEditingAvailability(false);
+            availabilityTriggerRef.current?.focus();
+          }}
+        />
+      )}
+    </>
   );
 }
 
@@ -347,6 +538,15 @@ export function WorkspaceMembersPage() {
       () => setErrorMemberId((prev) => (prev === userId ? null : prev)),
       () => setErrorMemberId(userId),
     );
+  }
+
+  async function handleAvailabilitySave(
+    userId: string,
+    values: Parameters<typeof updateMember.mutateAsync>[0] extends infer P
+      ? Omit<NonNullable<P>, 'userId'>
+      : never,
+  ) {
+    await updateMember.mutateAsync({ userId, ...values });
   }
 
   function handleRemove(userId: string) {
@@ -649,7 +849,7 @@ export function WorkspaceMembersPage() {
           {/* Header — sticky so column names stay in view on the long page */}
           <div
             className="sticky top-0 z-10 grid gap-2.5 px-3.5 py-2.5 bg-neutral-surface-sunken border-b border-neutral-border text-[11px] font-semibold tracking-[.08em] uppercase text-neutral-text-secondary"
-            style={{ gridTemplateColumns: '32px 1.5fr 100px 1.4fr 60px 110px 100px 72px' }}
+            style={{ gridTemplateColumns: MEMBER_GRID_COLUMNS }}
           >
             <span
               className="w-3.5 h-3.5 rounded-control border border-neutral-border inline-block"
@@ -679,6 +879,7 @@ export function WorkspaceMembersPage() {
                 last={i === visibleMembers.length - 1 && pendingInvites.length === 0}
                 onRoleChange={handleRoleChange}
                 onRemove={handleRemove}
+                onAvailabilitySave={handleAvailabilitySave}
                 hasError={errorMemberId === m.id}
               />
             ))
@@ -697,7 +898,7 @@ export function WorkspaceMembersPage() {
                     'grid items-center gap-2.5 px-3.5 py-2.5 text-[13px] text-neutral-text-secondary',
                     i < pendingInvites.length - 1 ? 'border-b border-neutral-border/55' : '',
                   ].join(' ')}
-                  style={{ gridTemplateColumns: '32px 1.5fr 100px 1.4fr 60px 110px 100px 72px' }}
+                  style={{ gridTemplateColumns: MEMBER_GRID_COLUMNS }}
                 >
                   <span />
                   <span className="flex items-center gap-2.5">

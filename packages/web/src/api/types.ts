@@ -793,6 +793,13 @@ export interface WorkspaceMember {
   status: 'active' | 'guest' | 'deactivated';
   sso: boolean;
   twoFa: boolean;
+  /** Baseline availability, 0–100 (#542). 100 = fully available. */
+  availabilityPercent: number;
+  /** ISO date the baseline starts applying, or null for no start bound. */
+  availabilityEffectiveFrom: string | null;
+  /** ISO date the baseline stops applying, or null for open-ended. */
+  availabilityEffectiveTo: string | null;
+  availabilityNotes: string;
 }
 
 /**

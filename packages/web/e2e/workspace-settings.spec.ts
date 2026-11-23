@@ -66,6 +66,10 @@ const MEMBER = {
   status: 'active',
   sso: true,
   two_fa: true,
+  availability_percent: 100,
+  availability_effective_from: null,
+  availability_effective_to: null,
+  availability_notes: '',
 };
 
 const INVITE = {
@@ -775,6 +779,77 @@ test.describe('Workspace Members page', () => {
 
     const [download] = await Promise.all([page.waitForEvent('download'), exportBtn.click()]);
     expect(download.suggestedFilename()).toBe('trueppm-workspace-members.csv');
+  });
+
+  test('availability baseline — edit dispatches PATCH and the column reflects it (#542)', async ({
+    page,
+  }) => {
+    await setup(page);
+    let row: Record<string, unknown> = { ...MEMBER };
+    let patchBody: Record<string, unknown> | null = null;
+    await page.route('**/api/v1/workspace/members/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([row]) }),
+    );
+    await page.route('**/api/v1/workspace/members/u1/', async (r) => {
+      patchBody = r.request().postDataJSON() as Record<string, unknown>;
+      row = { ...row, ...patchBody };
+      await r.fulfill({ status: 200, contentType: 'application/json', body: pj(row) });
+    });
+    await page.route('**/api/v1/workspace/invites/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([]) }),
+    );
+
+    await page.goto('/settings/members');
+
+    const members = page.locator('[data-settings-section="members"]');
+    await members.getByRole('button', { name: /Availability for Alice Khoury: 100%/ }).click();
+
+    const form = members.getByRole('form', { name: 'Availability for Alice Khoury' });
+    await form.getByLabel('Availability (%)').fill('80');
+    await form.getByLabel('Effective from').fill('2026-07-01');
+    await form.getByLabel('Effective to').fill('2026-09-30');
+    await form.getByLabel('Notes').fill('Part-time this quarter');
+    await form.getByRole('button', { name: 'Save' }).click();
+
+    await expect(form).toBeHidden();
+    expect(patchBody).toEqual({
+      availability_percent: 80,
+      availability_effective_from: '2026-07-01',
+      availability_effective_to: '2026-09-30',
+      availability_notes: 'Part-time this quarter',
+    });
+    await expect(
+      members.getByRole('button', { name: /Availability for Alice Khoury: 80%/ }),
+    ).toBeFocused();
+  });
+
+  test('error state — an inverted date range is refused before any request (#542)', async ({
+    page,
+  }) => {
+    await setup(page);
+    let patched = false;
+    await page.route('**/api/v1/workspace/members/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([MEMBER]) }),
+    );
+    await page.route('**/api/v1/workspace/members/u1/', async (r) => {
+      patched = true;
+      await r.fulfill({ status: 200, contentType: 'application/json', body: pj(MEMBER) });
+    });
+    await page.route('**/api/v1/workspace/invites/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: pjPage([]) }),
+    );
+
+    await page.goto('/settings/members');
+
+    const members = page.locator('[data-settings-section="members"]');
+    await members.getByRole('button', { name: /Availability for Alice Khoury/ }).click();
+    const form = members.getByRole('form', { name: 'Availability for Alice Khoury' });
+    await form.getByLabel('Effective from').fill('2026-09-30');
+    await form.getByLabel('Effective to').fill('2026-07-01');
+    await form.getByRole('button', { name: 'Save' }).click();
+
+    await expect(form.getByRole('alert')).toContainText('on or after the start date');
+    expect(patched).toBe(false);
   });
 
   test('empty state — shows skeleton when loading', async ({ page }) => {
