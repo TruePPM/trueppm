@@ -84,6 +84,14 @@ from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership,
 from trueppm_api.apps.access.permissions import DEFAULT_PROJECT_URL_KWARG
 from trueppm_api.apps.projects.models import Program, Project
 
+# The module-scoped fixtures below build committed rows through ``django_db_setup`` but
+# no test takes the ``db`` fixture, and pytest-django only creates the test database for
+# a session that collected at least one DB-marked item. Without this marker the file is
+# green inside the full suite (other modules trigger the setup) and dies with
+# ``relation "access_project_membership" does not exist`` when run on its own, which is
+# exactly how ``make role-route-matrix-check`` (#3666) runs it.
+pytestmark = pytest.mark.django_db
+
 MATRIX_FILE = Path(__file__).parent / "role_route_matrix.txt"
 
 #: Set to regenerate ``role_route_matrix.txt`` from the running URLconf.

@@ -184,7 +184,12 @@ test.describe('shell v2 (shell_v2 flag)', () => {
       });
       await expect(page.getByText('Health unavailable')).toBeVisible();
       await expect(page.getByTestId('shell2-health')).toHaveCount(0);
-      await expect(page.getByRole('button', { name: /retry/i }).first()).toBeVisible();
+      await expect(
+        page
+          .getByRole('status')
+          .filter({ hasText: 'Health unavailable' })
+          .getByRole('button', { name: /retry/i }),
+      ).toBeVisible();
     });
 
     test('offline folds into the status slot instead of a banner', async ({ page, context }) => {

@@ -38,6 +38,31 @@ const NO_UNSCOPED_COMBOBOX = {
     "the containing dialog/row locator, or name it: getByRole('combobox', { name: … }).",
 };
 
+// Unscoped generic "Retry" button (#3516). Many error states on one page each render a
+// button named exactly "Retry", so `page.getByRole('button', { name: 'Retry' })` is a
+// strict-mode violation the day a second one mounts — fixed by hand three times
+// (#3401, #3402, #3459). Scope it to the error region's own locator. Covers the string
+// forms ('Retry', "Retry") and the regex forms (/retry/i, /^Retry$/i); a longer name
+// such as /Retry the refused change on …/ is not generic and is not flagged. Only
+// `page.`-rooted calls match: a locator-rooted call is already scoped. Known limit: the
+// selector matches only the identifier `page` as the direct root, so an aliased page
+// (`p2`, a destructured alias) or a template-literal name is not covered; the tree has
+// 0 such sites today. The selector is deliberately not widened.
+const NO_UNSCOPED_RETRY_BUTTON_BASE =
+  "CallExpression[callee.object.name='page'][callee.property.name='getByRole'][arguments.0.value='button'] > ObjectExpression.arguments > Property[key.name='name'] > ";
+const NO_UNSCOPED_RETRY_BUTTON_MESSAGE =
+  "Unscoped page.getByRole('button', { name: 'Retry' }) collides with every other Retry on the page (#3516). Scope it to the error region's locator, e.g. region.getByRole('button', { name: 'Retry' }).";
+export const NO_UNSCOPED_RETRY_BUTTON = [
+  {
+    selector: NO_UNSCOPED_RETRY_BUTTON_BASE + 'Literal[value=/^retry$/i]',
+    message: NO_UNSCOPED_RETRY_BUTTON_MESSAGE,
+  },
+  {
+    selector: NO_UNSCOPED_RETRY_BUTTON_BASE + 'Literal[regex.pattern=/^\\^?retry\\$?$/i]',
+    message: NO_UNSCOPED_RETRY_BUTTON_MESSAGE,
+  },
+];
+
 // Iteration-label gate (#1287, ADR-0111). User-facing copy on the
 // sprint-container surfaces must read the project's configured label via
 // useIterationLabel() (the `itl.*` forms), never the hard-coded word "sprint" —
@@ -588,7 +613,12 @@ export default [
   {
     files: ['e2e/**/*.ts'],
     rules: {
-      'no-restricted-syntax': ['error', NO_DEFAULT_EXPORT, NO_UNSCOPED_COMBOBOX],
+      'no-restricted-syntax': [
+        'error',
+        NO_DEFAULT_EXPORT,
+        NO_UNSCOPED_COMBOBOX,
+        ...NO_UNSCOPED_RETRY_BUTTON,
+      ],
     },
   },
   prettierConfig,

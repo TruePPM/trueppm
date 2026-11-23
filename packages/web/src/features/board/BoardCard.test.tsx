@@ -935,6 +935,9 @@ describe('BoardCard', () => {
   // -------------------------------------------------------------------------
 
   describe('uncommitted-task suppression (issue #332)', () => {
+    // These fixtures put isCritical/totalFloat on BACKLOG cards. After #3578 the API
+    // never sends that, so the "renders once committed" cases below are reachable
+    // only from optimistic, pre-refetch local state. Kept deliberately.
     it('hides the CP pill on a backlog card with no plannedStart', () => {
       const task: Task = {
         ...baseTask,

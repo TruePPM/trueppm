@@ -344,7 +344,11 @@ test.describe('Role-based landing redirect (#1181, ADR-0129)', () => {
     await expect(page.getByText(/Taking you to your home screen/i)).not.toBeVisible();
     await expect(page).toHaveURL('/');
 
-    await page.getByRole('button', { name: 'Retry' }).click();
+    await page
+      .getByRole('alert')
+      .filter({ hasText: "Couldn't sign you in." })
+      .getByRole('button', { name: 'Retry' })
+      .click();
     await page.waitForURL(/\/me\/work/, { timeout: 10_000 });
   });
 });

@@ -3,7 +3,7 @@
 
 .PHONY: help setup doctor lint typecheck test build clean up down logs admin up-prod memory-check \
         migrations-check node-version-check e2e-drift-check migrations-numbering migrations-constraint-safety bulk-create-server-version-check app-layering-check pairings-check api-engine-boundary-check on-commit-durability-check schema-check openapi-check schema-breaking-check request-body-guards-check web-lint web-typecheck web-rule-numbers-check web-row-vocabulary-check pre-push pre-push-checks semgrep-freshness-check e2e-schema-guard-check web-types-drift-check cost-ledger-check api-scheduler-lock-check \
-        pre-push-behind-warn pre-push-collision-check pre-push-wasm pre-push-mobile mobile-lint mobile-typecheck \
+        pre-push-behind-warn pre-push-collision-check pre-push-wasm pre-push-mobile role-route-matrix-check mobile-lint mobile-typecheck \
         mobile-version-check \
         coverage-diff coverage-diff-scheduler coverage-diff-api coverage-diff-web sonar \
         release-smoke screenshots wt-new wt-list wt-remove wt-prune wt-prune-dbs wt-doctor dropdown-scroll-check curl-hardening-check
@@ -245,6 +245,44 @@ pre-push-mobile: ## Run the mobile:lint + mobile:type-check CI gates locally, ch
 	else \
 	  echo "→ mobile lint/type-check"; \
 	  cd packages/mobile && npm run lint && npx tsc --noEmit; \
+	fi
+
+role-route-matrix-check: ## Run the RBAC role-route-matrix oracle + route-table invariants locally, change-gated to packages/api (#3666)
+	@# test_role_route_matrix.py pins every (method, route, action) x 7 principals against
+	@# role_route_matrix.txt; before this target it ran only in CI's api:test, so a route that
+	@# drifted the authorization surface was found after the push. Change-gated to the files
+	@# that can move the matrix (route-surface files, below) so an unrelated push skips it.
+	@# It needs a reachable Postgres: pytest-django builds a throwaway test database, named
+	@# by the worktree's TRUEPPM_TEST_DB (source .envrc) so parallel worktrees do not collide.
+	@# DATABASE_URL defaults to the dev stack's published port; export it when yours differs
+	@# (the shared stack's port moves, #3666). Unreachable -> fail with the fix, not a trace.
+	@# PYTHONPATH pins this tree's api and scheduler sources over the shared venv's editable
+	@# installs, which resolve to the main checkout (a worktree would test main's routes).
+	@# Narrowed to route-surface files (urls.py, *views*.py, permissions*.py, *viewsets*, the
+	@# access tests, packages/api/pyproject.toml). Fail open: when the base ref cannot be
+	@# resolved the changed files are unknowable, so the oracle runs rather than skips.
+	@# BASE_REF overrides origin/main (used to test the gate).
+	@BASE_REF="$${BASE_REF:-origin/main}"; \
+	RUN=1; \
+	if ! git rev-parse --verify -q "$$BASE_REF" >/dev/null 2>&1; then \
+	  echo "→ role-route-matrix: cannot resolve $$BASE_REF, changed files unknown — running the oracle (fail open)"; \
+	elif ! git diff --name-only "$$BASE_REF"...HEAD 2>/dev/null | grep -qE '^packages/api/(.*/)?(urls\.py|[^/]*views[^/]*\.py|permissions[^/]*\.py|[^/]*viewsets[^/]*|pyproject\.toml)$$|^packages/api/tests/apps/access/'; then \
+	  RUN=0; \
+	  echo "→ role-route-matrix: no route-surface changes (urls/views/permissions/viewsets, access tests, api pyproject) — skipped"; \
+	fi; \
+	if [ "$$RUN" = 1 ]; then \
+	  echo "→ role-route-matrix + route-table invariants"; \
+	  cd packages/api && \
+	  DB_URL="$${DATABASE_URL:-postgres://trueppm:trueppm@127.0.0.1:5432/trueppm}" && \
+	  if ! DB_URL="$$DB_URL" .venv/bin/python -c "import os,psycopg; psycopg.connect(os.environ['DB_URL'], connect_timeout=3).close()" 2>/dev/null; then \
+	    echo "✗ role-route-matrix: Postgres unreachable at $$DB_URL"; \
+	    echo "  Start the dev stack (make up) or export DATABASE_URL=postgres://user:pass@host:port/db, then retry."; \
+	    exit 1; \
+	  fi && \
+	  DATABASE_URL="$$DB_URL" \
+	  PYTHONPATH="$(CURDIR)/packages/api/src:$(CURDIR)/packages/scheduler/src" \
+	  .venv/bin/python -m pytest tests/apps/access/test_role_route_matrix.py tests/apps/access/test_route_table_invariants.py \
+	    -q -p no:cacheprovider --create-db; \
 	fi
 
 pre-push-wasm: ## Run the wasm:lint CI gate locally (cargo clippy -D warnings), change-gated to packages/wasm-scheduler
@@ -919,6 +957,7 @@ pre-push-checks: prepush-parity-check
 pre-push-checks: gate-selftest-parity-check
 pre-push-checks: pre-push-wasm
 pre-push-checks: pre-push-mobile
+pre-push-checks: role-route-matrix-check
 pre-push-checks: e2e-schema-guard-check
 pre-push-checks: web-types-drift-check
 pre-push-checks: semgrep-freshness-check

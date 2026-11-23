@@ -94,7 +94,12 @@ test.describe('Task detail expand-to-full-page', () => {
     );
     await page.goto(`/projects/${PROJECT_ID}/tasks/${TASK_ID}`);
     await expect(page.getByText("Couldn't load this task.")).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByRole('button', { name: /retry/i })).toBeVisible();
+    await expect(
+      page
+        .getByRole('alert')
+        .filter({ hasText: "Couldn't load this task." })
+        .getByRole('button', { name: /retry/i }),
+    ).toBeVisible();
     await expect(page.getByText('This task may have been deleted or moved')).toHaveCount(0);
   });
 

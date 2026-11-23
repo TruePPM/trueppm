@@ -16,7 +16,7 @@ interface ApiRelationCard {
   // Deliberately the remaining-work window (ADR-0752), not the task span.
   early_start: string | null;
   early_finish: string | null;
-  is_critical: boolean;
+  is_critical: boolean | null;
 }
 
 interface ApiTaskRelation {
@@ -42,7 +42,7 @@ function mapCard(c: ApiRelationCard | null | undefined): RelationCard | null {
     isMilestone: c.is_milestone,
     earlyStart: c.early_start,
     earlyFinish: c.early_finish,
-    isCritical: c.is_critical,
+    isCritical: c.is_critical ?? false,
   };
 }
 
