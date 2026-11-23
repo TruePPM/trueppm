@@ -188,6 +188,19 @@ A roster entry carries `units_override`, a per-project capacity override, and th
 read-only `effective_max_units` it resolves to (`units_override` when set — `0`
 included — else the resource's catalog-wide `max_units`).
 
+From 0.5 a roster entry also carries an **engagement window and availability profile**
+(ADR-0190, phase 1), all writable by Resource Manager and above:
+
+| Field | Type | Notes |
+|---|---|---|
+| `engaged_from` | date or `null` | First day the person is engaged on this project. `null` means no start bound. |
+| `engaged_to` | date or `null` | Last day of the engagement. `null` means open-ended. Must be on or after `engaged_from` (`400` on `engaged_to` otherwise; a PATCH of one bound is checked against the stored other bound). |
+| `availability_percent` | integer 0–100 | Default `100`. This person's availability on this project. |
+| `ramp_state` | `ramping` \| `full` \| `winding_down` | Default `full`. An advisory label only. |
+
+These fields are stored and echoed back in this release. They do not constrain the
+schedule, and nothing yet warns when an assignment falls outside the window.
+
 From 0.4 `effective_max_units` will be the denominator behind
 `GET /projects/{id}/utilization/` (`max_units`, `load_pct`, `load_band`,
 `overallocated`), `/resources/heatmap/`, `/resources/summary/`,

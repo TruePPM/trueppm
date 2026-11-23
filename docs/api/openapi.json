@@ -71813,6 +71813,24 @@
                     },
                     "notes": {
                         "type": "string"
+                    },
+                    "engaged_from": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "engaged_to": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "availability_percent": {
+                        "type": "integer",
+                        "maximum": 100,
+                        "minimum": 0
+                    },
+                    "ramp_state": {
+                        "$ref": "#/components/schemas/RampStateEnum"
                     }
                 }
             },
@@ -79229,6 +79247,24 @@
                     },
                     "notes": {
                         "type": "string"
+                    },
+                    "engaged_from": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "engaged_to": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "availability_percent": {
+                        "type": "integer",
+                        "maximum": 100,
+                        "minimum": 0
+                    },
+                    "ramp_state": {
+                        "$ref": "#/components/schemas/RampStateEnum"
                     }
                 },
                 "required": [
@@ -79472,6 +79508,24 @@
                     },
                     "notes": {
                         "type": "string"
+                    },
+                    "engaged_from": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "engaged_to": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "availability_percent": {
+                        "type": "integer",
+                        "maximum": 100,
+                        "minimum": 0
+                    },
+                    "ramp_state": {
+                        "$ref": "#/components/schemas/RampStateEnum"
                     }
                 },
                 "required": [
@@ -80860,6 +80914,16 @@
                     "ceiling",
                     "signal"
                 ]
+            },
+            "RampStateEnum": {
+                "enum": [
+                    "ramping",
+                    "full",
+                    "winding_down"
+                ],
+                "type": "string",
+                "description": "* `ramping` - Ramping up\n* `full` - Full\n* `winding_down` - Winding down",
+                "x-trueppm-enum": "open"
             },
             "ReadyzResponse": {
                 "type": "object",
