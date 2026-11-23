@@ -71,6 +71,11 @@ ALIASES: dict[str, str] = {
 
 # Interfaces with no response schema to compare against, each with the reason.
 UNMAPPED: dict[str, str] = {
+    "StatusUpdateSnapshot": "the status-update snapshot (#4803), which the schema declares free-form (StatusUpdate.snapshot / live_diff)",
+    "StatusUpdateMetric": "the status-update snapshot (#4803), which the schema declares free-form (StatusUpdate.snapshot / live_diff)",
+    "StatusUpdateMilestone": "the status-update snapshot (#4803), which the schema declares free-form (StatusUpdate.snapshot / live_diff)",
+    "StatusUpdateRisk": "the status-update snapshot (#4803), which the schema declares free-form (StatusUpdate.snapshot / live_diff)",
+    "StatusUpdateLiveDiffEntry": "the status-update snapshot (#4803), which the schema declares free-form (StatusUpdate.snapshot / live_diff)",
     "PaginatedResponse": "generic DRF envelope; each concrete list has its own Paginated*List",
     "KeysetPaginatedResponse": "generic keyset envelope (#3381); the concrete schema is the Paginated*List with optional count",
     "EffectiveCalendar": "nested in Project.effective_calendar, which the schema declares free-form",
