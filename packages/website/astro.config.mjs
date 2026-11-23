@@ -461,6 +461,7 @@ export default defineConfig({
                 { slug: "features/burn-charts" },
                 { slug: "features/risk-register" },
                 { slug: "features/monte-carlo" },
+                { slug: "features/project-overview" },
               ],
             },
             {
