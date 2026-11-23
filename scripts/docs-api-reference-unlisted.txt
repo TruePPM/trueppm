@@ -333,10 +333,6 @@ GET /api/v1/workspace/export/
 POST /api/v1/workspace/export/
 GET /api/v1/workspace/export/{job_id}/
 GET /api/v1/workspace/export/{job_id}/download/
-DELETE /api/v1/workspace/groups/{group_id}/members/
-POST /api/v1/workspace/groups/{group_id}/members/{user_id}/
-DELETE /api/v1/workspace/groups/{group_id}/projects/
-POST /api/v1/workspace/groups/{group_id}/projects/{project_id}/
 POST /api/v1/workspace/invites/resend-all/
 POST /api/v1/workspace/invites/{invite_id}/resend/
 DELETE /api/v1/workspace/logo/

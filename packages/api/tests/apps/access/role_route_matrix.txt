@@ -84,9 +84,7 @@
 -++++++  DELETE api/v1/sprints/<pk>/::destroy
 -------  DELETE api/v1/workspace/::delete
 -------  DELETE api/v1/workspace/groups/<uuid:group_id>/::delete
--------  DELETE api/v1/workspace/groups/<uuid:group_id>/members/::delete
 -------  DELETE api/v1/workspace/groups/<uuid:group_id>/members/<int:user_id>/::delete
--------  DELETE api/v1/workspace/groups/<uuid:group_id>/projects/::delete
 -------  DELETE api/v1/workspace/groups/<uuid:group_id>/projects/<uuid:project_id>/::delete
 -------  DELETE api/v1/workspace/invites/<uuid:invite_id>/::delete
 -------  DELETE api/v1/workspace/logo/::delete
@@ -602,9 +600,7 @@
 -------  POST api/v1/workspace/export/::post
 -------  POST api/v1/workspace/groups/::post
 -------  POST api/v1/workspace/groups/<uuid:group_id>/members/::post
--------  POST api/v1/workspace/groups/<uuid:group_id>/members/<int:user_id>/::post
 -------  POST api/v1/workspace/groups/<uuid:group_id>/projects/::post
--------  POST api/v1/workspace/groups/<uuid:group_id>/projects/<uuid:project_id>/::post
 -------  POST api/v1/workspace/invites/::post
 -------  POST api/v1/workspace/invites/<uuid:invite_id>/resend/::post
 +++++++  POST api/v1/workspace/invites/accept/::post

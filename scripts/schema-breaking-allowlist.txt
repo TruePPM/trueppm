@@ -133,3 +133,7 @@ endpoint-removed | DELETE /api/v1/projects/{project_pk}/tasks/{task_pk}/labels/ 
 endpoint-removed | POST /api/v1/projects/{project_pk}/tasks/{task_pk}/labels/{label_id}/ | api-fuzz-declaration-corrections-5093 | the operation answered 500 on every call; attach is POST .../labels/
 became-optional | response #/PaginatedTaskList.count | api-fuzz-declaration-corrections-5093 | a keyset-mode page has never carried count
 type-changed | response GET /api/v1/programs/samples/{key}/download/ 200 | api-fuzz-declaration-corrections-5093 | body was always a JSON object; the declaration said binary string
+endpoint-removed | DELETE /api/v1/workspace/groups/{group_id}/members/ | api-fuzz-declaration-corrections-5093 | the operation answered 500 on every call; remove is DELETE .../members/{user_id}/
+endpoint-removed | POST /api/v1/workspace/groups/{group_id}/members/{user_id}/ | api-fuzz-declaration-corrections-5093 | the operation answered 500 on every call; add is POST .../members/
+endpoint-removed | DELETE /api/v1/workspace/groups/{group_id}/projects/ | api-fuzz-declaration-corrections-5093 | the operation answered 500 on every call; unlink is DELETE .../projects/{project_id}/
+endpoint-removed | POST /api/v1/workspace/groups/{group_id}/projects/{project_id}/ | api-fuzz-declaration-corrections-5093 | the operation answered 500 on every call; link is POST .../projects/

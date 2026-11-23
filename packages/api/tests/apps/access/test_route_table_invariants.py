@@ -1113,7 +1113,6 @@ ARCHIVED_EXEMPT_ENTRIES: frozenset[str] = frozenset(
         "api/v1/projects/<project_pk>/task-runs/<pk>/cancel/::cancel",
         "api/v1/projects/<uuid:pk>/notification-preferences/::patch",
         "api/v1/workspace/groups/<uuid:group_id>/projects/<uuid:project_id>/::delete",
-        "api/v1/workspace/groups/<uuid:group_id>/projects/<uuid:project_id>/::post",
     }
 )
 

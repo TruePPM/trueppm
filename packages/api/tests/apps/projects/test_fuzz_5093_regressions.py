@@ -2,8 +2,8 @@
 
 Each case is the minimal deterministic reproduction of an operation Schemathesis drove
 into an unhandled server error: a bad ``parent_path`` reaching an ltree cast, a root
-number allocated from a live-root count (collides on gapped numbering), and a label route
-answering a verb its handler cannot take.
+number allocated from a live-root count (collides on gapped numbering), and label and
+workspace-group routes answering a verb their handler cannot take.
 """
 
 from __future__ import annotations
@@ -105,3 +105,73 @@ def test_label_routes_refuse_the_verb_their_handler_cannot_take(
     # The supported verbs still work.
     assert client.post(base, {"label_id": str(label.pk)}, format="json").status_code == 200
     assert client.delete(f"{base}{label.pk}/").status_code == 204
+
+
+@pytest.mark.django_db
+def test_group_routes_refuse_the_verb_their_handler_cannot_take(project: Project) -> None:
+    from trueppm_api.apps.workspace.models import Workspace, WorkspaceMembership, WorkspaceRole
+
+    admin = User.objects.create_user(username="fuzz-ws-owner", password="pw")
+    WorkspaceMembership.objects.create(
+        workspace=Workspace.load(), user=admin, role=WorkspaceRole.OWNER
+    )
+    member = User.objects.create_user(username="fuzz-ws-member", password="pw")
+    WorkspaceMembership.objects.create(
+        workspace=Workspace.load(), user=member, role=WorkspaceRole.MEMBER
+    )
+    c = APIClient()
+    c.force_authenticate(user=admin)
+    gid = c.post("/api/v1/workspace/groups/", {"name": "G"}, format="json").data["id"]
+    members = f"/api/v1/workspace/groups/{gid}/members/"
+    projects = f"/api/v1/workspace/groups/{gid}/projects/"
+    # Each used to raise TypeError (500): the handler signature lacked / required the id.
+    assert c.delete(members).status_code == 405
+    assert c.post(f"{members}{member.pk}/", {}, format="json").status_code == 405
+    assert c.delete(projects).status_code == 405
+    assert c.post(f"{projects}{project.pk}/", {}, format="json").status_code == 405
+    # The supported verbs still work.
+    assert c.post(members, {"user": member.pk}, format="json").status_code == 201
+    assert c.delete(f"{members}{member.pk}/").status_code == 204
+    resp = c.post(projects, {"project": str(project.pk), "role": Role.MEMBER}, format="json")
+    assert resp.status_code == 201, resp.data
+    assert c.delete(f"{projects}{project.pk}/").status_code == 204
+
+
+@pytest.mark.django_db
+def test_phase_create_counts_the_cap_only_after_taking_the_project_lock(
+    client: APIClient, project: Project
+) -> None:
+    """The PHASE_MAX count (and the priority_rank derived from it) must follow the
+    Project ``FOR UPDATE``: an aggregate cannot carry the lock itself, so a count taken
+    first let two concurrent creates at PHASE_MAX-1 both pass the cap."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    Task.objects.create(project=project, name="A", duration=1, wbs_path="1")
+    with CaptureQueriesContext(connection) as ctx:
+        resp = client.post(
+            f"/api/v1/projects/{project.pk}/phases/", {"name": "New phase"}, format="json"
+        )
+    assert resp.status_code == 201, resp.data
+    sqls = [q["sql"] for q in ctx.captured_queries]
+    lock = next(
+        i for i, q in enumerate(sqls) if 'FROM "projects_project"' in q and "FOR UPDATE" in q
+    )
+    count = next(i for i, q in enumerate(sqls) if "COUNT(*)" in q and 'FROM "projects_task"' in q)
+    assert lock < count, (lock, count)
+    assert Task.objects.get(pk=resp.data["id"]).priority_rank == 20
+
+
+@pytest.mark.django_db
+def test_phase_create_refuses_past_phase_max(
+    client: APIClient, project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from trueppm_api.apps.projects import views as project_views
+
+    monkeypatch.setattr(project_views, "PHASE_MAX", 2)
+    Task.objects.create(project=project, name="A", duration=1, wbs_path="1")
+    url = f"/api/v1/projects/{project.pk}/phases/"
+    assert client.post(url, {"name": "B"}, format="json").status_code == 201
+    resp = client.post(url, {"name": "C"}, format="json")
+    assert resp.status_code == 400
+    assert Task.objects.filter(project=project, is_deleted=False).count() == 2

@@ -7,8 +7,10 @@ from django.urls import path
 from trueppm_api.apps.workspace.views import (
     GroupDetailView,
     GroupListView,
-    GroupMemberView,
-    GroupProjectView,
+    GroupMemberAddView,
+    GroupMemberRemoveView,
+    GroupProjectAddView,
+    GroupProjectRemoveView,
     InviteAcceptView,
     TransferOwnershipView,
     WorkspaceAuditEventListView,
@@ -99,22 +101,22 @@ urlpatterns = [
     ),
     path(
         "workspace/groups/<uuid:group_id>/members/",
-        GroupMemberView.as_view(),
+        GroupMemberAddView.as_view(),
         name="workspace-group-members",
     ),
     path(
         "workspace/groups/<uuid:group_id>/members/<int:user_id>/",
-        GroupMemberView.as_view(),
+        GroupMemberRemoveView.as_view(),
         name="workspace-group-member-detail",
     ),
     path(
         "workspace/groups/<uuid:group_id>/projects/",
-        GroupProjectView.as_view(),
+        GroupProjectAddView.as_view(),
         name="workspace-group-projects",
     ),
     path(
         "workspace/groups/<uuid:group_id>/projects/<uuid:project_id>/",
-        GroupProjectView.as_view(),
+        GroupProjectRemoveView.as_view(),
         name="workspace-group-project-detail",
     ),
 ]

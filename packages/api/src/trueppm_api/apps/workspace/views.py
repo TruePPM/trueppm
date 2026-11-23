@@ -1629,6 +1629,36 @@ class GroupProjectView(SessionOnlyWritesMixin, IdempotencyMixin, APIView):
 # ---------------------------------------------------------------------------
 
 
+class GroupMemberAddView(GroupMemberView):
+    """``POST .../groups/{id}/members/`` only.
+
+    A bare ``GroupMemberView`` answered both verbs on both routes, so
+    ``DELETE .../members/`` and ``POST .../members/{user_id}/`` died with a ``TypeError``
+    (500) on the missing/unexpected kwarg; narrowing the verbs makes the wrong one a 405
+    and keeps the published schema to the operations that exist (as
+    ``TaskLabelAttachView`` does)."""
+
+    http_method_names = ["post", "options"]
+
+
+class GroupMemberRemoveView(GroupMemberView):
+    """``DELETE .../groups/{id}/members/{user_id}/`` only (see :class:`GroupMemberAddView`)."""
+
+    http_method_names = ["delete", "options"]
+
+
+class GroupProjectAddView(GroupProjectView):
+    """``POST .../groups/{id}/projects/`` only (see :class:`GroupMemberAddView`)."""
+
+    http_method_names = ["post", "options"]
+
+
+class GroupProjectRemoveView(GroupProjectView):
+    """``DELETE .../groups/{id}/projects/{project_id}/`` only (see :class:`GroupMemberAddView`)."""
+
+    http_method_names = ["delete", "options"]
+
+
 class TransferOwnershipView(IdempotencyMixin, APIView):
     """POST /api/v1/workspace/transfer-ownership/ — hand the workspace to a member.
 
