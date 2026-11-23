@@ -93,6 +93,7 @@ async function setup(page: Page, { agents = true }: { agents?: boolean } = {}) {
       r.fulfill(
         json({
           agents: agents ? [agent(paused)] : [],
+          truncated: false,
           areas: AREAS,
           grantable_levels: ['none', 'read', 'propose'],
         }),
@@ -153,7 +154,7 @@ test.describe('Workspace Agents page', () => {
     await expect(page.getByText('No agents configured')).toBeVisible();
   });
 
-  test('a refused agent call appears in the Inbox and links to the agent', async ({ page }) => {
+  test('a refused agent call appears in the Inbox and opens the Agents page', async ({ page }) => {
     await setup(page);
     const refusal = {
       id: '3b1c9b3e-0000-4000-8000-000000000001',

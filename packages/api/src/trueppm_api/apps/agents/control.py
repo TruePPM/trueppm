@@ -1,12 +1,19 @@
 """Agent control plane: visibility, pause, resume, scope edit and revoke (#4814, #4757).
 
-An *agent* is an owner-scoped API token without the full scope
-(:func:`~trueppm_api.apps.projects.models.is_agent_token`). This module is the only
+An *agent* here is a controlled agent: an owner-scoped API token carrying ``mcp:read``
+and not the full scope
+(:func:`~trueppm_api.apps.projects.agent_scope.is_controlled_agent`). This module is the only
 writer of its control state (``ApiToken.agent_paused_at`` / ``agent_paused_by`` /
 ``agent_scope`` / ``revoked_at`` through this surface), and each write appends a
 ``PERSON`` row to the same hash chain the agent's own calls are recorded in, inside
 the same transaction as the state change — so the log proves who paused, resumed,
 widened or revoked what, and the flag and its record commit or roll back together.
+
+A control row's ``principal`` is the **agent's** principal (its owner), not the person
+who acted, so the row lands in the owner's own ``/agent-actions/`` log beside the
+agent's calls. The acting person is named, with their user id, in the hashed
+``summary``: an Admin pausing Alice's agent writes a row in Alice's log that says the
+Admin did it, and the chain proves that sentence was not edited afterwards.
 
 Who may act (the "decision for the architect" on #4814, settled here):
 
@@ -40,7 +47,7 @@ from trueppm_api.apps.agents.models import (
 )
 from trueppm_api.apps.agents.services import hash_request_payload, record_agent_action
 from trueppm_api.apps.projects.agent_scope import grant_of, validate_grant
-from trueppm_api.apps.projects.models import FULL_SCOPE_ALIASES, ApiToken
+from trueppm_api.apps.projects.models import FULL_SCOPE_ALIASES, SCOPE_MCP_READ, ApiToken
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
@@ -63,10 +70,17 @@ _INBOX_CONSTRAINTS = frozenset({RefusalConstraint.AGENT_PAUSED, RefusalConstrain
 
 
 def agent_tokens() -> QuerySet[ApiToken]:
-    """Every live agent token: personal, not full scope, not revoked, deleted or expired."""
+    """Every live controlled agent: personal, ``mcp:read``, not full scope, not revoked,
+    deleted or expired.
+
+    The queryset form of :func:`~trueppm_api.apps.projects.agent_scope.is_controlled_agent`.
+    A personal ``webhooks:manage`` token is deliberately absent: ``AgentControlGuard``
+    does not bind it, so the page must not offer a Pause that would do nothing.
+    """
     now = timezone.now()
     return (
         ApiToken.objects.filter(owner__isnull=False, is_deleted=False, revoked_at__isnull=True)
+        .filter(scopes__contains=[SCOPE_MCP_READ])
         .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
         .exclude(scopes__overlap=list(FULL_SCOPE_ALIASES))
     )
@@ -110,6 +124,11 @@ def can_manage(user: Any, token: ApiToken, *, admin: bool | None = None) -> bool
     return admin if admin is not None else is_workspace_admin(user)
 
 
+def _actor_label(actor: Any) -> str:
+    """The acting person as written into a hashed control-row summary: name and id."""
+    return f"{display_name(actor)} (user {getattr(actor, 'pk', '?')})"
+
+
 def display_name(user: Any) -> str:
     """A person's display name for human UI and the hashed control-row summary."""
     if user is None:
@@ -121,13 +140,18 @@ def display_name(user: Any) -> str:
 def _record_control(
     request: Request, token: ApiToken, actor: Any, action: str, summary: str
 ) -> None:
-    """Append the control event to the hash chain, in the caller's transaction."""
+    """Append the control event to the hash chain, in the caller's transaction.
+
+    ``principal`` is the agent's owner; ``actor`` is named in ``summary`` (see the
+    module docstring). ``actor`` is accepted so the call sites read as who-did-what.
+    """
     from trueppm_api.core.throttling import resolve_client_ip
 
+    del actor  # recorded in the summary by the caller
     record_agent_action(
         actor_kind=AgentActorKind.PERSON,
         actor_token=token,
-        principal=actor,
+        principal=token.owner,
         action=action,
         method=request.method or "POST",
         capability_used=CONTROL_CAPABILITY,
@@ -162,7 +186,7 @@ def pause(request: Request, token: ApiToken, actor: Any, reason: str = "") -> Ap
                 row,
                 actor,
                 "agent.pause",
-                f"Agent {row.name} (tppm_{row.token_prefix}) paused by {display_name(actor)}."
+                f"Agent {row.name} (tppm_{row.token_prefix}) paused by {_actor_label(actor)}."
                 + _reason_suffix(reason),
             )
     return row
@@ -181,7 +205,7 @@ def resume(request: Request, token: ApiToken, actor: Any, reason: str = "") -> A
                 row,
                 actor,
                 "agent.resume",
-                f"Agent {row.name} (tppm_{row.token_prefix}) resumed by {display_name(actor)}."
+                f"Agent {row.name} (tppm_{row.token_prefix}) resumed by {_actor_label(actor)}."
                 + _reason_suffix(reason),
             )
     return row
@@ -220,7 +244,7 @@ def edit_scope(
                 actor,
                 "agent.scope_edit",
                 f"Agent {row.name} (tppm_{row.token_prefix}) scope changed by "
-                f"{display_name(actor)}: {json.dumps(diff, sort_keys=True)}."
+                f"{_actor_label(actor)}: {json.dumps(diff, sort_keys=True)}."
                 + _reason_suffix(reason),
             )
     return row
@@ -261,7 +285,7 @@ def revoke(request: Request, token: ApiToken, actor: Any, reason: str = "") -> A
                 actor,
                 "agent.revoke",
                 f"Agent {row.name} (tppm_{row.token_prefix}) token revoked by "
-                f"{display_name(actor)}." + _reason_suffix(reason),
+                f"{_actor_label(actor)}." + _reason_suffix(reason),
             )
     return row
 
@@ -274,10 +298,16 @@ def notify_refusal(action: AgentAction) -> None:
     :data:`REFUSAL_COALESCE_WINDOW`: a later refusal updates that row's count and marks
     it unread, so a looping agent cannot fill an inbox. The body names the operation
     attempted and the agent, never project data — what was attempted is the view name,
-    which the principal's own agent chose.
+    which the principal's own agent chose. Gated by the principal's notification
+    preference for this event; the row itself is created by the notifications service.
     """
     from trueppm_api.apps.agents.models import AgentActionRefusalDetail
     from trueppm_api.apps.notifications.models import Notification
+    from trueppm_api.apps.notifications.services import (
+        create_event_notifications,
+        event_in_app_enabled,
+    )
+    from trueppm_api.apps.projects.agent_scope import is_controlled_agent
 
     if (
         action.verdict != AgentActionVerdict.REFUSED
@@ -294,7 +324,12 @@ def notify_refusal(action: AgentAction) -> None:
         return
 
     token = action.actor_token
-    if token is None:
+    if not is_controlled_agent(token):
+        return
+    # The principal's "When one of your agents is refused" preference, read through the
+    # notifications service like every other event, so turning it off stops both a new
+    # item and the refresh of a coalesced one.
+    if not event_in_app_enabled(action.principal_id, AGENT_REFUSED_EVENT):
         return
     if constraint == RefusalConstraint.AGENT_PAUSED:
         subject = f"Refused: agent {token.name} is paused"
@@ -336,9 +371,10 @@ def notify_refusal(action: AgentAction) -> None:
         existing.read_at = None
         existing.save(update_fields=["body", "is_read", "read_at"])
         return
-    Notification.objects.create(
-        recipient_id=action.principal_id,
+    create_event_notifications(
         event_type=AGENT_REFUSED_EVENT,
+        recipient_ids=[action.principal_id],
         subject=subject,
         body=body,
+        project_id=None,
     )

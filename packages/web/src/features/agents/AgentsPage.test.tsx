@@ -92,7 +92,12 @@ beforeEach(() => {
     isError: false,
   });
   m.agents.mockReturnValue({
-    data: { agents: [row()], areas: AREAS, grantable_levels: ['none', 'read', 'propose'] },
+    data: {
+      agents: [row()],
+      truncated: false,
+      areas: AREAS,
+      grantable_levels: ['none', 'read', 'propose'],
+    },
     isLoading: false,
     isError: false,
   });
@@ -168,9 +173,33 @@ describe('AgentsPage', () => {
     expect(screen.getByText(/Paused by Diego Alvarez/)).toBeTruthy();
   });
 
+  it('says when the server capped the list, and is silent otherwise', () => {
+    const { unmount } = renderWithRouter(<AgentsPage />);
+    expect(screen.queryByText(/More exist than this list carries/)).toBeNull();
+    unmount();
+    m.agents.mockReturnValue({
+      data: {
+        agents: [row()],
+        truncated: true,
+        areas: AREAS,
+        grantable_levels: ['none', 'read', 'propose'],
+      },
+      isLoading: false,
+      isError: false,
+    });
+    renderWithRouter(<AgentsPage />);
+    expect(screen.getByText(/Showing the first 1 agents/)).toBeTruthy();
+  });
+
+  it('does not claim a Dry run verdict is recorded before plan mode ships', () => {
+    renderWithRouter(<AgentsPage />);
+    expect(screen.queryByText(/recorded in the action log/)).toBeNull();
+    expect(screen.getByText(/takes effect when plan mode ships/)).toBeTruthy();
+  });
+
   it('renders the empty and error states', () => {
     m.agents.mockReturnValue({
-      data: { agents: [], areas: AREAS, grantable_levels: [] },
+      data: { agents: [], truncated: false, areas: AREAS, grantable_levels: [] },
       isLoading: false,
       isError: false,
     });

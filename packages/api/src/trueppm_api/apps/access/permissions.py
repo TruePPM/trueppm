@@ -2753,8 +2753,12 @@ class AgentControlGuard(BasePermission):
       loaded on this request, so there is no cache for a pause, scope edit or revoke
       to outlive.
 
-    Passes for every non-agent caller: a person's JWT, and a ``legacy:full`` personal
-    token (#2877), which is the person's own credential and not an agent.
+    Passes for every caller that is not a controlled agent
+    (:func:`~trueppm_api.apps.projects.agent_scope.is_controlled_agent`): a person's JWT,
+    a ``legacy:full`` personal token (#2877), which is the person's own credential, a
+    project/program token, which has no principal to pause it, and a personal token
+    without ``mcp:read`` (``webhooks:manage``), which the Agents page does not list and
+    so could never pause. The guard binds exactly the set the page shows a control for.
     """
 
     message = "This agent's call was refused."
@@ -2766,12 +2770,12 @@ class AgentControlGuard(BasePermission):
             AGENT_PAUSED_MESSAGE,
             AGENT_SCOPE_MESSAGE,
             can_read_area,
+            is_controlled_agent,
         )
         from trueppm_api.apps.projects.agent_scope import area_for_view as _area_for_view
-        from trueppm_api.apps.projects.models import is_agent_token
 
         token = getattr(request, "auth", None)
-        if not is_agent_token(token):
+        if not is_controlled_agent(token):
             return True
         if token.agent_paused_at is not None:
             self.message = AGENT_PAUSED_MESSAGE
@@ -3536,6 +3540,34 @@ def _mcp_client_ip(request: Request) -> str | None:
     from trueppm_api.core.throttling import resolve_client_ip
 
     return resolve_client_ip(request)
+
+
+class AgentControlRefusalAuditMixin(APIView):
+    """Record an :class:`AgentControlGuard` refusal on a view outside the MCP mixin (#4814).
+
+    For token-reachable views that carry ``AgentControlGuard`` but not
+    :class:`McpReadableViewMixin` (the key resolver and key suggestion), so a paused or
+    out-of-scope agent's refusal there lands in the same hash chain — and reaches its
+    principal's Inbox — exactly as it does on the MCP read surface. It reuses that
+    mixin's recorder rather than a second one, so the row shape cannot drift.
+
+    Only a ``403`` is recorded. On these views no other permission class answers 403 to
+    an authenticated caller (a not-found is ``404``, a throttle ``429``, an identity
+    refusal ``401`` that the authenticator audits itself), so a 403 is the guard's.
+    Allowed calls stay unaudited, as those views' own contracts say.
+    """
+
+    # The recorder calls these two on ``self``; borrowed so it finds them here.
+    _mcp_refusal_classification = McpReadableViewMixin._mcp_refusal_classification
+    _mcp_audit_target = McpReadableViewMixin._mcp_audit_target
+
+    def finalize_response(self, request: Request, response: Any, *args: Any, **kwargs: Any) -> Any:
+        response = super().finalize_response(request, response, *args, **kwargs)
+        if getattr(response, "status_code", 200) == 403:
+            McpReadableViewMixin._record_mcp_agent_action(
+                cast("McpReadableViewMixin", self), request, response
+            )
+        return response
 
 
 def _set_agent_span_attributes(token: Any, verdict: str) -> None:

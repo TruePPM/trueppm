@@ -220,8 +220,8 @@ function ScopeMatrix({
         </tbody>
       </table>
       <p className="mt-2 text-xs text-neutral-text-secondary">
-        Dry run means the agent can ask what a change would do; the verdict is recorded in the
-        action log and nothing changes. Write ships in 0.6.
+        Dry run is saved now and takes effect when plan mode ships: the agent will be able to ask
+        what a change would do without changing anything. Write ships in 0.6.
       </p>
       {capped && (
         <p className="mt-1 text-xs text-neutral-text-secondary">
@@ -447,6 +447,11 @@ export function AgentsPage() {
                 />
               ))}
             </ul>
+            {data?.truncated && (
+              <p className="text-xs text-neutral-text-secondary">
+                Showing the first {agents.length} agents. More exist than this list carries.
+              </p>
+            )}
           </div>
           {current && <AgentPanel key={current} id={current} areas={areas} />}
         </div>

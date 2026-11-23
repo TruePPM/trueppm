@@ -35,9 +35,9 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
-from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership
+from trueppm_api.apps.access.permissions import AgentControlGuard, AgentControlRefusalAuditMixin
 from trueppm_api.apps.projects.keys import (
     KIND_PROGRAM,
     KIND_PROJECT,
@@ -258,7 +258,7 @@ def _resolve_child(project: Project, marker: str, number: int) -> dict[str, Any]
     return _child_body(project, "sprint", sprint, "SP", number) if sprint else None
 
 
-class _TokenReachableView(APIView):
+class _TokenReachableView(AgentControlRefusalAuditMixin):
     """Accept a project/program-scoped API token ahead of the default auth stack.
 
     ``readable_projects``/``readable_programs`` (above) already intersect a
@@ -279,7 +279,18 @@ class _TokenReachableView(APIView):
     project/program token narrowing the resolver to its own scope, so the
     guard that protects the MCP surface would 401 the very callers this
     endpoint exists to admit.
+
+    Because an owner-scoped ``mcp:read`` token is admitted here too, an agent reaches
+    this surface, so it carries the agent's pause and capability scope
+    (``AgentControlGuard``, #4814) like the MCP read views do, and a refusal is
+    recorded through :class:`AgentControlRefusalAuditMixin`. The area is
+    ``schedule``: a key names a project, program, task, sprint or risk, and resolving
+    or checking one reads the identity of schedule objects — the same area the MCP
+    project and task reads fall in. A non-agent caller (JWT, full-scope or
+    project/program token) passes the guard untouched.
     """
+
+    agent_area = "schedule"
 
     def get_authenticators(self) -> list[BaseAuthentication]:
         from trueppm_api.apps.projects.authentication import ProjectApiTokenAuthentication
@@ -290,11 +301,11 @@ class _TokenReachableView(APIView):
 class ResolveView(_TokenReachableView):
     """Resolve a key, retired key, UUID, or ``PLAT-T-10`` reference to UUIDs (ADR-1237 §5).
 
-    Read-only, no side effects, no audit event. Anything the caller cannot read
+    Read-only, no side effects, no audit event for an allowed call. Anything the caller cannot read
     — or that does not exist — is the same ``404 {"detail": "Not found."}``.
     """
 
-    permission_classes = [IsAuthenticated]  # noqa: RUF012
+    permission_classes = [IsAuthenticated, AgentControlGuard]  # noqa: RUF012
     throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "resolve"
 
@@ -379,7 +390,7 @@ class KeySuggestionView(_TokenReachableView):
     keys; do not "fix" it. Throttled in the same ``resolve`` bucket.
     """
 
-    permission_classes = [IsAuthenticated]  # noqa: RUF012
+    permission_classes = [IsAuthenticated, AgentControlGuard]  # noqa: RUF012
     throttle_classes = [ScopedRateThrottle]  # noqa: RUF012
     throttle_scope = "resolve"
 

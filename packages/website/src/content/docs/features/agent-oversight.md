@@ -98,7 +98,10 @@ rather than claiming a guarantee it cannot make on its own.
 
 The **Agents** item in the left rail opens one page for every agent you can see,
 across every program you belong to. An agent is a personal access token with the
-read-only MCP scope; it acts for one person, the person who created it.
+read-only MCP scope; it acts for one person, the person who created it. Personal
+tokens with other scopes, such as a webhooks token, are not agents and are not listed
+here: pausing them would not stop anything. A workspace Admin's list shows at most
+200 agents, and says so when there are more.
 
 **Who sees which agents.** You see your own agents, and any agent that has acted in
 a project you are a member of. A workspace Admin sees every agent. When an agent's
@@ -110,12 +113,13 @@ many of its calls were **refused in the last 7 days** — counting only actions 
 see. Select a row to open its panel:
 
 - **Pause** stops the agent. Every call it makes is refused until someone resumes
-  it. The panel says who paused it. The agent itself is told only that it is
+  it — on the MCP read tools and on key resolution alike. The panel says who paused it. The agent itself is told only that it is
   paused, never by whom.
 - **Edit scope** sets what the agent may do in each area (Schedule & tasks,
   Dependencies, Resources, Baselines). **Read** lets it read that area. **Dry run**
-  lets it ask what a change would do; the verdict is recorded in the action log and
-  nothing changes. **Write** is shown but disabled: the write path ships in 0.6, and
+  can be granted now but has no effect yet: it takes effect when plan mode ships,
+  which will let the agent ask what a change would do without changing anything.
+  **Write** is shown but disabled: the write path ships in 0.6, and
   the server refuses a write grant whatever the page sends.
 - **Revoke token** ends the agent for good, on its next call.
 
@@ -127,12 +131,17 @@ once. A workspace Admin who edits someone else's agent is held to the same limit
 Only the person an agent acts for, or a workspace Admin, can pause, resume, edit or
 revoke it, and only from a signed-in session: the endpoints refuse every API token,
 including the agent's own, so an agent cannot resume itself or widen its own scope.
-Every pause, resume, scope change and revoke is written to the same tamper-evident
-chain as the agent's own calls, with who made it and why.
+Every pause, resume, scope change and revoke made on this page is written to the
+same tamper-evident chain as the agent's own calls, with who made it and why. The
+record belongs to the person the agent acts for — it appears in their action log
+beside the agent's calls — and names the person who made the change. Revoking a
+token elsewhere, such as under **Settings › API tokens**, is not written to this
+chain yet.
 
 The line under the page title — **Action log verified · N records · as of …** — is
 the result of the same check as `audit_verify`, run by the server and reused for up
-to ten minutes while the log has not grown.
+to ten minutes, so it can trail the newest records by that long; the "as of" time
+says when it ran.
 
 ### Refused agents in your Inbox
 
@@ -141,6 +150,8 @@ get an Inbox item. It leads with the reason, then names what the agent attempted
 and the agent, and ends with "Nothing changed in the schedule." Repeats from the
 same agent for the same reason within 15 minutes update one item with a count, so a
 looping agent cannot fill your Inbox. Opening the item takes you to the Agents page.
+You can turn these items off with **When one of your agents is refused** in your
+notification settings.
 
 ## Governance of agents, not surveillance of people
 

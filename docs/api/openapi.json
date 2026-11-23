@@ -2195,7 +2195,7 @@
         "/api/v1/agents/audit-verify/": {
             "get": {
                 "operationId": "v1_agents_audit_verify_retrieve",
-                "description": "The \"Action log verified\" line: ``audit_verify`` over the whole chain.\n\nReused while the chain head has not moved and for at most\n:data:`AUDIT_VERIFY_TTL_SECONDS`, so a page load cannot turn into a full-chain walk.",
+                "description": "The \"Action log verified\" line: ``audit_verify`` over the whole chain.\n\nReused for :data:`AUDIT_VERIFY_TTL_SECONDS` under one fixed key, so a page load\ncannot turn into a full-chain walk. The key is deliberately not the chain head:\nevery agent call advances the head, so a head-keyed entry missed on almost every\nload and the cache bought nothing. The line therefore says \"as of\" its\n``checked_at``, and may trail the newest records by up to the TTL.",
                 "summary": "Verify the agent-action hash chain",
                 "tags": [
                     "agents"
@@ -60720,6 +60720,10 @@
                             "$ref": "#/components/schemas/Agent"
                         }
                     },
+                    "truncated": {
+                        "type": "boolean",
+                        "description": "True when more agents exist than the list carries (the list is capped)."
+                    },
                     "areas": {
                         "type": "array",
                         "items": {
@@ -60739,7 +60743,8 @@
                 "required": [
                     "agents",
                     "areas",
-                    "grantable_levels"
+                    "grantable_levels",
+                    "truncated"
                 ]
             },
             "AgentPause": {

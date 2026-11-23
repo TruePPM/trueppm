@@ -1115,6 +1115,18 @@ def _build_event_notification_gate(
     return _allows, dnd_user_ids
 
 
+def event_in_app_enabled(user_id: int | str, event_type: str) -> bool:
+    """Whether ``user_id``'s global preference lets an in-app ``event_type`` row through.
+
+    The same gate :func:`create_event_notifications` applies before creating a row, for
+    a caller that coalesces into an existing row instead of creating one (the agent
+    refusal item): turning the preference off must also stop the existing row from
+    being refreshed and marked unread. In-app is never silenced by DND.
+    """
+    allows, _ = _build_event_notification_gate(event_type, {user_id})
+    return allows(user_id, NotificationChannel.IN_APP.value)
+
+
 def create_event_notifications(
     *,
     event_type: str,

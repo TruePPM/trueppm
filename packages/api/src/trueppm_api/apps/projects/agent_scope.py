@@ -1,13 +1,14 @@
 """Agent capability scope: the per-agent grant and its per-call intersection (#4814).
 
-An *agent* is an owner-scoped API token that does not carry the full scope
-(:func:`~trueppm_api.apps.projects.models.is_agent_token`). It acts for exactly one
-person, its owner (the *principal*). Its capability scope is a grant of one level per
+A *controlled agent* is an owner-scoped API token that carries ``mcp:read`` and not
+the full scope (:func:`is_controlled_agent`). It acts for exactly one person, its
+owner (the *principal*). Its capability scope is a grant of one level per
 **area**, on the ladder ``none < read < propose < write``:
 
 * ``read`` — the agent may read the area on the MCP surface;
-* ``propose`` — shown in the UI as **Dry run** (#1813): the agent may ask for a dry-run
-  verdict, which lands in the action log and never in an approval queue;
+* ``propose`` — shown in the UI as **Dry run**: the grant is stored and capped now, but
+  nothing consumes it yet. It takes effect when plan mode (#1813) ships, which will
+  let the agent ask what a change would do without changing anything;
 * ``write`` — the committing write path. It ships in 0.6, so it is **not grantable** in
   0.5, and that refusal is enforced here on the server, not by the disabled UI cell.
 
@@ -29,7 +30,7 @@ Two properties carry the threat model on #4814:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeGuard
 
 if TYPE_CHECKING:
     from trueppm_api.apps.projects.models import ApiToken
@@ -101,6 +102,23 @@ _MODEL_AREA: dict[str, str] = {
 }
 
 
+def is_controlled_agent(auth: object) -> TypeGuard[ApiToken]:
+    """Whether ``auth`` is an agent the pause and capability scope govern.
+
+    Narrower than :func:`~trueppm_api.apps.projects.models.is_agent_token`, which fails
+    closed on *any* non-full token for the MCP read-only guards: an owner-scoped
+    ``webhooks:manage`` token is an "agent" there, but nothing here can bind it — it
+    never reaches the MCP read surface — so listing it with a Pause control would show
+    a control that does nothing. This is the one predicate the Agents list
+    (``control.agent_tokens``), ``AgentControlGuard`` and the refusal Inbox item share.
+    """
+    from trueppm_api.apps.projects.models import SCOPE_MCP_READ, is_agent_token
+
+    if not is_agent_token(auth):
+        return False
+    return auth.owner_id is not None and SCOPE_MCP_READ in (auth.scopes or [])
+
+
 def level_rank(level: str) -> int:
     """Ordinal of ``level`` on the ladder; an unknown value ranks as ``none``."""
     return _RANK.get(level, 0)
@@ -124,6 +142,12 @@ def principal_ceiling(user: Any) -> dict[str, str]:
     ``read`` needs only an active account (the views' own RBAC narrows each read to
     the principal's projects). ``propose`` needs a live project role at or above the
     area's floor on at least one live project. ``write`` is never in the ceiling in 0.5.
+
+    This ceiling is workspace-wide (the principal's *highest* role on any project), which
+    is enough to cap an edit. It is not enough to authorize a dry run: when plan mode
+    (#1813) starts consuming ``propose``, it must intersect the grant with the
+    principal's role on the *project the dry run targets*, so an Admin on project A
+    cannot preview Admin-only changes on project B where they are a Member.
     """
     if user is None or not getattr(user, "is_active", False):
         return dict.fromkeys(AGENT_AREAS, LEVEL_NONE)

@@ -61,7 +61,9 @@ class AgentActorKind(models.TextChoices):
     MCP_TOKEN = "mcp_token", "MCP token"
     # A person acting on an agent through the control plane (#4814): pause, resume,
     # scope edit, revoke. ``actor_token`` is the agent acted on and ``principal`` is
-    # the person who acted, so the chain proves who widened what.
+    # that agent's owner, so the row sits in the owner's log; the person who acted is
+    # named, with their user id, in the hashed ``summary``, so the chain proves who
+    # widened what.
     PERSON = "person", "Person (agent control)"
 
 

@@ -151,6 +151,9 @@ class AgentListResponseSerializer(serializers.Serializer[Any]):
     """``GET /agents/``: the agents plus the scope vocabulary the matrix renders."""
 
     agents = AgentSerializer(many=True)
+    truncated = serializers.BooleanField(
+        help_text="True when more agents exist than the list carries (the list is capped)."
+    )
     areas = serializers.ListField(child=serializers.DictField(child=serializers.CharField()))
     grantable_levels = serializers.ListField(child=serializers.CharField())
 

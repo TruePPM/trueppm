@@ -1011,6 +1011,8 @@ export interface AgentDetail extends AgentRow {
 
 export interface AgentListResponse {
   agents: AgentRow[];
+  /** True when the server capped the list and more agents exist. */
+  truncated: boolean;
   areas: { key: string; label: string }[];
   grantable_levels: AgentScopeLevel[];
 }

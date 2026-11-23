@@ -37,6 +37,7 @@ from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
 from trueppm_api.apps.projects.models import (
     SCOPE_API_FULL,
     SCOPE_MCP_READ,
+    SCOPE_WEBHOOKS_MANAGE,
     ApiToken,
     Calendar,
     Program,
@@ -146,7 +147,13 @@ def test_full_scope_personal_token_is_refused_too(
     world: dict[str, Any], method: str, path: str, body: Any
 ) -> None:
     """Keyed on the credential, not on 'is it an agent': no token manages agents."""
-    full, _ = _mint(world["principal"], scopes=[SCOPE_API_FULL], name="ci")
+    full, raw = _mint(world["principal"], scopes=[SCOPE_API_FULL], name="ci")
+    # Through the real authenticator: a `tppm_` bearer is not a JWT, so it never
+    # authenticates on a control route at all.
+    real = getattr(_bearer(raw), method)(path.format(id=world["token"].pk), body, format="json")
+    assert real.status_code == 401
+    # And if one ever did authenticate (a future authenticator change), the view's own
+    # credential check still refuses it.
     client = APIClient()
     client.force_authenticate(user=world["principal"], token=full)
     response = getattr(client, method)(path.format(id=world["token"].pk), body, format="json")
@@ -454,3 +461,169 @@ def test_live_pause_refusal_reaches_the_inbox(
     assert Notification.objects.filter(
         recipient=world["principal"], event_type="agent.refused"
     ).exists()
+
+
+# ---------------------------------------------------------------------------
+# Completeness-check fix round: key resolution, agent set, preference, cache, cap
+# ---------------------------------------------------------------------------
+
+
+def _key_routes(project: Project) -> list[str]:
+    return [
+        f"/api/v1/resolve/?kind=project&ref={project.id}",
+        "/api/v1/keys/?kind=project&name=Platform",
+    ]
+
+
+@pytest.mark.django_db
+def test_paused_agent_is_refused_and_recorded_on_key_resolution(world: dict[str, Any]) -> None:
+    """The key resolver and key suggestion admit owner-scoped tokens, so they bind pause."""
+    from django.utils import timezone
+
+    agent = _bearer(world["raw"])
+    for path in _key_routes(world["project"]):
+        assert agent.get(path).status_code == 200, path
+
+    world["token"].agent_paused_at = timezone.now()
+    world["token"].save(update_fields=["agent_paused_at"])
+    for path in _key_routes(world["project"]):
+        refused = agent.get(path)
+        assert refused.status_code == 403, path
+        assert refused.data["refusal"]["constraint"] == RefusalConstraint.AGENT_PAUSED
+
+    rows = AgentAction.objects.filter(
+        actor_token=world["token"], verdict=AgentActionVerdict.REFUSED
+    ).order_by("sequence")
+    assert [r.action for r in rows] == ["resolve", "keys"]
+    assert all(r.refusal_detail.constraint == RefusalConstraint.AGENT_PAUSED for r in rows)
+    assert all(r.principal_id == world["principal"].pk for r in rows)
+    assert verify_chain().ok
+
+
+@pytest.mark.django_db
+def test_out_of_scope_agent_is_refused_on_key_resolution(world: dict[str, Any]) -> None:
+    world["token"].agent_scope = {**agent_scope.DEFAULT_GRANT, "schedule": "none"}
+    world["token"].save(update_fields=["agent_scope"])
+    refused = _bearer(world["raw"]).get(f"/api/v1/resolve/?kind=project&ref={world['project'].id}")
+    assert refused.status_code == 403
+    assert refused.data["refusal"]["constraint"] == RefusalConstraint.CAPABILITY_SCOPE
+
+
+@pytest.mark.django_db
+def test_key_resolution_is_unchanged_for_a_person(world: dict[str, Any]) -> None:
+    resp = _as(world["principal"]).get(f"/api/v1/resolve/?kind=project&ref={world['project'].id}")
+    assert resp.status_code == 200
+    assert not AgentAction.objects.filter(verdict=AgentActionVerdict.REFUSED).exists()
+
+
+@pytest.mark.django_db
+def test_webhooks_token_is_not_listed_or_governed_as_an_agent(world: dict[str, Any]) -> None:
+    """Only `mcp:read` tokens get a Pause control, because only they are bound by it."""
+    hooks, _ = _mint(world["principal"], scopes=[SCOPE_WEBHOOKS_MANAGE], name="hooks")
+    names = [r["name"] for r in _as(world["principal"]).get("/api/v1/agents/").data["agents"]]
+    assert names == ["Claude"]
+    assert not agent_scope.is_controlled_agent(hooks)
+    assert agent_scope.is_controlled_agent(world["token"])
+    resp = _as(world["principal"]).post(f"/api/v1/agents/{hooks.pk}/pause/", {}, format="json")
+    assert resp.status_code == 404
+
+
+@pytest.mark.django_db
+def test_admin_control_row_belongs_to_the_agents_principal(world: dict[str, Any]) -> None:
+    admin = _user("diego")
+    WorkspaceMembership.objects.create(
+        workspace=Workspace.load(), user=admin, role=WorkspaceRole.ADMIN
+    )
+    pk = world["token"].pk
+    assert _as(admin).post(f"/api/v1/agents/{pk}/pause/", {}, format="json").status_code == 200
+
+    row = AgentAction.objects.get(actor_kind=AgentActorKind.PERSON, action="agent.pause")
+    assert row.principal_id == world["principal"].pk
+    assert f"(user {admin.pk})" in row.summary
+    # It is in the principal's own action log, and not in the Admin's.
+    mine = _as(world["principal"]).get("/api/v1/agent-actions/").data
+    mine_rows = mine["results"] if isinstance(mine, dict) else mine
+    assert str(row.pk) in {str(r["id"]) for r in mine_rows}
+    assert verify_chain().ok
+
+
+def _refusal_payload(world: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "actor_token": world["token"],
+        "principal": world["principal"],
+        "action": "projects:project-overview",
+        "method": "GET",
+        "capability_used": SCOPE_MCP_READ,
+        "verdict": AgentActionVerdict.REFUSED,
+        "refusal_reason": "policy",
+        "refusal_constraint": RefusalConstraint.AGENT_PAUSED,
+        "payload_hash": "0" * 64,
+    }
+
+
+@pytest.mark.django_db
+def test_refusal_inbox_item_honors_the_preference(world: dict[str, Any]) -> None:
+    from trueppm_api.apps.agents.control import notify_refusal
+    from trueppm_api.apps.notifications.models import NotificationPreference
+
+    notify_refusal(record_agent_action(**_refusal_payload(world)))
+    item = Notification.objects.get(recipient=world["principal"], event_type="agent.refused")
+    item.is_read = True
+    item.save(update_fields=["is_read"])
+
+    NotificationPreference.objects.update_or_create(
+        user=world["principal"],
+        event_type="agent.refused",
+        channel="in_app",
+        defaults={"enabled": False},
+    )
+    notify_refusal(record_agent_action(**_refusal_payload(world)))
+    item.refresh_from_db()
+    assert item.is_read is True  # the coalesced row was not refreshed either
+    assert Notification.objects.filter(event_type="agent.refused").count() == 1
+
+    Notification.objects.all().delete()
+    notify_refusal(record_agent_action(**_refusal_payload(world)))
+    assert not Notification.objects.filter(event_type="agent.refused").exists()
+
+
+@pytest.mark.django_db
+def test_audit_verify_is_reused_across_new_agent_calls(
+    world: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from django.core.cache import cache
+
+    from trueppm_api.apps.agents import agent_views
+
+    cache.delete(agent_views.AUDIT_VERIFY_CACHE_KEY)
+    calls = []
+    real = agent_views.verify_chain
+
+    def counting() -> Any:
+        calls.append(1)
+        return real()
+
+    monkeypatch.setattr(agent_views, "verify_chain", counting)
+    client = _as(world["principal"])
+    first = client.get("/api/v1/agents/audit-verify/").data
+    _bearer(world["raw"]).get(_overview(world["project"]))  # advances the chain head
+    second = client.get("/api/v1/agents/audit-verify/").data
+    assert len(calls) == 1
+    assert second["record_count"] == first["record_count"]
+    cache.delete(agent_views.AUDIT_VERIFY_CACHE_KEY)
+
+
+@pytest.mark.django_db
+def test_agent_list_is_capped(world: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> None:
+    from trueppm_api.apps.agents import agent_views
+
+    _mint(world["principal"], name="Zed")
+    client = _as(world["principal"])
+    data = client.get("/api/v1/agents/").data
+    assert data["truncated"] is False
+    assert len(data["agents"]) == 2
+
+    monkeypatch.setattr(agent_views, "MAX_AGENTS_LISTED", 1)
+    data = client.get("/api/v1/agents/").data
+    assert data["truncated"] is True
+    assert [r["name"] for r in data["agents"]] == ["Claude"]

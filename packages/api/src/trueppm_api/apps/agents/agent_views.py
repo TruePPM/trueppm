@@ -29,7 +29,6 @@ from rest_framework.views import APIView
 from trueppm_api.apps.agents import control
 from trueppm_api.apps.agents.models import (
     AgentAction,
-    AgentActionChainHead,
     AgentActionRefusalDetail,
     AgentActionVerdict,
     AgentActorKind,
@@ -60,8 +59,14 @@ if TYPE_CHECKING:
 
     from trueppm_api.apps.projects.models import ApiToken
 
-#: How long a chain verification is reused while the chain head has not moved.
+#: How long a chain verification is reused (ten minutes; the docs say so).
 AUDIT_VERIFY_TTL_SECONDS = 600
+
+#: The one cache key the verification is stored under. Fixed, so the TTL alone bounds it.
+AUDIT_VERIFY_CACHE_KEY = "agents:audit_verify"
+
+#: Most agents one list response carries; ``truncated`` is true when more exist.
+MAX_AGENTS_LISTED = 200
 
 #: Recent actions shown in an agent's detail panel.
 RECENT_ACTIONS_LIMIT = 20
@@ -246,15 +251,25 @@ class AgentListView(_AgentsBase):
         responses={200: AgentListResponseSerializer},
     )
     def get(self, request: Request) -> Response:
-        tokens = list(control.visible_agents(request.user).order_by("name", "created_at"))
+        # A person holds at most ten tokens, but a workspace Admin sees every agent in
+        # the workspace, so the list is capped rather than unbounded; `truncated` says
+        # when the cap cut it. The cap applies before the `program` filter below.
+        tokens = list(
+            control.visible_agents(request.user).order_by("name", "created_at")[
+                : MAX_AGENTS_LISTED + 1
+            ]
+        )
+        truncated = len(tokens) > MAX_AGENTS_LISTED
+        tokens = tokens[:MAX_AGENTS_LISTED]
         rows = _rows(tokens, request.user)
         program = request.query_params.get("program")
         if program:
             rows = [r for r in rows if any(str(p["id"]) == program for p in r["programs"])]
         payload = {
-            # `agents`, not `results`: a bounded, unpaginated list (a person holds at
-            # most ten tokens) that is not one of the paginated envelope shapes.
+            # `agents`, not `results`: a capped, unpaginated list (MAX_AGENTS_LISTED)
+            # that is not one of the paginated envelope shapes.
             "agents": rows,
+            "truncated": truncated,
             "areas": [{"key": a, "label": AGENT_AREA_LABELS[a]} for a in AGENT_AREAS],
             "grantable_levels": [lvl for lvl in AGENT_LEVELS if lvl in GRANTABLE_LEVELS],
         }
@@ -367,16 +382,18 @@ class AgentRevokeView(_AgentObjectView):
 class AgentAuditVerifyView(_AgentsBase):
     """The "Action log verified" line: ``audit_verify`` over the whole chain.
 
-    Reused while the chain head has not moved and for at most
-    :data:`AUDIT_VERIFY_TTL_SECONDS`, so a page load cannot turn into a full-chain walk.
+    Reused for :data:`AUDIT_VERIFY_TTL_SECONDS` under one fixed key, so a page load
+    cannot turn into a full-chain walk. The key is deliberately not the chain head:
+    every agent call advances the head, so a head-keyed entry missed on almost every
+    load and the cache bought nothing. The line therefore says "as of" its
+    ``checked_at``, and may trail the newest records by up to the TTL.
     """
 
     @extend_schema(
         summary="Verify the agent-action hash chain", responses={200: AgentAuditVerifySerializer}
     )
     def get(self, request: Request) -> Response:
-        head = AgentActionChainHead.objects.filter(pk=1).only("last_sequence").first()
-        key = f"agents:audit_verify:{head.last_sequence if head else 0}"
+        key = AUDIT_VERIFY_CACHE_KEY
         cached = cache.get(key)
         if cached is None:
             result = verify_chain()

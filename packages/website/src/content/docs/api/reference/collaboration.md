@@ -337,16 +337,17 @@ Ships in 0.5.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/v1/agents/` | Agents you can see, with the scope vocabulary (`agents`, `areas`, `grantable_levels`); `?program=` narrows to agents that acted in one program |
+| GET | `/api/v1/agents/` | Agents you can see, with the scope vocabulary (`agents`, `truncated`, `areas`, `grantable_levels`); at most 200 agents, `truncated` is true when more exist; `?program=` narrows to agents that acted in one program |
 | GET | `/api/v1/agents/{id}/` | One agent with its 20 most recent actions, redacted by project membership |
 | POST | `/api/v1/agents/{id}/pause/` | Pause the agent: every call it makes is refused (`agent_paused`) until resumed |
 | POST | `/api/v1/agents/{id}/resume/` | Resume a paused agent |
 | PATCH | `/api/v1/agents/{id}/scope/` | Set `read` / `propose` (Dry run) per area; `write` is refused (400 `write_not_grantable`), and a level above the person the agent acts for is refused (400 `above_principal`) |
 | POST | `/api/v1/agents/{id}/revoke/` | Revoke the agent's token, effective on its next call |
-| GET | `/api/v1/agents/audit-verify/` | The `audit_verify` result for the whole chain: `ok`, `record_count`, `checked_at` |
+| GET | `/api/v1/agents/audit-verify/` | The `audit_verify` result for the whole chain: `ok`, `record_count`, `checked_at`; reused for up to ten minutes |
 
-You see your own agents, agents that acted in a project you belong to, and every
-agent if you are a workspace Admin. Only the person an agent acts for, or a
+An agent is a personal token carrying `mcp:read` and not the full scope. You see your
+own agents, agents that acted in a project you belong to, and every agent if you are
+a workspace Admin. Only the person an agent acts for, or a
 workspace Admin, can pause, resume, edit or revoke it. Every route refuses API
 tokens, so these calls need a signed-in session. The pause, resume, scope and
 revoke bodies accept an optional `reason`, which is recorded in the hash chain.
