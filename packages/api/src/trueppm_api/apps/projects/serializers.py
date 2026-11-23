@@ -121,6 +121,7 @@ from trueppm_api.apps.projects.models import (
     SprintRetro,
     SprintState,
     SprintTaskDisposition,
+    StatusUpdateRag,
     Task,
     TaskAttachment,
     TaskComment,
@@ -3529,6 +3530,65 @@ class ProgramRollupKpiEntrySerializer(serializers.Serializer[dict[str, Any]]):
             "projects that have one."
         ),
     )
+    projects_without_forecast_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        read_only=True,
+        required=False,
+        help_text=(
+            "p80_completion only: which contributing projects projects_without_forecast "
+            "counts, so a client can name the project the program P80 leaves out (#4799)."
+        ),
+    )
+
+
+class ProgramRollupLatestUpdateSerializer(serializers.Serializer[dict[str, Any]]):
+    """A project's latest posted status update, as a program overview row shows it (#4799)."""
+
+    id = serializers.UUIDField(read_only=True)
+    seq = serializers.IntegerField(read_only=True)
+    rag = serializers.ChoiceField(choices=StatusUpdateRag.choices, read_only=True)
+    computed_health = serializers.CharField(
+        read_only=True, help_text="The derived health band frozen when the update was posted."
+    )
+    first_line = serializers.CharField(
+        read_only=True, help_text="The narrative's first line; empty when it has none."
+    )
+    author_name = serializers.CharField(read_only=True, allow_null=True)
+    posted_at = serializers.DateTimeField(read_only=True)
+
+
+class ProgramRollupProjectRowSerializer(serializers.Serializer[dict[str, Any]]):
+    """One row of the rollup's ``projects`` list (#4799). See ``program_project_rows``."""
+
+    id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    accessible = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "Whether the caller is a member of this project. When false every other "
+            "figure on the row is null: program roles do not cascade to projects."
+        ),
+    )
+    schedule_health = serializers.ChoiceField(
+        choices=["on_track", "at_risk", "critical", "unknown"],
+        read_only=True,
+        allow_null=True,
+        help_text=METRIC_DEFINITIONS["rollup.schedule_health"],
+    )
+    p50 = serializers.DateField(read_only=True, allow_null=True)
+    p80 = serializers.DateField(read_only=True, allow_null=True)
+    forecast_as_of = serializers.DateTimeField(read_only=True, allow_null=True)
+    commitment_date = serializers.DateField(read_only=True, allow_null=True)
+    p80_delta_vs_commitment_days = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text=METRIC_DEFINITIONS["p80_delta_vs_commitment_days"],
+    )
+    p80_delta_vs_commitment_reason = serializers.ChoiceField(
+        choices=["no_commitment", "no_forecast"], read_only=True, allow_null=True
+    )
+    lead_name = serializers.CharField(read_only=True, allow_null=True)
+    latest_update = ProgramRollupLatestUpdateSerializer(read_only=True, allow_null=True)
 
 
 class ProgramRollupDefinitionsSerializer(serializers.Serializer[dict[str, str]]):
@@ -3618,6 +3678,21 @@ class ProgramRollupSerializer(serializers.Serializer[dict[str, Any]]):
         ),
     )
     definitions = ProgramRollupDefinitionsSerializer(read_only=True)
+    projects = ProgramRollupProjectRowSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            METRIC_DEFINITIONS["rollup.project_row"]
+            + " Sorted by slip: the largest P80 delta first, then projects with no delta."
+        ),
+    )
+    forecast = ProgramRollupKpiEntrySerializer(
+        read_only=True,
+        help_text=(
+            "The p80_completion figure, served whether or not that KPI is enabled, so the "
+            "overview's lead figure and its partial-rollup line always have a source."
+        ),
+    )
 
 
 class ProgramScheduleLaneSerializer(serializers.Serializer[dict[str, Any]]):
@@ -13713,6 +13788,16 @@ class ProjectOverviewNextMilestoneSerializer(serializers.Serializer[dict[str, An
     name = serializers.CharField(read_only=True)
     date = serializers.DateField(read_only=True, allow_null=True)
     percent_complete = serializers.IntegerField(read_only=True, allow_null=True)
+    baseline_date = serializers.DateField(
+        read_only=True,
+        allow_null=True,
+        help_text=METRIC_DEFINITIONS["next_milestone_baseline_date"],
+    )
+    total_float = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text=METRIC_DEFINITIONS["next_milestone_total_float"],
+    )
 
 
 class ProjectOverviewSerializer(serializers.Serializer[dict[str, Any]]):
@@ -13778,6 +13863,9 @@ class ProjectOverviewSerializer(serializers.Serializer[dict[str, Any]]):
             "(ADR-0293) and is never set directly, so counting it would double-"
             "count the children whose completion rolled it up."
         ),
+    )
+    tasks_with_duration_count = serializers.IntegerField(
+        read_only=True, help_text=METRIC_DEFINITIONS["tasks_with_duration_count"]
     )
     next_milestone = ProjectOverviewNextMilestoneSerializer(read_only=True, allow_null=True)
     team_utilization_pct = serializers.FloatField(read_only=True, allow_null=True)

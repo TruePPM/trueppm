@@ -9,7 +9,13 @@ import { PageTitle, SectionHeading } from '@/components/page2/PageTitle';
 import { StatusChip, type StatusTone } from '@/components/page2/StatusChip';
 import { TYPE } from '@/components/page2/typeScale';
 import { SCurveChart, forecastToSCurveProps } from '@/features/charts';
+import { useEffect, useState } from 'react';
+import type { SnapshotRow } from '@/components/page2/SnapshotPanel';
+import { StatusUpdatesSection } from '@/features/project/statusUpdates/StatusUpdatesSection';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useMonteCarloHistory } from '@/hooks/useMonteCarloHistory';
+import { ROLE_ADMIN } from '@/lib/roles';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
 import { useUserDateFormat } from '@/hooks/useUserDateFormat';
@@ -21,9 +27,20 @@ export interface Overview2Data {
   critical_task_count: number;
   total_tasks: number;
   complete_tasks: number;
+  /** Leaf tasks with a planned duration above zero (#5103). */
+  tasks_with_duration_count?: number;
   open_risk_count?: number;
   high_risk_count?: number;
-  next_milestone: { id: string; name: string; date: string; percent_complete: number } | null;
+  next_milestone: {
+    id: string;
+    name: string;
+    date: string;
+    percent_complete: number;
+    /** The milestone's active-baseline finish, or null (#5103). */
+    baseline_date?: string | null;
+    /** Working days of total float from the last calculation (#5103). */
+    total_float?: number | null;
+  } | null;
   /** When the server computed this payload (ADR-1314). */
   as_of?: string;
   /** One server sentence per figure it defines (ADR-1314). Rendered verbatim. */
@@ -92,12 +109,41 @@ function Peer({
   );
 }
 
+/**
+ * True once the browser is idle after first paint. The run history only feeds the
+ * footer's "moved from" line, so it waits until the lead figure has rendered
+ * rather than competing with the two reads the page cannot render without (#5104).
+ */
+export function useIdleReady(): boolean {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    const w = window as Window & {
+      requestIdleCallback?: (cb: () => void) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (w.requestIdleCallback) {
+      const id = w.requestIdleCallback(() => setReady(true));
+      return () => w.cancelIdleCallback?.(id);
+    }
+    const id = window.setTimeout(() => setReady(true), 0);
+    return () => window.clearTimeout(id);
+  }, []);
+  return ready;
+}
+
+/** The lead figure's spoken label: the date, its as-of, and any staleness caveat (#5104). */
+export function leadSpokenLabel(p80Long: string, asOf: string | null, caveats: string[]): string {
+  const base = `Forecast finish P80, ${p80Long}${asOf ? `, as of ${asOf}` : ''}`;
+  return caveats.length > 0 ? `${base}. ${caveats.join('. ')}` : base;
+}
+
 function LeadCard({ projectId, mc }: { projectId: string; mc: MonteCarloResult }) {
   const { formatInstantTime: clock, formatInstantDate: day } = useUserDateFormat();
   const chip = commitmentChip(mc.p80DeltaVsCommitmentDays);
   const runs = mc.nSimulations ?? mc.runs;
   const caveats = stalenessCaveat(mc);
-  const history = useMonteCarloHistory(projectId);
+  const idle = useIdleReady();
+  const history = useMonteCarloHistory(idle ? projectId : undefined);
   // Two server facts: the latest run's P80 and the run before it. Shown only when they differ.
   const [latest, prior] = history.data ?? [];
   const moved =
@@ -110,7 +156,11 @@ function LeadCard({ projectId, mc }: { projectId: string; mc: MonteCarloResult }
   const topId = mc.sensitivity?.[0]?.taskId;
   const { tasks } = useScheduleTasks(projectId, { enabled: !!topId });
   const driver = topId ? tasks?.find((t) => t.id === topId)?.name : undefined;
-  const spoken = `Forecast finish P80, ${fmtUtcLong(mc.p80)}${mc.lastRunAt ? `, as of ${clock(mc.lastRunAt)}` : ''}`;
+  const spoken = leadSpokenLabel(
+    fmtUtcLong(mc.p80),
+    mc.lastRunAt ? clock(mc.lastRunAt) : null,
+    caveats,
+  );
   return (
     <section aria-labelledby="ov2-lead-h" className={CARD} data-testid="overview2-lead">
       <h2 id="ov2-lead-h" className="text-xs text-p1-text-2">
@@ -126,7 +176,11 @@ function LeadCard({ projectId, mc }: { projectId: string; mc: MonteCarloResult }
         )}
       </div>
       {caveats.length > 0 && (
-        <p className="mt-2 text-xs text-p1-risk-text" data-testid="overview2-staleness">
+        <p
+          aria-hidden="true"
+          className="mt-2 text-xs text-p1-risk-text"
+          data-testid="overview2-staleness"
+        >
           {caveats.map((c) => `◆ ${c}`).join(' · ')}
         </p>
       )}
@@ -188,9 +242,39 @@ function Tile({
  * A figure the server does not serve is omitted or stated as one NotComputable
  * line, never an empty tile (rule 119).
  */
+/** The figures the composer's live panel shows: the forecast owner's, formatted (#4804). */
+export function liveSnapshotRows(mc: MonteCarloResult | undefined): SnapshotRow[] {
+  const date = (d: string | null | undefined) => (d ? fmtUtcMedium(d) : null);
+  const none = mc?.p80 ? undefined : 'no forecast has run';
+  return [
+    {
+      id: 'forecast.p80',
+      label: 'Forecast finish · P80',
+      value: date(mc?.p80),
+      definition: mc?.definitions?.p80,
+      notComputable: none,
+    },
+    {
+      id: 'forecast.p50',
+      label: 'P50',
+      value: date(mc?.p50),
+      definition: mc?.definitions?.p50,
+      notComputable: none,
+    },
+    {
+      id: 'forecast.cpm_finish',
+      label: 'CPM finish',
+      value: date(mc?.cpmFinish),
+      notComputable: mc?.cpmFinish ? undefined : 'the schedule has no finish yet',
+    },
+  ];
+}
+
 export function ProjectOverview2({ projectId }: { projectId: string }) {
   const overview = useOverview2(projectId);
   const forecast = useMonteCarloResult(projectId);
+  const { user } = useCurrentUser();
+  const { role } = useCurrentUserRole(projectId);
   const base = `/projects/${projectId}`;
   const o = overview.data;
   const mc = forecast.data;
@@ -218,6 +302,11 @@ export function ProjectOverview2({ projectId }: { projectId: string }) {
         ) : (
           <div className={CARD} data-testid="overview2-empty">
             <p className={`${TYPE.section} text-p1-text-1`}>No forecast yet</p>
+            {o?.tasks_with_duration_count != null && (
+              <p className="text-xs text-p1-text-2" data-testid="overview2-durations">
+                {o.tasks_with_duration_count} of {o.total_tasks} tasks have durations
+              </p>
+            )}
             <p className="text-xs text-p1-text-2">
               Run the forecast from the{' '}
               <Link className="text-p1-brand underline" to={`${base}/schedule`}>
@@ -238,9 +327,16 @@ export function ProjectOverview2({ projectId }: { projectId: string }) {
           o && (
             <>
               <div className="grid grid-cols-2 gap-3 lg:grid-cols-3" data-testid="overview2-tiles">
-                <Tile term="Critical tasks" value={String(o.critical_task_count)} />
+                <Tile
+                  term="Critical tasks"
+                  definition={o.definitions?.critical_task_count}
+                  asOf={o.as_of}
+                  value={String(o.critical_task_count)}
+                />
                 <Tile
                   term="Complete"
+                  definition={o.definitions?.complete_tasks}
+                  asOf={o.as_of}
                   value={`${o.complete_tasks} of ${o.total_tasks}`}
                   sub="tasks"
                 />
@@ -275,11 +371,43 @@ export function ProjectOverview2({ projectId }: { projectId: string }) {
                     <span>{o.next_milestone.name}</span>
                     <span className="font-mono text-xs">{fmtUtcMedium(o.next_milestone.date)}</span>
                   </Link>
+                  <p
+                    className="flex flex-wrap gap-x-4 text-xs text-p1-text-2"
+                    data-testid="overview2-milestone-facts"
+                  >
+                    <span>
+                      <DefinitionTip
+                        term="Baseline"
+                        definition={o.definitions?.next_milestone_baseline_date}
+                      />{' '}
+                      <span className="font-mono">
+                        {o.next_milestone.baseline_date
+                          ? fmtUtcMedium(o.next_milestone.baseline_date)
+                          : 'not baselined'}
+                      </span>
+                    </span>
+                    {o.next_milestone.total_float != null && (
+                      <span>
+                        <DefinitionTip
+                          term="Float"
+                          definition={o.definitions?.next_milestone_total_float}
+                        />{' '}
+                        <span className="font-mono">{o.next_milestone.total_float}d</span>
+                      </span>
+                    )}
+                  </p>
                 </section>
               )}
             </>
           )
         )}
+
+        <StatusUpdatesSection
+          projectId={projectId}
+          userId={user?.id ?? null}
+          canPost={role != null && role >= ROLE_ADMIN}
+          liveRows={liveSnapshotRows(mc ?? undefined)}
+        />
       </div>
     </PageFrame>
   );

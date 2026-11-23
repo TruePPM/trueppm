@@ -7,6 +7,8 @@ import type { MonteCarloResult } from '@/types';
 import {
   ProjectOverview2,
   commitmentChip,
+  leadSpokenLabel,
+  liveSnapshotRows,
   stalenessCaveat,
   type Overview2Data,
 } from './ProjectOverview2';
@@ -197,5 +199,22 @@ describe('ProjectOverview2', () => {
     renderPage();
     await screen.findByTestId('overview2-lead-footer');
     expect(screen.queryByTestId('overview2-moved')).not.toBeInTheDocument();
+  });
+});
+
+describe('#5104 / #5103 additions', () => {
+  it("the lead figure's spoken label carries the staleness caveat", () => {
+    expect(leadSpokenLabel('December 7, 2026', '9:12 AM', [])).toBe(
+      'Forecast finish P80, December 7, 2026, as of 9:12 AM',
+    );
+    expect(leadSpokenLabel('December 7, 2026', null, ['Edited since this run'])).toBe(
+      'Forecast finish P80, December 7, 2026. Edited since this run',
+    );
+  });
+
+  it("the composer's live rows say why a figure is missing rather than inventing one", () => {
+    const rows = liveSnapshotRows(undefined);
+    expect(rows.map((r) => r.value)).toEqual([null, null, null]);
+    expect(rows[0].notComputable).toBe('no forecast has run');
   });
 });

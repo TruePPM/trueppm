@@ -74608,18 +74608,37 @@
                             }
                         ],
                         "readOnly": true
+                    },
+                    "projects": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ProgramRollupProjectRow"
+                        },
+                        "readOnly": true,
+                        "description": "One contributing project: its own latest forecast (P50 and P80) and the P80's working-day delta against its commitment, its schedule band, and its project manager's latest posted status update. Projects the caller is not a member of carry only their name. Sorted by slip: the largest P80 delta first, then projects with no delta."
+                    },
+                    "forecast": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProgramRollupKpiEntry"
+                            }
+                        ],
+                        "readOnly": true,
+                        "description": "The p80_completion figure, served whether or not that KPI is enabled, so the overview's lead figure and its partial-rollup line always have a source."
                     }
                 },
                 "required": [
                     "aggregation_policy",
                     "as_of",
                     "definitions",
+                    "forecast",
                     "kpis",
                     "policy_available",
                     "policy_unavailable_reason",
                     "program_health",
                     "program_health_reason",
-                    "project_count"
+                    "project_count",
+                    "projects"
                 ]
             },
             "ProgramRollupConfig": {
@@ -74779,6 +74798,15 @@
                         "type": "integer",
                         "readOnly": true,
                         "description": "p80_completion only: contributing projects with no forecast carrying a P80. They are left out of the value, which is then the latest P80 of the projects that have one."
+                    },
+                    "projects_without_forecast_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "readOnly": true,
+                        "description": "p80_completion only: which contributing projects projects_without_forecast counts, so a client can name the project the program P80 leaves out (#4799)."
                     }
                 },
                 "required": [
@@ -74788,10 +74816,166 @@
                     "missing_rate_count",
                     "projects_without_budget",
                     "projects_without_forecast",
+                    "projects_without_forecast_ids",
                     "projects_without_planned_duration",
                     "reason",
                     "unit",
                     "value"
+                ]
+            },
+            "ProgramRollupLatestUpdate": {
+                "type": "object",
+                "description": "A project's latest posted status update, as a program overview row shows it (#4799).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "seq": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "rag": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StatusUpdateRagEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "computed_health": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "The derived health band frozen when the update was posted."
+                    },
+                    "first_line": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "The narrative's first line; empty when it has none."
+                    },
+                    "author_name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "posted_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "author_name",
+                    "computed_health",
+                    "first_line",
+                    "id",
+                    "posted_at",
+                    "rag",
+                    "seq"
+                ]
+            },
+            "ProgramRollupProjectRow": {
+                "type": "object",
+                "description": "One row of the rollup's ``projects`` list (#4799). See ``program_project_rows``.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "accessible": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "description": "Whether the caller is a member of this project. When false every other figure on the row is null: program roles do not cascade to projects."
+                    },
+                    "schedule_health": {
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Each contributing project's schedule performance band (the SPI proxy) combined under the program's aggregation policy, leaving out projects with nothing planned yet. The same value as program health.\n\n* `on_track` - on_track\n* `at_risk` - at_risk\n* `critical` - critical\n* `unknown` - unknown",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/ScheduleHealthEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "p50": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "p80": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "forecast_as_of": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "commitment_date": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "p80_delta_vs_commitment_days": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "The P80 finish minus the commitment date, in calendar days measured in working time; positive means the forecast is later than the commitment."
+                    },
+                    "p80_delta_vs_commitment_reason": {
+                        "readOnly": true,
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/P80DeltaVsCommitmentReasonEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "lead_name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "latest_update": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProgramRollupLatestUpdate"
+                            }
+                        ],
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "accessible",
+                    "commitment_date",
+                    "forecast_as_of",
+                    "id",
+                    "latest_update",
+                    "lead_name",
+                    "name",
+                    "p50",
+                    "p80",
+                    "p80_delta_vs_commitment_days",
+                    "p80_delta_vs_commitment_reason",
+                    "schedule_health"
                 ]
             },
             "ProgramSchedule": {
@@ -78230,6 +78414,11 @@
                         "readOnly": true,
                         "description": "Leaf rows only. A phase's status is a rollup of its children (ADR-0293) and is never set directly, so counting it would double-count the children whose completion rolled it up."
                     },
+                    "tasks_with_duration_count": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "description": "Committed leaf tasks with a planned duration above zero days, counted against all committed leaf tasks. A forecast needs durations to sample."
+                    },
                     "next_milestone": {
                         "allOf": [
                             {
@@ -78314,6 +78503,7 @@
                     "spi",
                     "start_date",
                     "tasks_late_count",
+                    "tasks_with_duration_count",
                     "team_utilization_pct",
                     "team_utilization_reason",
                     "total_tasks"
@@ -78333,11 +78523,36 @@
                     "team_utilization_pct": {
                         "type": "string",
                         "description": "Booked hours across the project roster this week divided by the roster's working-time capacity this week, as a percentage."
+                    },
+                    "critical_task_count": {
+                        "type": "string",
+                        "description": "Committed leaf tasks the last schedule calculation placed on the critical path, complete or not. Phase rows are left out."
+                    },
+                    "complete_tasks": {
+                        "type": "string",
+                        "description": "Committed leaf tasks whose status is Complete, counted against all committed leaf tasks. A count of tasks, not earned hours or a percent of effort."
+                    },
+                    "tasks_with_duration_count": {
+                        "type": "string",
+                        "description": "Committed leaf tasks with a planned duration above zero days, counted against all committed leaf tasks. A forecast needs durations to sample."
+                    },
+                    "next_milestone_baseline_date": {
+                        "type": "string",
+                        "description": "The next milestone's finish in the active baseline, or null when no active baseline with dates holds it."
+                    },
+                    "next_milestone_total_float": {
+                        "type": "string",
+                        "description": "Working days the next milestone can slip before it moves the project finish, from the last schedule calculation."
                     }
                 },
                 "required": [
+                    "complete_tasks",
+                    "critical_task_count",
+                    "next_milestone_baseline_date",
+                    "next_milestone_total_float",
                     "open_risk_count",
                     "schedule_health",
+                    "tasks_with_duration_count",
                     "team_utilization_pct"
                 ]
             },
@@ -78363,13 +78578,28 @@
                         "type": "integer",
                         "readOnly": true,
                         "nullable": true
+                    },
+                    "baseline_date": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "The next milestone's finish in the active baseline, or null when no active baseline with dates holds it."
+                    },
+                    "total_float": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Working days the next milestone can slip before it moves the project finish, from the last schedule calculation."
                     }
                 },
                 "required": [
+                    "baseline_date",
                     "date",
                     "id",
                     "name",
-                    "percent_complete"
+                    "percent_complete",
+                    "total_float"
                 ]
             },
             "ProjectPinResponse": {

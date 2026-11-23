@@ -5,6 +5,7 @@
  */
 import { test, expect, type Page } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
+import { expectNoA11yViolations } from './fixtures/a11y';
 
 const PID = 'e2e-overview-v2-00000000-0000-0000-0000-000000000098';
 
@@ -51,12 +52,14 @@ const MC = {
   definitions: { p80: 'Server P80 sentence.' },
 };
 
-type Forecast = 'ready' | 'none' | 'error';
+type Forecast = 'ready' | 'none' | 'error' | 'stale';
 
 async function open(page: Page, forecast: Forecast) {
   await setupAuth(page);
   await setupCatchAll(page);
-  await setupApiMocks(page);
+  await setupApiMocks(page, {
+    tasks: [{ id: 't9', project: PID, name: 'Pour foundation' }],
+  });
   const json = (body: unknown, status = 200) => ({
     status,
     contentType: 'application/json',
@@ -85,9 +88,53 @@ async function open(page: Page, forecast: Forecast) {
   await page.route(`**/api/v1/projects/${PID}/monte-carlo/latest/`, (r) =>
     forecast === 'ready'
       ? r.fulfill(json(MC))
-      : forecast === 'none'
-        ? r.fulfill(json({ detail: 'No simulation result available.' }, 404))
-        : r.fulfill(json({ detail: 'boom' }, 500)),
+      : forecast === 'stale'
+        ? r.fulfill(
+            json({
+              ...MC,
+              forecast_staleness: 'project_changed',
+              sensitivity: [{ task_id: 't9', index: 0.9 }],
+            }),
+          )
+        : forecast === 'none'
+          ? r.fulfill(json({ detail: 'No simulation result available.' }, 404))
+          : r.fulfill(json({ detail: 'boom' }, 500)),
+  );
+  await page.route(`**/api/v1/projects/${PID}/monte-carlo/history/`, (r) =>
+    r.fulfill(
+      json({
+        cap: 20,
+        results: [
+          {
+            id: 'r2',
+            taken_at: '2026-11-20T09:12:00Z',
+            p50: '2026-12-01',
+            p80: '2026-12-07',
+            p95: '2026-12-15',
+            cpm_finish: '2026-11-28',
+            n_simulations: 5000,
+            task_count: 20,
+            delta: null,
+            triggered_by_name: null,
+          },
+          {
+            id: 'r1',
+            taken_at: '2026-11-13T09:12:00Z',
+            p50: '2026-11-28',
+            p80: '2026-12-03',
+            p95: '2026-12-10',
+            cpm_finish: '2026-11-25',
+            n_simulations: 5000,
+            task_count: 20,
+            delta: null,
+            triggered_by_name: null,
+          },
+        ],
+      }),
+    ),
+  );
+  await page.route(`**/api/v1/projects/${PID}/status-updates/**`, (r) =>
+    r.fulfill(json({ count: 0, next: null, previous: null, results: [] })),
   );
   await page.goto(`/projects/${PID}/overview?ff=shell_v2`);
   await expect(page.getByTestId('overview2')).toBeVisible({ timeout: 10_000 });
@@ -118,5 +165,20 @@ test.describe('shell v2 project overview', () => {
     await open(page, 'error');
     await expect(page.getByText(/Forecast didn’t finish/)).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId('overview2-tiles')).toBeVisible();
+  });
+
+  test('staleness caveat is spoken with the lead figure; driver and moved-from show (#5104)', async ({
+    page,
+  }, testInfo) => {
+    await open(page, 'stale');
+    await expect(page.getByTestId('overview2-lead-figure').locator('.sr-only')).toHaveText(
+      /Edited since this run$/,
+    );
+    await expect(page.getByTestId('overview2-staleness')).toContainText('◆ Edited since this run');
+    await expect(page.getByTestId('overview2-driver')).toContainText(
+      'Biggest driver: Pour foundation',
+    );
+    await expect(page.getByTestId('overview2-moved')).toContainText('moved from');
+    await expectNoA11yViolations(page, testInfo);
   });
 });

@@ -1516,3 +1516,54 @@ class TestOverviewAddedTime:
         premium_keys = [k for k in overview if k.startswith("risk_premium_")]
         assert len(premium_keys) == 8
         assert {k: forecast[k] for k in premium_keys} == {k: overview[k] for k in premium_keys}
+
+
+# ---------------------------------------------------------------------------
+# #5103: Overview facts the redesigned page needs, each defined (ADR-1314)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_overview_serves_new_facts_with_definitions(
+    client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    from trueppm_api.apps.projects.metric_provenance import METRIC_DEFINITIONS
+    from trueppm_api.apps.projects.models import Baseline, BaselineTask
+
+    tomorrow = datetime.date.today() + datetime.timedelta(days=1)
+    base_day = tomorrow - datetime.timedelta(days=3)
+    ms = make_task(
+        project, name="Gate", duration=0, is_milestone=True, early_finish=tomorrow, total_float=4
+    )
+    make_task(project, name="Planned", duration=3)
+    baseline = Baseline.objects.create(
+        project=project, name="B", is_active=True, has_cpm_dates=True
+    )
+    BaselineTask.objects.create(
+        baseline=baseline, task_id=ms.pk, task_name="Gate", finish=base_day, duration=0
+    )
+
+    data = client.get(f"/api/v1/projects/{project.pk}/overview/").json()
+
+    assert data["total_tasks"] == 2
+    assert data["tasks_with_duration_count"] == 1
+    assert data["next_milestone"]["baseline_date"] == base_day.isoformat()
+    assert data["next_milestone"]["total_float"] == 4
+    for key in (
+        "critical_task_count",
+        "complete_tasks",
+        "tasks_with_duration_count",
+        "next_milestone_baseline_date",
+        "next_milestone_total_float",
+    ):
+        assert data["definitions"][key] == METRIC_DEFINITIONS[key]
+
+
+@pytest.mark.django_db
+def test_next_milestone_without_baseline_has_null_baseline_date(
+    client: APIClient, project: Project, membership: ProjectMembership
+) -> None:
+    tomorrow = datetime.date.today() + datetime.timedelta(days=1)
+    make_task(project, name="Gate", duration=0, is_milestone=True, early_finish=tomorrow)
+    data = client.get(f"/api/v1/projects/{project.pk}/overview/").json()
+    assert data["next_milestone"]["baseline_date"] is None

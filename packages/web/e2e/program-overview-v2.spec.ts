@@ -1,0 +1,180 @@
+/**
+ * E2E for the shell v2 Program Overview (#4799) behind `?ff=shell_v2`: the program
+ * P80 lead, one row per project on a shared axis sorted by slip with the PM's latest
+ * status update, the empty program, and the partial rollup that names the project
+ * the program P80 leaves out. `/programs/:id/rollup/` is mocked with its full object
+ * shape (never the catch-all list mock; see #1190).
+ */
+import { test, expect, type Page } from './fixtures/coverage';
+import { setupCatchAll } from './fixtures/api-mocks';
+import { expectNoA11yViolations } from './fixtures/a11y';
+
+const PROGRAM_ID = 'e2e-program-v2-0000-0000-0000-000000004799';
+const A = '00000000-0000-0000-0000-0000000000a1';
+const B = '00000000-0000-0000-0000-0000000000b2';
+const C = '00000000-0000-0000-0000-0000000000c3';
+
+const PROGRAM = {
+  id: PROGRAM_ID,
+  server_version: 1,
+  name: 'Atlas Launch',
+  description: '',
+  code: 'ATL',
+  methodology: 'HYBRID',
+  health: 'AUTO',
+  visibility: 'WORKSPACE',
+  created_by: 'user-alice',
+  created_at: '2026-05-18T00:00:00Z',
+  updated_at: '2026-05-18T00:00:00Z',
+  my_role: 400,
+  my_role_label: 'Program Admin',
+  project_count: 3,
+  member_count: 3,
+};
+
+const row = (id: string, name: string, extra: Record<string, unknown> = {}) => ({
+  id,
+  name,
+  accessible: true,
+  schedule_health: 'on_track',
+  p50: null,
+  p80: null,
+  forecast_as_of: null,
+  commitment_date: null,
+  p80_delta_vs_commitment_days: null,
+  p80_delta_vs_commitment_reason: 'no_forecast',
+  lead_name: 'Pat Manager',
+  latest_update: null,
+  ...extra,
+});
+
+const ROWS = [
+  row(A, 'Data Migration', {
+    p50: '2027-02-01',
+    p80: '2027-02-20',
+    forecast_as_of: '2026-11-20T09:12:00Z',
+    commitment_date: '2027-02-10',
+    p80_delta_vs_commitment_days: 8,
+    p80_delta_vs_commitment_reason: null,
+    latest_update: {
+      id: '00000000-0000-0000-0000-000000000101',
+      seq: 4,
+      rag: 'amber',
+      computed_health: 'critical',
+      first_line: 'Vendor slipped two weeks',
+      author_name: 'Pat Manager',
+      posted_at: '2026-11-20T09:12:00Z',
+    },
+  }),
+  row(B, 'Portal', {
+    p50: '2027-01-10',
+    p80: '2027-01-20',
+    forecast_as_of: '2026-11-20T09:12:00Z',
+    commitment_date: '2027-01-25',
+    p80_delta_vs_commitment_days: -3,
+    p80_delta_vs_commitment_reason: null,
+  }),
+  row(C, 'Identity Consolidation'),
+];
+
+function rollup(projects: unknown[], withoutIds: string[]) {
+  const forecast = {
+    available: true,
+    unit: 'date',
+    value: projects.length ? '2027-02-20' : null,
+    as_of: projects.length ? '2026-11-20T09:12:00Z' : null,
+    driver_project_id: projects.length ? A : null,
+    projects_without_forecast: withoutIds.length,
+    projects_without_forecast_ids: withoutIds,
+    ...(projects.length ? {} : { reason: 'no_projects' }),
+  };
+  return {
+    aggregation_policy: 'worst',
+    policy_available: true,
+    policy_unavailable_reason: null,
+    project_count: projects.length,
+    program_health: projects.length ? 'at_risk' : 'unknown',
+    program_health_reason: projects.length ? null : 'no_projects',
+    kpis: { p80_completion: forecast },
+    as_of: '2026-11-20T09:12:00Z',
+    definitions: {
+      program_health: 'Server program health sentence.',
+      p80_completion: 'Server program P80 sentence.',
+    },
+    projects,
+    forecast,
+  };
+}
+
+async function open(page: Page, body: unknown) {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'trueppm-auth',
+      JSON.stringify({
+        state: { accessToken: 'e2e-token', refreshToken: 'e2e-refresh', isAuthenticated: true },
+        version: 0,
+      }),
+    );
+  });
+  const json = (data: unknown) => ({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify(data),
+  });
+  await setupCatchAll(page);
+  await page.route('**/api/v1/auth/me/', (r) =>
+    r.fulfill(
+      json({
+        id: 'user-alice',
+        username: 'alice',
+        display_name: 'Alice',
+        initials: 'AL',
+        email: 'alice@example.com',
+      }),
+    ),
+  );
+  await page.route('**/api/v1/edition/', (r) => r.fulfill(json({ edition: 'community' })));
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/`, (r) => r.fulfill(json(PROGRAM)));
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/projects/`, (r) => r.fulfill(json([])));
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/rollup/`, (r) => r.fulfill(json(body)));
+  await page.goto(`/programs/${PROGRAM_ID}?ff=shell_v2`);
+  await expect(page.getByTestId('program-overview2')).toBeVisible({ timeout: 10_000 });
+}
+
+test.describe('shell v2 program overview', () => {
+  test('golden path: P80 lead, rows on one axis sorted by slip, PM narrative', async ({
+    page,
+  }, testInfo) => {
+    await open(page, rollup(ROWS, []));
+    await expect(page.getByTestId('program-overview2-p80')).toContainText('2027');
+    await expect(page.getByTestId('program-overview2-lead')).toContainText('Set by Data Migration');
+    const rows = page.getByTestId('program-row');
+    await expect(rows).toHaveCount(3);
+    await expect(rows.nth(0)).toContainText('Data Migration');
+    await expect(rows.nth(0)).toContainText('At risk');
+    await expect(rows.nth(0)).toContainText('Vendor slipped two weeks');
+    await expect(rows.nth(0)).toContainText('+8d past commitment');
+    await expect(rows.nth(1)).toContainText('3d ahead of commitment');
+    await expect(rows.nth(2)).toContainText('No status update posted yet.');
+    await expect(page.getByTestId('program-row-band')).toHaveCount(2);
+    await expect(page.getByTestId('program-overview2-partial')).toHaveCount(0);
+    await expect(page.getByText(/Enterprise/)).toHaveCount(0);
+    await expectNoA11yViolations(page, testInfo);
+  });
+
+  test('empty program: one add action, no upsell', async ({ page }) => {
+    await open(page, rollup([], []));
+    await expect(page.getByTestId('program-overview2-empty')).toContainText(
+      'No projects in this program',
+    );
+    await expect(page.getByRole('link', { name: 'Add a project' })).toBeVisible();
+    await expect(page.getByText(/Enterprise/)).toHaveCount(0);
+  });
+
+  test('partial rollup names the project the program P80 excludes', async ({ page }) => {
+    await open(page, rollup(ROWS, [C]));
+    await expect(page.getByTestId('program-overview2-partial')).toHaveText(
+      /1 of 3 projects didn’t report \(Identity Consolidation\); the program P80 excludes it until it returns\./,
+    );
+  });
+});
