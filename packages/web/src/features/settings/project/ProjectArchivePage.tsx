@@ -1,8 +1,11 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { apiClient } from '@/api/client';
 import { queryClient } from '@/lib/queryClient';
 import { toast } from '@/components/Toast';
+import { useFeatureFlag } from '@/lib/featureFlags';
+import { FOCUS_RING, PAGE_BUTTON } from '@/components/page2/classes';
+import { Button } from '@/components/Button';
 import { useProject } from '@/hooks/useProject';
 import { useProjectId } from '@/hooks/useProjectId';
 import {
@@ -271,7 +274,20 @@ export function ProjectArchivePage() {
   const archiveError = errorMessage(isArchived ? unarchive.error : archive.error);
   const deleteError = errorMessage(remove.error);
 
+  // Shell v2: archiving names its consequence and asks for the project code first
+  // (Unarchive stays one click — it restores, it does not remove). Rule 441: the
+  // zone keeps the existing danger treatment, so this adds friction, not a new color.
+  const v2 = useFeatureFlag('shell_v2');
+  const archiveConfirmId = useId();
+  const [archiveArming, setArchiveArming] = useState(false);
+  const [archiveConfirmText, setArchiveConfirmText] = useState('');
+  const archiveConfirmed = confirmTarget !== '' && archiveConfirmText === confirmTarget;
+
   const onToggleArchive = () => {
+    if (!isArchived && v2) {
+      setArchiveArming(true);
+      return;
+    }
     if (isArchived) {
       unarchive.mutate(undefined as void);
     } else {
@@ -353,6 +369,51 @@ export function ProjectArchivePage() {
           busy={archive.isPending || unarchive.isPending}
           error={archiveError}
         />
+
+        {v2 && archiveArming && !isArchived ? (
+          <div
+            data-testid="archive-confirm"
+            className="rounded-card border border-neutral-border bg-neutral-surface-raised p-4"
+          >
+            <label htmlFor={archiveConfirmId} className="block text-[13px] text-neutral-text-primary">
+              Type <span className="tppm-mono font-semibold">{confirmTarget || '…'}</span> to archive.{' '}
+              Its tasks leave active views, and any program it belongs to re-forecasts without it.
+            </label>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <input
+                id={archiveConfirmId}
+                type="text"
+                value={archiveConfirmText}
+                onChange={(e) => setArchiveConfirmText(e.target.value)}
+                autoComplete="off"
+                disabled={!confirmTarget}
+                className={`h-9 w-full max-w-[420px] rounded-control border border-neutral-border bg-neutral-surface px-2.5 text-[13px] [@media(pointer:coarse)]:h-11 max-md:h-11 ${FOCUS_RING}`}
+              />
+              <Button
+                variant="danger"
+                disabled={!archiveConfirmed || archive.isPending}
+                onClick={() => {
+                  archive.mutate(undefined as void);
+                  setArchiveArming(false);
+                  setArchiveConfirmText('');
+                }}
+                className={`${PAGE_BUTTON} max-md:w-full`}
+              >
+                Archive project
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setArchiveArming(false);
+                  setArchiveConfirmText('');
+                }}
+                className={`${PAGE_BUTTON} max-md:w-full`}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : null}
 
         <LifecycleCard
           title="Transfer ownership"

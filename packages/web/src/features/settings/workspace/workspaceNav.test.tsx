@@ -109,4 +109,12 @@ describe('buildWorkspaceNavGroups (#2013 — one source of truth, no drift)', ()
     expect(byId.retention.to).toBe('/settings#retention');
     expect(byId.trash.to).toBe('/settings#trash');
   });
+
+  it('lists no entry for a feature that does not exist or is Enterprise-only (#4800)', () => {
+    // Billing & plan has no page; the immutable audit log is Enterprise and may
+    // only arrive through the enterprise nav extension point, never the OSS rail.
+    const labels = buildWorkspaceNavGroups({ linked: false })
+      .flatMap((g) => g.items.map((i) => i.label.toLowerCase()));
+    expect(labels.some((l) => /billing|plan|audit/.test(l))).toBe(false);
+  });
 });

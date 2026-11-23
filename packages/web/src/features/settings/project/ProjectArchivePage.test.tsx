@@ -1,8 +1,9 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ProjectArchivePage } from './ProjectArchivePage';
+import { setFeatureFlag } from '@/lib/featureFlags';
 
 // ---------------------------------------------------------------------------
 // Mutable mock state (reset in beforeEach). A single hoisted object lets each
@@ -459,5 +460,30 @@ describe('ProjectArchivePage export bundle', () => {
     const heading = screen.getByRole('heading', { name: 'Export bundle' });
     const card = heading.closest('div.rounded-card')!;
     expect(card.textContent).toContain('queue rejected');
+  });
+});
+
+describe('ProjectArchivePage archive confirmation under shell_v2 (#4800, rule 441)', () => {
+  afterEach(() => setFeatureFlag('shell_v2', false));
+
+  it('requires typing the project code, naming the consequence, before archiving', async () => {
+    setFeatureFlag('shell_v2', true);
+    renderPage();
+    await userEvent.click(screen.getByRole('button', { name: /^Archive Atlas Migration/ }));
+    expect(h.archive.mutate).not.toHaveBeenCalled();
+    const zone = screen.getByTestId('archive-confirm');
+    expect(zone).toHaveTextContent('re-forecasts without it');
+    const go = screen.getByRole('button', { name: 'Archive project' });
+    expect(go).toBeDisabled();
+    await userEvent.type(screen.getByLabelText(/to archive/i), 'ATLAS');
+    expect(go).toBeEnabled();
+    await userEvent.click(go);
+    expect(h.archive.mutate).toHaveBeenCalledTimes(1);
+  });
+
+  it('archives in one click with the flag off (v1 unchanged)', async () => {
+    renderPage();
+    await userEvent.click(screen.getByRole('button', { name: /^Archive Atlas Migration/ }));
+    expect(h.archive.mutate).toHaveBeenCalledTimes(1);
   });
 });

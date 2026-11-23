@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, act, within, createEvent } from '@testing-library/react';
-import { describe, expect, it, beforeEach, vi } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router';
 import {
   SettingsShell,
@@ -14,6 +14,7 @@ import {
 } from './SettingsShell';
 import { useSettingsSaveStore, DEFAULT_SECTION_KEY } from './hooks/useSettingsSaveStore';
 import { useSettingsSectionId } from './SettingsSectionContext';
+import { setFeatureFlag } from '@/lib/featureFlags';
 
 // jsdom has no matchMedia, so the real useBreakpoint always reports 'lg'. Mock it
 // with a mutable tier so most tests exercise the desktop rail and the mobile
@@ -1905,5 +1906,63 @@ describe('<SettingsCard>', () => {
     const card = screen.getByText('CARD_BODY').parentElement;
     expect(card?.className).toContain('mt-4');
     expect(card?.className).toContain('rounded-card');
+  });
+});
+
+describe('<SettingsShell> under shell_v2 (#4800)', () => {
+  beforeEach(() => {
+    useSettingsSaveStore.getState().reset();
+    mockBreakpoint = 'lg';
+    setFeatureFlag('shell_v2', true);
+  });
+  afterEach(() => setFeatureFlag('shell_v2', false));
+
+  it('puts Personal first in the scope switch, pointing at /me/settings/general', () => {
+    renderShell();
+    const personal = screen.getByRole('button', { name: 'Personal' });
+    expect(personal).toBeInTheDocument();
+    expect(personal.className).toContain('focus-visible:ring-2');
+  });
+
+  it('is absent with the flag off (v1 unchanged)', () => {
+    setFeatureFlag('shell_v2', false);
+    renderShell();
+    expect(screen.queryByRole('button', { name: 'Personal' })).not.toBeInTheDocument();
+  });
+
+  it('shows no save bar when clean, and names the dirty section when dirty', () => {
+    renderShell();
+    expect(screen.queryByTestId('settings-save-bar')).not.toBeInTheDocument();
+    act(() => {
+      useSettingsSaveStore.getState().register('general', {
+        dirty: true,
+        apiReady: true,
+        onSave: vi.fn().mockResolvedValue(undefined),
+        onReset: vi.fn(),
+      });
+    });
+    const bar = screen.getByTestId('settings-save-bar');
+    expect(bar).toHaveTextContent('Unsaved changes in General');
+    expect(within(bar).getByRole('button', { name: 'Save changes' })).toHaveAttribute(
+      'aria-keyshortcuts',
+      'Meta+S Control+S',
+    );
+  });
+
+  it('Ctrl+S saves while dirty', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    renderShell();
+    act(() => registerSection({ onSave }));
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 's', ctrlKey: true });
+    });
+    expect(onSave).toHaveBeenCalled();
+  });
+
+  it('asks before leaving with unsaved changes (guarded scope switch)', () => {
+    renderShell();
+    act(() => registerSection());
+    fireEvent.click(screen.getByRole('button', { name: 'Personal' }));
+    expect(screen.getByRole('alertdialog')).toBeInTheDocument();
   });
 });
