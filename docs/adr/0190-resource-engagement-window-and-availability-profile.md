@@ -22,6 +22,14 @@ claimed by in-flight worktrees (0185 time-tracking/mobile, 0186 MCP, 0187 SSO,
 > pre-existing #542 workspace baseline this ADR builds *on*: it is stored, validated
 > `0..100` and echoed by the members API, and it is still read by nothing in the
 > utilization overlay. Treat all five Decision items as open implementation work.
+>
+> **Implementation status (2026-11-23, #3840):** the data layer of Phase 1 has since
+> shipped: `ProjectResource.engaged_from`, `engaged_to`, `availability_percent` and
+> `ramp_state`, the partial index `projres_engaged_to_idx`, migration `resources/0018`
+> and the serializer validation (`engaged_to` on or after `engaged_from`). The audit
+> text above is the 2026-09-04 snapshot. The `engagement_window_exceeded` warning
+> overlay, the roll-off summary, composing the baseline into capacity and the
+> `contractor_count` switch to "has an `engaged_to`" remain open in #5112.
 
 ## Context
 

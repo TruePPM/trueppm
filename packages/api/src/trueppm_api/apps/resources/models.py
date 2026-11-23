@@ -226,12 +226,21 @@ class ProjectResource(VersionedModel):
     # window is an advisory overlay for warnings/utilization, never a CPM constraint.
     engaged_from = models.DateField(null=True, blank=True)
     engaged_to = models.DateField(null=True, blank=True)
+    # ``db_default`` as well as ``default`` (migration rule 8): AddField otherwise drops
+    # the column default, so an old pod inserting a ProjectResource during a rolling
+    # update would hit NOT NULL.
     availability_percent = models.PositiveSmallIntegerField(
         default=100,
+        db_default=100,
         validators=[MinValueValidator(0), MaxValueValidator(100)],
     )
     # Advisory label only; a single value, not a time-varying ramp curve.
-    ramp_state = models.CharField(max_length=16, choices=RampState.choices, default=RampState.FULL)
+    ramp_state = models.CharField(
+        max_length=16,
+        choices=RampState.choices,
+        default=RampState.FULL,
+        db_default=RampState.FULL,
+    )
 
     objects: ClassVar[ProjectResourceManager] = ProjectResourceManager()
 

@@ -420,6 +420,7 @@ see [SSO Is Not an Enterprise Feature](/overview/sso-is-not-enterprise/).
 
 ### Availability baseline
 
+:::note[Ships in 0.5]
 Each member row carries an **availability** chip (for example `80%`) under the role
 selector. It is the share of full time that person is available, before any project
 allocates them: a part-time contract is 60%, parental leave 40%, and the default is
@@ -427,6 +428,10 @@ allocates them: a part-time contract is 60%, parental leave 40%, and the default
 bound it with **Effective from** and **Effective to** dates (leave both empty to apply
 indefinitely), and add a note. **Workspace Admin+** can edit it; the end date must be
 on or after the start date.
+
+0.4 exposes the baseline only through `PATCH /api/v1/workspace/members/{user_id}/`;
+there is no chip or editor in the members list yet.
+:::
 
 The baseline is stored and returned by `GET` and `PATCH /api/v1/workspace/members/{user_id}/`
 as `availability_percent`, `availability_effective_from`, `availability_effective_to` and
