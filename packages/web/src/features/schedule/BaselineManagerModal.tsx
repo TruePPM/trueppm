@@ -6,7 +6,7 @@ import { ClockIcon, CloseIcon, WarningIcon } from '@/components/Icons';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { toast } from '@/components/Toast';
 import { CaptureBaselineConfirmDialog } from './CaptureBaselineConfirmDialog';
-import { ChangesetReview } from './ChangesetReview';
+import { ChangesetIndicator } from './ChangesetIndicator';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { useProjectMembers } from '@/hooks/useProjectMembers';
 import { useProject } from '@/hooks/useProject';
@@ -75,13 +75,15 @@ export function BaselineManagerModal({
 
   const [deleteTarget, setDeleteTarget] = useState<ApiBaseline | null>(null);
   const [showCaptureConfirm, setShowCaptureConfirm] = useState(false);
+  // The changeset sheet (ADR-1477) stacks above this modal; yield the trap to it.
+  const [changesetSheetOpen, setChangesetSheetOpen] = useState(false);
 
   // Yield the trap while a nested confirm (capture or delete) is open (web-rule 245/206).
   // `activateBaseline.isPending` is the focusKey (web-rule 362): it disables the
   // "Set active" button the user just pressed, so the browser blurs it to <body>
   // and the trap has to re-seat.
   const trapRef = useFocusTrap<HTMLDivElement>(
-    deleteTarget === null && !showCaptureConfirm,
+    deleteTarget === null && !showCaptureConfirm && !changesetSheetOpen,
     onClose,
     activateBaseline.isPending,
   );
@@ -230,7 +232,15 @@ export function BaselineManagerModal({
               </ul>
               {/* A committed plan's baseline moves through the changeset decision
                   (ADR-1477), which replaces "Set active" here. */}
-              {committed && <ChangesetReview projectId={projectId} currentRole={currentRole} />}
+              {committed && (
+                <div className="mt-4 flex justify-end">
+                  <ChangesetIndicator
+                    projectId={projectId}
+                    currentRole={currentRole}
+                    onSheetOpenChange={setChangesetSheetOpen}
+                  />
+                </div>
+              )}
               {!canCapture && (
                 <p className="mt-4 text-xs text-neutral-text-secondary">
                   Baselines are captured by a project admin.

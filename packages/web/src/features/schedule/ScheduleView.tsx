@@ -104,6 +104,7 @@ import {
   progressCompleteAutoStatus,
 } from '@/lib/roles';
 import { BaselineManagerModal } from './BaselineManagerModal';
+import { ChangesetIndicator, ChangesetReasonLine } from './ChangesetIndicator';
 import { TaskTrashDialog } from '@/features/project/TaskTrashDialog';
 import { BaselinedAuthorConfirmDialog } from './BaselinedAuthorConfirmDialog';
 import { CaptureBaselineConfirmDialog } from './CaptureBaselineConfirmDialog';
@@ -4800,6 +4801,16 @@ export function ScheduleView() {
           setBaselineManagerOpen={setBaselineManagerOpen}
           setTaskTrashOpen={setTaskTrashOpen}
         />
+      )}
+
+      {/* The committed plan's open changeset (ADR-1477, Pass 5 3B): the reason
+          line for the newest unreasoned change and the Review action. Both render
+          nothing while the changeset is empty or the role can't answer. */}
+      {projectDetail?.lifecycle === 'active' && projectId && (
+        <div className="flex min-w-0 items-center justify-end gap-3 px-3 empty:hidden">
+          <ChangesetReasonLine projectId={projectId} currentRole={currentRole} />
+          <ChangesetIndicator projectId={projectId} currentRole={currentRole} />
+        </div>
       )}
 
       {/* Downstream consent banner (ADR-0120 D2, #1480): shows only when another

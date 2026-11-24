@@ -59,7 +59,7 @@ const projectLifecycle = vi.hoisted(() => ({ value: undefined as 'draft' | 'acti
 vi.mock('@/hooks/useProject', () => ({
   useProject: () => ({ data: { lifecycle: projectLifecycle.value } }),
 }));
-vi.mock('./ChangesetReview', () => ({ ChangesetReview: () => null }));
+vi.mock('./ChangesetIndicator', () => ({ ChangesetIndicator: () => null }));
 vi.mock('@/hooks/useProjectMembers', () => ({
   useProjectMembers: () => ({
     members: [{ id: '7', username: 'kelly', role: ROLE_OWNER }],
