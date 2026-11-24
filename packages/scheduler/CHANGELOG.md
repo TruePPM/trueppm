@@ -18,6 +18,7 @@ change between releases. Pin an exact version (e.g.
 
 ### Changed
 
+- **`Task` docstring now ranks the start/finish vocabularies ([#3795](https://gitlab.com/trueppm/trueppm/-/issues/3795)).** Docstring only; no behavior change.
 - **`MAX_DEPENDENCIES` and `MAX_EXPANDED_EDGES` raised from 100,000 to 250,000
   ([#3825](https://gitlab.com/trueppm/trueppm/-/issues/3825)).** A 50,000-task
   network at two links per task sat exactly on the old cap. The Rust/WASM validator
