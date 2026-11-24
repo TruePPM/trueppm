@@ -205,6 +205,38 @@ class Task:
         in working time, not as a calendar-day difference. The full display rule
         is on :class:`~trueppm_scheduler.engine.ScheduleResult` (#4178).
 
+    Note:
+        Which start/finish to read. The date fields come from five vocabularies;
+        they answer different questions and none is a synonym for another. In
+        order of what a consumer usually wants:
+
+        1. **Recorded** (``actual_start`` / ``actual_finish``): what happened.
+           Input, never overwritten. Authoritative for any date that has already
+           occurred; a task with ``actual_finish`` is complete and pinned to its
+           recorded dates.
+        2. **Span** (``scheduled_start``, with ``early_finish`` as its finish):
+           where the task's *whole* work sits, whatever its state (ADR-0752).
+           Read this to draw a bar or answer "when does this task's work begin".
+           The finish has no separate field because remaining work ends when the
+           task ends, so ``early_finish`` already is the span finish.
+        3. **Remaining-work window** (``early_start`` / ``early_finish``): the
+           forward-pass result for the work still to do. For a not-started or
+           complete task it equals the span; for an in-progress task it starts
+           at the project ``status_date`` and covers only the remaining share of
+           ``duration`` (ADR-0132), so ``early_finish - early_start`` is *not*
+           ``duration``. Read this for load, float and what is left to schedule,
+           never as the task's span.
+        4. **Late** (``late_start`` / ``late_finish``): the backward-pass limit
+           that does not delay the project finish. ``late - early`` is the slack
+           that ``total_float`` reports.
+        5. **Planned** (``planned_start`` / ``planned_finish``): the user's
+           intent, an input. ``planned_start`` is a start-no-earlier-than floor
+           the engine honors; ``planned_finish`` is reserved and not consumed
+           (see the note above). Neither is a result.
+
+        ``early_*``, ``late_*`` and ``scheduled_start`` are outputs that
+        ``schedule()`` overwrites; ``planned_*`` and ``actual_*`` are inputs.
+
     Attributes:
         id: Task identifier; a string, unique within the project.
         name: Display name.
