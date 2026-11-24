@@ -56,9 +56,8 @@ a committed plan is **amending** it: the edit is recorded in the project's
 [change history](/features/change-history/) and the people who hold an assignment on the
 changed work are notified.
 
-TruePPM does not yet ask you *why* a committed plan changed — the amendment is recorded
-without a reason. The prompt that collects one, and the changeset view that reads those
-reasons back, ship in **0.5**.
+The plan's **changeset**, which ships in 0.5, collects structural amendments so each can be
+given a reason afterwards; see [Changing a committed plan](#changing-a-committed-plan-the-changeset).
 
 **You cannot un-commit.** A plan is committed once, so that the anchor every variance
 number is measured from cannot move — trying to commit an already-active plan again
@@ -136,6 +135,12 @@ different baseline automatically deactivates the previous one.
 
 ## Changing a committed plan: the changeset
 
+:::note[Ships in 0.5]
+The changeset, its reason line, the review sheet and the two exits below ship in 0.5. In
+the current release a committed plan's amendments are recorded in change history without a
+reason, and a Project Manager switches the comparison baseline with **Set active**.
+:::
+
 Committing is not a lock. After baseline v1 you keep editing the plan with the same
 gestures, and nothing waits for you to explain yourself first. What changes is that every
 **structural** edit (adding, moving or deleting a task) joins an open **changeset**: the
@@ -169,6 +174,34 @@ project's decision trail:
 Re-baselining is for a plan that was re-agreed, not for turning a red number green. Only a
 Project Manager (`ADMIN`) or Owner takes either exit, and only from a signed-in session: an
 API token cannot re-baseline a plan.
+
+### Reviewing the changeset in the app
+
+Only Schedulers, Admins and Owners see any of this. Members' edits still join the
+changeset, and the plan owner answers them.
+
+- **The header.** Once a committed plan has open changes, the project header and the
+  Schedule view show **◷ N changes open · M need a reason** with a **⚑ Review N changes**
+  button. After you keep the baseline, the button steps down to **◷ N changes · v1 kept**
+  until the next structural edit lands.
+- **The reason line.** Right after a structural edit, a line under the Schedule toolbar
+  says what happened in the system's words, such as *Structural repairs moved · finish
+  Nov 14 → Nov 19*, with a **Why?** field. It never takes focus by itself; press
+  **⌥W** (Alt+W) to reach the field, type the reason and press Enter. **Esc** or **✕**
+  dismisses the line without answering, and the change stays marked.
+- **The review sheet.** **Review** opens a sheet that lists changes that need a reason
+  first, each with its author, time and finish impact. A change with no reason has a field
+  to answer it in place. Below the list are the net effect on the finish and the two exits
+  as equal cards. Neither is the default: Enter chooses nothing, and **Esc** or **✕**
+  closes the sheet without deciding.
+- **On a phone.** The sheet fills the screen, and the two exits sit in a sticky footer as
+  equal buttons. **Take v2…** opens a step for the reason code and the reason. **Keep v1**
+  takes one tap and shows an **Undo** for 10 seconds before the decision is recorded.
+  Adding, moving and deleting tasks stays on the desktop.
+- **Offline.** Both exits are disabled with **Reconnect to decide**, and the reason you
+  typed is kept on the device.
+- **If the changes moved.** If someone else changed the plan after you opened the sheet,
+  the decision is refused and the sheet reloads the current list.
 
 On a committed plan, the active baseline moves only through this decision. Activating a
 different baseline directly is refused, though you can still capture a named baseline to

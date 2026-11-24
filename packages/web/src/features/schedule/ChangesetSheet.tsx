@@ -122,7 +122,10 @@ export function ChangesetSheet({ projectId, currentRole, onClose }: ChangesetShe
   const isPhone = useBreakpoint() === 'sm';
   const canAnswer = currentRole != null && currentRole >= ROLE_SCHEDULER;
   const { data } = useChangeset(projectId, canAnswer);
-  const trapRef = useFocusTrap<HTMLDivElement>(!isPhone, onClose);
+  // Hoisted here so its pending flag can re-seat the trap (web rule 362): the
+  // exits disable while a decision is in flight.
+  const decide = useBaselineDecision(projectId);
+  const trapRef = useFocusTrap<HTMLDivElement>(!isPhone, onClose, decide.isPending);
 
   const title = data
     ? `${data.open_count} ${data.open_count === 1 ? 'change' : 'changes'} since ${
@@ -137,6 +140,7 @@ export function ChangesetSheet({ projectId, currentRole, onClose }: ChangesetShe
       currentRole={currentRole}
       isPhone={isPhone}
       onClose={onClose}
+      decide={decide}
     />
   ) : (
     <p className="p-4 text-sm text-neutral-text-secondary">Loading changes…</p>
@@ -189,7 +193,7 @@ export function ChangesetSheet({ projectId, currentRole, onClose }: ChangesetShe
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg bg-neutral-surface shadow-xl">
+      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-neutral-border bg-neutral-surface shadow-pop">
         {header}
         {body}
       </div>
@@ -203,12 +207,12 @@ interface BodyProps {
   currentRole: number | null;
   isPhone: boolean;
   onClose: () => void;
+  decide: ReturnType<typeof useBaselineDecision>;
 }
 
-function ChangesetSheetBody({ projectId, data, currentRole, isPhone, onClose }: BodyProps) {
+function ChangesetSheetBody({ projectId, data, currentRole, isPhone, onClose, decide }: BodyProps) {
   const canDecide = currentRole != null && currentRole >= ROLE_ADMIN;
   const online = useOnlineStatus();
-  const decide = useBaselineDecision(projectId);
   const [draft, setDraftState] = useState<Draft>(() => readDraft(projectId));
   // Phone only: "Take v2…" opens the reason step (4A-c).
   const [phoneStep, setPhoneStep] = useState<'list' | 'take'>('list');
