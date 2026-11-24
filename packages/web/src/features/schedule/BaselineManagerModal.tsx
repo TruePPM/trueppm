@@ -6,6 +6,7 @@ import { ClockIcon, CloseIcon, WarningIcon } from '@/components/Icons';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { toast } from '@/components/Toast';
 import { CaptureBaselineConfirmDialog } from './CaptureBaselineConfirmDialog';
+import { ChangesetReview } from './ChangesetReview';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { useProjectMembers } from '@/hooks/useProjectMembers';
 import { useProject } from '@/hooks/useProject';
@@ -227,6 +228,9 @@ export function BaselineManagerModal({
                   />
                 ))}
               </ul>
+              {/* A committed plan's baseline moves through the changeset decision
+                  (ADR-1477), which replaces "Set active" here. */}
+              {committed && <ChangesetReview projectId={projectId} currentRole={currentRole} />}
               {!canCapture && (
                 <p className="mt-4 text-xs text-neutral-text-secondary">
                   Baselines are captured by a project admin.

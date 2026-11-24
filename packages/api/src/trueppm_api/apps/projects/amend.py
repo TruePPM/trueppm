@@ -292,22 +292,16 @@ def broadcast_changeset(project_id: Any) -> None:
     from .models import ChangesetEntry
 
     pid = str(project_id)
-
-    def _send() -> None:
-        open_qs = ChangesetEntry.objects.filter(project_id=pid, resolved_by__isnull=True)
-        broadcast_board_event(
-            pid,
-            "changeset_updated",
-            {
-                # The subject is the project's changeset, so `id` is the project id.
-                "id": pid,
-                "project_id": pid,
-                "open_count": open_qs.count(),
-                "unreasoned_count": open_qs.filter(reason__isnull=True).count(),
-            },
-        )
-
-    transaction.on_commit(_send)
+    # Counted inside the writing transaction, so the numbers are what it commits.
+    open_qs = ChangesetEntry.objects.filter(project_id=pid, resolved_by__isnull=True)
+    payload = {
+        # The subject is the project's changeset, so `id` is the project id.
+        "id": pid,
+        "project_id": pid,
+        "open_count": open_qs.count(),
+        "unreasoned_count": open_qs.filter(reason__isnull=True).count(),
+    }
+    transaction.on_commit(lambda: broadcast_board_event(pid, "changeset_updated", payload))
 
 
 def retract(project_id: Any, task_ids: list[Any]) -> None:
