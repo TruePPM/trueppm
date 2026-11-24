@@ -411,6 +411,8 @@ export function mapTask(t: ApiTask): Task {
     ownEstimate: t.own_estimate,
     autoContainer: t.auto_container,
     status: t.status,
+    statusSource: t.status_source,
+    statusRollupCount: t.status_rollup_count,
     boardLane: t.board_lane,
     // Server-derived edit capabilities (ADR-0133). Preserve `undefined` when the
     // payload omits them (pre-field synced rows) so the drawer's

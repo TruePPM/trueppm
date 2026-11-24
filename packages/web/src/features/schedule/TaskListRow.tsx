@@ -1,5 +1,6 @@
 import { renameRowLabel } from './rowVocabulary';
 import type { DependencyDirection } from './deps/linkTypes';
+import { isStatusComputed } from '@/features/grid/ui';
 import { memo, useState, useRef, useCallback, useEffect } from 'react';
 import { formatChord } from '@/lib/platform';
 import type React from 'react';
@@ -870,7 +871,7 @@ function buildRowMenuItems(ctx: RowMenuCtx): RowMenuItem[] {
     onClassifyRequest,
     onMoveToRequest,
   } = ctx;
-  return [
+  const items: RowMenuItem[] = [
     {
       key: 'edit',
       label: 'Edit',
@@ -977,6 +978,8 @@ function buildRowMenuItems(ctx: RowMenuCtx): RowMenuItem[] {
       onSelect: () => buildMode.deleteTask(task.id),
     },
   ];
+  // A computed (rolled-up) status has no status action: absent, not disabled (#3531).
+  return isStatusComputed(task) ? items.filter((i) => i.key !== 'toggle-complete') : items;
 }
 
 /**
@@ -1544,8 +1547,9 @@ function useRowActions(ctx: {
     setScheduleActionToast,
   } = ctx;
 
+  const statusComputed = isStatusComputed(task);
   const handleToggleComplete = useCallback(() => {
-    if (!projectId || task.isMilestone) return;
+    if (!projectId || task.isMilestone || statusComputed) return;
     // Captured before the optimistic flip: only celebrate the transition INTO
     // complete, never un-completing. Warm toast fires on confirmed success.
     const becomingComplete = task.status !== 'COMPLETE';
@@ -1570,6 +1574,7 @@ function useRowActions(ctx: {
     task.name,
     task.status,
     task.isMilestone,
+    statusComputed,
     toggleComplete,
     setScheduleError,
   ]);

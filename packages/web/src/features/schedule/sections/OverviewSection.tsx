@@ -6,6 +6,7 @@ import { useUpdateTask, parseProgressAnchorError } from '@/hooks/useTaskMutation
 import type { DrawerSectionProps } from '@/lib/widget-registry';
 import { canEditTask, canCreateLabel } from '@/lib/roles';
 import type { TaskStatus } from '@/types';
+import { StatusPill, isStatusComputed } from '@/features/grid/ui';
 import { ResourceAssignmentSection } from '../ResourceAssignmentSection';
 import { LabelAssignControl } from './LabelAssignControl';
 import { isPhaseTask } from '@/lib/isPhaseTask';
@@ -193,7 +194,22 @@ export function OverviewSection({ taskId, projectId, userRole, canEdit }: Drawer
         {/* Status — editable (#405) */}
         <div className="flex-1 min-w-0">
           <div className={LABEL_CLASS}>Status</div>
-          {task.isSummary || !editable ? (
+          {isStatusComputed(task) ? (
+            <div data-testid="status-rollup-field">
+              <StatusPill
+                status={task.status}
+                source={task.statusSource}
+                rollupCount={task.statusRollupCount}
+              />
+              <p className="mt-1 text-xs text-neutral-text-secondary">
+                {task.statusSource === 'none'
+                  ? 'No tasks in this phase yet, so it has no status.'
+                  : `Rolled up from ${task.statusRollupCount ?? 0} ${
+                      task.statusRollupCount === 1 ? 'task' : 'tasks'
+                    } in this phase. Not editable by anyone.`}
+              </p>
+            </div>
+          ) : task.isSummary || !editable ? (
             <p className="text-sm text-neutral-text-primary">
               {STATUS_OPTIONS.find((o) => o.value === task.status)?.label ?? task.status}
             </p>

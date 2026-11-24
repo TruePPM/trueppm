@@ -215,6 +215,16 @@ export interface Task {
   isExternal?: boolean;
   status: TaskStatus;
   /**
+   * Provenance of {@link status} (#3531): `'derived'` = rolled up from the
+   * row's leaf descendants (read-only, show the rolled-up treatment),
+   * `'none'` = an empty container with no status (render an em dash), and
+   * `'committed'` = a leaf's own value. `undefined` on payloads from a server
+   * that predates the field. Surfaces gate on this, never on `isPhase`.
+   */
+  statusSource?: 'derived' | 'none' | 'committed';
+  /** Leaves the derived status was read from; `0` when {@link statusSource} is `'none'`. */
+  statusRollupCount?: number;
+  /**
    * Named board lane *within* {@link status} (#2967) — a second axis, never a
    * sixth status. Empty string (or a key no longer configured) resolves to the
    * column's first lane; see `features/board/statusLanes.ts`. Presentation only:

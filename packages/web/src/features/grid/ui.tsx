@@ -14,24 +14,75 @@ export function progressBarColor(task: Pick<Task, 'isCritical' | 'isComplete'>):
 }
 
 export const STATUS_LABEL: Record<TaskStatus, string> = {
-  BACKLOG:      'Backlog',
-  NOT_STARTED:  'Not started',
-  IN_PROGRESS:  'In progress',
-  REVIEW:       'Review',
-  ON_HOLD:      'On hold',
-  COMPLETE:     'Done',
+  BACKLOG: 'Backlog',
+  NOT_STARTED: 'Not started',
+  IN_PROGRESS: 'In progress',
+  REVIEW: 'Review',
+  ON_HOLD: 'On hold',
+  COMPLETE: 'Done',
 };
 
 const STATUS_CLS: Record<TaskStatus, string> = {
-  BACKLOG:      'border-neutral-border text-neutral-text-secondary',
-  NOT_STARTED:  'border-neutral-border text-neutral-text-secondary',
-  IN_PROGRESS:  'border-brand-primary/50 text-brand-primary',
-  REVIEW:       'border-brand-accent/50 text-brand-accent-dark',
-  ON_HOLD:      'border-semantic-warning/50 text-semantic-warning',
-  COMPLETE:     'border-semantic-on-track/50 text-semantic-on-track',
+  BACKLOG: 'border-neutral-border text-neutral-text-secondary',
+  NOT_STARTED: 'border-neutral-border text-neutral-text-secondary',
+  IN_PROGRESS: 'border-brand-primary/50 text-brand-primary',
+  REVIEW: 'border-brand-accent/50 text-brand-accent-dark',
+  ON_HOLD: 'border-semantic-warning/50 text-semantic-warning',
+  COMPLETE: 'border-semantic-on-track/50 text-semantic-on-track',
 };
 
-export function StatusPill({ status }: { status: TaskStatus }) {
+/** True when the server computes this row's status (rolled up, or none) — it has no edit control. */
+export function isStatusComputed(task: Pick<Task, 'statusSource'>): boolean {
+  return task.statusSource === 'derived' || task.statusSource === 'none';
+}
+
+/**
+ * Accessible-name completion for a rolled-up status, e.g. "In progress, rolled
+ * up from 4 tasks". The ", " separator is explicit because the accname engines
+ * disagree about leading whitespace on an inline text node (web rule 328(d)).
+ */
+export function statusRollupPhrase(status: TaskStatus, count: number): string {
+  const label = STATUS_LABEL[status] ?? status;
+  return `${label}, rolled up from ${count} ${count === 1 ? 'task' : 'tasks'}`;
+}
+
+interface StatusPillProps {
+  status: TaskStatus;
+  /** `task.statusSource`; `'derived'` / `'none'` swap in the read-only treatment. */
+  source?: Task['statusSource'];
+  rollupCount?: number;
+}
+
+/**
+ * Status pill. A rolled-up phase status reads as derived: transparent, 1px
+ * dashed, secondary text and the word "rolled up" inside, so the signal
+ * survives forced colors. It is a plain span — not focusable, no hover. The
+ * accessible name is an sr-only completion in the same element (never an
+ * aria-label, which would replace the visible subject).
+ */
+export function StatusPill({ status, source, rollupCount = 0 }: StatusPillProps) {
+  if (source === 'none') {
+    return (
+      <span className="text-sm text-neutral-text-secondary" data-testid="status-none">
+        <span aria-hidden="true">{'\u2014'}</span>
+        <span className="sr-only">No status, no tasks in this phase</span>
+      </span>
+    );
+  }
+  if (source === 'derived') {
+    return (
+      <span
+        data-testid="status-pill-derived"
+        className="inline-flex items-center gap-1 h-5 px-1.5 border border-dashed border-neutral-border rounded text-xs font-medium bg-transparent text-neutral-text-secondary"
+      >
+        <span aria-hidden="true">{STATUS_LABEL[status] ?? status}</span>
+        <span aria-hidden="true" className="tppm-mono text-xs">
+          rolled up
+        </span>
+        <span className="sr-only">{statusRollupPhrase(status, rollupCount)}</span>
+      </span>
+    );
+  }
   return (
     <span
       className={`inline-flex items-center h-5 px-1.5 border rounded text-xs font-medium

@@ -68,6 +68,12 @@ responses carry `status_source` (`derived` on a phase, `none` on an empty
 container, `committed` on ordinary work) and `status_rollup_count` (how many
 leaves the status was read from).
 
+In the Grid and the task drawer a rolled-up status reads as derived: the pill is
+dashed and carries the word "rolled up", screen readers hear "In progress,
+rolled up from 4 tasks", and the drawer says "Rolled up from 4 tasks in this
+phase. Not editable by anyone." There is no status control and no Mark complete
+action on the row. A phase with no tasks shows an em dash instead of a status.
+
 Each lock fires only when a write actually tries to *change* the locked
 value — a PATCH that omits the field, or resends the value already stored,
 still succeeds. Set the assignee and log time on the leaf tasks inside the

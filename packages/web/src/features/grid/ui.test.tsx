@@ -1,6 +1,13 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect } from 'vitest';
-import { StatusPill, OwnerAvatar, fmtDate, initials } from './ui';
+import {
+  StatusPill,
+  OwnerAvatar,
+  fmtDate,
+  initials,
+  statusRollupPhrase,
+  isStatusComputed,
+} from './ui';
 import type { TaskStatus } from '@/types';
 
 describe('StatusPill', () => {
@@ -69,5 +76,42 @@ describe('fmtDate', () => {
   it('formats an ISO date as "Mon DD"', () => {
     expect(fmtDate('2026-05-01')).toBe('May 1');
     expect(fmtDate('2026-12-25')).toBe('Dec 25');
+  });
+});
+
+describe('rolled-up status (#3531)', () => {
+  it('phrases the accessible name with an explicit ", " separator', () => {
+    expect(statusRollupPhrase('IN_PROGRESS', 4)).toBe('In progress, rolled up from 4 tasks');
+    expect(statusRollupPhrase('COMPLETE', 1)).toBe('Done, rolled up from 1 task');
+  });
+
+  it('derived pill: dashed, shows the word "rolled up", exposes the phrase, is not interactive', () => {
+    render(<StatusPill status="IN_PROGRESS" source="derived" rollupCount={4} />);
+    const pill = screen.getByTestId('status-pill-derived');
+    expect(pill.className).toContain('border-dashed');
+    expect(pill).toHaveTextContent('rolled up');
+    expect(pill).toHaveTextContent('In progress, rolled up from 4 tasks');
+    expect(pill).not.toHaveAttribute('tabindex');
+    expect(pill).not.toHaveAttribute('aria-label');
+    expect(pill.tagName).toBe('SPAN');
+  });
+
+  it('source "none" renders an em dash, never Not started', () => {
+    render(<StatusPill status="NOT_STARTED" source="none" rollupCount={0} />);
+    expect(screen.getByTestId('status-none')).toHaveTextContent('\u2014');
+    expect(screen.queryByText('Not started')).not.toBeInTheDocument();
+  });
+
+  it('committed source keeps the plain pill', () => {
+    render(<StatusPill status="REVIEW" source="committed" />);
+    expect(screen.getByText('Review')).toBeInTheDocument();
+    expect(screen.queryByTestId('status-pill-derived')).not.toBeInTheDocument();
+  });
+
+  it('isStatusComputed gates on provenance, not is_phase', () => {
+    expect(isStatusComputed({ statusSource: 'derived' })).toBe(true);
+    expect(isStatusComputed({ statusSource: 'none' })).toBe(true);
+    expect(isStatusComputed({ statusSource: 'committed' })).toBe(false);
+    expect(isStatusComputed({})).toBe(false);
   });
 });
