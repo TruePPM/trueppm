@@ -70,7 +70,7 @@ export function ProjectSampleIndicator({ projectId }: { projectId: string | null
               dates {daysStale} days out of date
             </span>
           </>
-        ) : daysStale === null ? (
+        ) : program && daysStale === null ? (
           <>
             {' · '}
             <span className="font-medium text-neutral-text-primary">dates may be out of date</span>

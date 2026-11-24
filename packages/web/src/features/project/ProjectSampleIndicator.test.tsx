@@ -58,6 +58,7 @@ describe('ProjectSampleIndicator', () => {
     renderIndicator();
     expect(screen.getByText(/Demo project/)).toBeInTheDocument();
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    expect(screen.queryByText(/out of date/)).not.toBeInTheDocument();
   });
 
   it('renders nothing at all in the read-only interactive demo (#4049, #4050 A1)', () => {
