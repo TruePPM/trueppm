@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plan layout toggle, dark</title>
+<link rel="stylesheet" href="../css/p4-shared.css">
+<link rel="stylesheet" href="../css/p5.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<style>body{margin:0}</style>
+</head>
+<body>
+<div style="width: 1440px; height: 1000px">
+
+
+<div class="scr dk" style="width: 1440px; height: 1000px">
+  <div class="app">
+    <nav class="rail" aria-label="Global">
+      <div class="ws"><span class="mark">N</span><div class="col" style="line-height: 16px; flex: 1"><span class="m5">Northwind</span><span class="t12 tx3">Workspace</span></div></div>
+      <a class="ri" href="#">Home</a><a class="ri" href="#">Inbox</a><a class="ri on" href="#">Work</a><a class="ri" href="#">People</a><a class="ri" href="#">Agents</a>
+      <div class="rl">Pinned</div>
+      <a class="ri on" href="#" style="font-weight: 400">Atlas Migration</a>
+      <div class="rfoot"><a class="ri" href="#"><span class="av s">PN</span>Priya N. · PM</a></div>
+    </nav>
+    <main class="main">
+      <div class="top"><div class="crumbs"><span>Work</span><span class="sep">/</span><span>Atlas Migration</span><span class="sep">/</span><b>Plan</b><span class="sep">·</span><span>Gantt</span></div><span class="sp"></span><span class="slot" style="background: var(--surface-2)">✓ Synced · 10:12</span></div>
+      <div class="ctx">
+        <div class="ctx-h"><span class="t20">Atlas Migration</span><span class="chip risk"><b>◆</b>At risk</span><span class="sp"></span><span class="t12 tx2">P80 finish <b class="num" style="color: var(--text-1)">May 9</b> · as of 10:12</span></div>
+        <div class="tabs" role="tablist"><a class="tab" href="#">Overview</a><a class="tab on" href="#" aria-current="page">Plan</a><a class="tab" href="#">Deliver</a><a class="tab" href="#">Risks</a><a class="tab" href="#">People</a><a class="tab" href="#">More ▾</a></div>
+      </div>
+      <div class="toolbar" style="position: relative">
+        <div class="seg" role="radiogroup" aria-label="Plan layout"><button type="button" class="on" aria-checked="true">Gantt</button><button type="button" aria-checked="false">Grid</button><button type="button" aria-checked="false">Calendar</button></div>
+        <span class="pend">set pending consolidation</span>
+        <span class="ann" style="margin-left: 2px">1</span>
+        <span style="width: 1px; height: 24px; background: var(--hairline); margin: 0 6px"></span>
+        <button class="btn ghost" type="button">Filter</button><button class="btn ghost" type="button">Group</button><button class="btn ghost" type="button">Zoom · Weeks</button>
+        <span class="sp"></span>
+        <span class="t12 tx3">Opened in Gantt, your last Plan layout</span><span class="ann">2</span>
+      </div>
+      <div style="padding: 16px 20px; display: flex; flex-direction: column; gap: 14px">
+        <div class="card" style="overflow: hidden">
+          <div style="display: grid; grid-template-columns: 360px minmax(0, 1fr)">
+            <div style="border-right: 1px solid var(--hairline)">
+              <div class="lrow lhead" style="grid-template-columns: 74px minmax(0, 1fr) 70px"><span>ID</span><span>Task</span><span>Finish</span></div>
+              
+                <div class="lrow" style="grid-template-columns: 74px minmax(0, 1fr) 70px"><span class="mono tx2">ATL-118</span><span class="trunc m5">Schema freeze</span><span class="mono">Mar 7</span></div>
+              
+                <div class="lrow" style="grid-template-columns: 74px minmax(0, 1fr) 70px"><span class="mono tx2">ATL-142</span><span class="trunc m5">API cutover</span><span class="mono">Mar 28</span></div>
+              
+                <div class="lrow" style="grid-template-columns: 74px minmax(0, 1fr) 70px"><span class="mono tx2">ATL-150</span><span class="trunc m5">Data sync service</span><span class="mono">Apr 11</span></div>
+              
+                <div class="lrow" style="grid-template-columns: 74px minmax(0, 1fr) 70px"><span class="mono tx2">ATL-155</span><span class="trunc m5">Load test</span><span class="mono">Apr 18</span></div>
+              
+                <div class="lrow" style="grid-template-columns: 74px minmax(0, 1fr) 70px"><span class="mono tx2">ATL-158</span><span class="trunc m5">Auth shim</span><span class="mono">Apr 1</span></div>
+              
+                <div class="lrow" style="grid-template-columns: 74px minmax(0, 1fr) 70px"><span class="mono tx2">ATL-160</span><span class="trunc m5">Go-live</span><span class="mono">May 9</span></div>
+              
+            </div>
+            <div>
+              <div class="row" style="height: 32px; gap: 0; padding-left: 4px; border-bottom: 1px solid var(--hairline)"><span class="t11 tx3" style="width: 66px; flex: none">Mar 3</span><span class="t11 tx3" style="width: 66px; flex: none">Mar 10</span><span class="t11 tx3" style="width: 66px; flex: none">Mar 17</span><span class="t11 tx3" style="width: 66px; flex: none">Mar 24</span><span class="t11 tx3" style="width: 66px; flex: none">Mar 31</span><span class="t11 tx3" style="width: 66px; flex: none">Apr 7</span><span class="t11 tx3" style="width: 66px; flex: none">Apr 14</span><span class="t11 tx3" style="width: 66px; flex: none">Apr 21</span><span class="t11 tx3" style="width: 66px; flex: none">Apr 28</span><span class="t11 tx3" style="width: 66px; flex: none">May 5</span></div>
+              
+                <div style="height: 44px; border-top: 1px solid var(--hairline); position: relative"><div style="position: absolute; top: 13px; height: 18px; border-radius: 4px; left: 4px; width: 37.6px; background: var(--text-1)"></div></div>
+              
+                <div style="height: 44px; border-top: 1px solid var(--hairline); position: relative"><div style="position: absolute; top: 13px; height: 18px; border-radius: 4px; left: 135.6px; width: 103.4px; background: var(--text-1)"></div></div>
+              
+                <div style="height: 44px; border-top: 1px solid var(--hairline); position: relative"><div style="position: absolute; top: 13px; height: 18px; border-radius: 4px; left: 267.2px; width: 103.4px; background: var(--text-1)"></div></div>
+              
+                <div style="height: 44px; border-top: 1px solid var(--hairline); position: relative"><div style="position: absolute; top: 13px; height: 18px; border-radius: 4px; left: 380px; width: 65.8px; background: var(--load-4)"></div></div>
+              
+                <div style="height: 44px; border-top: 1px solid var(--hairline); position: relative"><div style="position: absolute; top: 13px; height: 18px; border-radius: 4px; left: 192px; width: 94px; background: var(--load-4)"></div></div>
+              
+                <div style="height: 44px; border-top: 1px solid var(--hairline); position: relative"><div style="position: absolute; top: 13px; height: 18px; border-radius: 4px; left: 464.6px; width: 103.4px; background: var(--text-1)"></div></div>
+              
+            </div>
+          </div>
+        </div>
+        <div class="row"><span class="t15">States</span><span class="ann">3</span></div>
+        <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
+          <div class="state-card" style="padding: 10px"><span class="state-tag">A layout hidden</span><div class="seg" role="radiogroup" aria-label="Plan layout, Calendar hidden" style="align-self: flex-start"><button type="button" class="on">Gantt</button><button type="button">Grid</button></div><span class="t12">Hidden layouts leave the toggle. The rest stay in order, and the hidden one is under More › Hidden from your tabs.</span></div>
+          <div class="state-card" style="padding: 10px"><span class="state-tag">One layout left</span><span class="t12">With one layout, the toggle becomes a plain label, “Plan · Grid”, so a single-option control isn't drawn. That last layout can't be hidden (1C).</span></div>
+          <div class="state-card" style="padding: 10px"><span class="state-tag">Loading a layout</span><div class="skel" style="width: 80%"></div><div class="skel" style="width: 60%"></div><span class="t12">The toggle switches immediately, and only the body skeletons. The toolbar keeps Filter and Group for that layout.</span></div>
+          <div class="state-card" style="padding: 10px"><span class="state-tag">Error</span><span class="t12"><b>✕ Calendar couldn't load.</b> Your plan is fine, and the data is unchanged. <a href="#">Retry</a> · <a href="#">Open in Grid</a></span></div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+</div>
+</body>
+</html>

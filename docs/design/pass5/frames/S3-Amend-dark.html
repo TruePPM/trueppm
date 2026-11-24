@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Amend reason prompt, dark</title>
+<link rel="stylesheet" href="../css/p4-shared.css">
+<link rel="stylesheet" href="../css/p5.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<style>body{margin:0}</style>
+</head>
+<body>
+<div style="width: 1440px; height: 1040px">
+
+
+<div class="scr dk" style="width: 1440px; height: 1040px">
+  <div class="app">
+    <nav class="rail" aria-label="Global">
+      <div class="ws"><span class="mark">N</span><div class="col" style="line-height: 16px; flex: 1"><span class="m5">Northwind</span><span class="t12 tx3">Workspace</span></div></div>
+      <a class="ri" href="#">Home</a><a class="ri" href="#">Inbox</a><a class="ri on" href="#">Work</a><a class="ri" href="#">People</a><a class="ri" href="#">Agents</a>
+      <div class="rl">Pinned</div>
+      <a class="ri on" href="#" style="font-weight: 400">Hangar Retrofit</a>
+      <div class="rfoot"><a class="ri" href="#"><span class="av s">PN</span>Priya N. · PM</a></div>
+    </nav>
+    <main class="main">
+      <div class="top"><div class="crumbs"><span>Work</span><span class="sep">/</span><span>Hangar Retrofit</span><span class="sep">/</span><b>Plan</b></div><span class="sp"></span><span class="slot" style="background: var(--surface-2)">✓ Saved · 15:20</span></div>
+      <div class="ctx" style="position: relative">
+        <div class="ctx-h"><span class="t20">Hangar Retrofit</span><span class="chip risk"><b>◆</b>At risk</span><span class="sp"></span><span class="t12 tx2">CPM finish <b class="num" style="color: var(--text-1)">Jun 17</b> · <b style="color: var(--text-1)">+3 wd</b> vs v1 · as of 15:20</span><span class="chip out"><b>◷</b>3 changes open · 1 needs a reason</span><button class="btn pri" type="button" style="min-height: 36px">⚑ Review 3 changes</button></div>
+        <div class="tabs" role="tablist"><a class="tab" href="#">Overview</a><a class="tab on" href="#">Plan</a><a class="tab" href="#">Deliver</a><a class="tab" href="#">Risks</a><a class="tab" href="#">People</a><a class="tab" href="#">More ▾</a></div>
+        <span class="ann pin" style="top: 8px; right: 6px">1</span>
+      </div>
+      <div class="toolbar" style="position: relative"><div class="seg" role="radiogroup" aria-label="Edit mode"><button type="button">Read</button><button type="button" class="on" aria-checked="true">Amend</button></div><span style="width: 1px; height: 24px; background: var(--hairline); margin: 0 6px"></span><div class="seg" role="radiogroup" aria-label="Plan layout"><button type="button">Gantt</button><button type="button" class="on">Grid</button></div><span class="sp"></span>
+        <div role="status" aria-live="polite" style="display: flex; align-items: center; gap: 8px; min-width: 0; border: 1px solid var(--hairline); border-radius: 8px; padding: 4px 6px 4px 10px; background: var(--surface-0)"><span class="t12" style="white-space: nowrap">HR-5 moved under HR-3 · finish <span class="mono">Jun 12 → Jun 17</span></span><label class="t12 b" for="am-why" style="white-space: nowrap">Why?</label><input class="inp" id="am-why" placeholder="Structural repairs wait for the lift plan" style="width: 260px; min-height: 32px"><kbd class="mono t12 tx3">⌥W</kbd><button class="btn ghost" type="button" aria-label="Dismiss, the change stays marked" style="padding: 0 8px; min-height: 32px">✕</button></div>
+        <span class="ann pin" style="top: -10px; right: 300px">2</span>
+      </div>
+      <div style="padding: 16px 20px; display: flex; flex-direction: column; gap: 14px">
+        <div class="card">
+          <div class="lrow lhead" style="grid-template-columns: 80px minmax(0, 1fr) 90px 90px 120px"><span>ID</span><span>Task</span><span>Duration</span><span>Finish</span><span>Owner</span></div>
+          
+            <div class="lrow" style="grid-template-columns: 80px minmax(0, 1fr) 90px 90px 120px; background: transparent"><span class="mono tx2">HR-1</span><span class="m5" style="padding-left: 0px; font-style: normal">Survey and permits</span><span class="mono">15d</span><span class="mono">Apr 3</span><span class="t12 tx2">Sam O.</span></div>
+          
+            <div class="lrow" style="grid-template-columns: 80px minmax(0, 1fr) 90px 90px 120px; background: transparent"><span class="mono tx2">HR-2</span><span class="m5" style="padding-left: 0px; font-style: normal">Strip-out</span><span class="mono">10d</span><span class="mono">Apr 17</span><span class="t12 tx2">Jon B.</span></div>
+          
+            <div class="lrow" style="grid-template-columns: 80px minmax(0, 1fr) 90px 90px 120px; background: transparent"><span class="mono tx2">HR-3</span><span class="m5" style="padding-left: 14px; font-style: normal">Crane C-2 lift plan</span><span class="mono">5d</span><span class="mono">Apr 24</span><span class="t12 tx2">Wei L.</span></div>
+          
+            <div class="lrow" style="grid-template-columns: 80px minmax(0, 1fr) 90px 90px 120px; background: transparent"><span class="mono tx2">HR-4</span><span class="m5" style="padding-left: 14px; font-style: normal">Range safety dry run</span><span class="mono">3d</span><span class="mono">Apr 29</span><span class="t12 tx2">Sam O.</span></div>
+          
+            <div class="lrow" style="grid-template-columns: 80px minmax(0, 1fr) 90px 90px 120px; background: var(--surface-0)"><span class="mono tx2">HR-5</span><span class="m5" style="padding-left: 28px; font-style: italic">Structural repairs (moved)</span><span class="mono">20d</span><span class="mono">Jun 17</span><span class="t12 tx2">Marco S.</span></div>
+          
+            <div class="lrow" style="grid-template-columns: 80px minmax(0, 1fr) 90px 90px 120px; background: transparent"><span class="mono tx2">HR-6</span><span class="m5" style="padding-left: 0px; font-style: normal">Handover</span><span class="mono">10d</span><span class="mono">Jun 17</span><span class="t12 tx2">Priya N.</span></div>
+          
+        </div>
+        <span class="t12 tx2">The drop has already applied, rescheduled and reached the server, exactly as in draft. The change is in the changeset now with <span class="mono">reason: null</span>. The line in row 3 states what happened in the system's words, and only a person writes the why. It never takes focus after a pointer gesture. The line and the “needs a reason” count are shown to Scheduler, Admin and Owner only. A Member's edit joins the changeset the same way, and the plan owner answers it.</span>
+        <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; position: relative">
+          <div class="state-card" style="padding: 10px"><span class="state-tag">1 · Just after a drop</span><span class="t12">Stated, not demanded: “HR-5 moved under HR-3 · finish Jun 12 → Jun 17 · Why? ⌥W”. The keyboard reaches it with one Tab or ⌥W.</span></div>
+          <div class="state-card" style="padding: 10px"><span class="state-tag">2 · Same session</span><span class="t12">Four more moves of the same kind, on the same surface, by the same person, within 2 minutes, make <b>one entry</b>: “5 tasks moved in this session · Why these moved”, with one field.</span></div>
+          <div class="state-card" style="padding: 10px"><span class="state-tag">3 · Answered</span><span class="t12">The line collapses to “✓ reasons up to date”. A closed group can't be changed, so a later move opens a new entry.</span></div>
+          <div class="state-card" style="padding: 10px"><span class="state-tag">4 · Left unanswered</span><span class="t12">It stays, without blocking anything: “2 changes need a reason”. Esc dismisses the line, but the entry stays marked. Nothing is auto-filled and nothing expires.</span></div>
+          <span class="ann pin" style="top: -10px; left: -10px">3</span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; position: relative">
+          <div class="state-card" style="padding: 10px"><span class="state-tag">Delete</span><span class="t12">Delete lands at once with an Undo action toast, never a confirmation dialog first. It joins the changeset as <span class="mono">removed work</span>.</span></div>
+          <div class="state-card" style="padding: 10px"><span class="state-tag">Not structural</span><span class="t12">Duration, date, owner and status edits, and moving a card between sprints or from the backlog into a sprint, never ask for a reason and never join the changeset. Sprint moves go to the team's sprint-scope history. Before v1, nothing asks (3A).</span></div>
+          <div class="state-card" style="padding: 10px"><span class="state-tag">API · MCP · agents</span><span class="t12">The same rule applies to every client. A structural write after v1 succeeds with <span class="mono">reason</span> optional, and its entry starts as <span class="mono">reason: null</span>. Each entry carries <span class="mono">reason_state</span>, and a reason can be added later. <b>Take v2 is refused</b> with <span class="mono">409 changeset_unreasoned</span>, listing the entries. An agent's entry is attributed to the agent and its provisioning human.</span></div>
+          <div class="state-card" style="padding: 10px"><span class="state-tag">Error</span><span class="t12"><b>✕ Not moved.</b> The server refused it: HR-4 can't sit under a milestone. The row returns to where it was, and no changeset entry is made. <a href="#">Why</a></span></div>
+          <span class="ann pin" style="top: -10px; left: -10px">4</span>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+</div>
+</body>
+</html>

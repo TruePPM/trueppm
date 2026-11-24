@@ -185,6 +185,11 @@ the flag changes chrome only.
 - ADR-0942's bands and the sidebar's six visibility filters remain the v1
   contract and keep their tests; nothing in v1 changed.
 
+## Design source
+
+The Pass 1 design this ADR decides against is committed at
+[`docs/design/pass1/`](../design/pass1/README.md). Where it and this ADR differ, this ADR wins.
+
 ## Amendment (2026-10-31, #4764): navigation budget
 
 The item caps in section 1 (rail 5 destinations + pins max 7; context tabs at most 5 plus

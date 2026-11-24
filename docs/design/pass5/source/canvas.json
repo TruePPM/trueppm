@@ -1,0 +1,75 @@
+{
+  "v": 3,
+  "createdOnFiles": {"v": 1, "at": "2026-11-24T15:00:00Z"},
+  "title": "TruePPM Redesign Pass 5",
+  "launch": {"view": "canvas", "page": "overview"},
+  "pages": [
+    {"id": "overview", "name": "0 · Overview + decisions"},
+    {"id": "s1", "name": "1 · Role-seeded views"},
+    {"id": "s2", "name": "2 · Layout toggles + More"},
+    {"id": "s3", "name": "3 · Baseline amend loop"},
+    {"id": "s4", "name": "4 · Phone rebaseline"},
+    {"id": "s5", "name": "5 · Phone gap check"}
+  ],
+  "boards": {
+    "Main.dc.html": {"x": 0, "y": 0, "w": 1440, "h": 1180, "title": "Pass 5 · Index + decisions", "page": "overview"},
+
+    "S1-Seed.dc.html": {"x": 0, "y": 0, "w": 1440, "h": 1000, "title": "1A · First open, seeded per lens (light)", "page": "s1"},
+    "S1-More.dc.html": {"x": 1520, "y": 0, "w": 1440, "h": 1000, "title": "1B · More menu + view visibility (light)", "page": "s1"},
+    "S1-Lens.dc.html": {"x": 3040, "y": 0, "w": 1440, "h": 1000, "title": "1C · Lens change, methodology × role, never empty (light)", "page": "s1"},
+    "S1-Phone.dc.html": {"x": 4560, "y": 0, "w": 860, "h": 960, "title": "1D · Phone 390 (light)", "page": "s1"},
+    "S1-Notes.dc.html": {"x": 5500, "y": 0, "w": 720, "h": 2850, "title": "1 · Notes + open questions", "page": "s1"},
+    "S1-Seed-dark.dc.html": {"x": 0, "y": 1400, "w": 1440, "h": 1000, "title": "1A · dark", "page": "s1"},
+    "S1-More-dark.dc.html": {"x": 1520, "y": 1400, "w": 1440, "h": 1000, "title": "1B · dark", "page": "s1"},
+    "S1-Lens-dark.dc.html": {"x": 3040, "y": 1400, "w": 1440, "h": 1000, "title": "1C · dark", "page": "s1"},
+    "S1-Phone-dark.dc.html": {"x": 4560, "y": 1400, "w": 860, "h": 960, "title": "1D · dark", "page": "s1"},
+
+    "S2-Plan.dc.html": {"x": 0, "y": 0, "w": 1440, "h": 1000, "title": "2A · Plan layout toggle, remembered layout (light)", "page": "s2"},
+    "S2-Deliver.dc.html": {"x": 1520, "y": 0, "w": 1440, "h": 1000, "title": "2B · Deliver layout toggle + More menu (light)", "page": "s2"},
+    "S2-Phone.dc.html": {"x": 3040, "y": 0, "w": 1300, "h": 960, "title": "2C · Phone 390: segmented, sheet, More (light)", "page": "s2"},
+    "S2-Notes.dc.html": {"x": 4420, "y": 0, "w": 720, "h": 2100, "title": "2 · Notes + open questions", "page": "s2"},
+    "S2-Plan-dark.dc.html": {"x": 0, "y": 1400, "w": 1440, "h": 1000, "title": "2A · dark", "page": "s2"},
+    "S2-Deliver-dark.dc.html": {"x": 1520, "y": 1400, "w": 1440, "h": 1000, "title": "2B · dark", "page": "s2"},
+    "S2-Phone-dark.dc.html": {"x": 3040, "y": 1400, "w": 1300, "h": 960, "title": "2C · dark", "page": "s2"},
+
+    "S3-Commit.dc.html": {"x": 0, "y": 0, "w": 1440, "h": 1000, "title": "3A · Draft edits, Commit plan, baseline v1 (light)", "page": "s3"},
+    "S3-Amend.dc.html": {"x": 1520, "y": 0, "w": 1440, "h": 1040, "title": "3B · Structural edit applies; reason asked after, non-modal (light)", "page": "s3"},
+    "S3-Review.dc.html": {"x": 3040, "y": 0, "w": 1440, "h": 1180, "title": "3C · Review 3 changes: unreasoned first, two coequal exits (light)", "page": "s3"},
+    "S3-After.dc.html": {"x": 4560, "y": 0, "w": 1440, "h": 1000, "title": "3D · After each exit + the change-control trail (light)", "page": "s3"},
+    "S3-Notes.dc.html": {"x": 6080, "y": 0, "w": 720, "h": 3800, "title": "3 · Notes + open questions", "page": "s3"},
+    "S3-Commit-dark.dc.html": {"x": 0, "y": 1400, "w": 1440, "h": 1000, "title": "3A · dark", "page": "s3"},
+    "S3-Amend-dark.dc.html": {"x": 1520, "y": 1400, "w": 1440, "h": 1040, "title": "3B · dark", "page": "s3"},
+    "S3-Review-dark.dc.html": {"x": 3040, "y": 1400, "w": 1440, "h": 1180, "title": "3C · dark", "page": "s3"},
+    "S3-After-dark.dc.html": {"x": 4560, "y": 1400, "w": 1440, "h": 1000, "title": "3D · dark", "page": "s3"},
+
+    "S4-Phone.dc.html": {"x": 0, "y": 0, "w": 1300, "h": 960, "title": "4A · Phone 390: changeset, reasons, decide (light)", "page": "s4"},
+    "S4-Notes.dc.html": {"x": 1380, "y": 0, "w": 720, "h": 1700, "title": "4 · Notes + open questions", "page": "s4"},
+    "S4-Phone-dark.dc.html": {"x": 0, "y": 1400, "w": 1300, "h": 960, "title": "4A · dark", "page": "s4"},
+
+    "S5-Gaps.dc.html": {"x": 0, "y": 0, "w": 1440, "h": 1400, "title": "5 · Gap table, Pass 3 + Pass 4", "page": "s5"},
+    "S5-Phones.dc.html": {"x": 1520, "y": 0, "w": 2150, "h": 960, "title": "5A · Missing phone frames, drawn (light)", "page": "s5"},
+    "S5-Phones-dark.dc.html": {"x": 1520, "y": 1500, "w": 2150, "h": 960, "title": "5A · dark", "page": "s5"}
+  },
+  "order": [
+    "Main.dc.html",
+    "S1-Seed.dc.html", "S1-More.dc.html", "S1-Lens.dc.html", "S1-Phone.dc.html", "S1-Notes.dc.html", "S1-Seed-dark.dc.html", "S1-More-dark.dc.html", "S1-Lens-dark.dc.html", "S1-Phone-dark.dc.html",
+    "S2-Plan.dc.html", "S2-Deliver.dc.html", "S2-Phone.dc.html", "S2-Notes.dc.html", "S2-Plan-dark.dc.html", "S2-Deliver-dark.dc.html", "S2-Phone-dark.dc.html",
+    "S3-Commit.dc.html", "S3-Amend.dc.html", "S3-Review.dc.html", "S3-After.dc.html", "S3-Notes.dc.html", "S3-Commit-dark.dc.html", "S3-Amend-dark.dc.html", "S3-Review-dark.dc.html", "S3-After-dark.dc.html",
+    "S4-Phone.dc.html", "S4-Notes.dc.html", "S4-Phone-dark.dc.html",
+    "S5-Gaps.dc.html", "S5-Phones.dc.html", "S5-Phones-dark.dc.html"
+  ],
+  "notes": {
+    "t0": {"x": 0, "y": -300, "text": "Pass 5 · view composition, amend loop, phone gaps", "kind": "title1", "maxW": 1440, "page": "overview"},
+    "t1": {"x": 0, "y": -300, "text": "1 · Role-seeded view composition (#3715 + #3713)", "kind": "title1", "maxW": 6220, "page": "s1"},
+    "t1d": {"x": 0, "y": 1130, "text": "Dark", "kind": "title1", "maxW": 5420, "page": "s1"},
+    "t2": {"x": 0, "y": -300, "text": "2 · Project layout toggles and the More menu (#3887, frames only)", "kind": "title1", "maxW": 5140, "page": "s2"},
+    "t2d": {"x": 0, "y": 1130, "text": "Dark", "kind": "title1", "maxW": 4340, "page": "s2"},
+    "t3": {"x": 0, "y": -300, "text": "3 · Baseline amend loop (#3150, from proto-designer.js)", "kind": "title1", "maxW": 6800, "page": "s3"},
+    "t3d": {"x": 0, "y": 1130, "text": "Dark", "kind": "title1", "maxW": 6000, "page": "s3"},
+    "t4": {"x": 0, "y": -300, "text": "4 · Phone: rebaseline and amend (Q8.4)", "kind": "title1", "maxW": 2100, "page": "s4"},
+    "t4d": {"x": 0, "y": 1130, "text": "Dark", "kind": "title1", "maxW": 1300, "page": "s4"},
+    "t5": {"x": 0, "y": -300, "text": "5 · Phone gap check, Pass 3 + Pass 4", "kind": "title1", "maxW": 3670, "page": "s5"},
+    "t5d": {"x": 1520, "y": 1230, "text": "Dark", "kind": "title1", "maxW": 2150, "page": "s5"}
+  },
+  "designSystems": []
+}

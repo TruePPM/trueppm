@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>After each exit and the change-control trail</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="/_blob/2ee9e1bacea833009fec2e7181ade9c1">
+<link rel="stylesheet" href="/_blob/9750f9d53047ee742d684b22b625c65d">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div class="scr {{th}}" style="width: 1440px; height: 1000px; padding: 28px 32px; display: flex; flex-direction: column; gap: 20px">
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px">
+    <section class="col" style="gap: 8px" aria-labelledby="a2-h">
+      <div class="row"><h2 class="t15" id="a2-h">After “Take baseline v2”</h2><span class="ann">1</span></div>
+      <div class="main" style="margin: 0; height: 260px">
+        <div class="ctx" style="padding-bottom: 8px; border-bottom: 1px solid var(--hairline)">
+          <div class="ctx-h"><span class="t20">Hangar Retrofit</span><span class="chip risk" title="Health is P80 against the commitment date (Pass 4 · 5A), not variance against a baseline, so re-baselining doesn't turn it green"><b>◆</b>At risk</span><span class="sp"></span><span class="t12 tx2">finish <b class="num" style="color: var(--text-1)">Jun 17</b> · <b style="color: var(--text-1)">0 wd</b> vs v2 · 15:31</span><button class="btn" type="button" style="min-height: 36px">⚑ Baseline v2</button></div>
+        </div>
+        <div style="padding: 16px 20px"><div class="skel" style="width: 70%"></div></div>
+        <div class="toast" role="status" style="left: 20px; bottom: 20px"><span>✓</span><span><b>Baseline v2 taken.</b> 42 items · finish Jun 17. Author is now Amend again: every structural edit applies straight away, asks why afterwards, and joins the next changeset.</span></div>
+      </div>
+    </section>
+    <section class="col" style="gap: 8px" aria-labelledby="a1-h">
+      <div class="row"><h2 class="t15" id="a1-h">After “Keep v1 · let variance stand”</h2><span class="ann">2</span><span class="sp"></span><span class="chip ok"><b>✓</b>Q3.1 decided Nov 24</span></div>
+      <span class="t12 tx2">Review is demoted to a secondary “◷ 3 changes · v1 kept” button. It still opens the same sheet. It becomes the primary “⚑ Review 4 changes” again only on the next structural edit.</span>
+      <div class="main" style="margin: 0; height: 260px">
+        <div class="ctx" style="padding-bottom: 8px; border-bottom: 1px solid var(--hairline)">
+          <div class="ctx-h"><span class="t20">Hangar Retrofit</span><span class="chip risk"><b>◆</b>At risk</span><span class="sp"></span><span class="t12 tx2">finish <b class="num" style="color: var(--text-1)">Jun 17</b> · <b style="color: var(--text-1)">+3 wd</b> vs v1 · 15:31</span><button class="btn" type="button" style="min-height: 36px">◷ 3 changes · v1 kept</button></div>
+        </div>
+        <div style="padding: 16px 20px"><div class="skel" style="width: 70%"></div></div>
+        <div class="toast" role="status" style="left: 20px; bottom: 20px"><span>✓</span><span><b>Baseline v1 kept.</b> The changeset stays open and variance keeps reading +3 wd, which is the number this plan is actually carrying.</span></div>
+      </div>
+    </section>
+  </div>
+
+  <div style="display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 24px; flex: 1; min-height: 0">
+    <section class="col" style="gap: 10px" aria-labelledby="tr-h">
+      <div class="row"><h2 class="t15" id="tr-h">Change-control trail · Pass 3 frame, extended</h2><span class="ann">3</span></div>
+      <div class="card" style="padding: 16px">
+        <div class="trail">
+          <div class="ts done"><span class="gl">v2</span><div class="col g4"><span class="m5">Baseline v2 taken · Priya N. · Nov 24, 15:31</span><span class="t13">“Customer approved the revised handover date on Nov 24”</span><span class="t12 tx2">From 3 changes: restructured (Wei L.), removed work, added work (Priya N.). Finish Jun 12 → Jun 17. <a href="#">Show the 3 reasons</a></span></div></div>
+          <div class="ts dec"><span class="gl">=</span><div class="col g4"><span class="m5">or · v1 kept · Priya N. · Nov 24, 15:31</span><span class="t13 tx2">“Slip accepted; reporting it at Thursday's review” · 3 changes stay open · variance +3 wd</span></div></div>
+          <div class="ts okd"><span class="gl">◷</span><div class="col g4"><span class="m5">3 amendments · Nov 12 – Nov 24</span><span class="t12 tx2">Each carries its reason, its author and its finish impact, as in the Review sheet</span></div></div>
+          <div class="ts done last"><span class="gl">v1</span><div class="col g4"><span class="m5">Baseline v1 taken at Commit plan · Priya N. · Nov 4</span><span class="t12 tx2">42 items · finish Jun 12</span></div></div>
+        </div>
+      </div>
+      <div class="stripe" style="min-height: 80px">Pass 3 · “Baselines · change-control trail” (p3-time.js)<br>Unchanged layout. Rows gain: kind = kept | taken, the changeset link, and the per-change reasons.</div>
+    </section>
+    <section class="col" style="gap: 10px" aria-labelledby="p3-h">
+      <div class="row"><h2 class="t15" id="p3-h">The Pass 3 Rebaseline dialog becomes this sheet</h2><span class="ann">4</span></div>
+      <div class="stripe" style="min-height: 64px">Pass 3 · “Rebaseline dialog” (#4813)<br>Retired as a separate dialog. Its entry point in Baselines opens the sheet below.</div>
+      <div class="exit" style="gap: 8px">
+        <span class="state-tag">Zero-changeset variant · from Baselines › Rebaseline</span>
+        <span class="m5">No structural changes since v1</span>
+        <span class="t12 tx2">4 date and duration edits moved the finish Jun 12 → Jun 14 (+2 wd). They saved without a reason because they aren't structural.</span>
+        <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 10px"><div class="fld"><label for="z-code">Reason · required</label><select class="inp" id="z-code"><option>External or vendor delay</option><option>Approved scope change</option><option>Sponsor moved the commitment</option><option>Estimate correction</option><option>Team or resource change</option><option>Calendar change</option></select></div><div class="fld"><label for="z-why">Why re-baseline · required · 500 characters</label><input class="inp" id="z-why" placeholder="Supplier confirmed the new delivery window"></div></div>
+        <span class="t12 tx2">Impact: 1 milestone moves · 6 of 42 tasks get new dates · commitment Jun 30 unchanged</span>
+        <label class="row t12" style="gap: 8px; min-height: 44px"><input type="checkbox" style="appearance: none; -webkit-appearance: none; flex: none; width: 18px; height: 18px; margin: 0; border: 2px solid var(--text-2); border-radius: 4px; background: var(--surface-1)"> <span>Also move the commitment date. This is a separate sponsor decision and is off by default.</span></label>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px"><button class="btn" type="button">Take baseline v2</button><button class="btn" type="button">Keep v1 · let variance stand</button></div>
+      </div>
+      <span class="t12 tx2"><b>When both apply</b>, meaning Rebaseline is started from Baselines while a changeset is open, the changeset sheet (3C) opens with the open changes listed. There is one sheet with one set of exits, and v2 can't be taken while any open change lacks a reason. The server refuses it too.</span>
+    </section>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { th: (this.props.theme ?? 'light') === 'dark' ? 'dk' : 'lt' };
+  }
+}
+</script>
+</body>
+</html>

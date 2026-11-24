@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>More menu and view visibility, dark</title>
+<link rel="stylesheet" href="../css/p4-shared.css">
+<link rel="stylesheet" href="../css/p5.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<style>body{margin:0}</style>
+</head>
+<body>
+<div style="width: 1440px; height: 1000px">
+
+
+<div class="scr dk" style="width: 1440px; height: 1000px">
+  <div class="app">
+    <nav class="rail" aria-label="Global">
+      <div class="ws"><span class="mark">N</span><div class="col" style="line-height: 16px; flex: 1"><span class="m5">Northwind</span><span class="t12 tx3">Workspace</span></div></div>
+      <a class="ri" href="#">Home</a><a class="ri" href="#">Inbox</a><a class="ri on" href="#">Work</a><a class="ri" href="#">People</a><a class="ri" href="#">Agents</a>
+      <div class="rl">Pinned</div>
+      <a class="ri on" href="#" style="font-weight: 400">Atlas Migration</a>
+      <div class="rfoot"><a class="ri" href="#"><span class="av s">LK</span>Lee K. · Scrum Master</a></div>
+    </nav>
+    <main class="main">
+      <div class="top"><div class="crumbs"><span>Work</span><span class="sep">/</span><span>Atlas Migration</span><span class="sep">/</span><b>Deliver</b></div></div>
+      <div class="ctx">
+        <div class="ctx-h"><span class="t20">Atlas Migration</span><span class="chip risk"><b>◆</b>At risk</span><span class="chip out"><b>◑</b>Hybrid</span></div>
+        <div class="tabs" role="tablist"><a class="tab" href="#">Overview</a><a class="tab on" href="#">Deliver</a><a class="tab" href="#">Plan</a><a class="tab" href="#">Risks</a><a class="tab focus" href="#" aria-expanded="true">More ▾</a></div>
+      </div>
+      <div class="toolbar"><div class="seg" role="radiogroup" aria-label="Deliver layout"><button type="button" class="on">Board</button><button type="button">Sprints</button><button type="button">Backlog</button></div></div>
+      <div style="padding: 16px 20px"><div class="skel" style="width: 40%"></div></div>
+
+      <div class="menu" role="menu" aria-label="More views" style="top: 200px; left: 270px; width: 380px">
+        <div class="mg">Track <span class="pend">pending consolidation</span></div>
+        <a class="mi" role="menuitem" href="#">Timesheet</a>
+        <a class="mi" role="menuitem" href="#">Baselines</a>
+        <div class="mg">Project</div>
+        <a class="mi" role="menuitem" href="#">Activity</a>
+        <a class="mi" role="menuitem" href="#">Project settings</a>
+        <div class="msep"></div>
+        <div class="mg">Hidden from your tabs · still open from here</div>
+        <a class="mi dim" role="menuitem" href="#">People<span class="why">◌ Suggested for Scrum Masters</span></a>
+        <a class="mi dim" role="menuitem" href="#">Plan › Gantt<span class="why">◌ Suggested for Scrum Masters</span></a>
+        <a class="mi dim" role="menuitem" href="#">Plan › Calendar<span class="why">◌ Suggested for Scrum Masters</span></a>
+        <a class="mi dim" role="menuitem" href="#">Reports<span class="why">⊖ Hidden by you</span></a>
+        <div class="msep"></div>
+        <div class="mg">Off in Northwind</div>
+        <div class="mi dim" role="menuitem" aria-disabled="true">Cost<span class="why">⊘ Time &amp; cost is off · <a href="#">Why</a></span></div>
+        <div class="msep"></div>
+        <a class="mi" role="menuitem" href="#" style="color: var(--brand)">Customize views…</a>
+        <span class="ann pin" style="top: 268px; left: -12px">1</span>
+        <span class="ann pin" style="top: 520px; left: -12px">2</span>
+      </div>
+
+      <aside class="drawer" aria-labelledby="vv-h" style="width: 560px">
+        <div class="dh"><h2 class="t15" id="vv-h">Views in Atlas Migration</h2><span class="sp"></span><button class="btn ghost" type="button" aria-label="Close">✕</button></div>
+        <div class="db" style="gap: 12px; padding-top: 14px">
+          <p class="t12 tx2">Only for you, in this project. Hiding a view removes it from your tabs and toggles, but it stays reachable from More and by link. It never changes what anyone can see or do.</p>
+          <div class="card">
+            
+              <div class="vrow" style="background: transparent">
+                <div class="col" style="min-width: 0"><span class="m5">Overview</span><span class="t12 tx3">Tab</span></div>
+                <span class="src">■ Always on</span>
+                
+                <span class="t12 tx3" style="min-width: 76px; text-align: right">Always on</span>
+              </div>
+            
+              <div class="vrow" style="background: transparent">
+                <div class="col" style="min-width: 0"><span class="m5">Plan › Grid</span><span class="t12 tx3">Plan layout · the last Plan layout can’t be hidden</span></div>
+                <span class="src">■ Always on</span>
+                
+                <span class="t12 tx3" style="min-width: 76px; text-align: right">Always on</span>
+              </div>
+            
+              <div class="vrow" style="background: transparent">
+                <div class="col" style="min-width: 0"><span class="m5">Deliver › Board, Sprints, Backlog</span><span class="t12 tx3">Tab + 3 layouts</span></div>
+                <span class="src">Shown</span>
+                <button class="sw on" type="button" role="switch" aria-checked="true" aria-label="Show Deliver › Board, Sprints, Backlog"><span class="trk"><i></i></span><span class="w">On</span></button>
+                
+              </div>
+            
+              <div class="vrow" style="background: transparent">
+                <div class="col" style="min-width: 0"><span class="m5">Risks</span><span class="t12 tx3">Tab</span></div>
+                <span class="src">Shown</span>
+                <button class="sw on" type="button" role="switch" aria-checked="true" aria-label="Show Risks"><span class="trk"><i></i></span><span class="w">On</span></button>
+                
+              </div>
+            
+              <div class="vrow" style="background: transparent">
+                <div class="col" style="min-width: 0"><span class="m5">People</span><span class="t12 tx3">Tab</span></div>
+                <span class="src">◌ Suggested hidden · Scrum Master</span>
+                <button class="sw" type="button" role="switch" aria-checked="false" aria-label="Show People"><span class="trk"><i></i></span><span class="w">Off</span></button>
+                
+              </div>
+            
+              <div class="vrow" style="background: transparent">
+                <div class="col" style="min-width: 0"><span class="m5">Plan › Gantt</span><span class="t12 tx3">Plan layout</span></div>
+                <span class="src">◌ Suggested hidden · Scrum Master</span>
+                <button class="sw" type="button" role="switch" aria-checked="false" aria-label="Show Plan › Gantt"><span class="trk"><i></i></span><span class="w">Off</span></button>
+                
+              </div>
+            
+              <div class="vrow" style="background: transparent">
+                <div class="col" style="min-width: 0"><span class="m5">Plan › Calendar</span><span class="t12 tx3">Plan layout</span></div>
+                <span class="src">◌ Suggested hidden · Scrum Master</span>
+                <button class="sw" type="button" role="switch" aria-checked="false" aria-label="Show Plan › Calendar"><span class="trk"><i></i></span><span class="w">Off</span></button>
+                
+              </div>
+            
+              <div class="vrow" style="background: transparent">
+                <div class="col" style="min-width: 0"><span class="m5">Reports</span><span class="t12 tx3">More</span></div>
+                <span class="src">⊖ Hidden by you · Nov 12</span>
+                <button class="sw" type="button" role="switch" aria-checked="false" aria-label="Show Reports"><span class="trk"><i></i></span><span class="w">Off</span></button>
+                
+              </div>
+            
+              <div class="vrow" style="background: var(--surface-0)">
+                <div class="col" style="min-width: 0"><span class="m5">Cost</span><span class="t12 tx3">More</span></div>
+                <span class="src">⊘ Off in Northwind (Time & cost)</span>
+                
+                <span class="t12 tx3" style="min-width: 76px; text-align: right">Ask an admin</span>
+              </div>
+            
+          </div>
+          <span class="ann" style="align-self: flex-start">3</span>
+        </div>
+        <div class="df"><button class="btn" type="button">Reset to Scrum Master suggestions</button><span class="sp"></span><button class="btn" type="button">Show all</button></div>
+      </aside>
+    </main>
+  </div>
+</div>
+
+</div>
+</body>
+</html>

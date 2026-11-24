@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lens change, dark</title>
+<link rel="stylesheet" href="../css/p4-shared.css">
+<link rel="stylesheet" href="../css/p5.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<style>body{margin:0}</style>
+</head>
+<body>
+<div style="width: 1440px; height: 1000px">
+
+
+<div class="scr dk" style="width: 1440px; height: 1000px; display: flex; flex-direction: column">
+  <div class="app" style="height: 520px; flex: none; grid-template-columns: 248px minmax(0, 1fr)">
+    <nav class="rail" aria-label="Global">
+      <div class="ws"><span class="mark">N</span><div class="col" style="line-height: 16px; flex: 1"><span class="m5">Northwind</span><span class="t12 tx3">Workspace</span></div></div>
+      <a class="ri" href="#">Home</a><a class="ri" href="#">Inbox</a><a class="ri on" href="#">Work</a><a class="ri" href="#">People</a>
+      <div class="rfoot"><a class="ri" href="#"><span class="av s">LK</span>Lee K. · Product Owner</a></div>
+    </nav>
+    <main class="main">
+      <div class="top"><div class="crumbs"><span>Work</span><span class="sep">/</span><span>Atlas Migration</span><span class="sep">/</span><b>Deliver</b></div></div>
+      <div class="ctx">
+        <div class="ctx-h"><span class="t20">Atlas Migration</span><span class="chip risk"><b>◆</b>At risk</span><span class="chip out"><b>◑</b>Hybrid</span><span class="sp"></span><button class="btn ghost" type="button" style="min-height: 36px">Lens · Product Owner ▾</button></div>
+        <div class="tabs" role="tablist"><a class="tab" href="#">Overview</a><a class="tab on" href="#">Deliver</a><a class="tab" href="#">Plan</a><a class="tab" href="#">Risks</a><a class="tab" href="#">More ▾</a></div>
+      </div>
+      <div class="seedline" role="status" style="position: relative"><span><b>◌ Lens is now Product Owner.</b> Your tabs were reordered, and nothing was hidden or shown.</span><span class="sp"></span><button class="btn" type="button" style="min-height: 36px">Apply Product Owner suggestions…</button><button class="btn ghost" type="button" aria-label="Dismiss" style="min-height: 36px; padding: 0 10px">✕</button><span class="ann pin" style="top: 12px; left: -10px">1</span></div>
+      <div style="padding: 16px 20px"><div class="skel" style="width: 50%"></div></div>
+      <div class="scrim" style="top: 0"></div>
+      <div class="dlg" role="dialog" aria-labelledby="rs-h" style="top: 70px; left: 50%; margin-left: -280px; width: 560px; z-index: 10">
+        <div class="col g4"><h2 class="t20" id="rs-h">Apply Product Owner suggestions?</h2><span class="t13 tx2">This only changes views that came from a suggestion. Views you hid or showed yourself stay as they are.</span></div>
+        <div class="card">
+          <div class="lrow" style="grid-template-columns: 90px minmax(0, 1fr); border-top: 0"><span class="t12 b">Will hide</span><span class="t13">Risks <span class="tx3">(suggested)</span></span></div>
+          <div class="lrow" style="grid-template-columns: 90px minmax(0, 1fr)"><span class="t12 b">Will open on</span><span class="t13">Deliver › Backlog, instead of Board</span></div>
+          <div class="lrow" style="grid-template-columns: 90px minmax(0, 1fr); background: var(--surface-0)"><span class="t12 b">Kept</span><span class="t13">Plan › Gantt stays shown (you turned it on Nov 20). Reports stays hidden (you hid it Nov 12). People stays hidden, which is the same in both.</span></div>
+        </div>
+        <span class="t12 tx3">You can undo this from Views in this project › Reset, or by switching the lens back and applying again.</span>
+        <div class="row" style="justify-content: flex-end"><button class="btn" type="button">Keep my views</button><button class="btn pri" type="button">Apply 2 changes</button></div>
+        <span class="ann pin" style="top: 120px; right: -10px">2</span>
+      </div>
+    </main>
+  </div>
+
+  <div style="flex: 1; padding: 20px 28px; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 0.9fr); gap: 20px; background: var(--surface-1); border-top: 1px solid var(--hairline)">
+    <section class="col" style="gap: 8px" aria-labelledby="mx-h">
+      <div class="row"><h2 class="t15" id="mx-h">Methodology × lens · where it opens</h2><span class="ann">3</span></div>
+      <table class="spec">
+        <tr><th style="width: 120px">Lens</th><th>Waterfall</th><th>Agile</th><th>Hybrid</th></tr>
+        <tr><td class="m5">Project Manager</td><td>Plan › Gantt</td><td>Plan › Gantt</td><td>Plan › Gantt</td></tr>
+        <tr><td class="m5">Scrum Master</td><td><b>◑</b> Deliver › Board <span class="tx3">no Sprints</span></td><td>Deliver › Board</td><td>Deliver › Board</td></tr>
+        <tr><td class="m5">Product Owner</td><td><b>◑</b> Plan › Grid <span class="tx3">no Backlog</span></td><td>Deliver › Backlog</td><td>Deliver › Backlog</td></tr>
+      </table>
+      <span class="t12 tx2"><b>◑ adjusted</b>: the lens asked for a view the methodology doesn't include. The seed is narrowed to what the project allows, never widened. Order: permissions, then capability (#4888), then methodology, then the lens suggestion, then the user's own choices.</span>
+    </section>
+    <section class="col" style="gap: 8px" aria-labelledby="dis-h">
+      <div class="row"><h2 class="t15" id="dis-h">When they disagree</h2><span class="ann">4</span></div>
+      <div class="mini">
+        <div class="row"><span class="m5">Bay 3 refit</span><span class="chip out"><b>▭</b>Waterfall</span><span class="sp"></span><span class="t12 tx3">Scrum Master</span></div>
+        <div class="row wrap" style="gap: 4px"><span class="mtab lock">Overview</span><span class="mtab">Deliver</span><span class="mtab lock">Plan</span><span class="mtab">Risks</span><span class="mtab hid">People</span><span class="mtab lock">More</span></div>
+        <span class="t12" style="background: var(--info-tint); padding: 6px 8px; border-radius: 6px">◌ Shown for Scrum Masters. <b>This project is Waterfall, so it has no sprints.</b> Board shows tasks by status. · <a href="#">Show all</a></span>
+      </div>
+      <span class="t12 tx2">The note names the methodology so the Scrum Master doesn't go looking for Sprints. Asking the project owner to switch to Hybrid is a link in More › Project settings, not an action in this note.</span>
+    </section>
+    <section class="col" style="gap: 8px" aria-labelledby="ne-h">
+      <div class="row"><h2 class="t15" id="ne-h">Never empty</h2><span class="ann">5</span></div>
+      <div class="card">
+        <div class="vrow" style="border-top: 0"><div class="col"><span class="m5">Overview</span><span class="t12 tx3">Tab</span></div><span class="src">■ Always on</span><span></span></div>
+        <div class="vrow"><div class="col"><span class="m5">Plan › Grid</span><span class="t12 tx3">last Plan layout</span></div><span></span><button class="sw on lock" type="button" role="switch" aria-checked="true" aria-disabled="true" aria-describedby="ne-why"><span class="trk"><i></i></span><span class="w">On</span></button></div>
+      </div>
+      <span class="t12" id="ne-why"><b>■ Plan needs one layout.</b> Scheduling is the engine and is always on (Pass 4 · 1A), so the last Plan layout can't be hidden. Hide Gantt and Grid stays.</span>
+      <span class="t12 tx2">Overview, one Plan layout and More can never be hidden by a seed, by the user or by “Reset”. A seed that would hide them is rejected server-side.</span>
+    </section>
+  </div>
+</div>
+
+</div>
+</body>
+</html>

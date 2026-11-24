@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Draft edits and Commit plan</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="/_blob/2ee9e1bacea833009fec2e7181ade9c1">
+<link rel="stylesheet" href="/_blob/9750f9d53047ee742d684b22b625c65d">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div class="scr {{th}}" style="width: 1440px; height: 1000px">
+  <div class="app">
+    <nav class="rail" aria-label="Global">
+      <div class="ws"><span class="mark">N</span><div class="col" style="line-height: 16px; flex: 1"><span class="m5">Northwind</span><span class="t12 tx3">Workspace</span></div></div>
+      <a class="ri" href="#">Home</a><a class="ri" href="#">Inbox</a><a class="ri on" href="#">Work</a><a class="ri" href="#">People</a><a class="ri" href="#">Agents</a>
+      <div class="rl">Pinned</div>
+      <a class="ri on" href="#" style="font-weight: 400">Hangar Retrofit</a>
+      <div class="rfoot"><a class="ri" href="#"><span class="av s">PN</span>Priya N. · PM</a></div>
+    </nav>
+    <main class="main">
+      <div class="top"><div class="crumbs"><span>Work</span><span class="sep">/</span><span>Hangar Retrofit</span><span class="sep">/</span><b>Plan</b></div><span class="sp"></span><span class="slot" style="background: var(--surface-2)">✓ Saved · 14:02</span></div>
+      <div class="ctx" style="position: relative">
+        <div class="ctx-h"><span class="t20">Hangar Retrofit</span><span class="chip out"><b>○</b>Draft</span><span class="chip out"><b>◑</b>Hybrid</span><span class="sp"></span><span class="t12 tx2">CPM finish <b class="num" style="color: var(--text-1)">Jun 12</b> · as of 14:02</span><button class="btn pri" type="button" style="min-height: 36px">⚑ Commit plan</button></div>
+        <div class="tabs" role="tablist"><a class="tab" href="#">Overview</a><a class="tab on" href="#">Plan</a><a class="tab" href="#">Deliver</a><a class="tab" href="#">Risks</a><a class="tab" href="#">People</a><a class="tab" href="#">More ▾</a></div>
+        <span class="ann pin" style="top: 8px; right: 150px">1</span>
+      </div>
+      <div class="toolbar"><div class="seg" role="radiogroup" aria-label="Edit mode"><button type="button">Read</button><button type="button" class="on" aria-checked="true">Author</button></div><span style="width: 1px; height: 24px; background: var(--hairline); margin: 0 6px"></span><div class="seg" role="radiogroup" aria-label="Plan layout"><button type="button">Gantt</button><button type="button" class="on">Grid</button></div><span class="sp"></span><span class="t12 tx3">Draft: edits apply directly and no reason is asked</span><span class="ann">2</span></div>
+      <div style="padding: 16px 20px">
+        <div class="card">
+          <div class="lrow lhead" style="grid-template-columns: 80px minmax(0, 1fr) 90px 90px 120px"><span>ID</span><span>Task</span><span>Duration</span><span>Finish</span><span>Owner</span></div>
+          <sc-for list="{{rows}}" as="t" hint-placeholder-count="6">
+            <div class="lrow" style="grid-template-columns: 80px minmax(0, 1fr) 90px 90px 120px; background: {{t.bg}}"><span class="mono tx2">{{t.id}}</span><span class="m5" style="padding-left: {{t.ind}}px">{{t.name}}</span><span class="mono">{{t.dur}}</span><span class="mono">{{t.fin}}</span><span class="t12 tx2">{{t.own}}</span></div>
+          </sc-for>
+        </div>
+      </div>
+
+      <div class="scrim"></div>
+      <div class="dlg" role="dialog" aria-labelledby="cm-h" style="top: 90px; left: 50%; margin-left: -330px; width: 660px; z-index: 10; gap: 14px">
+        <div class="row" style="align-items: flex-start"><div class="col g4" style="flex: 1"><h2 class="t20" id="cm-h">Commit this plan</h2><span class="t13 tx2">You keep authoring afterward. What changes is that the plan starts having a past.</span></div><button class="btn ghost" type="button" aria-label="Close" style="padding: 0 10px">✕</button></div>
+        <span class="t12 tx3 b">What this does</span>
+        <div class="col" style="gap: 8px">
+          <sc-for list="{{does}}" as="d" hint-placeholder-count="4">
+            <div class="well" style="padding: 10px 12px; display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 10px"><span class="b" aria-hidden="true">{{d.g}}</span><div class="col"><span class="m5">{{d.t}}</span><span class="t12 tx2">{{d.s}}</span></div></div>
+          </sc-for>
+        </div>
+        <div class="banner" role="note"><span class="g">✎</span><span><b>This is not a lock. It is how editing works from here.</b> Author becomes <b>Amend</b>, with the same keys and the same row entry, except that a structural edit carries a reason. Those reasons collect into a changeset, and this sheet is where you turn the changeset into <b>baseline v2</b>.</span></div>
+        <div class="row" style="justify-content: flex-end"><button class="btn" type="button">Stay in draft</button><button class="btn pri" type="button">Commit &amp; take baseline v1</button></div>
+        <span class="ann pin" style="top: 60px; right: -10px">3</span>
+      </div>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const r = (id, name, dur, fin, own, ind, nw) => ({ id, name, dur, fin, own, ind: ind || 0, bg: nw ? 'var(--surface-0)' : 'transparent' });
+    return {
+      th: (this.props.theme ?? 'light') === 'dark' ? 'dk' : 'lt',
+      rows: [r('HR-1', 'Survey and permits', '15d', 'Apr 3', 'Sam O.'), r('HR-2', 'Strip-out', '10d', 'Apr 17', 'Jon B.'), r('HR-3', 'Crane C-2 lift plan', '5d', 'Apr 24', 'Wei L.', 14), r('HR-4', 'Range safety dry run', '3d', 'Apr 29', 'Sam O.', 14, 1), r('HR-5', 'Structural repairs', '20d', 'May 27', 'Marco S.'), r('HR-6', 'Handover', '10d', 'Jun 12', 'Priya N.')],
+      does: [
+        { g: '⚑', t: 'Takes baseline v1', s: '42 items · finish Jun 12 · span 72 d. Every variance number from here on is measured against this.' },
+        { g: '↻', t: 'Commits sprint-mode work', s: '12 items run in sprints. Structural changes to them will carry a reason and a notice.' },
+        { g: '◎', t: 'Tells 6 people', s: 'Everyone with a resource assignment in the plan. It names what was committed, not that a button was pressed.' },
+        { g: '◐', t: 'Makes the project visible', s: 'It leaves draft and appears in the program rollup, search and the API.' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

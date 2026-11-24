@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pass 5 index</title>
+<link rel="stylesheet" href="../css/p4-shared.css">
+<link rel="stylesheet" href="../css/p5.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<style>body{margin:0}</style>
+</head>
+<body>
+<div class="scr lt" style="width: 1440px; height: 1180px; padding: 56px 64px; display: flex; flex-direction: column; gap: 28px">
+  <div class="row" style="align-items: flex-end; gap: 24px">
+    <div class="col" style="gap: 6px; flex: 1">
+      <span class="t12 tx3">TruePPM Redesign · Pass 5 · Nov 24</span>
+      <h1 class="t32">View composition, the baseline amend loop, and phone gaps</h1>
+    </div>
+    <p class="t13 tx2" style="max-width: 440px; text-align: right">Builds on Pass 1 tokens, Pass 2 conventions and the Pass 3 and Pass 4 primitives. The stylesheet is Pass 4's, unchanged, plus a small Pass 5 supplement with no new color tokens. Earlier frames appear as hatched reference blocks and are not redrawn.</p>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px">
+    <a class="card" href="S1-Seed.html" style="padding: 18px; display: flex; flex-direction: column; gap: 8px; color: var(--text-1)">
+      <span class="mono tx3">1 · 3 frames + phone</span><span class="t15">Role-seeded views</span><span class="t13 tx2">A suggest layer that seeds hidden views per lens: seeded rails for PM, Scrum Master and Product Owner, the seeded-hidden state in More and in settings, the lens-change offer, methodology × role, and the never-empty rule.</span>
+    </a>
+    <a class="card" href="S2-Plan.html" style="padding: 18px; display: flex; flex-direction: column; gap: 8px; color: var(--text-1)">
+      <span class="mono tx3">2 · 2 frames + phone</span><span class="t15">Layout toggles + More</span><span class="t13 tx2">Gantt / Grid / Calendar inside Plan and Board / Sprints / Backlog inside Deliver, the remembered layout, More grouping, and the phone segmented control and sheet. Inventory-dependent parts are marked pending consolidation.</span>
+    </a>
+    <a class="card" href="S3-Commit.html" style="padding: 18px; display: flex; flex-direction: column; gap: 8px; color: var(--text-1)">
+      <span class="mono tx3">3 · 4 frames</span><span class="t15">Baseline amend loop</span><span class="t13 tx2">Draft, Commit plan, v1. Every add, move or delete applies at once and is asked why afterwards, without a modal (#3150 D9–D11). Then Review N changes, and Take v2 or Keep v1 at equal weight. It merges with the Pass 3 Rebaseline dialog (#4813).</span>
+    </a>
+    <a class="card" href="S4-Phone.html" style="padding: 18px; display: flex; flex-direction: column; gap: 8px; color: var(--text-1)">
+      <span class="mono tx3">4 · 3 phones</span><span class="t15">Phone rebaseline</span><span class="t13 tx2">The open changeset, its reasons, and both exits on a 390 frame. Structural editing stays on desktop, and the phone says so with a way forward.</span>
+    </a>
+    <a class="card" href="S5-Gaps.html" style="padding: 18px; display: flex; flex-direction: column; gap: 8px; color: var(--text-1)">
+      <span class="mono tx3">5 · table + 5 phones</span><span class="t15">Phone gap check</span><span class="t13 tx2">Every Pass 3 and Pass 4 section checked for a 390 frame. Five missing frames are drawn, each marked as a collapsed desktop layout or a different phone flow.</span>
+    </a>
+  </div>
+
+  <section aria-labelledby="dec-h" class="col" style="gap: 10px">
+    <h2 class="t20" id="dec-h">Decisions · all four recommendations accepted Nov 24, plus Q3.1 (demote Review after Keep v1)</h2>
+    <table class="spec">
+      <tr><th style="width: 70px">ID</th><th style="width: 330px">Decision</th><th style="width: 380px">Recommendation</th><th>Why</th></tr>
+      <tr><td class="mono">Q8.1</td><td>2 or 3 chrome rows, where banners replace row 3 and never stack</td><td><span class="chip ok"><b>✓</b>Decided Nov 24</span> <b>3. Already decided by Pass 2.</b> Pass 2 · Conventions fixes top bar 48, context header 95 (title + tabs), page toolbar 48, with banners replacing row 3. Amend #4502's acceptance from “≤ 2” to “≤ 3, banners replace row 3”. <b>#4502 can close once the Pass 2 implementation merges.</b></td><td class="tx2">Every Pass 5 frame fits in 3 rows. The seed line (1A), the lens-change offer (1C) and the open-changeset reason (3B) all take row 3's slot, and none stack. Getting to 2 would move the layout toggle into the context header beside the tabs, which crowds the tab row at 1280 and leaves nowhere for a banner.</td></tr>
+      <tr><td class="mono">Q5.1</td><td>Are seeded-hidden views a distinct state from user-hidden views?</td><td><span class="chip ok"><b>✓</b>Decided Nov 24</span> <b>Yes, distinct.</b> Each stores its source (<span class="mono">seed:scrum_master</span> vs <span class="mono">user</span>). They sit in the same list and use the same control, but carry a different label: “◌ Suggested hidden · Scrum Master” vs “Hidden by you”.</td><td class="tx2">Two reasons. A re-seed may touch only seed entries, so the source has to be stored. And a user who can't find Gantt needs to know they didn't hide it. One label difference covers both. It needs no new color or icon family.</td></tr>
+      <tr><td class="mono">Q5.2</td><td>Is re-seeding on a lens change acceptable?</td><td><span class="chip ok"><b>✓</b>Decided Nov 24</span> <b>Never automatic. Offer it once, and confirm it with a diff.</b> Changing the lens reorders the views immediately, as it does today, and leaves visibility alone. Row 3 then offers “Apply Product Owner suggestions”, and the confirm only changes seed-sourced entries.</td><td class="tx2">A lens switch is often a quick look (“what does the PO see?”). Silently re-hiding views on a look would destroy curation the user built over weeks. An opt-in that changes only seed entries keeps the default useful and costs no one their own choices.</td></tr>
+      <tr><td class="mono">Q5.3</td><td>Are the Amend loop and the Pass 3 Rebaseline dialog one surface?</td><td><span class="chip ok"><b>✓</b>Decided Nov 24</span> <b>One surface.</b> “Review N changes” and Pass 3's “Rebaseline” both open the same sheet. The Pass 3 dialog becomes its zero-changeset variant. When both apply (a changeset is open and someone starts a deliberate rebaseline from Baselines), <b>the changeset sheet wins</b> and lists the open changes.</td><td class="tx2">They are the same act, which the prototype says too: agreeing that the plan as it stands is what you are measured against. Two dialogs would allow a v2 that skips the open changeset's reasons. Take v2 still requires its own one-line reason, which keeps #4813's rule.</td></tr>
+    </table>
+    <p class="t12 tx2"><span class="chip ok"><b>✓</b>Decided Nov 24</span> <b>A simulated voice-of-customer panel</b> (modeled personas, not user research) surfaced five changes, all accepted on Nov 24: sprint moves aren't structural, batched reasons, amendment notices only to affected owners, API and MCP parity for the changeset, and a migration path from the shipped per-user <span class="mono">hidden_views</span>. <b>Also on Nov 24, section 3 was redrawn to #3150's D9–D11</b>, replacing the prototype's modal reason. Edits apply, reasons are asked afterwards, and only Take v2 waits for them. Take v2 also carries #4813's reason code and commitment tick. <b>A second panel</b> (Nov 24, also simulated) settled seven more: Q1.5, Q1.7, Q3.2, Q3.6, Q3.9, Q3.10 and Q3.11, plus Q3.8 (multi-select is one act, and the 2-minute window stays). Changeset webhooks are filed as #5121.</p>
+  </section>
+
+  <div style="display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 32px">
+    <div class="col" style="gap: 10px">
+      <h2 class="t15">Conventions carried from Pass 2 (unchanged)</h2>
+      <table class="spec">
+        <tr><td class="tx2" style="width: 200px">Chrome</td><td>Three rows at most. Banners replace row 3 and never stack.</td></tr>
+        <tr><td class="tx2">Targets · focus</td><td>44px touch targets and a 2px <span class="mono">--focus</span> ring offset by 2.</td></tr>
+        <tr><td class="tx2">Status</td><td>Every status has a glyph and a word. Red means critical or blocked only. Nothing in this pass is red except a critical health chip.</td></tr>
+        <tr><td class="tx2">Metrics</td><td>Every metric has its definition and an “as of” time. Values come from the server. Variance and finish dates are formatted, never recomputed.</td></tr>
+        <tr><td class="tx2">States</td><td>Skeleton, empty and error states appear inline on every frame.</td></tr>
+      </table>
+    </div>
+    <div class="col" style="gap: 10px">
+      <h2 class="t15">How to read this canvas</h2>
+      <div class="nl"><span class="ann">1</span><span class="t13 tx2">The blue pins on each frame are explained in that section's <b>Notes</b> sheet.</span></div>
+      <div class="nl"><span class="ann">?</span><span class="t13 tx2">Open questions are numbered Q1.1 onward, with the recommended option first.</span></div>
+      <div class="nl"><span class="ann">▦</span><span class="t13 tx2">Hatched blocks stand in for frames from earlier passes, for example <span class="mono">Pass 3 · Rebaseline dialog</span>.</span></div>
+      <div class="nl"><span class="ann">◐</span><span class="t13 tx2">The light row is on top and dark below. The dark frames are the same components with <span class="mono">theme=dark</span>.</span></div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
