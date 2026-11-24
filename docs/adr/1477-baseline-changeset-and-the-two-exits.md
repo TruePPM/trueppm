@@ -172,15 +172,14 @@ it becomes the new entry's reason.
 - This is the threat model's top risk (Appendix).
 
 **Roles.**
-- **Needs the user's decision before acceptance.** #3150 and #4813 (Pass 5 Q3.2, decided
-  2026-11-24) say Owner, Admin **and Scheduler** may take v2 or keep v1. This ADR recommends
-  keeping the existing `IsProjectAdmin` floor (ADMIN and above). That is the floor
-  `ProjectCommitView` and `BaselineActivateView` both hold today, and lowering it widens who
-  can change what variance is measured against.
-  - If Scheduler is confirmed, the change is one permission class (`IsProjectScheduler`) on
-    `POST baseline-decisions/` and the preview, plus an `rbac-check`.
-  - The ADR doesn't silently override the decided text. It moves to Accepted only after this
-    is settled.
+- **Decided 2026-11-24 by the maintainer: Admin and above.** Taking v2 and keeping v1 keep
+  the existing `IsProjectAdmin` floor (ADMIN and OWNER), the floor `ProjectCommitView` and
+  `BaselineActivateView` both hold. This supersedes Pass 5 Q3.2's "Owner, Admin and Scheduler"
+  in #3150 and #4813.
+  - Taking v2 changes what variance is measured against, so it sits with the role that can
+    commit the plan in the first place.
+  - Keep v1 gets the same floor, so neither exit is easier to reach than the other.
+  - Widening to Scheduler later is one permission class plus an `rbac-check`.
 - Schedulers can answer reasons. Members can't, and the UI never asks them. A Member's
   structural write still creates an unreasoned entry for the plan owner.
 
@@ -238,7 +237,7 @@ delivery channel.
 | B. Changeset rows on `Baseline` (JSON) | One table | Concurrent appends race on one JSON column, the "needs a reason" state can't be queried, and immutability is unenforceable per entry |
 | C. Derive the changeset from `HistoricalTask` rows tagged `amend:` | No new storage | History can't express grouping, nullable-then-set reasons, or resolution. Reconstructing a set from history on every read is slow and ambiguous. |
 | D. Required reason at write time (the prototype's `amendGuard`) | Simple | Rejected by #3150 D9 ("considered and rejected — do not re-propose") |
-| E. Let Schedulers take v2 (canvas Q3.2) | Matches the canvas | Widens an authorization boundary that commit and activate both hold at ADMIN. Deferred to an explicit RBAC decision. |
+| E. Let Schedulers take v2 (Pass 5 Q3.2) | Matches the canvas and the issues' first text | Widens an authorization boundary that commit and activate both hold at ADMIN. Rejected by the maintainer on 2026-11-24. |
 
 ## Consequences
 
@@ -291,7 +290,7 @@ delivery channel.
 ### On Acceptance
 - [ ] `python3 scripts/adr-accepted-issue-sweep.py --adr 1477`
 - [ ] Rewrite any issue carrying pre-ADR scope. Known before acceptance:
-  - #3150 and #4813 acceptance, and the Pass 5 canvas (Q3.2), say "Owner, Admin and Scheduler". This depends on the user's role decision in §5.
+  - #3150 and #4813 acceptance, and the Pass 5 canvas (Q3.2), said "Owner, Admin and Scheduler". They were corrected to Admin and above on 2026-11-24, when the role was decided.
   - #4813 described the dialog as its own surface. This ADR merges it into §5's endpoint.
 
   Record the count, including zero.
