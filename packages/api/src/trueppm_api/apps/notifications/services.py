@@ -546,9 +546,9 @@ def _load_project_udg_members(
     from trueppm_api.apps.access.models import ProjectMembership, UserDefinedMentionGroup
 
     active_member_ids = set(
-        ProjectMembership.objects.filter(project_id=project_id, is_deleted=False).values_list(
-            "user_id", flat=True
-        )
+        ProjectMembership.objects.filter(
+            project_id=project_id, project__is_deleted=False, is_deleted=False
+        ).values_list("user_id", flat=True)
     )
     resolved: dict[str, list[UserType]] = {}
     udg_groups = (
@@ -644,7 +644,7 @@ def _resolve_user_mentions(
         User.objects.filter(
             username__in=requested_usernames,
             pk__in=ProjectMembership.objects.filter(
-                project_id=project_id, is_deleted=False
+                project_id=project_id, project__is_deleted=False, is_deleted=False
             ).values_list("user_id", flat=True),
         )
     )
@@ -937,7 +937,10 @@ def _load_mention_routing_context(
         )
     source_project_member_ids = set(
         ProjectMembership.objects.filter(
-            project_id=project_id, is_deleted=False, user_id__in=recipient_ids
+            project_id=project_id,
+            project__is_deleted=False,
+            is_deleted=False,
+            user_id__in=recipient_ids,
         ).values_list("user_id", flat=True)
     )
     dnd_user_ids = load_dnd_user_ids(recipient_ids)

@@ -177,7 +177,9 @@ def _project_history_budget_gate(
     allowed = (
         requester is not None
         and ProjectMembership.live()
-        .filter(user=requester, project_id=project_id, role__gte=Role.ADMIN)
+        .filter(
+            user=requester, project_id=project_id, project__is_deleted=False, role__gte=Role.ADMIN
+        )
         .exists()
     )
 

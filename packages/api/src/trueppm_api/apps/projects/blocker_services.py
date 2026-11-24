@@ -181,9 +181,9 @@ def resolve_impediment_recipients(task: Task) -> set[Any]:
     from trueppm_api.apps.teams.services import facet_holder_user_ids
 
     live_roles: dict[Any, int] = dict(
-        ProjectMembership.objects.filter(project_id=task.project_id, is_deleted=False).values_list(
-            "user_id", "role"
-        )
+        ProjectMembership.objects.filter(
+            project_id=task.project_id, project__is_deleted=False, is_deleted=False
+        ).values_list("user_id", "role")
     )
 
     recipients: set[Any] = set()

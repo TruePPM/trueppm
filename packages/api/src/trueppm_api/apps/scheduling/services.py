@@ -1404,7 +1404,10 @@ def notify_project_end_date_shift(snapshot: Any) -> None:
     # this list regardless of what the caller passes.
     recipient_ids = list(
         ProjectMembership.objects.filter(
-            project_id=snapshot.project_id, role__gte=Role.ADMIN, is_deleted=False
+            project_id=snapshot.project_id,
+            project__is_deleted=False,
+            role__gte=Role.ADMIN,
+            is_deleted=False,
         ).values_list("user_id", flat=True)
     )
     if not recipient_ids:

@@ -227,7 +227,12 @@ def _write_user(field: ProjectCustomField, raw: Any, kwargs: dict[str, Any]) -> 
     # accepts someone who has already left the project as a valid value for the field.
     is_member = (
         ProjectMembership.live()
-        .filter(project_id=field.project_id, user_id=user.pk, user__is_active=True)
+        .filter(
+            project_id=field.project_id,
+            project__is_deleted=False,
+            user_id=user.pk,
+            user__is_active=True,
+        )
         .exists()
     )
     if not is_member:

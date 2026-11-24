@@ -33,6 +33,24 @@ floored — either by ``.live()`` or by an ``is_deleted`` term in a ``filter``/`
 Everything else is checked, and a module that genuinely must see revoked rows is named
 in ALLOWLIST below with the reason.
 
+## The project-axis rule (#4599)
+
+The membership floor above says the *row* is live. It says nothing about the *project*:
+trashing a project soft-deletes the ``Project`` and leaves every membership row intact,
+so a membership read keyed on ``project_id`` still answers for a trashed project and a
+notification, digest or @-group expansion fans out to its members. #4577 hand-swept the
+axis; ~90 reads still omitted it. The second rule therefore requires a read through
+``ProjectMembership`` to carry a ``project__is_deleted`` term in a ``filter``/``exclude``/
+``get`` (``Q()`` counts), unless the module is in PROJECT_AXIS_ALLOWLIST (reads that must
+see a trashed project, with the reason) or the site is counted in
+``packages/api/membership-project-floor-baseline.txt``.
+
+The baseline is a per-module ratchet: a count that rose, or a module not listed, fails;
+a count that fell also fails until ``--update-baseline`` locks the fix in, so a fixed site
+cannot be silently reused by a new violation. ``--update-baseline`` refuses to raise a
+count or add a module. A baselined site is *not* an audited-safe one: most sit behind a
+permission class or an already-floored project fetch, which this AST cannot see.
+
 ## Why AST and not grep, and why scope-inverted
 
 Measured on ``main`` before this gate landed: **127** membership-manager chains in
@@ -66,6 +84,7 @@ source lines is invisible to a per-line match.
 Usage:
   check-membership-live-floor.py [ROOT]          # ROOT defaults to packages/api/src
   check-membership-live-floor.py --files A B ...  # check exactly these files
+  check-membership-live-floor.py --update-baseline  # lock in fixed project-axis sites
   check-membership-live-floor.py --self-test
 
 Exit codes:
@@ -140,6 +159,30 @@ ALLOWLIST: dict[str, str] = {
 }
 
 
+BASELINE_PATH = "packages/api/membership-project-floor-baseline.txt"
+PROJECT_FLOOR_FIELD = "project__is_deleted"
+
+# Modules whose ProjectMembership reads must NOT be floored on the project axis.
+PROJECT_AXIS_ALLOWLIST: dict[str, str] = {
+    "trueppm_api/apps/access/minter_role.py": (
+        "reads the minter's last recorded role on the token's project, including a "
+        "trashed one, so removal stays a role comparison rather than an unconditional pass"
+    ),
+    "trueppm_api/apps/webhooks/dispatch.py": (
+        "delivers the project's own trash/restore events, whose registrants must still "
+        "resolve against the project that was just trashed"
+    ),
+    "trueppm_api/apps/sync/views.py": (
+        "the sync delta ships tombstones by protocol; a project-floored stream would leave "
+        "a trashed project's membership rows on the device forever"
+    ),
+    "trueppm_api/apps/access/signals.py": (
+        "the pre_save receiver reads the prior row by pk to detect the revocation "
+        "transition, which is independent of the project's state"
+    ),
+}
+
+
 def _chain(node: ast.AST) -> list[tuple[str, ast.Call | None]]:
     """Decompose an attribute/call chain into [(name, call_or_None), ...], outermost last."""
     steps: list[tuple[str, ast.Call | None]] = []
@@ -169,6 +212,22 @@ def _mentions_floor(call: ast.Call) -> bool:
                 isinstance(sub, ast.keyword)
                 and sub.arg
                 and sub.arg.split("__")[-1] == FLOOR_FIELD
+            ):
+                return True
+    return False
+
+
+def _mentions_project_floor(call: ast.Call) -> bool:
+    """True if this call carries a ``project__is_deleted`` WHERE term, kwarg or in a Q()."""
+    for kw in call.keywords:
+        if kw.arg and kw.arg.endswith(PROJECT_FLOOR_FIELD):
+            return True
+    for arg in call.args:
+        for sub in ast.walk(arg):
+            if (
+                isinstance(sub, ast.keyword)
+                and sub.arg
+                and sub.arg.endswith(PROJECT_FLOOR_FIELD)
             ):
                 return True
     return False
@@ -259,6 +318,98 @@ def scan_file(path: Path) -> list[tuple[int, str, str]]:
     ]
 
 
+def _is_project_membership_root(node: ast.AST) -> bool:
+    """True for ``ProjectMembership.objects`` / ``.live`` (attribute) roots."""
+    if not isinstance(node, ast.Attribute) or node.attr not in ("objects", "live"):
+        return False
+    base = node.value
+    name = (
+        base.id
+        if isinstance(base, ast.Name)
+        else base.attr
+        if isinstance(base, ast.Attribute)
+        else None
+    )
+    return name == "ProjectMembership"
+
+
+def scan_project_axis(path: Path) -> list[tuple[int, str]]:
+    """Return [(lineno, source)] for every ProjectMembership read lacking a project floor."""
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (SyntaxError, UnicodeDecodeError):
+        return []
+    parents: dict[int, ast.AST] = {}
+    for parent in ast.walk(tree):
+        for child in ast.iter_child_nodes(parent):
+            parents[id(child)] = parent
+    seen: set[int] = set()
+    hits: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if not _is_project_membership_root(node):
+            continue
+        top = _outermost(parents, node)
+        if id(top) in seen:
+            continue
+        seen.add(id(top))
+        steps = _chain(top)
+        methods = {name for name, _ in steps}
+        if methods & WRITE_METHODS or "select_for_update" in methods:
+            continue
+        if any(
+            call is not None
+            and name in FILTERING_METHODS
+            and _mentions_project_floor(call)
+            for name, call in steps
+        ):
+            continue
+        src = " ".join(ast.unparse(top).split())
+        hits.append(
+            (getattr(node, "lineno", 0), src[:117] + "..." if len(src) > 120 else src)
+        )
+    return hits
+
+
+def read_baseline(path: Path) -> dict[str, int]:
+    """Parse ``<module> <count>  # reason`` lines; blank and ``#`` lines are ignored."""
+    out: dict[str, int] = {}
+    if not path.is_file():
+        return out
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        rel, _, count = line.rpartition(" ")
+        out[rel.strip()] = int(count)
+    return out
+
+
+def evaluate_project_axis(
+    counts: dict[str, int], baseline: dict[str, int], allowlist: dict[str, str]
+) -> list[str]:
+    """Ratchet verdicts: one message per module whose count disagrees with its baseline.
+
+    Allowlisted modules are exempt. A count that fell fails too, so the fix is locked in
+    with ``--update-baseline`` and the freed slot cannot be reused by a new violation.
+    """
+    problems: list[str] = []
+    for rel in sorted(set(counts) | set(baseline)):
+        if rel in allowlist:
+            continue
+        have, allowed = counts.get(rel, 0), baseline.get(rel, 0)
+        if have > allowed:
+            problems.append(
+                f"{rel}: {have} ProjectMembership reads without project__is_deleted "
+                f"(baseline {allowed})"
+            )
+        elif have < allowed:
+            problems.append(
+                f"{rel}: baseline {allowed} but only {have} remain; run --update-baseline "
+                "to lock the fix in"
+            )
+    return problems
+
+
 _PACKAGE_ANCHOR = "trueppm_api"
 
 
@@ -306,7 +457,49 @@ def discover(root: Path) -> list[tuple[Path, str]]:
     return files
 
 
-def run(pairs: list[tuple[Path, str]]) -> int:
+def project_axis_counts(pairs: list[tuple[Path, str]]) -> dict[str, int]:
+    """Unfloored project-axis read count per module (modules with none are omitted)."""
+    counts: dict[str, int] = {}
+    for path, rel in pairs:
+        n = len(scan_project_axis(path))
+        if n:
+            counts[rel] = n
+    return counts
+
+
+def update_baseline(pairs: list[tuple[Path, str]], path: Path) -> int:
+    """Rewrite the baseline to the current counts; refuse to raise or add anything."""
+    counts = {
+        rel: n
+        for rel, n in project_axis_counts(pairs).items()
+        if rel not in PROJECT_AXIS_ALLOWLIST
+    }
+    old = read_baseline(path)
+    raised = [r for r, n in counts.items() if n > old.get(r, 0)] if old else []
+    if raised:
+        print(
+            "check-membership-live-floor: refusing to raise the project-axis baseline for: "
+            + ", ".join(sorted(raised)),
+            file=sys.stderr,
+        )
+        return 1
+    lines = [
+        "# Project-axis floor ratchet (#4599): ProjectMembership reads in a module that omit",
+        "# `project__is_deleted`, counted per module. The counts can only shrink:",
+        "# `scripts/check-membership-live-floor.py --update-baseline` refuses to raise one.",
+        "# A baselined read is NOT audited safe; most sit behind a permission class or an",
+        "# already-floored project fetch that the AST cannot see. Format: <module> <count>",
+        "",
+    ]
+    lines += [f"{rel} {n}" for rel, n in sorted(counts.items())]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(
+        f"check-membership-live-floor: baseline written ({sum(counts.values())} reads)."
+    )
+    return 0
+
+
+def run(pairs: list[tuple[Path, str]], partial: bool = False) -> int:
     violations: list[str] = []
     allowed = 0
     for path, rel in pairs:
@@ -321,12 +514,31 @@ def run(pairs: list[tuple[Path, str]]) -> int:
                 f"check-membership-live-floor: FAIL  {path}:{lineno}  {src}"
             )
 
+    counts = project_axis_counts(pairs)
+    baseline = read_baseline(Path(BASELINE_PATH))
+    if partial:
+        scanned = {rel for _, rel in pairs}
+        baseline = {r: n for r, n in baseline.items() if r in scanned}
+    project_problems = evaluate_project_axis(counts, baseline, PROJECT_AXIS_ALLOWLIST)
     for line in violations:
         print(line)
+    for msg in project_problems:
+        print(f"check-membership-live-floor: FAIL (project axis)  {msg}")
     print(
         f"check-membership-live-floor: {len(pairs)} files scanned, "
-        f"{allowed} allowlisted unfloored reads, {len(violations)} violations."
+        f"{allowed} allowlisted unfloored reads, {len(violations)} violations; "
+        f"project axis: {sum(counts.values())} baselined/unfloored reads, "
+        f"{len(project_problems)} ratchet failures."
     )
+    if project_problems and not violations:
+        print(
+            "\nA ProjectMembership read that omits `project__is_deleted` still answers for a\n"
+            "TRASHED project, so notifications, digests and @-group expansion fan out to its\n"
+            "members (#4577, #4599). Add `project__is_deleted=False` to the read, or, if the\n"
+            "module must see trashed projects, add it to PROJECT_AXIS_ALLOWLIST with the reason.\n"
+            "If the count FELL, run `scripts/check-membership-live-floor.py --update-baseline`."
+        )
+        return 1
     if violations:
         print(
             "\nA membership read that omits `is_deleted` resolves a REVOKED member as live:\n"
@@ -456,6 +668,68 @@ def self_test() -> int:
                 print(f"SELF-TEST FAILED: {name} {verb}.", file=sys.stderr)
                 rc = 1
 
+        # Project-axis rule (#4599): scanner cases, then the ratchet verdicts.
+        project_cases: list[tuple[str, bool, str]] = [
+            (
+                "project-axis: unfloored read",
+                True,
+                "ProjectMembership.objects.filter(project_id=p, is_deleted=False)\n",
+            ),
+            (
+                "project-axis: live() alone does not floor the project",
+                True,
+                "ProjectMembership.live().filter(project_id=p)\n",
+            ),
+            (
+                "project-axis: floored with project__is_deleted",
+                False,
+                "ProjectMembership.objects.filter(project_id=p, is_deleted=False,"
+                " project__is_deleted=False)\n",
+            ),
+            (
+                "project-axis: floored through a Q()",
+                False,
+                "ProjectMembership.live().filter(Q(project__is_deleted=False), project_id=p)\n",
+            ),
+            (
+                "project-axis: a write is not a read",
+                False,
+                "ProjectMembership.objects.update_or_create(project=p, user=u)\n",
+            ),
+        ]
+        for name, expect_violation, source in project_cases:
+            target = root / "trueppm_api/apps/x/project_axis.py"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(source, encoding="utf-8")
+            caught = bool(scan_project_axis(target))
+            target.unlink()
+            if caught == expect_violation:
+                print(f"SELF-TEST OK: {name}.")
+            else:
+                print(f"SELF-TEST FAILED: {name}.", file=sys.stderr)
+                rc = 1
+
+        allow = {"trueppm_api/apps/hooks.py": "must see trashed projects"}
+        ratchet_cases: list[tuple[str, bool, dict[str, int], dict[str, int]]] = [
+            ("ratchet: a module outside the baseline fails", True, {"a.py": 1}, {}),
+            ("ratchet: a raised count fails", True, {"a.py": 3}, {"a.py": 2}),
+            ("ratchet: a stale (fallen) count fails", True, {"a.py": 1}, {"a.py": 2}),
+            ("ratchet: an equal count passes", False, {"a.py": 2}, {"a.py": 2}),
+            (
+                "ratchet: an allowlisted module's unfloored read passes",
+                False,
+                {"trueppm_api/apps/hooks.py": 4},
+                {},
+            ),
+        ]
+        for name, expect_violation, counts, baseline in ratchet_cases:
+            caught = bool(evaluate_project_axis(counts, baseline, allow))
+            if caught == expect_violation:
+                print(f"SELF-TEST OK: {name}.")
+            else:
+                print(f"SELF-TEST FAILED: {name}.", file=sys.stderr)
+                rc = 1
+
         # Discovery must exit 2 — never 0 — when it finds nothing. A mis-scoped gate
         # that reads as green is the #3172 failure mode this repo already paid for.
         empty = root / "nothing-here"
@@ -492,13 +766,14 @@ def main(argv: list[str]) -> int:
                 file=sys.stderr,
             )
             return 2
-        return run(pairs)
+        return run(pairs, partial=True)
 
     repo_root = Path(__file__).resolve().parent.parent
     # Run from the repo root so `git ls-files` paths resolve and the reported paths are
     # repo-relative regardless of where the gate was invoked from (a worktree, a hook).
     os.chdir(repo_root)
-    root = Path(argv[0]) if argv else repo_root / DEFAULT_ROOT
+    update = bool(argv) and argv[0] == "--update-baseline"
+    root = Path(argv[0]) if argv and not update else repo_root / DEFAULT_ROOT
     pairs = discover(root)
     if not pairs:
         print(
@@ -507,6 +782,8 @@ def main(argv: list[str]) -> int:
             file=sys.stderr,
         )
         return 2
+    if update:
+        return update_baseline(pairs, Path(BASELINE_PATH))
     return run(pairs)
 
 
