@@ -17,6 +17,12 @@ from trueppm_api.apps.projects.asset_views import (
     WorkspaceAssetsView,
 )
 from trueppm_api.apps.projects.backlog_views import BacklogItemViewSet
+from trueppm_api.apps.projects.baseline_decision_views import (
+    BaselineDecisionPreviewView,
+    BaselineDecisionView,
+    ChangesetEntryReasonView,
+    ChangesetView,
+)
 from trueppm_api.apps.projects.batch_operation_views import (
     CascadeClassificationOperationViewSet,
     PasteManyOperationViewSet,
@@ -261,6 +267,26 @@ urlpatterns = [
         "projects/<project_pk>/baselines/<baseline_pk>/activate/",
         BaselineActivateView.as_view(),
         name="project-baselines-activate",
+    ),
+    path(
+        "projects/<project_pk>/changeset/",
+        ChangesetView.as_view(),
+        name="project-changeset",
+    ),
+    path(
+        "projects/<project_pk>/changeset/entries/<entry_pk>/",
+        ChangesetEntryReasonView.as_view(),
+        name="project-changeset-entry",
+    ),
+    path(
+        "projects/<project_pk>/baseline-decisions/preview/",
+        BaselineDecisionPreviewView.as_view(),
+        name="project-baseline-decisions-preview",
+    ),
+    path(
+        "projects/<project_pk>/baseline-decisions/",
+        BaselineDecisionView.as_view(),
+        name="project-baseline-decisions",
     ),
     path(
         "projects/<pk>/commit/",

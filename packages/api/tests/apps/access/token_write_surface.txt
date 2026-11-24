@@ -219,6 +219,7 @@ api/v1/projects/<pk>/views/reset/
 api/v1/projects/<project_pk>/baselines/
 api/v1/projects/<project_pk>/baselines/<baseline_pk>/activate/
 api/v1/projects/<project_pk>/baselines/<pk>/
+api/v1/projects/<project_pk>/changeset/entries/<entry_pk>/
 api/v1/projects/<project_pk>/decisions-policy/
 api/v1/projects/<project_pk>/fields/
 api/v1/projects/<project_pk>/fields/<pk>/

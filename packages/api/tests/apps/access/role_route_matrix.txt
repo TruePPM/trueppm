@@ -269,10 +269,13 @@
 --+++++  GET api/v1/projects/<project_pk>/api-tokens/::list
 --+++++  GET api/v1/projects/<project_pk>/api-tokens/<pk>/::retrieve
 --+++++  GET api/v1/projects/<project_pk>/assets/::get
+--+++++  GET api/v1/projects/<project_pk>/baseline-decisions/::get
+-----++  GET api/v1/projects/<project_pk>/baseline-decisions/preview/::get
 --+++++  GET api/v1/projects/<project_pk>/baselines/::list
 --+++++  GET api/v1/projects/<project_pk>/baselines/<pk>/::retrieve
 --+++++  GET api/v1/projects/<project_pk>/board/activity/::get
 --+++++  GET api/v1/projects/<project_pk>/changelog/::get
+--+++++  GET api/v1/projects/<project_pk>/changeset/::get
 --+++++  GET api/v1/projects/<project_pk>/decisions-policy/::get
 --+++++  GET api/v1/projects/<project_pk>/export/msproject.xml::get
 --+++++  GET api/v1/projects/<project_pk>/fields/::list
@@ -402,6 +405,7 @@
 -----++  PATCH api/v1/projects/<pk>/phases/reorder/::patch
 ---+-++  PATCH api/v1/projects/<pk>/tasks/classification/::patch
 --+++++  PATCH api/v1/projects/<pk>/views/::patch
+----+++  PATCH api/v1/projects/<project_pk>/changeset/entries/<entry_pk>/::patch
 --+++++  PATCH api/v1/projects/<project_pk>/decisions-policy/::patch
 ----+++  PATCH api/v1/projects/<project_pk>/fields/<pk>/::partial_update
 ---++++  PATCH api/v1/projects/<project_pk>/guardrail-policy/::patch
@@ -540,6 +544,7 @@
 --+++++  POST api/v1/projects/<pk>/views/apply-seed/::post
 --+++++  POST api/v1/projects/<pk>/views/reset/::post
 -----++  POST api/v1/projects/<project_pk>/api-tokens/::create
+-----++  POST api/v1/projects/<project_pk>/baseline-decisions/::post
 -----++  POST api/v1/projects/<project_pk>/baselines/::create
 -----++  POST api/v1/projects/<project_pk>/baselines/<baseline_pk>/activate/::post
 ----+++  POST api/v1/projects/<project_pk>/fields/::create

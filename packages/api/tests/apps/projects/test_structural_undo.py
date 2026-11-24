@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -1010,7 +1010,11 @@ def test_undo_broadcasts_tasks_restructured_and_recalculates(
 
     assert undone.status_code == 200
     mock_recalc.assert_called_once_with(str(project.pk))
-    mock_broadcast.assert_called_once_with(str(project.pk), "tasks_restructured", {})
+    # The fixture project is committed (ACTIVE), so the undo also retracts the
+    # indent from its changeset entry and sends the counts-only
+    # `changeset.updated` (ADR-1477 §3). The structural broadcast is still sent once.
+    structural = [c for c in mock_broadcast.call_args_list if c.args[1] != "changeset.updated"]
+    assert structural == [call(str(project.pk), "tasks_restructured", {})]
 
 
 # ---------------------------------------------------------------------------

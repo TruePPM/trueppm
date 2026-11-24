@@ -5327,6 +5327,206 @@ class BaselineTask(models.Model):
 
 
 # ---------------------------------------------------------------------------
+# Baseline changeset and the two exits (ADR-1477, #3150)
+# ---------------------------------------------------------------------------
+
+
+class ChangesetEntryKind(models.TextChoices):
+    """The three structural kinds. Only these join a changeset (#3150 Q3.7)."""
+
+    ADD = "add", "Add"
+    MOVE = "move", "Move"
+    DELETE = "delete", "Delete"
+
+
+class ChangesetSurface(models.TextChoices):
+    """Where the act was made. Part of the grouping key (D10).
+
+    A Board drag never groups with a Grid restructure: a reason that covers both
+    is a reason that covers neither.
+    """
+
+    GRID = "grid", "Grid"
+    GANTT = "gantt", "Gantt"
+    BOARD = "board", "Board"
+    OUTLINE = "outline", "Outline"
+    API = "api", "API"
+    SYNC = "sync", "Sync"
+    IMPORT = "import", "Import"
+
+
+class ChangesetEntry(models.Model):
+    """One structural act on a committed plan, or one batched group of them (ADR-1477 §1).
+
+    The reason is a property of the entry, not a precondition of the edit (#3150
+    D9): the entry exists the moment the edit applies, with ``reason`` null, and
+    the reason is answered later. ``reason_state`` is derived from ``reason IS
+    NULL`` and never stored, so the two cannot disagree.
+
+    ``task_ids`` / ``task_names`` are JSON snapshots rather than an M2M because a
+    ``delete`` entry has to outlive the purged task it names.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="changeset_entries")
+    baseline = models.ForeignKey(
+        Baseline,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="changeset_entries",
+    )
+    kind = models.CharField(max_length=8, choices=ChangesetEntryKind.choices)
+    surface = models.CharField(max_length=8, choices=ChangesetSurface.choices)
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="changeset_entries",
+    )
+    # ADR-0112 Actor, reserved: agents have no structural write in 0.5, so this is
+    # always null until they do. A plain UUID keeps the projects app from importing
+    # the agents app upward (app-layering.toml).
+    agent_actor_id = models.UUIDField(null=True, blank=True)
+    task_ids = models.JSONField(default=list)
+    task_names = models.JSONField(default=list)
+    # Null is meaningful, not a blank: "no reason given yet" (D11) is the state
+    # that blocks re-baselining, and an empty string would read as answered.
+    reason = models.TextField(max_length=500, null=True, blank=True)  # noqa: DJ001
+    reason_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="changeset_reasons",
+    )
+    reason_at = models.DateTimeField(null=True, blank=True)
+    finish_before = models.DateField(null=True, blank=True)
+    finish_after = models.DateField(null=True, blank=True)
+    opened_at = models.DateTimeField(default=timezone.now)
+    last_act_at = models.DateTimeField(default=timezone.now)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    resolved_by = models.ForeignKey(
+        "BaselineDecision",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="resolved_entries",
+    )
+
+    objects: models.Manager[ChangesetEntry] = models.Manager()
+
+    class Meta:
+        db_table = "projects_changeset_entry"
+        ordering = ["opened_at", "id"]
+        indexes = [
+            # The open-set read and the recalc stamp both filter on these
+            # (ADR-1477 Consequences: bounded to open entries).
+            models.Index(
+                fields=["project", "finish_after"],
+                condition=Q(resolved_by__isnull=True),
+                name="changeset_open_finish_idx",
+            ),
+            models.Index(
+                fields=["project", "kind", "surface", "author", "last_act_at"],
+                condition=Q(resolved_by__isnull=True, closed_at__isnull=True),
+                name="changeset_group_key_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"ChangesetEntry {self.kind} x{len(self.task_ids)} @ {self.project_id}"
+
+    @property
+    def reason_state(self) -> str:
+        return "unreasoned" if self.reason is None else "reasoned"
+
+
+class BaselineDecisionKind(models.TextChoices):
+    TAKEN = "taken", "Took a new baseline"
+    KEPT = "kept", "Kept the baseline, let variance stand"
+
+
+class RebaselineReasonCode(models.TextChoices):
+    """#4813's six codes. Apply to the *decision* only; per-edit reasons stay free text."""
+
+    APPROVED_SCOPE_CHANGE = "approved_scope_change", "Approved scope change"
+    SPONSOR_MOVED_COMMITMENT = "sponsor_moved_commitment", "Sponsor moved the commitment"
+    EXTERNAL_DELAY = "external_delay", "External delay"
+    ESTIMATE_CORRECTION = "estimate_correction", "Estimate correction"
+    TEAM_CHANGE = "team_change", "Team change"
+    CALENDAR_CHANGE = "calendar_change", "Calendar change"
+
+
+class BaselineDecision(models.Model):
+    """One exit from the changeset: v(n+1) taken, or v(n) kept (ADR-1477 §1).
+
+    Append-only change-control evidence. ``save()`` refuses to update an existing
+    row and ``delete()`` refuses outright; no route edits or deletes one. Keeping
+    the baseline is a recorded decision, not an absence — otherwise "nobody
+    looked" and "we looked and chose to live with the variance" are the same row.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name="baseline_decisions"
+    )
+    kind = models.CharField(max_length=8, choices=BaselineDecisionKind.choices)
+    from_baseline = models.ForeignKey(
+        Baseline, on_delete=models.PROTECT, null=True, blank=True, related_name="+"
+    )
+    to_baseline = models.ForeignKey(
+        Baseline, on_delete=models.PROTECT, null=True, blank=True, related_name="+"
+    )
+    # Blank for `kept`: the code applies only to the decision to re-baseline.
+    reason_code = models.CharField(
+        max_length=32, choices=RebaselineReasonCode.choices, blank=True, default=""
+    )
+    reason = models.TextField(max_length=500, blank=True, default="")
+    note = models.TextField(max_length=500, blank=True, default="")
+    commitment_moved = models.BooleanField(default=False)
+    decision = models.ForeignKey(
+        "ProgramDecision",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="baseline_decisions",
+    )
+    entry_ids = models.JSONField(default=list)
+    finish_at_decision = models.DateField(null=True, blank=True)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="baseline_decisions",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    objects: models.Manager[BaselineDecision] = models.Manager()
+
+    class Meta:
+        db_table = "projects_baseline_decision"
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["project", "-created_at"], name="baseline_decision_trail_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"BaselineDecision {self.kind} @ {self.project_id}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Append-only: the trail is evidence, so an existing row is never rewritten."""
+        if not self._state.adding:
+            raise ImmutableModelError(f"BaselineDecision {self.pk} is append-only.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        raise ImmutableModelError(f"BaselineDecision {self.pk} cannot be deleted.")
+
+
+# ---------------------------------------------------------------------------
 # Risk register
 # ---------------------------------------------------------------------------
 

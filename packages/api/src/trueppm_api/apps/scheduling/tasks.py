@@ -1497,6 +1497,13 @@ def _bulk_write_cpm_results(
                 summary_rows, ["duration"], batch_size=_WRITEBACK_BATCH_SIZE
             )
 
+    # ADR-1477 §4: stamp the finish impact on open changeset entries, inside this
+    # same write transaction, after the new dates are persisted. IS NULL-guarded,
+    # so a re-run is a no-op. No new task, no new dispatch.
+    from trueppm_api.apps.projects.amend import stamp_finish_after
+
+    stamp_finish_after({t.project_id for t in tasks_to_update})
+
     # The delta is built per project (the program pass ships one per member), so the
     # plan is made per project — by the same helper the payload builder uses, so the
     # rows re-read here are exactly the full rows that ship.

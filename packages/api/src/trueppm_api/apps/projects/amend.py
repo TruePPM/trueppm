@@ -131,3 +131,262 @@ def _emit_amend_notifications(
         )
     except Exception:
         logger.exception("notify_amend: emit failed for task %s", task_pk)
+
+
+# ── The changeset (ADR-1477, #3150) ─────────────────────────────────────────────
+
+#: D10's batching window. A session-wide window would let one reason cover
+#: unrelated moves, so it stays at two minutes (decided 2026-11-24, Q3.8).
+GROUP_WINDOW_SECONDS = 120
+
+#: Surfaces a client may name. Anything else is recorded as ``api``.
+_CLIENT_SURFACES = {"grid", "gantt", "board", "outline", "api"}
+
+
+def amend_context(request: Any) -> dict[str, Any]:
+    """Read the optional changeset hints a structural write may carry.
+
+    ``surface`` (part of the grouping key), ``amend_group: "new"`` (the client
+    closes a group on events the server cannot see: a mode or surface change,
+    Review opened, page unload) and ``amend_reason`` (answers the new entry in
+    the same write). All optional; a body that is not a dict carries none.
+    """
+    data = getattr(request, "data", None)
+    if not isinstance(data, dict):
+        return {"surface": "api", "new_group": False, "reason": None}
+    surface = data.get("surface")
+    reason = data.get("amend_reason")
+    return {
+        "surface": surface if isinstance(surface, str) and surface in _CLIENT_SURFACES else "api",
+        "new_group": data.get("amend_group") == "new",
+        "reason": reason.strip()[:500] if isinstance(reason, str) and reason.strip() else None,
+    }
+
+
+def current_finish(project_id: Any) -> Any:
+    """The project's CPM finish: max live ``early_finish``, or None before any run."""
+    from django.db.models import Max
+
+    from .models import Task
+
+    return Task.objects.filter(project_id=project_id, is_deleted=False).aggregate(
+        f=Max("early_finish")
+    )["f"]
+
+
+def record_structural_change(
+    project: Project,
+    *,
+    kind: str,
+    surface: str,
+    actor: Any,
+    tasks: list[Any],
+    reason: str | None = None,
+    new_group: bool = False,
+) -> Any:
+    """Record one structural act on a committed plan (ADR-1477 §2–3).
+
+    A no-op on a draft: authoring a plan nobody has agreed to stays frictionless.
+    Never refuses and never raises for lack of a reason — the edit has already
+    applied (D9); this only records that it happened.
+
+    Grouping is server-side so it survives a reload: the newest open entry for
+    ``(project, kind, surface, author)`` absorbs the act when it has no reason,
+    is not closed, and its last act was within :data:`GROUP_WINDOW_SECONDS`. A
+    multi-select act (one call, several rows) is one act. Returns the entry, or
+    None on a draft or an empty act.
+    """
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from .models import Baseline, ChangesetEntry
+
+    if not is_amendable(project) or not tasks:
+        return None
+
+    now = timezone.now()
+    author = actor if actor is not None and getattr(actor, "is_authenticated", False) else None
+    ids = [str(getattr(t, "pk", t)) for t in tasks]
+    names = [getattr(t, "name", "") or "" for t in tasks]
+
+    entry = None
+    if not new_group and reason is None:
+        entry = (
+            ChangesetEntry.objects.select_for_update()
+            .filter(
+                project_id=project.pk,
+                kind=kind,
+                surface=surface,
+                author=author,
+                reason__isnull=True,
+                closed_at__isnull=True,
+                resolved_by__isnull=True,
+                last_act_at__gte=now - timedelta(seconds=GROUP_WINDOW_SECONDS),
+            )
+            .order_by("-last_act_at")
+            .first()
+        )
+
+    new_ids: list[str]
+    if entry is not None:
+        known = set(entry.task_ids)
+        new_ids = [i for i in ids if i not in known]
+        for i, n in zip(ids, names, strict=True):
+            if i not in known:
+                entry.task_ids.append(i)
+                entry.task_names.append(n)
+                known.add(i)
+        entry.last_act_at = now
+        # The effect changed again; the next recalculation re-stamps it.
+        entry.finish_after = None
+        entry.save(update_fields=["task_ids", "task_names", "last_act_at", "finish_after"])
+    else:
+        new_ids = ids
+        entry = ChangesetEntry.objects.create(
+            project_id=project.pk,
+            baseline=Baseline.objects.filter(
+                project_id=project.pk, is_active=True, is_deleted=False
+            ).first(),
+            kind=kind,
+            surface=surface,
+            author=author,
+            task_ids=ids,
+            task_names=names,
+            reason=reason,
+            reason_by=author if reason else None,
+            reason_at=now if reason else None,
+            closed_at=now if reason else None,
+            finish_before=current_finish(project.pk),
+            opened_at=now,
+            last_act_at=now,
+        )
+
+    _notify_entry(entry, new_ids, actor=actor)
+    broadcast_changeset(project.pk)
+    return entry
+
+
+def _notify_entry(entry: Any, task_ids: list[str], *, actor: Any) -> None:
+    """Tell the assignees of the newly touched tasks, once per entry (ADR-1477 §6).
+
+    Absorbed acts notify only the tasks this act added to the entry, so a batched
+    drag of five cards over the same task does not notify five times. Answering
+    the reason later sends nothing (D11).
+    """
+    from .models import Task
+
+    # `Task.objects` includes tombstoned rows, which a `delete` entry needs.
+    for task in Task.objects.filter(pk__in=task_ids):
+        notify_amend(task, actor=actor, reason=entry.reason)
+
+
+def broadcast_changeset(project_id: Any) -> None:
+    """Counts-only ``changeset.updated`` board event, after commit (ADR-1477 §5).
+
+    Never carries reason text: the board channel reaches every subscriber, and
+    reasons may name people or vendors (threat model, Information disclosure).
+    """
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    from .models import ChangesetEntry
+
+    pid = str(project_id)
+
+    def _send() -> None:
+        open_qs = ChangesetEntry.objects.filter(project_id=pid, resolved_by__isnull=True)
+        broadcast_board_event(
+            pid,
+            "changeset.updated",
+            {
+                "project_id": pid,
+                "open_count": open_qs.count(),
+                "unreasoned_count": open_qs.filter(reason__isnull=True).count(),
+            },
+        )
+
+    transaction.on_commit(_send)
+
+
+def retract(project_id: Any, task_ids: list[Any]) -> None:
+    """Undo removes the acts from their open entries (ADR-1477 §3, D10).
+
+    An entry emptied by the undo is deleted, reason and all. Otherwise its
+    ``finish_after`` is cleared so the next recalculation re-stamps the reduced
+    effect. Resolved entries are history and are never touched.
+    """
+    from .models import ChangesetEntry
+
+    targets = {str(t) for t in task_ids}
+    if not targets:
+        return
+    changed = False
+    for entry in ChangesetEntry.objects.select_for_update().filter(
+        project_id=project_id, resolved_by__isnull=True
+    ):
+        if not targets.intersection(entry.task_ids):
+            continue
+        changed = True
+        pairs = [
+            (i, n)
+            for i, n in zip(entry.task_ids, entry.task_names, strict=False)
+            if i not in targets
+        ]
+        if not pairs:
+            entry.delete()
+            continue
+        entry.task_ids = [i for i, _ in pairs]
+        entry.task_names = [n for _, n in pairs]
+        entry.finish_after = None
+        entry.save(update_fields=["task_ids", "task_names", "finish_after"])
+    if changed:
+        broadcast_changeset(project_id)
+
+
+def stamp_finish_after(project_ids: set[Any]) -> None:
+    """Stamp ``finish_after`` from the recalculation that follows an act (ADR-1477 §4).
+
+    Called inside the recalc's own write transaction, after the new dates are
+    persisted. Conditional on ``finish_after IS NULL`` so a re-run is a no-op.
+    """
+    from .models import ChangesetEntry
+
+    for pid in project_ids:
+        pending = ChangesetEntry.objects.filter(
+            project_id=pid, resolved_by__isnull=True, finish_after__isnull=True
+        )
+        if not pending.exists():
+            continue
+        finish = current_finish(pid)
+        if finish is not None:
+            pending.update(finish_after=finish)
+
+
+def record_from_request(request: Any, project: Project, kind: str, task_ids: list[Any]) -> Any:
+    """Record a structural act from a view, reading the request's changeset hints.
+
+    Subtasks are dropped: a checklist item is never structural (#2950), so
+    adding or deleting one is not an amendment of the plan's shape. Every
+    structural route calls this, which is what ADR-1477 §7's route enumeration
+    test pins.
+    """
+    from .models import Task
+
+    if not is_amendable(project):
+        return None
+    ids = [t for t in task_ids if t]
+    if not ids:
+        return None
+    rows = list(
+        Task.objects.filter(pk__in=ids, project_id=project.pk, is_subtask=False).only("id", "name")
+    )
+    ctx = amend_context(request)
+    return record_structural_change(
+        project,
+        kind=kind,
+        surface=ctx["surface"],
+        actor=getattr(request, "user", None),
+        tasks=rows,
+        reason=ctx["reason"],
+        new_group=ctx["new_group"],
+    )

@@ -30,6 +30,7 @@ from trueppm_mcp.tools import (
     _UNTRUSTED_OPEN,
     _compact_mapping,
     _get_board_state,
+    _get_changeset,
     _get_monte_carlo_forecast,
     _get_program_health,
     _get_project,
@@ -43,6 +44,7 @@ from trueppm_mcp.tools import (
     _get_sprint,
     _get_sprint_close_request,
     _get_task,
+    _list_baseline_decisions,
     _list_baselines,
     _list_calendars,
     _list_dependencies,
@@ -1546,3 +1548,16 @@ async def test_list_baselines_phases_calendars_envelopes(settings: Settings) -> 
     assert baselines == {"items": [{"id": "b-1", "name": "Baseline 1"}], "total_count": 1}
     assert phases == {"items": [{"id": "ph-1", "name": "Design"}], "total_count": 1}
     assert calendars == {"items": [{"id": "c-1", "name": "Standard"}], "total_count": 1}
+
+
+async def test_changeset_and_decision_trail_pass_through(settings: Settings) -> None:
+    changeset = {"open_count": 1, "unreasoned_count": 1, "entries": [{"id": "e-1"}]}
+    routes: Routes = {
+        "projects/p-1/changeset/": _json(changeset),
+        "projects/p-1/baseline-decisions/": _json([{"id": "d-1", "kind": "kept"}]),
+    }
+    async with _client(settings, routes) as client:
+        got = await _get_changeset(client, "p-1")
+        trail = await _list_baseline_decisions(client, "p-1")
+    assert got == changeset
+    assert trail == {"items": [{"id": "d-1", "kind": "kept"}], "total_count": 1}

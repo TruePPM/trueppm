@@ -7285,6 +7285,10 @@ class TaskViewSet(
         body = _task_body_mapping(self.request.data)
         is_subtask = _parse_create_is_subtask(body)
         parent: Task | None = None
+        # `amend_reason` is write-only and not a model field: popped so the save
+        # cannot 500 on it. `amend.record_from_request` reads it from the body and
+        # makes it the new changeset entry's reason (ADR-1477 §5).
+        serializer.validated_data.pop("amend_reason", None)
 
         with transaction.atomic():
             if project is not None:
@@ -7328,6 +7332,13 @@ class TaskViewSet(
             from trueppm_api.apps.projects.services import maybe_record_scope_injection
 
             maybe_record_scope_injection(instance, None, self.request.user)
+
+            # ADR-1477 §2: a structural add on a committed plan joins the changeset
+            # with reason null (D9). Subtasks are dropped inside the helper.
+            if project is not None and not is_subtask:
+                from trueppm_api.apps.projects import amend
+
+                amend.record_from_request(self.request, project, "add", [instance.pk])
 
         _defer_task_create_events(instance, parent if is_subtask else None, self.request.user)
 
@@ -7571,6 +7582,9 @@ class TaskViewSet(
         # surfaces run the identical repair.
         resync_structural_parent_after_delete(parent)
         transaction.on_commit(lambda: _enqueue_recalculate(project_id))
+        from trueppm_api.apps.projects import amend
+
+        amend.record_from_request(self.request, instance.project, "delete", [instance.pk])
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "task_deleted", {"id": task_id})
         )
@@ -7816,6 +7830,10 @@ class TaskViewSet(
                 before = capture_graph_state(project_id)
                 task.restore()
                 cascade_task_children_restore(task)
+                # ADR-1477 §3: undoing a delete retracts it from its open entry.
+                from trueppm_api.apps.projects import amend
+
+                amend.retract(task.project_id, [task.pk])
                 # #4858: a trashed row keeps its old wbs_path, so a live task that has
                 # since taken the parent path adopts the row (and its revived subtree)
                 # as a descendant. A link between the two then runs summary-to-own-
@@ -9144,6 +9162,24 @@ class BaselineActivateView(IdempotencyMixin, APIView):
             Baseline, pk=baseline_pk, project_id=project_pk, is_deleted=False
         )
 
+        # ADR-1477 §5: on a committed plan the active baseline moves only through
+        # `baseline-decisions/`, which requires reasons and writes the trail row.
+        # Otherwise this route re-baselines with neither — the threat model's top
+        # risk. Drafts are unchanged.
+        from trueppm_api.apps.projects.models import ProjectLifecycle
+
+        if project.lifecycle == ProjectLifecycle.ACTIVE:
+            return Response(
+                {
+                    "code": "use_baseline_decision",
+                    "detail": (
+                        "This plan is committed. Take a new baseline through "
+                        "baseline-decisions/ so the change carries its reasons."
+                    ),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
         with transaction.atomic():
             Baseline.objects.filter(project_id=project_pk, is_active=True).update(is_active=False)
             Baseline.objects.filter(pk=baseline_pk).update(is_active=True)
@@ -10348,6 +10384,9 @@ class TaskReorderView(IdempotencyMixin, APIView):
                 kind=StructuralOperationKind.REORDER,
                 anchors=list(ordered_ids),
             )
+            from trueppm_api.apps.projects import amend
+
+            amend.record_from_request(request, project, "move", list(ordered_ids))
 
             project_id = str(project.pk)
             transaction.on_commit(lambda: _enqueue_recalculate(project_id))
@@ -10678,6 +10717,9 @@ class TaskIndentView(IdempotencyMixin, APIView):
                 kind=StructuralOperationKind.INDENT,
                 anchors=[task.pk],
             )
+            from trueppm_api.apps.projects import amend
+
+            amend.record_from_request(request, project, "move", [task.pk])
 
             project_id = str(project.pk)
             transaction.on_commit(lambda: _enqueue_recalculate(project_id))
@@ -10920,6 +10962,9 @@ class TaskOutdentView(IdempotencyMixin, APIView):
                 kind=StructuralOperationKind.OUTDENT,
                 anchors=[task.pk],
             )
+            from trueppm_api.apps.projects import amend
+
+            amend.record_from_request(request, project, "move", [task.pk])
 
             project_id = str(project.pk)
             transaction.on_commit(lambda: _enqueue_recalculate(project_id))
@@ -11194,6 +11239,9 @@ class TaskReparentView(IdempotencyMixin, APIView):
                 kind=StructuralOperationKind.REPARENT,
                 anchors=[task.pk],
             )
+            from trueppm_api.apps.projects import amend
+
+            amend.record_from_request(request, project, "move", [task.pk])
 
             project_id = str(project.pk)
             transaction.on_commit(lambda: _enqueue_recalculate(project_id))
@@ -11266,6 +11314,21 @@ class _TaskGroupingViewBase(IdempotencyMixin, APIView):
                     )
                 else:
                     body = perform_ungroup(project, request, payload.get("task_id"))
+
+                # ADR-1477 §2: group and ungroup are moves on a committed plan.
+                from trueppm_api.apps.projects import amend
+
+                raw_ids = (
+                    payload.get("task_ids") if operation == "group" else [payload.get("task_id")]
+                )
+                amend.record_from_request(
+                    request,
+                    project,
+                    "move",
+                    [str(i) for i in raw_ids if isinstance(i, (str, int))]
+                    if isinstance(raw_ids, list)
+                    else [],
+                )
 
                 transaction.on_commit(lambda: _enqueue_recalculate(project_id))
                 transaction.on_commit(
@@ -11631,6 +11694,12 @@ class TaskBulkView(IdempotencyMixin, APIView):
             )
 
             paste_many_operation = record_paste_many_operation(project, _caller, out.created_ids)
+
+            # ADR-1477 §2: one bulk/paste-many call is one act — one entry per kind.
+            from trueppm_api.apps.projects import amend
+
+            amend.record_from_request(request, project, "add", list(out.created_ids))
+            amend.record_from_request(request, project, "delete", list(out.deleted_ids))
 
             # Recalculation and the broadcast fire for WHATEVER COMMITTED, not only
             # for a fully-clean batch (#2746). Under 207, 35 applied rows out of 38
@@ -16675,6 +16744,9 @@ class PhaseViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVie
             # Mirror the count that get_queryset() annotates — for the response
             # body the new phase has only itself as a "task".
             instance.descendants_count = 1  # type: ignore[attr-defined]
+            from trueppm_api.apps.projects import amend
+
+            amend.record_from_request(self.request, instance.project, "add", [instance.pk])
             project_id_str = str(project_pk)
             task_id_str = str(instance.pk)
             transaction.on_commit(
@@ -16722,6 +16794,9 @@ class PhaseViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVie
         project_id_str = str(instance.project_id)
         task_id_str = str(instance.pk)
         instance.soft_delete()
+        from trueppm_api.apps.projects import amend
+
+        amend.record_from_request(self.request, instance.project, "delete", [instance.pk])
         transaction.on_commit(
             lambda: broadcast_board_event(project_id_str, "task_deleted", {"id": task_id_str})
         )

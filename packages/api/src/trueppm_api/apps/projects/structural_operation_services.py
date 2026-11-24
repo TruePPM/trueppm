@@ -682,6 +682,16 @@ def undo_structural_operation(
         if locked.status == SyncBatchOperationStatus.UNDONE:
             return dict(locked.result_summary.get("undo", {}))
 
+        # ADR-1477 §3: the undone act leaves its changeset entry; an emptied entry
+        # is deleted, reason and all. Inside this transaction, so a refused undo
+        # (raised below) rolls the retraction back with it.
+        from trueppm_api.apps.projects import amend
+
+        amend.retract(
+            locked.project_id,
+            [*locked.anchor_task_ids, *locked.created_task_ids],
+        )
+
         _raise_if_undo_blocked(locked)
 
         # `graph_before` must be read before step 1 writes any edge: undo restores

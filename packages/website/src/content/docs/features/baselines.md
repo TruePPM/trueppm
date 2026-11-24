@@ -134,6 +134,46 @@ A project can hold **many baselines** — for example one per phase gate — but
 active** at a time. The active baseline is the one used for comparison. Activating a
 different baseline automatically deactivates the previous one.
 
+## Changing a committed plan: the changeset
+
+Committing is not a lock. After baseline v1 you keep editing the plan with the same
+gestures, and nothing waits for you to explain yourself first. What changes is that every
+**structural** edit (adding, moving or deleting a task) joins an open **changeset**: the
+set of changes made since the active baseline, each with room for one line of *why*.
+
+- **What counts.** Adding a task or phase, moving one (indent, outdent, reparent, reorder,
+  group, ungroup), and deleting one. Date, duration, owner and status edits never join, and
+  neither does moving a card between sprints or from the backlog into a sprint.
+- **The edit applies first.** An entry is created the moment the edit lands, with no
+  reason. You, or a Scheduler, Admin or Owner, can answer it afterwards. A Member's
+  structural edit joins the changeset too, and the plan owner answers it.
+- **Related acts group.** Acts of the same kind, on the same surface, by the same person,
+  within two minutes of each other share one entry and one reason. One multi-select action
+  is one entry. Answering an entry closes it, so a later act opens a new one.
+- **A reason is set once.** It cannot be rewritten afterwards.
+- **Undo retracts.** Undoing an act removes it from its entry, and undoing the last act in
+  an entry deletes the entry.
+
+### The two exits
+
+When you review the changeset, there are two equal ways out, and both are recorded on the
+project's decision trail:
+
+- **Take a new baseline (v2).** Needs a reason code (approved scope change, sponsor moved
+  the commitment, external delay, estimate correction, team change, calendar change) and a
+  written reason. It is refused while any change still needs a reason. The changes it
+  covers are resolved.
+- **Keep the current baseline and let variance stand.** Always available, with an optional
+  note. The changes stay listed, and the next structural edit brings the review back.
+
+Re-baselining is for a plan that was re-agreed, not for turning a red number green. Only a
+Project Manager (`ADMIN`) or Owner takes either exit, and only from a signed-in session: an
+API token cannot re-baseline a plan.
+
+On a committed plan, the active baseline moves only through this decision. Activating a
+different baseline directly is refused, though you can still capture a named baseline to
+compare against.
+
 ## Capturing and managing baselines via the API
 
 All endpoints are project-scoped and authenticated with a bearer token (`$JWT`);
@@ -164,7 +204,12 @@ curl -X DELETE -H "Authorization: Bearer $JWT" \
 | `GET /api/v1/projects/{id}/baselines/` | List baselines | Project member |
 | `POST /api/v1/projects/{id}/baselines/` | Capture a baseline (auto-named if blank) | Project Manager (`ADMIN`) |
 | `GET /api/v1/projects/{id}/baselines/{baselineId}/` | Retrieve (with task count) | Project member |
-| `POST /api/v1/projects/{id}/baselines/{baselineId}/activate/` | Make active, deactivate others | Project Manager (`ADMIN`) |
+| `POST /api/v1/projects/{id}/baselines/{baselineId}/activate/` | Make active, deactivate others. On a committed project, refused with `409 use_baseline_decision` | Project Manager (`ADMIN`) |
+| `GET /api/v1/projects/{id}/changeset/` | Open changes since the active baseline, unanswered first, with counts, the finish against the baseline and `_provenance` | Any project member |
+| `PATCH /api/v1/projects/{id}/changeset/entries/{entryId}/` | Answer an entry's reason once (`{"reason": "..."}`). A second answer is `409 reason_already_set` | Scheduler (`SCHEDULER`) |
+| `GET /api/v1/projects/{id}/baseline-decisions/` | The decision trail, newest first | Any project member |
+| `GET /api/v1/projects/{id}/baseline-decisions/preview/` | What taking a new baseline would do: finish before and after, milestones that move, tasks with new dates | Project Manager (`ADMIN`) |
+| `POST /api/v1/projects/{id}/baseline-decisions/` | Take a new baseline (`kind: "taken"`) or keep this one (`kind: "kept"`). Send `expected_open_count`; a stale count is `409 changeset_changed`, and an unanswered change blocks `taken` with `409 changeset_unreasoned` naming the entries | Project Manager (`ADMIN`), signed-in session only |
 | `DELETE /api/v1/projects/{id}/baselines/{baselineId}/` | Delete a baseline | Project Admin (`OWNER`) |
 
 ## Baseline bars on the Gantt
