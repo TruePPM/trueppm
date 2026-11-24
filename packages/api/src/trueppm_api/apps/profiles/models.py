@@ -361,7 +361,7 @@ class ProjectViewState(models.Model):
         max_length=20,
         default="",
         blank=True,
-        help_text="The lens the seed used, or empty when nothing was seeded.",
+        help_text="The lens the row was resolved under; empty until first resolved.",
     )
     seeded_at = models.DateTimeField(null=True, blank=True, help_text="When the seed applied.")
     seed_line_dismissed_at = models.DateTimeField(

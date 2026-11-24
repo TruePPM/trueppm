@@ -19,8 +19,9 @@ def backfill_project_view_states(apps: Any, schema_editor: Any) -> None:
     ADR-1478 §6 step 1: for every profile with hides and every live project the user is
     a member of, create a ``ProjectViewState`` whose entries are ``source: "user"`` with
     ``seeded_at`` null. Nothing reappears (every hide carries over) and nothing is
-    re-seeded (a row with ``seeded_at`` null and no seed entries is "already resolved",
-    so the first read after the upgrade does not apply a lens seed on top).
+    re-seeded: ``seeded_lens`` records the user's ``role_context`` at migration time,
+    which marks the row "already resolved" under that lens, so the first read after the
+    upgrade neither applies a lens seed on top nor offers that lens's suggestions.
 
     Idempotent on the ``(user, project)`` unique constraint: an existing row is left
     alone and ``ignore_conflicts`` skips a concurrent duplicate, so a re-run or a
@@ -35,7 +36,9 @@ def backfill_project_view_states(apps: Any, schema_editor: Any) -> None:
         "today", "risk", "reports", "activity", "assets", "resources",
     }  # fmt: skip
 
-    profiles = UserProfile.objects.exclude(hidden_views=[]).only("user_id", "hidden_views")
+    profiles = UserProfile.objects.exclude(hidden_views=[]).only(
+        "user_id", "hidden_views", "role_context"
+    )
     batch: list[Any] = []
     for profile in profiles.iterator(chunk_size=BATCH_SIZE):
         keys = sorted({k for k in (profile.hidden_views or []) if k in hideable})
@@ -56,6 +59,7 @@ def backfill_project_view_states(apps: Any, schema_editor: Any) -> None:
                 ProjectViewState(
                     user_id=profile.user_id,
                     project_id=project_id,
+                    seeded_lens=profile.role_context or "unified",
                     hides=[
                         {"view": k, "hidden": True, "source": "user", "lens": None, "at": None}
                         for k in keys

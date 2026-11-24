@@ -20,12 +20,14 @@ from django.db import DatabaseError
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.profiles import services
 from trueppm_api.apps.profiles.backfill import backfill_project_view_states
 from trueppm_api.apps.profiles.constants import (
     HIDEABLE_VIEW_KEYS,
     LENS_VIEW_SEEDS,
     METHODOLOGY_HIDDEN_VIEWS,
     METHODOLOGY_NEVER_HIDES,
+    LensSeed,
 )
 from trueppm_api.apps.profiles.models import ProjectViewState, UserProfile
 from trueppm_api.apps.projects.models import Calendar, Project
@@ -392,3 +394,171 @@ def test_agent_read_reports_the_seed_without_writing_it(cal: Calendar) -> None:
     assert ProjectViewState.objects.filter(user=user, project=p).count() == 1
     with mock.patch("trueppm_api.apps.profiles.views.is_agent_token", return_value=True):
         assert _client(user).get(_url(p)).json()["seeded_lens"] == "scrum_master"
+
+
+# --- the lens offer appears only after a lens change, once (AC 6) -----------------------
+
+
+def test_empty_seed_offers_nothing_on_first_open_or_after_a_no_op_apply(cal: Calendar) -> None:
+    """A pm on Waterfall seeds nothing (methodology already hides product-backlog).
+
+    The row still records the lens it was resolved under, so there is no offer to
+    apply the very lens the user holds, and a zero-change apply cannot leave one.
+    """
+    p = _project(cal, "WATERFALL")
+    user = _member(p, "pm")
+    c = _client(user)
+    first = c.get(_url(p)).json()
+    assert first["lens_offer"] is None and first["seed_line"] is None
+    assert first["seeded_lens"] is None
+    assert ProjectViewState.objects.get(user=user, project=p).seeded_lens == "pm"
+    diff = services.apply_lens_seed(user, p, "pm", dry_run=False)
+    assert diff["change_count"] == 0
+    assert c.get(_url(p)).json()["lens_offer"] is None
+
+
+def test_zero_change_apply_after_a_lens_change_clears_the_offer(cal: Calendar) -> None:
+    p = _project(cal, "WATERFALL")
+    user = _member(p, "unified")
+    c = _client(user)
+    c.get(_url(p))
+    UserProfile.objects.filter(user=user).update(role_context="pm")
+    assert c.get(_url(p)).json()["lens_offer"] == "pm"
+    applied = c.post(_url(p, "apply-seed/"), {"lens": "pm", "dry_run": False}, format="json")
+    assert applied.json()["change_count"] == 0
+    assert c.get(_url(p)).json()["lens_offer"] is None
+
+
+def test_lens_change_with_a_diff_offers_once_and_clears_after_apply(cal: Calendar) -> None:
+    p = _project(cal, "HYBRID")
+    user = _member(p, "pm")
+    c = _client(user)
+    assert c.get(_url(p)).json()["lens_offer"] is None
+    UserProfile.objects.filter(user=user).update(role_context="scrum_master")
+    assert c.get(_url(p)).json()["lens_offer"] == "scrum_master"
+    applied = c.post(
+        _url(p, "apply-seed/"), {"lens": "scrum_master", "dry_run": False}, format="json"
+    ).json()
+    assert applied["change_count"] > 0
+    for _ in range(2):
+        assert c.get(_url(p)).json()["lens_offer"] is None
+
+
+def test_backfilled_row_offers_nothing_until_the_lens_changes(cal: Calendar) -> None:
+    p = _project(cal)
+    user = User.objects.create_user(username="migrated", password="pw")
+    UserProfile.objects.create(user=user, hidden_views=["risk"], role_context="pm")
+    ProjectMembership.objects.create(project=p, user=user, role=Role.MEMBER)
+    backfill_project_view_states(django_apps, None)
+    assert ProjectViewState.objects.get(user=user, project=p).seeded_lens == "pm"
+    c = _client(user)
+    data = c.get(_url(p)).json()
+    assert data["lens_offer"] is None and data["seed_line"] is None
+    assert _views(data)["product-backlog"]["visible"] is True  # still not re-seeded
+    UserProfile.objects.filter(user=user).update(role_context="scrum_master")
+    assert c.get(_url(p)).json()["lens_offer"] == "scrum_master"
+
+
+# --- a legacy fan-out does not pre-empt the first-open seed (migration item 2) ----------
+
+
+def test_fan_out_of_an_empty_list_still_seeds_the_first_open(cal: Calendar) -> None:
+    p1, p2 = _project(cal, name="one"), _project(cal, name="two")
+    user = _member(p1, "scrum_master", name="fan")
+    ProjectMembership.objects.create(project=p2, user=user, role=Role.MEMBER)
+    services.fan_out_hidden_views(user, [])
+    assert ProjectViewState.objects.get(user=user, project=p2).seeded_lens == ""
+    data = _client(user).get(_url(p2)).json()
+    assert {k for k, v in _views(data).items() if v["source"] == "seed"} == {
+        "schedule",
+        "calendar",
+        "resources",
+    }
+    assert data["seed_line"] == {"lens": "scrum_master", "hidden_count": 3}
+    assert data["lens_offer"] is None
+
+
+def test_fan_out_hides_survive_the_first_open_seed(cal: Calendar) -> None:
+    """No user loses or regains a view: their own entries win over the seed."""
+    p = _project(cal)
+    user = _member(p, "scrum_master", name="keeps")
+    c = _client(user)
+    resp = c.patch("/api/v1/auth/me/profile/", {"hidden_views": ["risk", "grid"]}, format="json")
+    assert resp.status_code == 200
+    views = _views(c.get(_url(p)).json())
+    assert views["risk"] == {**views["risk"], "visible": False, "source": "user"}
+    assert views["grid"] == {**views["grid"], "visible": False, "source": "user"}
+    assert views["resources"]["source"] == "seed"
+    # Seed + user would empty Plan, so Schedule falls back rather than vanishing.
+    assert views["schedule"] == {**views["schedule"], "visible": True, "source": "always"}
+    assert c.get("/api/v1/auth/me/profile/").data["hidden_views"] == ["grid", "risk"]
+
+
+def test_show_all_on_a_fanned_out_row_does_not_reseed_later(cal: Calendar) -> None:
+    p = _project(cal)
+    user = _member(p, "scrum_master", name="showall")
+    services.fan_out_hidden_views(user, ["risk"])
+    c = _client(user)
+    c.patch(_url(p), {"clear_seed": True}, format="json")
+    views = _views(c.get(_url(p)).json())
+    assert not any(v["source"] == "seed" for v in views.values())
+    assert views["risk"]["source"] == "user"
+
+
+def test_agent_read_of_a_fanned_out_row_previews_the_seed_without_writing(cal: Calendar) -> None:
+    p = _project(cal)
+    user = _member(p, "scrum_master", name="agentfan")
+    services.fan_out_hidden_views(user, [])
+    preview = services.resolve_project_views(user, p, persist=False)
+    assert {v.key for v in preview.views if v.source == "seed"} == {
+        "schedule",
+        "calendar",
+        "resources",
+    }
+    assert ProjectViewState.objects.get(user=user, project=p).seeded_lens == ""
+
+
+# --- legacy writes, registry drift, deprecation headers -------------------------------
+
+
+def test_legacy_write_hiding_every_plan_layout_is_accepted_and_v2_keeps_schedule(
+    cal: Calendar,
+) -> None:
+    """The v1 shell may hide Schedule, Grid and Calendar (separate tabs there).
+
+    ADR-1478 §6.2 keeps that write working unchanged, so it is not refused with
+    ``last_plan_layout``; the v2 resolver shows Schedule with ``source: always``.
+    """
+    p = _project(cal)
+    user = _member(p, "unified", name="allplan")
+    c = _client(user)
+    body = {"hidden_views": ["schedule", "grid", "calendar"]}
+    assert c.patch("/api/v1/auth/me/profile/", body, format="json").status_code == 200
+    views = _views(c.get(_url(p)).json())
+    assert views["schedule"] == {**views["schedule"], "visible": True, "source": "always"}
+
+
+def test_a_retired_or_always_on_seed_key_is_ignored_and_logged(
+    cal: Calendar, caplog: pytest.LogCaptureFixture
+) -> None:
+    p = _project(cal)
+    user = _member(p, "pm", name="drift")
+    seeds = {
+        **LENS_VIEW_SEEDS,
+        "pm": LensSeed(hide=frozenset({"risk", "overview", "retired-view"}), landing={}),
+    }
+    with mock.patch.dict(services.LENS_VIEW_SEEDS, seeds), caplog.at_level("WARNING"):
+        data = _client(user).get(_url(p)).json()
+    assert {k for k, v in _views(data).items() if v["source"] == "seed"} == {"risk"}
+    assert _views(data)["overview"]["source"] == "always"
+    logged = " ".join(r.getMessage() for r in caplog.records)
+    assert "'overview'" in logged and "'retired-view'" in logged
+
+
+def test_profile_get_carries_the_deprecation_and_sunset_headers(cal: Calendar) -> None:
+    p = _project(cal)
+    user = _member(p, name="sunset")
+    resp = _client(user).get("/api/v1/auth/me/profile/")
+    assert resp.status_code == 200
+    assert resp["Deprecation"].startswith("@")
+    assert resp["Sunset"].endswith("GMT")

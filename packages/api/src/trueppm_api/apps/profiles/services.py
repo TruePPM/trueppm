@@ -829,6 +829,11 @@ def _resolve_entries(
 ) -> list[ResolvedView]:
     """Apply ADR-1478 §3 precedence to one stored entry list.
 
+    TODO(#3122): once ``is_allocation_manager`` is real, also drop a stored ``seed``
+    entry for ``resources`` here for an allocation manager. The People guard runs only
+    when a seed is written (``_seed_entries``), so a seed stored before the user became
+    a pool manager would otherwise keep hiding People.
+
     Order: always-on, then the workspace area switch (the only ``enforced`` source),
     then the user's own entry, then the seed, then the methodology default. With
     ``fallback`` the never-empty rule shows ``schedule`` (``source: always``) when no
@@ -874,13 +879,23 @@ def _build(state: ProjectViewState, lens: str, project: Any) -> ResolvedViewSet:
     off = _workspace_off_views(project)
     views = _resolve_entries(state.hides, project.methodology, off)
     seeded = [v for v in views if v.source == "seed"]
-    seeded_lens = state.seeded_lens or None
+    # ``seeded_lens`` is the lens the row was resolved under, recorded even when that
+    # lens's seed came out empty (e.g. a pm on Waterfall). So the seed line keys on
+    # there being seed entries, and the offer keys on the lens having changed since.
+    resolved_under = state.seeded_lens or None
+    # The API's ``seeded_lens`` keeps its documented meaning: the lens whose seed is
+    # in effect, so null when no seed entry survives.
+    seeded_lens = resolved_under if seeded else None
     seed_line = None
-    if seeded_lens and seeded and state.seed_line_dismissed_at is None:
+    if seeded_lens and state.seed_line_dismissed_at is None:
         seed_line = {"lens": seeded_lens, "hidden_count": len(seeded)}
-    effective = seeded_lens or RoleContext.UNIFIED
     lens_offer = None
-    if lens != effective and state.lens_offer_dismissed_for != lens and lens in LENS_VIEW_SEEDS:
+    if (
+        resolved_under is not None
+        and lens != resolved_under
+        and state.lens_offer_dismissed_for != lens
+        and lens in LENS_VIEW_SEEDS
+    ):
         lens_offer = lens
     return ResolvedViewSet(
         views=views,
@@ -932,12 +947,16 @@ def resolve_project_views(user: Any, project: Any, *, persist: bool = True) -> R
             existing = ProjectViewState(
                 user=user, project=project, **_seed_defaults(user, project, lens)
             )
+        else:
+            _complete_pending_seed(existing, user, project, lens)  # in memory only
         return _build(existing, lens, project)
     try:
         with transaction.atomic():
             state, _ = ProjectViewState.objects.get_or_create(
                 user=user, project=project, defaults=_seed_defaults(user, project, lens)
             )
+            if not state.seeded_lens:
+                state = _locked_state(user, project, lens)
     except DatabaseError:
         logger.warning(
             "view seed failed for user=%s project=%s; failing open",
@@ -954,19 +973,47 @@ def _seed_defaults(user: Any, project: Any, lens: str) -> dict[str, Any]:
     entries = _seed_entries(lens, project.methodology, user, now.isoformat())
     return {
         "hides": entries,
-        "seeded_lens": lens if entries else "",
+        # Always the lens resolved under, even with no entries: an empty value means
+        # "not resolved yet" (a legacy fan-out row), and the lens offer compares to it.
+        "seeded_lens": lens,
         "seeded_at": now if entries else None,
     }
 
 
-def _locked_state(user: Any, project: Any) -> ProjectViewState:
-    """The caller's own row, seeded if new, locked for a whole-list replace."""
+def _complete_pending_seed(state: ProjectViewState, user: Any, project: Any, lens: str) -> bool:
+    """Seed a row that a legacy ``hidden_views`` fan-out created before any resolve.
 
-    lens = _role_context(user)
+    Such a row holds only the user's own hides and an empty ``seeded_lens``. The first
+    resolve of the project still applies the lens seed (ADR-1478 §6 step 2), around the
+    user's entries, which always win. Returns whether ``state`` changed (unsaved).
+    """
+
+    if state.seeded_lens:
+        return False
+    now = timezone.now()
+    user_entries = [e for e in _by_view(state.hides).values() if e["source"] == "user"]
+    user_keys = {e["view"] for e in user_entries}
+    seed = [
+        e for e in _seed_entries(lens, project.methodology, user, now.isoformat())
+        if e["view"] not in user_keys
+    ]  # fmt: skip
+    state.hides = user_entries + seed
+    state.seeded_lens = lens
+    state.seeded_at = now if seed else None
+    return True
+
+
+def _locked_state(user: Any, project: Any, lens: str | None = None) -> ProjectViewState:
+    """The caller's own row, seeded if new or still pending, locked for a replace."""
+
+    lens = lens or _role_context(user)
     ProjectViewState.objects.get_or_create(
         user=user, project=project, defaults=_seed_defaults(user, project, lens)
     )
-    return ProjectViewState.objects.select_for_update().get(user=user, project=project)
+    state = ProjectViewState.objects.select_for_update().get(user=user, project=project)
+    if _complete_pending_seed(state, user, project, lens):
+        state.save(update_fields=["hides", "seeded_lens", "seeded_at", "updated_at"])
+    return state
 
 
 def set_view_hidden(user: Any, project: Any, key: str, hidden: bool) -> None:
@@ -1062,7 +1109,8 @@ def apply_lens_seed(user: Any, project: Any, lens: str, *, dry_run: bool) -> dic
         }
         if not dry_run:
             state.hides = hides
-            state.seeded_lens = lens if new_seed else ""
+            # Recorded even for a zero-change apply, so the offer it answered clears.
+            state.seeded_lens = lens
             state.seeded_at = now if new_seed else None
             state.lens_offer_dismissed_for = ""
             state.save(
@@ -1114,8 +1162,16 @@ def fan_out_hidden_views(user: Any, keys: list[str]) -> None:
     shell keeps working (ADR-1478 §6.2): the listed keys become ``user`` hides, and
     ``user`` hides not listed are cleared. ``seed`` entries for unlisted keys and a
     user's explicit "keep shown" entries are untouched. Rows that do not exist yet are
-    created unseeded, like a migrated row. One locked read, one bulk update and one
-    bulk insert, O(memberships).
+    created with only those hides and an empty ``seeded_lens`` ("not resolved yet"), so
+    the project's first open still applies the lens seed around them
+    (``_complete_pending_seed``). One locked read, one bulk update and one bulk insert,
+    O(memberships).
+
+    A list that hides every Plan layout is accepted, not refused with
+    ``last_plan_layout``: in the v1 shell, still the default, Schedule, Grid and
+    Calendar are separate tabs and hiding all three is a legal state, and ADR-1478
+    §6.2 keeps this write working unchanged. The v2 resolver shows ``schedule`` with
+    ``source: always`` instead, so Plan is never empty.
     """
 
     wanted = set(keys)

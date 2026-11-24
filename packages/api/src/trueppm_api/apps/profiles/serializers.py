@@ -294,8 +294,10 @@ class ProjectViewSetSerializer(serializers.Serializer[Any]):
     """``GET /projects/{id}/views/``: the caller's own resolved view set.
 
     ``lens`` is the caller's current role lens; ``seeded_lens`` is the lens whose seed
-    is in effect (null when none). ``lens_offer`` is set when they differ and the
-    "Apply {lens} suggestions" offer has not been dismissed. ``landing`` is the view the
+    is in effect (null when none). ``lens_offer`` is set when the lens has changed since
+    the project was first resolved (or last had a seed applied), even if that earlier
+    lens's seed came out empty, and the "Apply {lens} suggestions" offer has not been
+    dismissed. ``landing`` is the view the
     current lens opens on for this methodology, or null when it is hidden.
     """
 

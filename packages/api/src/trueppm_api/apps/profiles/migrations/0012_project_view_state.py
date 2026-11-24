@@ -39,7 +39,7 @@ class Migration(migrations.Migration):
                     "seeded_lens",
                     models.CharField(
                         blank=True,
-                        help_text="The lens the seed used, or empty when nothing was seeded.",
+                        help_text="The lens the row was resolved under; empty until first resolved.",
                         max_length=20,
                         default="",
                     ),

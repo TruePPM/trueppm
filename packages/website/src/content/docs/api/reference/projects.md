@@ -358,6 +358,12 @@ Each view's `source` says why it has its visibility:
 | `user` | You hid or showed it yourself (`at` is when) |
 | `default` | Shown, with no rule applied |
 
+`seeded_lens` is the lens whose suggestions are in effect, or `null` when none
+are (for example a `pm` lens on a Waterfall project, where the methodology already
+hides what `pm` would). `lens_offer` names your current lens only after it has
+changed since the project was first opened or since suggestions were last applied,
+and it clears when you apply or dismiss it, including an apply that changes nothing.
+
 `binding` is `enforced` only for `capability`: the web shows the area as off and
 asks you to contact an admin. Every other hidden view is `advisory` and still opens
 from **More** and by URL. Neither value is authorization; never read
