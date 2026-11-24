@@ -30,8 +30,14 @@ FACET_FIELDS = ("is_scrum_master", "is_product_owner")
 _NO_FACETS = {"is_scrum_master": False, "is_product_owner": False}
 
 
-def live_project_membership_exists() -> Exists:
+def live_project_membership_exists(*, live_project_only: bool = True) -> Exists:
     """``Exists`` subquery: the ``TeamMembership`` row's user still has live project access.
+
+    ``live_project_only`` (default True) also requires the project itself not be in
+    Trash (#4599): trashing soft-deletes only the ``Project``, so without it a trashed
+    project's Scrum Master / Product Owner still resolves as a live facet holder and
+    keeps receiving impediment and sprint-lead notices. The team roster views pass
+    ``False`` because they read a team's own rows, not a recipient set.
 
     Correlated on ``team__project_id`` rather than on a caller-supplied project id so
     the predicate stays correct if an outer queryset is ever widened to
@@ -51,9 +57,11 @@ def live_project_membership_exists() -> Exists:
     cascade could travel), so the roster read must not restate the predicate.
     """
     return Exists(
+        # project-axis-ok: the project floor is applied by the ``live_project_only`` kwarg below
         ProjectMembership.live().filter(
             project_id=OuterRef("team__project_id"),
             user_id=OuterRef("user_id"),
+            **({"project__is_deleted": False} if live_project_only else {}),
         )
     )
 
@@ -363,6 +371,10 @@ def facet_holder_user_ids(
                     project_id=OuterRef("team__project_id"),
                     user_id=OuterRef("user_id"),
                     is_deleted=False,
+                    # Trashing soft-deletes only the Project, so the membership rows
+                    # stay live; without this a trashed project's SM/PO still receives
+                    # impediment and sprint-lead notices (#4599).
+                    project__is_deleted=False,
                 )
             )
         )

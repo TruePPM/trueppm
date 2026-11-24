@@ -39,17 +39,29 @@ The membership floor above says the *row* is live. It says nothing about the *pr
 trashing a project soft-deletes the ``Project`` and leaves every membership row intact,
 so a membership read keyed on ``project_id`` still answers for a trashed project and a
 notification, digest or @-group expansion fans out to its members. #4577 hand-swept the
-axis; ~90 reads still omitted it. The second rule therefore requires a read through
+axis; when this rule landed, most ProjectMembership reads still omitted it (see the totals
+the gate prints and docs/harness/membership-live-floor.md for the measured counts). The second rule therefore requires a read through
 ``ProjectMembership`` to carry a ``project__is_deleted`` term in a ``filter``/``exclude``/
 ``get`` (``Q()`` counts), unless the module is in PROJECT_AXIS_ALLOWLIST (reads that must
-see a trashed project, with the reason) or the site is counted in
+see a trashed project, with the reason), the site carries ``# project-axis-ok: <reason>``
+on its own line or the line above (the reason is required), or the site is counted in
 ``packages/api/membership-project-floor-baseline.txt``.
 
-The baseline is a per-module ratchet: a count that rose, or a module not listed, fails;
-a count that fell also fails until ``--update-baseline`` locks the fix in, so a fixed site
-cannot be silently reused by a new violation. ``--update-baseline`` refuses to raise a
-count or add a module. A baselined site is *not* an audited-safe one: most sit behind a
-permission class or an already-floored project fetch, which this AST cannot see.
+The baseline is a per-module ratchet with two checks. Against the source: a count that
+rose, or a module not listed, fails, and a count that fell also fails until
+``--update-baseline`` locks the fix in, so a fixed site cannot be silently reused by a new
+violation. Against the merge-base copy of the file (``git show <merge-base>:<path>``): a
+count that is higher than at the base, or a new module, fails unless a reasoned
+``# raise-ok: <reason>`` sits on the line above the entry (honored only while new relative to
+the base; a self-grant that a reviewer reads in the diff). Where the file does not exist at the
+merge base (the change that creates it) or the run is on ``main``, there is nothing to compare
+against and that check is skipped with a printed note. ``--update-baseline`` refuses to raise a
+count or add a module, and refuses outright when the file is missing or empty. A baselined site
+is *not* an audited-safe one: most sit behind a permission class or an already-floored project
+fetch, which this AST cannot see. The gate checks that a ``project__is_deleted`` term is
+present, not its value, so a trash-listing read written ``project__is_deleted=True`` satisfies it.
+It reads only ``ProjectMembership``: ``ProgramMembership`` is not checked against
+``program__is_deleted`` and ``TeamMembership`` is not checked on the project axis.
 
 ## Why AST and not grep, and why scope-inverted
 
@@ -169,18 +181,31 @@ PROJECT_AXIS_ALLOWLIST: dict[str, str] = {
         "trashed one, so removal stays a role comparison rather than an unconditional pass"
     ),
     "trueppm_api/apps/webhooks/dispatch.py": (
-        "delivers the project's own trash/restore events, whose registrants must still "
-        "resolve against the project that was just trashed"
+        "``_drop_webhooks_without_live_member_owner`` gates the delivery of EVERY event the "
+        "project fires, not only trash/restore: a project-floored read would drop the "
+        "trash event itself (its registrants must still resolve against the project that "
+        "was just trashed) and any event emitted while the project sits in Trash. "
+        "Accepted limit: a registrant who was still Admin+ keeps receiving events fired on "
+        "a trashed project until it is hard-deleted"
     ),
     "trueppm_api/apps/sync/views.py": (
         "the sync delta ships tombstones by protocol; a project-floored stream would leave "
         "a trashed project's membership rows on the device forever"
     ),
     "trueppm_api/apps/access/signals.py": (
-        "the pre_save receiver reads the prior row by pk to detect the revocation "
-        "transition, which is independent of the project's state"
+        "two reads. The pre_save receiver reads the PRIOR row by pk to detect the "
+        "revocation transition, which is independent of the project's state. "
+        "`evict_all_live_project_sockets` lists every project the user holds a live "
+        "membership in so each socket is closed on account deactivation or password "
+        "reset; it must include trashed projects, because a socket opened before the "
+        "project was trashed is still connected and a floored list would leave it open"
     ),
 }
+
+# Per-site opt-out for the project-axis rule: `# project-axis-ok: <reason>` on the read's
+# own line or the line directly above. The reason is required; a bare marker is ignored.
+PROJECT_AXIS_OK = "# project-axis-ok:"
+RAISE_OK = "# raise-ok:"
 
 
 def _chain(node: ast.AST) -> list[tuple[str, ast.Call | None]]:
@@ -333,18 +358,41 @@ def _is_project_membership_root(node: ast.AST) -> bool:
     return name == "ProjectMembership"
 
 
-def scan_project_axis(path: Path) -> list[tuple[int, str]]:
-    """Return [(lineno, source)] for every ProjectMembership read lacking a project floor."""
+def _opted_out(lines: list[str], lineno: int) -> bool:
+    """True if the read at ``lineno`` carries a reasoned ``# project-axis-ok:`` marker.
+
+    The marker sits on the read's own line or the line directly above it. A marker with
+    no reason is ignored, so the read still counts and the gate still fails on it.
+    """
+    for idx in (lineno - 1, lineno - 2):
+        if 0 <= idx < len(lines):
+            text = lines[idx]
+            pos = text.find(PROJECT_AXIS_OK)
+            if pos != -1 and text[pos + len(PROJECT_AXIS_OK) :].strip():
+                return True
+    return False
+
+
+def scan_project_axis_detail(path: Path) -> tuple[list[tuple[int, str]], int, int]:
+    """``(hits, opted_out, floored)`` for every ProjectMembership read in the file.
+
+    ``hits`` are reads lacking a project floor and lacking an opt-out. The gate checks that
+    a ``project__is_deleted`` TERM is present, not what it asks for: a trash-listing read
+    written ``project__is_deleted=True`` satisfies it, which is intended there.
+    """
     try:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source)
     except (SyntaxError, UnicodeDecodeError):
-        return []
+        return [], 0, 0
+    lines = source.splitlines()
     parents: dict[int, ast.AST] = {}
     for parent in ast.walk(tree):
         for child in ast.iter_child_nodes(parent):
             parents[id(child)] = parent
     seen: set[int] = set()
     hits: list[tuple[int, str]] = []
+    opted_out = floored = 0
     for node in ast.walk(tree):
         if not _is_project_membership_root(node):
             continue
@@ -362,26 +410,113 @@ def scan_project_axis(path: Path) -> list[tuple[int, str]]:
             and _mentions_project_floor(call)
             for name, call in steps
         ):
+            floored += 1
+            continue
+        lineno = getattr(node, "lineno", 0)
+        if _opted_out(lines, lineno):
+            opted_out += 1
             continue
         src = " ".join(ast.unparse(top).split())
-        hits.append(
-            (getattr(node, "lineno", 0), src[:117] + "..." if len(src) > 120 else src)
-        )
-    return hits
+        hits.append((lineno, src[:117] + "..." if len(src) > 120 else src))
+    return hits, opted_out, floored
 
 
-def read_baseline(path: Path) -> dict[str, int]:
-    """Parse ``<module> <count>  # reason`` lines; blank and ``#`` lines are ignored."""
+def scan_project_axis(path: Path) -> list[tuple[int, str]]:
+    """Return [(lineno, source)] for every ProjectMembership read lacking a project floor."""
+    return scan_project_axis_detail(path)[0]
+
+
+def parse_baseline(text: str) -> dict[str, int]:
+    """Parse ``<module> <count>`` lines; blank and ``#`` lines are ignored."""
     out: dict[str, int] = {}
-    if not path.is_file():
-        return out
-    for raw in path.read_text(encoding="utf-8").splitlines():
+    for raw in text.splitlines():
         line = raw.split("#", 1)[0].strip()
         if not line:
             continue
         rel, _, count = line.rpartition(" ")
         out[rel.strip()] = int(count)
     return out
+
+
+def read_baseline(path: Path) -> dict[str, int]:
+    return parse_baseline(path.read_text(encoding="utf-8")) if path.is_file() else {}
+
+
+def raise_marks(text: str) -> dict[str, str]:
+    """``{module: reason}`` for entries with a reasoned ``# raise-ok:`` directly above them."""
+    marks: dict[str, str] = {}
+    prev = ""
+    for raw in text.splitlines():
+        line = raw.strip()
+        if (
+            line
+            and not line.startswith("#")
+            and prev.startswith(RAISE_OK)
+            and prev[len(RAISE_OK) :].strip()
+        ):
+            marks[line.rpartition(" ")[0].strip()] = prev[len(RAISE_OK) :].strip()
+        prev = line
+    return marks
+
+
+def baseline_raised(now_text: str, base_text: str | None) -> list[str]:
+    """Errors for entries raised (count up, or new module) versus the merge-base copy.
+
+    ``None`` means there is no base copy to ratchet against. A ``# raise-ok: <reason>``
+    marker is honored only while new relative to the base copy: one already at the base was
+    spent by the change that added it. It is a self-grant in the file it guards, so a
+    reviewer has to read it in the diff.
+    """
+    if base_text is None:
+        return []
+    now, base = parse_baseline(now_text), parse_baseline(base_text)
+    marks, base_marks = raise_marks(now_text), raise_marks(base_text)
+    errors = []
+    for rel, count in sorted(now.items()):
+        was = base.get(rel, 0)
+        if count > was and (rel not in marks or rel in base_marks):
+            errors.append(
+                f"baseline raised: {rel} {was} -> {count} versus the merge base. The baseline "
+                f"can only shrink; a deliberate raise needs a new '{RAISE_OK} <reason>' on the "
+                "line above the entry (reviewed in the diff). Otherwise floor the read."
+            )
+    return errors
+
+
+def _git(*args: str) -> tuple[int, str]:
+    r = subprocess.run(["git", *args], capture_output=True, text=True)
+    return r.returncode, r.stdout
+
+
+def base_baseline_text(path: str) -> tuple[str | None, str]:
+    """``(text, note)``: the baseline as committed at the merge base with ``origin/main``.
+
+    ``text`` is ``None`` when there is nothing to ratchet against, and ``note`` says why:
+    on ``main`` / no ``origin/main`` (merge base is HEAD or absent), or the file does not
+    exist at the merge base (the change that introduces it has no ratchet yet).
+    """
+    rc, mb = _git("merge-base", "HEAD", "origin/main")
+    _, head = _git("rev-parse", "HEAD")
+    if rc != 0 or not mb.strip() or mb.strip() == head.strip():
+        return (
+            None,
+            "no merge base (on main, or no origin/main): baseline-raise check skipped",
+        )
+    ref = mb.strip()
+    rc, listing = _git("ls-tree", ref, "--", path)
+    if rc != 0:
+        return None, f"git ls-tree {ref} failed: baseline-raise check skipped"
+    if not listing.strip():
+        return (
+            None,
+            "baseline absent at the merge base (this change introduces it): no ratchet yet",
+        )
+    rc, text = _git("show", f"{ref}:{path}")
+    return (
+        (text, "")
+        if rc == 0
+        else (None, f"git show {ref}:{path} failed: check skipped")
+    )
 
 
 def evaluate_project_axis(
@@ -457,42 +592,76 @@ def discover(root: Path) -> list[tuple[Path, str]]:
     return files
 
 
-def project_axis_counts(pairs: list[tuple[Path, str]]) -> dict[str, int]:
-    """Unfloored project-axis read count per module (modules with none are omitted)."""
+def project_axis_counts(
+    pairs: list[tuple[Path, str]], totals: dict[str, int] | None = None
+) -> dict[str, int]:
+    """Unfloored project-axis read count per module (modules with none are omitted).
+
+    ``totals``, if given, accumulates ``floored`` and ``opted_out`` across every module.
+    """
     counts: dict[str, int] = {}
     for path, rel in pairs:
-        n = len(scan_project_axis(path))
-        if n:
-            counts[rel] = n
+        hits, opted_out, floored = scan_project_axis_detail(path)
+        if totals is not None:
+            totals["floored"] = totals.get("floored", 0) + floored
+            totals["opted_out"] = totals.get("opted_out", 0) + opted_out
+        if hits:
+            counts[rel] = len(hits)
     return counts
 
 
 def update_baseline(pairs: list[tuple[Path, str]], path: Path) -> int:
-    """Rewrite the baseline to the current counts; refuse to raise or add anything."""
+    """Rewrite the baseline to the current counts; refuse to raise or add anything.
+
+    "Raise" is measured against the committed file AND the merge-base copy, so deleting or
+    emptying the file does not open a way around it: a missing or empty baseline refuses,
+    because every count would then be a raise.
+    """
     counts = {
         rel: n
         for rel, n in project_axis_counts(pairs).items()
         if rel not in PROJECT_AXIS_ALLOWLIST
     }
-    old = read_baseline(path)
-    raised = [r for r, n in counts.items() if n > old.get(r, 0)] if old else []
+    old_text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    base_text, _ = base_baseline_text(BASELINE_PATH)
+    ceilings = [parse_baseline(old_text)]
+    if base_text is not None:
+        ceilings.append(parse_baseline(base_text))
+    raised = sorted(
+        {
+            rel
+            for ceiling in ceilings
+            for rel, n in counts.items()
+            if n > ceiling.get(rel, 0)
+        }
+    )
     if raised:
         print(
             "check-membership-live-floor: refusing to raise the project-axis baseline for: "
-            + ", ".join(sorted(raised)),
+            + ", ".join(raised)
+            + ". Floor the read, or add a reasoned `# raise-ok:` line above the entry by hand.",
             file=sys.stderr,
         )
         return 1
-    lines = [
+    keep = raise_marks(old_text)
+    out_lines = [
         "# Project-axis floor ratchet (#4599): ProjectMembership reads in a module that omit",
-        "# `project__is_deleted`, counted per module. The counts can only shrink:",
-        "# `scripts/check-membership-live-floor.py --update-baseline` refuses to raise one.",
+        "# `project__is_deleted`, counted per module. The gate compares this file with its",
+        "# merge-base copy: a higher count or a new module fails unless a reasoned",
+        "# `# raise-ok: <reason>` sits on the line directly above the entry (honored only while",
+        "# new relative to the base). `--update-baseline` refuses to raise a count and, with the",
+        "# file missing or empty, refuses outright. Where the file does not yet exist at the merge",
+        "# base there is no ratchet to compare against.",
         "# A baselined read is NOT audited safe; most sit behind a permission class or an",
-        "# already-floored project fetch that the AST cannot see. Format: <module> <count>",
+        "# already-floored project fetch that the AST cannot see. Per-site exemptions live in",
+        "# the source as `# project-axis-ok: <reason>`, not here. Format: <module> <count>",
         "",
     ]
-    lines += [f"{rel} {n}" for rel, n in sorted(counts.items())]
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    for rel, n in sorted(counts.items()):
+        if rel in keep:
+            out_lines.append(f"{RAISE_OK} {keep[rel]}")
+        out_lines.append(f"{rel} {n}")
+    path.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
     print(
         f"check-membership-live-floor: baseline written ({sum(counts.values())} reads)."
     )
@@ -514,12 +683,27 @@ def run(pairs: list[tuple[Path, str]], partial: bool = False) -> int:
                 f"check-membership-live-floor: FAIL  {path}:{lineno}  {src}"
             )
 
-    counts = project_axis_counts(pairs)
+    totals: dict[str, int] = {}
+    counts = project_axis_counts(pairs, totals)
     baseline = read_baseline(Path(BASELINE_PATH))
     if partial:
         scanned = {rel for _, rel in pairs}
         baseline = {r: n for r, n in baseline.items() if r in scanned}
     project_problems = evaluate_project_axis(counts, baseline, PROJECT_AXIS_ALLOWLIST)
+    # The ratchet proper: the file against its merge-base copy, so a hand edit that raises
+    # a count cannot launder a new violation by raising the number to match.
+    base_text, base_note = base_baseline_text(BASELINE_PATH)
+    if base_note:
+        print(f"check-membership-live-floor: note: {base_note}")
+    if base_text is not None and Path(BASELINE_PATH).is_file():
+        project_problems += baseline_raised(
+            Path(BASELINE_PATH).read_text(encoding="utf-8"), base_text
+        )
+    allowlisted_axis = sum(
+        len(scan_project_axis(path))
+        for path, rel in pairs
+        if rel in PROJECT_AXIS_ALLOWLIST
+    )
     for line in violations:
         print(line)
     for msg in project_problems:
@@ -527,15 +711,17 @@ def run(pairs: list[tuple[Path, str]], partial: bool = False) -> int:
     print(
         f"check-membership-live-floor: {len(pairs)} files scanned, "
         f"{allowed} allowlisted unfloored reads, {len(violations)} violations; "
-        f"project axis: {sum(counts.values())} baselined/unfloored reads, "
-        f"{len(project_problems)} ratchet failures."
+        f"project axis: {totals.get('floored', 0)} floored, "
+        f"{allowlisted_axis} allowlisted, {totals.get('opted_out', 0)} opted out, "
+        f"{sum(n for r, n in counts.items() if r not in PROJECT_AXIS_ALLOWLIST)} "
+        f"unfloored/baselined, {len(project_problems)} ratchet failures."
     )
     if project_problems and not violations:
         print(
             "\nA ProjectMembership read that omits `project__is_deleted` still answers for a\n"
             "TRASHED project, so notifications, digests and @-group expansion fan out to its\n"
             "members (#4577, #4599). Add `project__is_deleted=False` to the read, or, if the\n"
-            "module must see trashed projects, add it to PROJECT_AXIS_ALLOWLIST with the reason.\n"
+            "read must see a trashed project, mark that site `# project-axis-ok: <reason>`.\n"
             "If the count FELL, run `scripts/check-membership-live-floor.py --update-baseline`."
         )
         return 1
@@ -696,6 +882,27 @@ def self_test() -> int:
                 False,
                 "ProjectMembership.objects.update_or_create(project=p, user=u)\n",
             ),
+            (
+                "project-axis: opt-out with a reason on the line above passes",
+                False,
+                "# project-axis-ok: the Trash list must see trashed projects\n"
+                "ProjectMembership.objects.filter(project_id=p)\n",
+            ),
+            (
+                "project-axis: opt-out with a reason on the same line passes",
+                False,
+                "ProjectMembership.objects.filter(project_id=p)  # project-axis-ok: trash list\n",
+            ),
+            (
+                "project-axis: opt-out WITHOUT a reason still fails",
+                True,
+                "# project-axis-ok:\nProjectMembership.objects.filter(project_id=p)\n",
+            ),
+            (
+                "project-axis: an opt-out two lines away does not apply",
+                True,
+                "# project-axis-ok: stale\nx = 1\nProjectMembership.objects.filter(project_id=p)\n",
+            ),
         ]
         for name, expect_violation, source in project_cases:
             target = root / "trueppm_api/apps/x/project_axis.py"
@@ -724,6 +931,49 @@ def self_test() -> int:
         ]
         for name, expect_violation, counts, baseline in ratchet_cases:
             caught = bool(evaluate_project_axis(counts, baseline, allow))
+            if caught == expect_violation:
+                print(f"SELF-TEST OK: {name}.")
+            else:
+                print(f"SELF-TEST FAILED: {name}.", file=sys.stderr)
+                rc = 1
+
+        raise_cases: list[tuple[str, bool, str, str | None]] = [
+            (
+                "raise: a higher count versus the base fails",
+                True,
+                "a.py 2\n",
+                "a.py 1\n",
+            ),
+            (
+                "raise: a new module versus the base fails",
+                True,
+                "a.py 1\nb.py 1\n",
+                "a.py 1\n",
+            ),
+            ("raise: a lower count passes", False, "a.py 1\n", "a.py 2\n"),
+            ("raise: an equal count passes", False, "a.py 2\n", "a.py 2\n"),
+            ("raise: no base copy means no ratchet", False, "a.py 9\n", None),
+            (
+                "raise: a new reasoned raise-ok is honored",
+                False,
+                "# raise-ok: audited\na.py 2\n",
+                "a.py 1\n",
+            ),
+            (
+                "raise: a reasonless raise-ok is not",
+                True,
+                "# raise-ok:\na.py 2\n",
+                "a.py 1\n",
+            ),
+            (
+                "raise: a raise-ok already at the base is spent",
+                True,
+                "# raise-ok: audited\na.py 3\n",
+                "# raise-ok: audited\na.py 2\n",
+            ),
+        ]
+        for name, expect_violation, now_text, base_text in raise_cases:
+            caught = bool(baseline_raised(now_text, base_text))
             if caught == expect_violation:
                 print(f"SELF-TEST OK: {name}.")
             else:

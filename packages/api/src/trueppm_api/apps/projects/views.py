@@ -2815,6 +2815,7 @@ class ProjectViewSet(
         user = self.request.user
         if user is None or not user.is_authenticated:
             return Project.objects.none()
+        # project-axis-ok: the Trash list must see trashed projects (selected below)
         member_ids = ProjectMembership.objects.filter(user=user, is_deleted=False).values_list(
             "project_id", flat=True
         )
@@ -2875,6 +2876,7 @@ class ProjectViewSet(
         # Caller's role per project in one query (no N+1) so the web can gate Restore.
         role_by_project = {
             pid: role
+            # project-axis-ok: Restore needs the caller's role on trashed projects
             for pid, role in ProjectMembership.objects.filter(
                 user=request.user.pk, is_deleted=False, project__in=projects
             ).values_list("project_id", "role")

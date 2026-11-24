@@ -1,8 +1,13 @@
 # Project-axis floor ratchet (#4599): ProjectMembership reads in a module that omit
-# `project__is_deleted`, counted per module. The counts can only shrink:
-# `scripts/check-membership-live-floor.py --update-baseline` refuses to raise one.
+# `project__is_deleted`, counted per module. The gate compares this file with its
+# merge-base copy: a higher count or a new module fails unless a reasoned
+# `# raise-ok: <reason>` sits on the line directly above the entry (honored only while
+# new relative to the base). `--update-baseline` refuses to raise a count and, with the
+# file missing or empty, refuses outright. Where the file does not yet exist at the merge
+# base there is no ratchet to compare against.
 # A baselined read is NOT audited safe; most sit behind a permission class or an
-# already-floored project fetch that the AST cannot see. Format: <module> <count>
+# already-floored project fetch that the AST cannot see. Per-site exemptions live in
+# the source as `# project-axis-ok: <reason>`, not here. Format: <module> <count>
 
 trueppm_api/apps/access/management/commands/revoke_api_tokens.py 1
 trueppm_api/apps/access/permissions.py 1
@@ -16,7 +21,5 @@ trueppm_api/apps/projects/program_label_views.py 1
 trueppm_api/apps/projects/program_views.py 1
 trueppm_api/apps/projects/seed/exporter.py 2
 trueppm_api/apps/projects/serializers.py 1
-trueppm_api/apps/projects/views.py 2
-trueppm_api/apps/teams/services.py 2
 trueppm_api/apps/webhooks/views.py 1
 trueppm_api/apps/workspace/services.py 1
