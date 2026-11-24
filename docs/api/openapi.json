@@ -61356,7 +61356,7 @@
                 "description": "``POST …/views/apply-seed/``: preview (``dry_run``, the default) or apply.",
                 "properties": {
                     "lens": {
-                        "$ref": "#/components/schemas/LensOfferDismissedEnum"
+                        "$ref": "#/components/schemas/RoleContextEnum"
                     },
                     "dry_run": {
                         "type": "boolean",
@@ -66867,16 +66867,6 @@
                 "description": "* `automation_disabled` - automation_disabled\n* `no_secret` - no_secret\n* `unknown_provider` - unknown_provider\n* `secret_unreadable` - secret_unreadable\n* `bad_signature` - bad_signature\n* `project_archived` - project_archived",
                 "x-trueppm-enum": "open"
             },
-            "LensOfferDismissedEnum": {
-                "enum": [
-                    "pm",
-                    "scrum_master",
-                    "unified"
-                ],
-                "type": "string",
-                "description": "* `pm` - PM\n* `scrum_master` - Scrum Master\n* `unified` - Unified Today",
-                "x-trueppm-enum": "open"
-            },
             "LifecycleEnum": {
                 "enum": [
                     "draft",
@@ -67032,7 +67022,7 @@
                     "role_context": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/LensOfferDismissedEnum"
+                                "$ref": "#/components/schemas/RoleContextEnum"
                             }
                         ],
                         "readOnly": true
@@ -72669,7 +72659,7 @@
                         "type": "boolean"
                     },
                     "lens_offer_dismissed": {
-                        "$ref": "#/components/schemas/LensOfferDismissedEnum"
+                        "$ref": "#/components/schemas/RoleContextEnum"
                     },
                     "clear_seed": {
                         "type": "boolean"
@@ -73527,7 +73517,7 @@
                     "role_context": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/LensOfferDismissedEnum"
+                                "$ref": "#/components/schemas/RoleContextEnum"
                             }
                         ],
                         "description": "Active role-context view: PM, Scrum Master, or Unified Today (#412).\n\n* `pm` - PM\n* `scrum_master` - Scrum Master\n* `unified` - Unified Today"
@@ -83612,6 +83602,16 @@
                 "description": "* `OPEN` - Open\n* `MITIGATING` - Mitigating\n* `RESOLVED` - Resolved\n* `ACCEPTED` - Accepted\n* `CLOSED` - Closed",
                 "x-trueppm-enum": "open"
             },
+            "RoleContextEnum": {
+                "enum": [
+                    "pm",
+                    "scrum_master",
+                    "unified"
+                ],
+                "type": "string",
+                "description": "* `pm` - PM\n* `scrum_master` - Scrum Master\n* `unified` - Unified Today",
+                "x-trueppm-enum": "open"
+            },
             "RoleF2cEnum": {
                 "enum": [
                     "project",
@@ -93608,7 +93608,7 @@
                     "role_context": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/LensOfferDismissedEnum"
+                                "$ref": "#/components/schemas/RoleContextEnum"
                             }
                         ],
                         "description": "Active role-context view: PM, Scrum Master, or Unified Today (#412).\n\n* `pm` - PM\n* `scrum_master` - Scrum Master\n* `unified` - Unified Today"

@@ -1002,7 +1002,10 @@ def update_view_state_flags(
             state.lens_offer_dismissed_for = lens_offer_dismissed
             fields.append("lens_offer_dismissed_for")
         if last_layouts is not None:
-            state.last_layouts = {**(state.last_layouts or {}), **last_layouts}
+            # Bounded across requests, not only per request: each PATCH may add keys, so
+            # keep the most recent 16 rather than let the JSON grow without limit.
+            merged = {**(state.last_layouts or {}), **last_layouts}
+            state.last_layouts = dict(list(merged.items())[-16:])
             fields.append("last_layouts")
         state.save(update_fields=fields)
 

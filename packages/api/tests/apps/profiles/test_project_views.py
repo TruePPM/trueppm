@@ -351,3 +351,14 @@ def test_hidden_views_backfill_copies_user_hides_per_membership(cal: Calendar) -
     assert views["risk"]["source"] == "user" and not views["risk"]["visible"]
     # Nothing re-seeded on top: pm would hide product-backlog.
     assert views["product-backlog"]["visible"] is True
+
+
+def test_last_layouts_stay_bounded_across_requests(cal: Calendar) -> None:
+    p = _project(cal)
+    user = _member(p)
+    c = _client(user)
+    for batch in range(5):
+        body = {"last_layouts": {f"t{batch}-{i}": "grid" for i in range(8)}}
+        assert c.patch(_url(p), body, format="json").status_code == 200
+    layouts = ProjectViewState.objects.get(user=user, project=p).last_layouts
+    assert len(layouts) == 16 and "t4-7" in layouts and "t0-0" not in layouts

@@ -188,6 +188,7 @@ the envelope uses; every other field key is unambiguous.
 | `base_url_not_allowed` | The supplied integration base URL is not permitted | — |
 | `invalid_token` | The password-reset uid+token pair is bad, unknown, or expired | — |
 | `weak_password` | The new password failed validation | `messages` |
+| `last_plan_layout` | Ships in 0.5. A write to `/api/v1/projects/{id}/views/` (hiding a view, `apply-seed/` or `reset/`) would leave the Plan tab with no layout. Nothing was saved; show another Plan layout first | — |
 | `pin_limit_reached` | Pinning this project/program would exceed the account's configured pin cap | — |
 | `invalid_graph_input` | The submitted dependency graph is malformed and cannot be interpreted | — |
 | `self_reference` | A task in the graph depends on itself. Restoring a task from the trash (`POST /tasks/{id}/restore/`) or a whole project (`POST /projects/{id}/restore/`) also returns it, in 400 form, when the restored rows would link a summary to its own subtask (ships in 0.5) | `offending` |
