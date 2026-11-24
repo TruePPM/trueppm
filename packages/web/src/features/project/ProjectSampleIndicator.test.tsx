@@ -58,6 +58,7 @@ describe('ProjectSampleIndicator', () => {
     renderIndicator();
     expect(screen.getByText(/Demo project/)).toBeInTheDocument();
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
+    expect(screen.queryByText(/out of date/)).not.toBeInTheDocument();
   });
 
   it('renders nothing at all in the read-only interactive demo (#4049, #4050 A1)', () => {
@@ -112,14 +113,14 @@ describe('ProjectSampleIndicator', () => {
       expect(screen.getByText(/Demo project/)).toBeInTheDocument();
     });
 
-    it('stays silent for a null anchor (pre-#3481 server) and for an absent field', () => {
+    it('says the dates may be out of date for a null anchor (legacy sample, #3875)', () => {
       withStale(null);
-      expect(screen.queryByText(/out of date/)).not.toBeInTheDocument();
+      expect(screen.getByText(/dates may be out of date/)).toBeInTheDocument();
     });
 
-    it('stays silent when the field is absent from the payload', () => {
+    it('shows the same cue when the field is absent from the payload', () => {
       withStale(undefined);
-      expect(screen.queryByText(/out of date/)).not.toBeInTheDocument();
+      expect(screen.getByText(/dates may be out of date/)).toBeInTheDocument();
     });
 
     it('still offers the manage link next to the notice (notice here, act there)', () => {

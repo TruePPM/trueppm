@@ -96,7 +96,10 @@ Schedules recalculate in the background afterwards, so the Schedule view shows
 its *Recalculating…* badge for a few seconds.
 
 A demo loaded before this feature shipped has no recorded anchor and cannot be
-shifted; the banner says so and points you at remove-and-reload instead.
+shifted; the banner says so and points you at remove-and-reload instead. Every
+viewer sees that notice, not only the owner. Viewers who are not the program
+owner also see the owner's name, since only an owner can shift or remove a
+sample.
 
 Operators automating a long-lived demo instance can do the same thing from the
 command line:

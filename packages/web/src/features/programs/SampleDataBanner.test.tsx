@@ -16,15 +16,17 @@ vi.mock('@/hooks/useProgramSeedIo', () => ({
 interface Options {
   canRemove?: boolean;
   sampleDaysStale?: number | null;
+  ownerNames?: string[];
 }
 
-function renderBanner({ canRemove = true, sampleDaysStale = 0 }: Options = {}) {
+function renderBanner({ canRemove = true, sampleDaysStale = 0, ownerNames }: Options = {}) {
   return render(
     <MemoryRouter>
       <SampleDataBanner
         programId="prog-1"
         canRemove={canRemove}
         sampleDaysStale={sampleDaysStale}
+        ownerNames={ownerNames}
       />
     </MemoryRouter>,
   );
@@ -180,5 +182,39 @@ describe('SampleDataBanner — date drift (#3481)', () => {
     expect(
       screen.queryByText(/remove and reload it to get current dates/i),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe('SampleDataBanner — legacy sample with no anchor and owner path (#3875)', () => {
+  it.each([true, false])(
+    'shows a neutral staleness notice, not the promise (canRemove=%s)',
+    (canRemove) => {
+      renderBanner({ canRemove, sampleDaysStale: null });
+      expect(screen.getByText(/dates may be out of date/i)).toBeInTheDocument();
+      expect(screen.queryByText(/render out of the box/i)).not.toBeInTheDocument();
+      expect(screen.getByText(/loaded before this version/i)).toBeInTheDocument();
+    },
+  );
+
+  it('tells a non-owner to ask an owner, and names them', () => {
+    renderBanner({ canRemove: false, sampleDaysStale: null, ownerNames: ['alice', 'bob'] });
+    expect(screen.getByText(/ask a program owner/i)).toBeInTheDocument();
+    expect(screen.getByText('alice, bob')).toBeInTheDocument();
+  });
+
+  it('names the owner to a non-owner viewing a stale sample', () => {
+    renderBanner({ canRemove: false, sampleDaysStale: 47, ownerNames: ['alice'] });
+    expect(screen.getByText(/program owner:/i)).toBeInTheDocument();
+    expect(screen.getByText('alice')).toBeInTheDocument();
+  });
+
+  it('does not name owners to the owner', () => {
+    renderBanner({ canRemove: true, sampleDaysStale: 47, ownerNames: ['alice'] });
+    expect(screen.queryByText(/program owner/i)).not.toBeInTheDocument();
+  });
+
+  it('does not name owners on a current demo', () => {
+    renderBanner({ canRemove: false, sampleDaysStale: 0, ownerNames: ['alice'] });
+    expect(screen.queryByText('alice')).not.toBeInTheDocument();
   });
 });
