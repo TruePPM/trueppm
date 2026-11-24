@@ -23,7 +23,6 @@ import { useProjectViews } from '@/hooks/useProjectViews';
 import { resolveContextTabs, type ContextTabsModel } from './contextTabs';
 import { ViewsRow3, lensLabel } from './ViewsRow3';
 import { CustomizeViewsDialog } from './CustomizeViewsDialog';
-import { useWorkspaceSettings } from '@/features/settings/hooks/useWorkspaceSettings';
 
 const PROGRAM_VIEW_LABEL: Record<string, string> = {
   overview: 'Overview',
@@ -385,7 +384,6 @@ function ProjectContextHeader({ projectId }: { projectId: string }) {
   // On error it fails open to the unseeded composition below, and nothing is saved.
   const viewSet = useProjectViews(projectId);
   const [customizing, setCustomizing] = useState(false);
-  const { data: workspace } = useWorkspaceSettings();
   if (unavailable || !project) return null;
   const basePath = projectPath(project);
   const activeView = segmentAfterRef(pathname, 'project') ?? 'overview';
@@ -451,7 +449,6 @@ function ProjectContextHeader({ projectId }: { projectId: string }) {
         <CustomizeViewsDialog
           projectId={projectId}
           projectName={project.name}
-          workspaceName={workspace?.name}
           viewSet={viewSet.data}
           labelFor={labelFor}
           onClose={() => setCustomizing(false)}

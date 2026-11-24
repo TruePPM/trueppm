@@ -17,6 +17,9 @@ vi.mock('@/hooks/useProjectViews', async (orig) => ({
   useResetProjectViews: () => ({ mutate: reset, isPending: false, error: null, isError: false }),
 }));
 vi.mock('@/lib/featureFlags', () => ({ useFeatureFlag: () => true }));
+vi.mock('@/features/settings/hooks/useWorkspaceSettings', () => ({
+  useWorkspaceSettings: () => ({ data: { name: 'Northwind' } }),
+}));
 vi.mock('@/hooks/useUserDateFormat', () => ({
   useUserDateFormat: () => ({ formatInstantDate: () => 'Nov 12' }),
 }));
@@ -65,7 +68,6 @@ function renderDialog(onClose = vi.fn()) {
     <CustomizeViewsDialog
       projectId="p"
       projectName="Atlas Migration"
-      workspaceName="Northwind"
       viewSet={SET}
       labelFor={label}
       onClose={onClose}

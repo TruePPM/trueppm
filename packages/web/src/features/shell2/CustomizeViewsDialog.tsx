@@ -7,6 +7,7 @@ import {
   useUpdateProjectViews,
   viewsErrorDetail,
 } from '@/hooks/useProjectViews';
+import { useWorkspaceSettings } from '@/features/settings/hooks/useWorkspaceSettings';
 import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 import { lensLabel } from './ViewsRow3';
 
@@ -19,7 +20,6 @@ const BTN =
 interface Props {
   projectId: string;
   projectName: string;
-  workspaceName: string | undefined;
   viewSet: ProjectViewSet;
   labelFor: (view: string) => string;
   onClose: () => void;
@@ -79,7 +79,6 @@ export function buildRows(
 export function CustomizeViewsDialog({
   projectId,
   projectName,
-  workspaceName,
   viewSet,
   labelFor,
   onClose,
@@ -89,6 +88,8 @@ export function CustomizeViewsDialog({
   const dialogRef = useRef<HTMLDivElement>(null);
   const update = useUpdateProjectViews(projectId);
   const reset = useResetProjectViews(projectId);
+  // Read only when the dialog opens, so the header costs no extra request.
+  const workspaceName = useWorkspaceSettings().data?.name;
   const { formatInstantDate } = useUserDateFormat();
   const rows = buildRows(viewSet, labelFor, workspaceName, (iso) =>
     formatInstantDate(iso, 'short'),
