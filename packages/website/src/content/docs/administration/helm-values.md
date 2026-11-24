@@ -287,6 +287,13 @@ therefore renders a second Ingress, `<release>-git-webhook`, scoped to
 path for installs that route everything through it. Both real providers send
 far less than 1 MB.
 
+Only the git-webhook path gets this 1 MiB edge limit, and only in the Helm chart;
+the Compose and bare-metal nginx configs keep the 2 MB default tier for that path.
+Other unauthenticated routes (login, password reset, SSO, invite and share links)
+still inherit the Ingress `proxy-body-size` default. On the default topology the
+application's 2 MiB middleware is the only other limit on them, and it runs after
+the body has been received.
+
 The path contains a project id, so the second Ingress sets
 `nginx.ingress.kubernetes.io/use-regex: "true"`. ingress-nginx then treats every
 path on that host as a regular expression; the plain prefixes in `ingress.hosts`
