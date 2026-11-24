@@ -130,12 +130,24 @@ the matrix shows the same list under each area's name:
 |---|---|
 | Schedule & tasks | Projects, programs, tasks, phases, sprints, risks, labels, custom fields, acceptance criteria, history, status updates, forecasts, Monte Carlo, My Work and search. Task-level summaries such as a task's predecessor count and readiness belong here. |
 | Dependencies | Dependency links between tasks, the schedule's driving chain, and the derivation that explains a computed date. |
-| Resources | Project cost and rates, utilization, resource allocation, the resource heat map and resource summary. A task read still works, but leaves out the task's resource assignments and its overallocation flags. |
+| Resources | Project cost and rates, utilization, resource allocation, the resource heat map and resource summary, and a program's resource contention view. A task read still works, but leaves out the task's resource assignments and its overallocation flags. |
 | Baselines | Baselines and their task snapshots. |
 
-A refused read is answered with the area's name, never with the data. The resource
-list endpoints themselves are not on the agent read surface at all, so no agent can
-read them whatever its scope.
+The project and program JSON exports, and the download of a finished export bundle,
+carry every area's data in one response, so an agent needs **Read** on all four
+areas to use them. Without one, the export is refused and the refusal names the
+first area missing.
+
+A call refused for scope is answered with the area's name, not the data. The table
+lists the endpoints each area refuses; it does not yet cover every field that carries
+an area's data inside another read. A few such fields are still served under
+Schedule & tasks to an agent that has **Read** there: the baseline fields on a task,
+dependency edges in task history, a program's schedule links, utilization in a
+project's overview, cost figures in a program's rollup, and sprint member hours.
+Moving them under their own areas is tracked in
+[#5118](https://gitlab.com/trueppm/trueppm/-/issues/5118). The resource list
+endpoints themselves are not on the agent read surface at all, so no agent can read
+them whatever its scope.
 
 An agent can never do more than the person it acts for. The server checks the
 agent's scope against that person's **current** project roles on every call, so

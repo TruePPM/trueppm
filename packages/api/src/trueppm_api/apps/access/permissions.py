@@ -2605,6 +2605,8 @@ class IsNotTokenAuthenticated(BasePermission):
     and the async bundle exports) deliberately remain token-reachable.** That is a
     non-goal of #3847, which ruled only on the workspace export; whether per-project
     exfiltration deserves the same refusal is a separate decision, not an omission here.
+    For a controlled agent they are bounded by ``AgentControlGuard`` instead: an export
+    carries every scope area at once, so it needs ``read`` on all of them (#4814).
     ``destroy`` on the project/program membership viewsets stays token-reachable —
     removing access is the containment direction. ``tests/apps/access/
     token_write_surface.txt`` is the inventory of what remains reachable and this
@@ -2746,8 +2748,9 @@ class AgentControlGuard(BasePermission):
     * **Paused** (``agent_paused``): every call by a paused agent is refused. The
       message is generic on purpose; who paused it is human UI only, because an agent
       may relay what it receives to third parties.
-    * **Out of scope** (``capability_scope``): the view's area
-      (:func:`~trueppm_api.apps.projects.agent_scope.area_for_view`) is not readable
+    * **Out of scope** (``capability_scope``): one of the view's areas
+      (:func:`~trueppm_api.apps.projects.agent_scope.areas_for_view`; the project and
+      program exports need all four) is not readable
       under the agent's *effective* scope — its grant intersected with what its
       principal can do right now. Read per call from the token row the authenticator
       loaded on this request, so there is no cache for a pause, scope edit or revoke
@@ -2769,10 +2772,10 @@ class AgentControlGuard(BasePermission):
             AGENT_PAUSED_CONSTRAINT,
             AGENT_PAUSED_MESSAGE,
             AGENT_SCOPE_MESSAGE,
-            can_read_area,
+            first_unreadable_area,
             is_controlled_agent,
         )
-        from trueppm_api.apps.projects.agent_scope import area_for_view as _area_for_view
+        from trueppm_api.apps.projects.agent_scope import areas_for_view as _areas_for_view
 
         token = getattr(request, "auth", None)
         if not is_controlled_agent(token):
@@ -2781,10 +2784,13 @@ class AgentControlGuard(BasePermission):
             self.message = AGENT_PAUSED_MESSAGE
             _mark_policy_refusal(request, AGENT_PAUSED_CONSTRAINT)
             return False
-        area = _area_for_view(view)
-        if area is None:
+        areas = _areas_for_view(view)
+        if areas is None:
             return True
-        if not can_read_area(token, area):
+        # An export carries every area in one response, so it needs all of them; the
+        # refusal names the first one missing.
+        area = first_unreadable_area(token, areas)
+        if area is not None:
             self.message = AGENT_SCOPE_MESSAGE.format(area=AGENT_AREA_LABELS[area].lower())
             # The literal is RefusalConstraint.CAPABILITY_SCOPE; spelled out so this
             # guard adds no access -> agents import site (app-layering baseline).

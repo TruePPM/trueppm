@@ -17,7 +17,7 @@ import uuid
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from functools import partial
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
@@ -70,6 +70,7 @@ from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 # the module-level import is cycle-safe) and shared so /programs/ matches /projects/
 # on the raised page ceiling (ADR-0401).
 from trueppm_api.apps.profiles.services import annotate_is_pinned
+from trueppm_api.apps.projects.agent_scope import ALL_AREAS
 from trueppm_api.apps.projects.bulk_settings import (
     BulkFieldsRequestSerializer,
     ProgramBulkFieldsSerializer,
@@ -809,6 +810,16 @@ class ProgramViewSet(
     # task_search, resource_contention — which the row filter cannot reach. Each
     # scopes explicitly; see ADR-0678 threat-model finding T1.
     mcp_scope = McpScope.AGGREGATE
+    # Capability scope areas per action (#4814). Resource contention is the program
+    # twin of ``ProjectViewSet.resource_allocation`` (per-resource spans and units), so
+    # it is a Resources read. The JSON export and the bundle download carry every
+    # area's data in one response, so they need all of them. Everything else is
+    # Schedule.
+    agent_action_areas: ClassVar[dict[str, str | tuple[str, ...]]] = {
+        "resource_contention": "resources",
+        "export": ALL_AREAS,
+        "export_job_download": ALL_AREAS,
+    }
 
     # `schedule` runs the deterministic CPM over every member project's merged graph
     # on each read (#2839), so an mcp:read token gets the compute bucket on that

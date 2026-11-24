@@ -228,6 +228,9 @@ function ScopeMatrix({
         Dry run is saved now and takes effect when plan mode ships: the agent will be able to ask
         what a change would do without changing anything. Write ships in 0.6.
       </p>
+      <p className="mt-1 text-xs text-neutral-text-secondary" data-testid="agents-export-note">
+        Project and program exports carry every area, so they need Read on all four.
+      </p>
       {capped && (
         <p className="mt-1 text-xs text-neutral-text-secondary">
           Capped at what {agent.principal.name} can do now: an agent never has more access than the

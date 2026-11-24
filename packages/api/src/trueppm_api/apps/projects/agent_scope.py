@@ -93,12 +93,16 @@ _PROPOSE_FLOOR: dict[str, int] = {
 #: What each area governs on the MCP read surface, in words the Agents page shows next
 #: to the matrix. Kept beside the enforcement so the two change together, and pinned
 #: against the real URL resolver by ``test_every_area_governs_a_routed_mcp_view``.
+#: Each entry names the endpoints the area refuses. The embedded fields listed under
+#: ``schedule`` are the known gaps (#5118); the exports need every area (``ALL_AREAS``).
 AGENT_AREA_COVERS: dict[str, str] = {
     "schedule": (
         "Projects, programs, tasks, phases, sprints, risks, labels, custom fields, "
         "acceptance criteria, history, status updates, forecasts, Monte Carlo, My Work "
         "and search. Task-level summaries such as predecessor counts and readiness stay "
-        "here."
+        "here. A few fields inside these reads still carry another area's data and are "
+        "served here for now: task baseline fields, dependency edges in history, program "
+        "schedule links, overview utilization, program rollup cost and sprint member hours."
     ),
     "dependencies": (
         "Dependency links between tasks, the driving chain, and the derivation that "
@@ -106,8 +110,8 @@ AGENT_AREA_COVERS: dict[str, str] = {
     ),
     "resources": (
         "Project cost and rates, utilization, resource allocation, the resource heat map "
-        "and summary, and the resource assignments and overallocation flags on each task "
-        "(left out of task reads without this area)."
+        "and summary, program resource contention, and the resource assignments and "
+        "overallocation flags on each task (left out of task reads without this area)."
     ),
     "baselines": "Baselines and their task snapshots.",
 }
@@ -121,11 +125,15 @@ RESOURCE_TASK_FIELDS: tuple[str, ...] = (
     "assignee_load_includes_estimate",
 )
 
+#: Every area: the value an ``agent_action_areas`` entry takes for an action whose one
+#: response carries data from all of them (the project and program exports).
+ALL_AREAS: tuple[str, ...] = AGENT_AREAS
+
 # Model names whose reads belong to an area other than the default ``schedule``. Every
-# MCP-readable view resolves to an area through ``agent_action_areas`` (per viewset
-# action), ``agent_area`` (per view), or its queryset model; a view with none of those
-# falls into ``schedule``, the broadest area, so a new view is governed by the scope
-# rather than escaping it.
+# MCP-readable view resolves to its areas through ``agent_action_areas`` (per viewset
+# action, one area or several), ``agent_area`` (per view), or its queryset model; a
+# view with none of those falls into ``schedule``, the broadest area, so a new view is
+# governed by the scope rather than escaping it.
 _MODEL_AREA: dict[str, str] = {
     "Dependency": "dependencies",
     "Resource": "resources",
@@ -256,29 +264,42 @@ def can_read_area(token: ApiToken, area: str) -> bool:
     return level_rank(grant_of(token)[area]) >= level_rank(LEVEL_READ)
 
 
-def area_for_view(view: Any) -> str | None:
-    """The scope area a view's reads fall in, or ``None`` when it reads no project data.
+def areas_for_view(view: Any) -> tuple[str, ...] | None:
+    """The scope areas a view's reads fall in, or ``None`` when it reads no project data.
 
-    A viewset may map individual actions to an area with ``agent_action_areas``
+    A controlled agent needs ``read`` on **every** returned area. Most views resolve to
+    one. A viewset may map individual actions with ``agent_action_areas`` to one area
     (``ProjectViewSet``'s utilization and resource actions are resource reads on a
-    project route), and a view may declare ``agent_area``. Otherwise a view declaring
+    project route) or to several, :data:`ALL_AREAS` for the project and program exports,
+    whose single response carries resources, dependencies, baselines and task
+    assignments together: refusing a ``resources=none`` agent the resource endpoints
+    while serving the same rows in an export would make the toggle a suggestion. A view
+    may also declare ``agent_area``. Otherwise a view declaring
     ``McpScope.NO_PROJECT_DATA`` (the identity echo, the calendar library) has no area;
     anything else resolves through its queryset model, defaulting to ``schedule``.
     """
     by_action = getattr(view, "agent_action_areas", None)
     action = getattr(view, "action", None)
-    if isinstance(by_action, dict) and action in by_action and by_action[action] in AGENT_AREAS:
-        return str(by_action[action])
+    if isinstance(by_action, dict) and action in by_action:
+        mapped = by_action[action]
+        areas = (mapped,) if isinstance(mapped, str) else tuple(mapped)
+        if areas and all(area in AGENT_AREAS for area in areas):
+            return tuple(str(area) for area in areas)
     declared = getattr(view, "agent_area", None)
     if declared in AGENT_AREAS:
-        return str(declared)
+        return (str(declared),)
     if str(getattr(view, "mcp_scope", "") or "") == "none":
         return None
     queryset = getattr(view, "queryset", None)
     model = getattr(queryset, "model", None)
     if model is not None and model.__name__ in _MODEL_AREA:
-        return _MODEL_AREA[model.__name__]
-    return "schedule"
+        return (_MODEL_AREA[model.__name__],)
+    return ("schedule",)
+
+
+def first_unreadable_area(token: ApiToken, areas: tuple[str, ...]) -> str | None:
+    """The first of ``areas`` the agent cannot read, or ``None`` when it reads them all."""
+    return next((area for area in areas if not can_read_area(token, area)), None)
 
 
 def agent_lacks_read(request: Any, area: str) -> bool:

@@ -15,6 +15,7 @@ Folds in the threat-model requirements on #4814:
 from __future__ import annotations
 
 import secrets
+import uuid
 from datetime import date
 from typing import Any
 
@@ -22,7 +23,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
-from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
 from trueppm_api.apps.agents.models import (
     AgentAction,
     AgentActionChainHead,
@@ -313,13 +314,26 @@ def test_area_for_view_mapping() -> None:
         qs = type("QS", (), {"model": model})() if model else None
         return type("V", (), {"queryset": qs, **attrs})()
 
-    assert agent_scope.area_for_view(view("Dependency")) == "dependencies"
-    assert agent_scope.area_for_view(view("TaskResource")) == "resources"
-    assert agent_scope.area_for_view(view("Baseline")) == "baselines"
-    assert agent_scope.area_for_view(view("Task")) == "schedule"
-    assert agent_scope.area_for_view(view(None)) == "schedule"
-    assert agent_scope.area_for_view(view(None, mcp_scope="none")) is None
-    assert agent_scope.area_for_view(view("Task", agent_area="resources")) == "resources"
+    assert agent_scope.areas_for_view(view("Dependency")) == ("dependencies",)
+    assert agent_scope.areas_for_view(view("TaskResource")) == ("resources",)
+    assert agent_scope.areas_for_view(view("Baseline")) == ("baselines",)
+    assert agent_scope.areas_for_view(view("Task")) == ("schedule",)
+    assert agent_scope.areas_for_view(view(None)) == ("schedule",)
+    assert agent_scope.areas_for_view(view(None, mcp_scope="none")) is None
+    assert agent_scope.areas_for_view(view("Task", agent_area="resources")) == ("resources",)
+    by_action = {"export": agent_scope.ALL_AREAS, "contention": "resources"}
+    assert (
+        agent_scope.areas_for_view(view("Task", agent_action_areas=by_action, action="export"))
+        == agent_scope.AGENT_AREAS
+    )
+    assert agent_scope.areas_for_view(
+        view("Task", agent_action_areas=by_action, action="contention")
+    ) == ("resources",)
+    # An unknown area in the map never narrows the check: it falls back to the view.
+    bad = {"export": ("schedule", "nope")}
+    assert agent_scope.areas_for_view(view("Task", agent_action_areas=bad, action="export")) == (
+        "schedule",
+    )
 
 
 def test_agent_paused_constraint_single_source() -> None:
@@ -664,8 +678,7 @@ def _routed_mcp_view_areas() -> dict[str, set[str]]:
                     continue
                 view = cls()
                 view.action = act
-                area = agent_scope.area_for_view(view)
-                if area is not None:
+                for area in agent_scope.areas_for_view(view) or ():
                     out.setdefault(area, set()).add(f"{prefix}{p.pattern} [{act}]")
 
     walk(get_resolver().url_patterns)
@@ -685,6 +698,11 @@ def test_every_area_governs_a_routed_mcp_view() -> None:
     assert "schedule/driving-chain/" in joined["dependencies"]
     assert "schedule/derivation/" in joined["dependencies"]
     assert "baselines/" in joined["baselines"]
+    assert "[resource_contention]" in joined["resources"]
+    # The exports carry every area in one response, so every area governs them.
+    for area in agent_scope.AGENT_AREAS:
+        assert "[export]" in joined[area], area
+        assert "[export_job_download]" in joined[area], area
     assert set(agent_scope.AGENT_AREA_COVERS) == set(agent_scope.AGENT_AREAS)
 
 
@@ -709,6 +727,7 @@ def test_resources_none_refuses_cost_and_resource_reads(world: dict[str, Any]) -
         f"/api/v1/projects/{pk}/resource-allocation/",
         f"/api/v1/projects/{pk}/resources/heatmap/",
         f"/api/v1/projects/{pk}/resources/summary/",
+        f"/api/v1/programs/{world['program'].id}/resource-contention/",
     ):
         refused = agent.get(path)
         assert refused.status_code == 403, path
@@ -850,3 +869,63 @@ def test_audit_verify_miss_is_single_flight(
     finally:
         cache.delete(agent_views.AUDIT_VERIFY_LOCK_KEY)
         cache.delete(agent_views.AUDIT_VERIFY_CACHE_KEY)
+
+
+# ---------------------------------------------------------------------------
+# Exports carry every area at once, so a controlled agent needs read on all four
+# ---------------------------------------------------------------------------
+
+
+def _export_paths(world: dict[str, Any]) -> list[str]:
+    project_id = world["project"].id
+    program_id = world["program"].id
+    job = uuid.uuid4()
+    return [
+        f"/api/v1/projects/{project_id}/export/",
+        f"/api/v1/projects/{project_id}/export/jobs/{job}/download/",
+        f"/api/v1/programs/{program_id}/export/",
+        f"/api/v1/programs/{program_id}/export/jobs/{job}/download/",
+    ]
+
+
+@pytest.fixture
+def export_world(world: dict[str, Any]) -> dict[str, Any]:
+    # Program export is Program Admin+ before the agent guard is consulted.
+    ProgramMembership.objects.create(
+        program=world["program"], user=world["principal"], role=Role.ADMIN
+    )
+    return world
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("missing", ["resources", "dependencies", "baselines"])
+def test_export_refused_without_every_area(export_world: dict[str, Any], missing: str) -> None:
+    _set_scope(export_world, **{missing: "none"})
+    agent = _bearer(export_world["raw"])
+    for path in _export_paths(export_world):
+        refused = agent.get(path)
+        assert refused.status_code == 403, path
+        assert refused.data["refusal"]["constraint"] == RefusalConstraint.CAPABILITY_SCOPE
+        assert missing in str(refused.data["detail"]).lower(), path
+    # The project's Schedule reads stay open: only the all-areas exports close.
+    assert agent.get(_overview(export_world["project"])).status_code == 200
+
+
+@pytest.mark.django_db
+def test_export_served_with_every_area(export_world: dict[str, Any]) -> None:
+    agent = _bearer(export_world["raw"])
+    sync_project, project_dl, sync_program, program_dl = _export_paths(export_world)
+    assert agent.get(sync_project).status_code == 200
+    assert agent.get(sync_program).status_code == 200
+    # Past the guard, an unknown job is the view's own 404 rather than a refusal.
+    assert agent.get(project_dl).status_code == 404
+    assert agent.get(program_dl).status_code == 404
+
+
+@pytest.mark.django_db
+def test_export_unaffected_for_a_person(export_world: dict[str, Any]) -> None:
+    _set_scope(export_world, resources="none", dependencies="none", baselines="none")
+    person = _as(export_world["principal"])
+    sync_project, _, sync_program, _ = _export_paths(export_world)
+    assert person.get(sync_project).status_code == 200
+    assert person.get(sync_program).status_code == 200

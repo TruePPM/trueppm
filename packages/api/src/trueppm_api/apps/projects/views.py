@@ -112,6 +112,7 @@ from trueppm_api.apps.profiles.services import (
     annotate_is_pinned,
     seed_hidden_views_for_first_project,
 )
+from trueppm_api.apps.projects.agent_scope import ALL_AREAS
 from trueppm_api.apps.projects.metric_provenance import (
     BURN_COMBINED_DEFINED,
     BURN_DEFINED,
@@ -1753,12 +1754,16 @@ class ProjectViewSet(
     # self.get_queryset(), so it inherits the same filter rather than needing its own.
     mcp_scope = McpScope.QUERYSET
     # Resource reads on a project route (#4814): governed by the agent's Resources
-    # scope. Every other action on this viewset is Schedule.
-    agent_action_areas: ClassVar[dict[str, str]] = {
+    # scope. The JSON export and the bundle download carry resources, dependencies,
+    # baselines and assignments in one response, so they need every area. Every other
+    # action on this viewset is Schedule.
+    agent_action_areas: ClassVar[dict[str, str | tuple[str, ...]]] = {
         "utilization": "resources",
         "resource_allocation": "resources",
         "heatmap": "resources",
         "resources_summary": "resources",
+        "export": ALL_AREAS,
+        "export_job_download": ALL_AREAS,
     }
 
     # ADR-1434: only the project record itself widens to WORKSPACE visibility.

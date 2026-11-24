@@ -166,6 +166,9 @@ describe('AgentsPage', () => {
     expect(
       screen.getByRole('rowheader', { name: /Resources\s*Project cost and task assignments/ }),
     ).toBeTruthy();
+    expect(screen.getByTestId('agents-export-note').textContent).toMatch(
+      /exports carry every area, so they need Read on all four/,
+    );
   });
 
   it('keeps a stored level above the ceiling and lets the person lower it', () => {
