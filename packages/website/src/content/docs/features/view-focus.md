@@ -65,6 +65,15 @@ tabs:
   where the project will open, and which of your own choices it keeps, before you confirm.
 - **Plan never empties.** You can't hide the last Plan layout, and if your choices would
   leave Plan empty, Schedule stays.
+- **Keep it in your tabs.** Opening a hidden view from **More** doesn't un-hide it. The
+  view opens with a one-line *Keep Schedule in your tabs* offer above it; choose it to
+  bring the view back for this project.
+
+To see and change every view at once, open **More › Customize views…**. *Views in
+{project}* lists one switch per view with the reason for its state: **■ Always on**,
+**Shown**, **◌ Suggested hidden · {focus}**, **⊖ Hidden by you · {date}**, or **⊘ Off in
+{workspace}**. A view that is off for the workspace can't be switched on here; ask a
+workspace admin. **Reset to {focus} suggestions** and **Show all** sit at the bottom.
 
 Each view's state comes from the server, with a reason: always on, methodology, your
 focus's suggestion, your own choice, or turned off for the workspace. The API serves it at

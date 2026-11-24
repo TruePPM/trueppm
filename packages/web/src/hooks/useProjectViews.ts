@@ -73,3 +73,29 @@ export function useApplyLensSeed(projectId: string | undefined) {
     },
   });
 }
+
+/**
+ * `POST …/views/reset/` — restore the current lens's suggestions. Only seed entries are
+ * rewritten; the person's own choices survive. The response is a diff, so the view set
+ * is refetched rather than patched.
+ */
+export function useResetProjectViews(projectId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const res = await apiClient.post<SeedDiff>(`/projects/${projectId}/views/reset/`);
+      return res.data;
+    },
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: projectViewsKey(projectId) }),
+  });
+}
+
+/** The server's refusal copy (`{code, detail}`), or null for any other failure. */
+export function viewsErrorDetail(error: unknown): string | null {
+  const data = (error as { response?: { data?: unknown } } | null)?.response?.data;
+  if (typeof data === 'object' && data !== null && 'detail' in data) {
+    const detail = (data as { detail: unknown }).detail;
+    if (typeof detail === 'string') return detail;
+  }
+  return null;
+}

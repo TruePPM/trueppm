@@ -19,17 +19,20 @@ interface Props {
   projectId: string;
   viewSet: ProjectViewSet;
   labelFor: (view: string) => string;
+  /** The open view, when it is hidden from the tabs but was opened from More or by link. */
+  openHiddenView?: string | null;
 }
 
 /**
- * Row 3 of the project header (Redesign Pass 5 §1): the one-time seed explainer (1A) or,
- * after a lens change, the "Apply {lens} suggestions…" offer and its diff confirm (1C).
+ * Row 3 of the project header (Redesign Pass 5 §1): the one-time seed explainer (1A), the
+ * "Keep {view} in your tabs" offer when a hidden view is open (1B), or, after a lens
+ * change, the "Apply {lens} suggestions…" offer and its diff confirm (1C).
  *
  * Renders only what the server says: `seed_line` and `lens_offer` come from
  * `GET /projects/{id}/views/`, so dismissal survives reloads and devices. The offer
  * outranks the seed line because it is the one case where a banner replaces row 3.
  */
-export function ViewsRow3({ projectId, viewSet, labelFor }: Props) {
+export function ViewsRow3({ projectId, viewSet, labelFor, openHiddenView }: Props) {
   const update = useUpdateProjectViews(projectId);
   const apply = useApplyLensSeed(projectId);
   const [diff, setDiff] = useState<SeedDiff | null>(null);
@@ -69,6 +72,24 @@ export function ViewsRow3({ projectId, viewSet, labelFor }: Props) {
             </button>
           </>
         )}
+      </div>
+    );
+  }
+
+  // 1B §1: opening a hidden view does not un-hide it; row 3 offers to keep it instead.
+  if (openHiddenView) {
+    const label = labelFor(openHiddenView);
+    return (
+      <div className={ROW} data-testid="views-keep-in-tabs">
+        <span>{label} is hidden from your tabs.</span>
+        <button
+          type="button"
+          className={BTN}
+          disabled={update.isPending}
+          onClick={() => update.mutate({ key: openHiddenView, hidden: false })}
+        >
+          Keep {label} in your tabs
+        </button>
       </div>
     );
   }

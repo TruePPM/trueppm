@@ -22,6 +22,8 @@ import { QueryErrorState } from '@/components/QueryErrorState';
 import { useProjectViews } from '@/hooks/useProjectViews';
 import { resolveContextTabs, type ContextTabsModel } from './contextTabs';
 import { ViewsRow3, lensLabel } from './ViewsRow3';
+import { CustomizeViewsDialog } from './CustomizeViewsDialog';
+import { useWorkspaceSettings } from '@/features/settings/hooks/useWorkspaceSettings';
 
 const PROGRAM_VIEW_LABEL: Record<string, string> = {
   overview: 'Overview',
@@ -100,17 +102,26 @@ const TAB =
   'border-b-2 border-transparent -mb-px hover:text-p1-text-1 focus:outline-none focus:ring-2 focus:ring-p1-focus focus:ring-inset ' +
   'aria-[current=page]:border-p1-brand aria-[current=page]:text-p1-text-1 data-[active=true]:border-p1-brand data-[active=true]:text-p1-text-1';
 
-function MoreMenu({ model }: { model: ContextTabsModel }) {
+function MoreMenu({
+  model,
+  onCustomize,
+}: {
+  model: ContextTabsModel;
+  /** Opens "Views in {project}"; absent until the server's view set has answered. */
+  onCustomize?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const menuId = useId();
-  const itemsRef = useRef<Array<HTMLAnchorElement | null>>([]);
+  const itemsRef = useRef<Array<HTMLElement | null>>([]);
   const { triggerRef, popoverRef, popoverStyle } = useAnchoredPopover<
     HTMLButtonElement,
     HTMLDivElement
   >({
     open,
     width: 200,
-    estimatedHeight: 44 * (model.more.length + model.hidden.length + model.off.length) + 72,
+    estimatedHeight:
+      44 * (model.more.length + model.hidden.length + model.off.length + (onCustomize ? 1 : 0)) +
+      72,
     align: 'right',
     onDismiss: () => setOpen(false),
   });
@@ -129,7 +140,7 @@ function MoreMenu({ model }: { model: ContextTabsModel }) {
   };
 
   const onMenuKeyDown = (e: KeyboardEvent) => {
-    const items = itemsRef.current.filter((el): el is HTMLAnchorElement => el !== null);
+    const items = itemsRef.current.filter((el): el is HTMLElement => el !== null);
     const i = items.findIndex((el) => el === document.activeElement);
     if (e.key === 'Escape' || e.key === 'Tab') {
       e.preventDefault();
@@ -149,7 +160,8 @@ function MoreMenu({ model }: { model: ContextTabsModel }) {
     }
   };
 
-  if (model.more.length + model.hidden.length + model.off.length === 0) return null;
+  if (model.more.length + model.hidden.length + model.off.length === 0 && !onCustomize) return null;
+  const offBase = model.more.length + model.hidden.length;
   const item =
     'flex min-h-11 flex-col justify-center rounded-md px-2.5 text-sm text-p1-text-2 no-underline hover:bg-p1-surface-2 hover:text-p1-text-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-p1-focus aria-[current=page]:bg-p1-brand-tint aria-[current=page]:text-p1-text-1';
   const heading = 'px-2.5 pb-0.5 pt-2 text-xs font-semibold text-p1-text-3';
@@ -169,7 +181,10 @@ function MoreMenu({ model }: { model: ContextTabsModel }) {
             setOpen(false);
           } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
             e.preventDefault();
-            if (open) focusItem(e.key === 'ArrowDown' ? 0 : model.more.length - 1);
+            if (open)
+              focusItem(
+                e.key === 'ArrowDown' ? 0 : itemsRef.current.filter((el) => el !== null).length - 1,
+              );
             else openMenu();
           }
         }}
@@ -242,17 +257,44 @@ function MoreMenu({ model }: { model: ContextTabsModel }) {
                 <div id={`${menuId}-off`} className={heading}>
                   Off in this workspace
                 </div>
-                {model.off.map((t) => (
+                {/* Off items stay in the arrow-key order and announce as disabled
+                    (packages/web/CLAUDE.md: never drop an explained-unavailable control
+                    out of keyboard reach), so a keyboard user hears why. */}
+                {model.off.map((t, i) => (
                   <div
                     key={t.view}
+                    ref={(el) => {
+                      itemsRef.current[offBase + i] = el;
+                    }}
                     role="menuitem"
                     aria-disabled="true"
-                    className="flex min-h-11 items-center px-2.5 text-sm text-p1-text-3"
+                    tabIndex={-1}
+                    className="flex min-h-11 items-center rounded-md px-2.5 text-sm text-p1-text-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-p1-focus"
                   >
-                    ⊘ {t.label} is off
+                    <span aria-hidden="true">⊘&nbsp;</span>
+                    {t.label} is off
                   </div>
                 ))}
               </div>
+            )}
+            {onCustomize && (
+              <button
+                type="button"
+                ref={(el) => {
+                  itemsRef.current[offBase + model.off.length] = el;
+                }}
+                role="menuitem"
+                tabIndex={-1}
+                onClick={() => {
+                  setOpen(false);
+                  // The dialog returns focus to whatever held it when it opened.
+                  triggerRef.current?.focus();
+                  onCustomize();
+                }}
+                className={`${item} mt-1 w-full border-t border-p1-hairline text-left`}
+              >
+                Customize views…
+              </button>
             )}
           </div>,
           document.body,
@@ -261,7 +303,15 @@ function MoreMenu({ model }: { model: ContextTabsModel }) {
   );
 }
 
-function TabRow({ model, layoutLabel }: { model: ContextTabsModel; layoutLabel: string }) {
+function TabRow({
+  model,
+  layoutLabel,
+  onCustomize,
+}: {
+  model: ContextTabsModel;
+  layoutLabel: string;
+  onCustomize?: () => void;
+}) {
   const activeTab = model.tabs.find((t) => t.active);
   const toggles = activeTab && activeTab.toggles.length > 1 ? activeTab.toggles : [];
   return (
@@ -276,7 +326,7 @@ function TabRow({ model, layoutLabel }: { model: ContextTabsModel; layoutLabel: 
             {t.label}
           </Link>
         ))}
-        <MoreMenu model={model} />
+        <MoreMenu model={model} onCustomize={onCustomize} />
       </nav>
       {toggles.length > 0 && (
         // Shown at every width: on a phone these are the only route to Grid,
@@ -334,6 +384,8 @@ function ProjectContextHeader({ projectId }: { projectId: string }) {
   // answers, the tab row is a skeleton (never a full row that is pruned a moment later).
   // On error it fails open to the unseeded composition below, and nothing is saved.
   const viewSet = useProjectViews(projectId);
+  const [customizing, setCustomizing] = useState(false);
+  const { data: workspace } = useWorkspaceSettings();
   if (unavailable || !project) return null;
   const basePath = projectPath(project);
   const activeView = segmentAfterRef(pathname, 'project') ?? 'overview';
@@ -383,11 +435,27 @@ function ProjectContextHeader({ projectId }: { projectId: string }) {
           <TabRow
             model={model}
             layoutLabel={`${model.tabs.find((t) => t.active)?.label ?? 'View'} layout`}
+            onCustomize={viewSet.data ? () => setCustomizing(true) : undefined}
           />
         )}
       </div>
       {viewSet.data && (
-        <ViewsRow3 projectId={projectId} viewSet={viewSet.data} labelFor={labelFor} />
+        <ViewsRow3
+          projectId={projectId}
+          viewSet={viewSet.data}
+          labelFor={labelFor}
+          openHiddenView={model.hidden.find((t) => t.active)?.view ?? null}
+        />
+      )}
+      {customizing && viewSet.data && (
+        <CustomizeViewsDialog
+          projectId={projectId}
+          projectName={project.name}
+          workspaceName={workspace?.name}
+          viewSet={viewSet.data}
+          labelFor={labelFor}
+          onClose={() => setCustomizing(false)}
+        />
       )}
     </div>
   );

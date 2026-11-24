@@ -88,6 +88,24 @@ async function setup(page: Page, initial: () => Record<string, unknown> | null) 
       const body = req.postDataJSON() as Record<string, unknown>;
       writes.push(body);
       if (body.clear_seed) state.current = viewSet({});
+      if (typeof body.key === 'string') {
+        // Echo the person's own choice the way the resolver does: `source: user`.
+        const views = state.current.views as Array<Record<string, unknown>>;
+        state.current = {
+          ...state.current,
+          views: views.map((v) =>
+            v.key === body.key
+              ? {
+                  ...v,
+                  visible: !body.hidden,
+                  source: 'user',
+                  lens: null,
+                  at: '2026-11-24T12:00:00Z',
+                }
+              : v,
+          ),
+        };
+      }
     }
     await route.fulfill({
       status: 200,
@@ -156,6 +174,71 @@ test.describe('Role-seeded project views (ADR-1478)', () => {
     await page.getByRole('button', { name: 'Apply 3 changes' }).click();
     await expect(page.getByTestId('views-seed-line')).toBeVisible();
     expect(writes).toContainEqual({ lens: 'scrum_master', dry_run: false });
+  });
+
+  test('Customize views lists every view with its source and writes one switch', async ({
+    page,
+  }) => {
+    const { writes } = await setup(page, () => viewSet(SEEDED));
+    await page.goto(`/projects/${PROJECT_ID}/grid`);
+    await tabs(page).getByRole('button', { name: 'More' }).click();
+    await page.getByRole('menuitem', { name: 'Customize views…' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Views in Atlas' });
+    await expect(dialog).toBeVisible();
+    // Grid is the only visible Plan layout, so its switch is locked but still focusable.
+    await expect(dialog.getByRole('switch', { name: 'Plan › Grid: shown' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    await expect(dialog.getByText('◌ Suggested hidden · Scrum Master').first()).toBeVisible();
+    await expect(
+      dialog.getByRole('button', { name: 'Reset to Scrum Master suggestions' }),
+    ).toBeVisible();
+    await dialog.getByRole('switch', { name: 'Plan › Schedule: hidden' }).click();
+    await expect(dialog.getByRole('switch', { name: 'Plan › Schedule: shown' })).toBeVisible();
+    expect(writes).toContainEqual({ key: 'schedule', hidden: false });
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(tabs(page).getByRole('button', { name: 'More' })).toBeFocused();
+  });
+
+  test('a workspace-off view stays in the More keyboard order, announced disabled', async ({
+    page,
+  }) => {
+    await setup(page, () => {
+      const set = viewSet(SEEDED);
+      return {
+        ...set,
+        views: set.views.map((v) =>
+          v.key === 'assets'
+            ? { ...v, visible: false, source: 'capability', binding: 'enforced' }
+            : v,
+        ),
+      };
+    });
+    await page.goto(`/projects/${PROJECT_ID}/grid`);
+    await tabs(page).getByRole('button', { name: 'More' }).focus();
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('End');
+    await expect(page.getByRole('menuitem', { name: 'Customize views…' })).toBeFocused();
+    await page.keyboard.press('ArrowUp');
+    const off = page.getByRole('group', { name: 'Off in this workspace' }).getByRole('menuitem');
+    await expect(off).toBeFocused();
+    await expect(off).toHaveAttribute('aria-disabled', 'true');
+    await expect(off).toContainText('is off');
+  });
+
+  test('opening a hidden view from More offers to keep it in the tabs', async ({ page }) => {
+    const { writes } = await setup(page, () => viewSet(SEEDED));
+    await page.goto(`/projects/${PROJECT_ID}/schedule`);
+    const keep = page.getByTestId('views-keep-in-tabs');
+    await expect(keep).toContainText('Schedule is hidden from your tabs.');
+    await keep.getByRole('button', { name: 'Keep Schedule in your tabs' }).click();
+    await expect(keep).toHaveCount(0);
+    expect(writes).toContainEqual({ key: 'schedule', hidden: false });
+    await expect(
+      page.getByRole('navigation', { name: 'Plan layout' }).getByRole('link', { name: 'Schedule' }),
+    ).toBeVisible();
   });
 
   test('a seed error fails open to every view and shows no seed line', async ({ page }) => {

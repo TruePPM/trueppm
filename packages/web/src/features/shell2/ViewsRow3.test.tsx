@@ -27,6 +27,14 @@ beforeEach(() => {
 });
 
 describe('ViewsRow3', () => {
+  it('offers to keep an open hidden view in the tabs, outranking the seed line', () => {
+    render(<ViewsRow3 projectId="p" viewSet={SET} labelFor={label} openHiddenView="schedule" />);
+    expect(screen.queryByTestId('views-seed-line')).toBeNull();
+    expect(screen.getByText('Schedule is hidden from your tabs.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Keep Schedule in your tabs' }));
+    expect(patch).toHaveBeenCalledWith({ key: 'schedule', hidden: false });
+  });
+
   it('shows the seed line and Show all clears only seed hides', () => {
     render(<ViewsRow3 projectId="p" viewSet={SET} labelFor={label} />);
     expect(screen.getByText('Shown for Scrum Masters · 3 views hidden')).toBeInTheDocument();
