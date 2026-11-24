@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Section 4 notes</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="/_blob/2ee9e1bacea833009fec2e7181ade9c1">
+<link rel="stylesheet" href="/_blob/9750f9d53047ee742d684b22b625c65d">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div class="scr lt" style="width: 720px; height: 1700px; background: var(--surface-1)">
+  <div class="notes">
+    <div class="col g4"><span class="t12 tx3">Section 4 · Phone: rebaseline and amend · answers Pass 4 Q8.4</span><h2>Notes</h2></div>
+
+    <h3>Q8.4 answer</h3>
+    <p class="t13"><b>A PM on a phone can decide but can't restructure.</b> Pass 3 kept rebaselining desktop-only, and its phone Baselines frame was read-only. That changes here. The decision (read the changeset and its reasons, then take v2 with a reason or keep v1) is small, time-sensitive and well suited to a phone, for example in the hallway after the customer agrees a date. Structural editing stays on desktop.</p>
+
+    <h3>Desktop-only vs phone</h3>
+    <table class="spec">
+      <tr><th style="width: 260px">Part of section 3</th><th>Phone</th></tr>
+      <tr><td>3A Commit plan (draft to v1)</td><td class="tx2">Desktop-only. The first commit reviews the whole plan.</td></tr>
+      <tr><td>3B Add, move or delete</td><td class="tx2">Desktop-only. The phone outline has no structural controls, and 4A-a says so.</td></tr><tr><td>3B Answer a missing reason</td><td>On the phone, inline in the review sheet. Unreasoned changes are listed first (D11).</td></tr>
+      <tr><td>3B Non-structural edits</td><td>On the phone: status, % complete and dates (as today).</td></tr>
+      <tr><td>3B Open-changeset indicator</td><td>On the phone, as a card at the top of Plan (4A-a).</td></tr>
+      <tr><td>3C Review: list, reasons, net effect</td><td>On the phone as a full-height sheet (4A-b), one card per change.</td></tr>
+      <tr><td>3C Take v2 / Keep v1</td><td>On the phone: two equal buttons in a sticky footer (4A-b, 4A-c). Take v2 takes the #4813 reason code, the free text and the commitment tick (off by default), and stays disabled while any change lacks a reason.</td></tr>
+      <tr><td>3D Change-control trail</td><td>On the phone, read-only, through More › Baselines (the Pass 3 phone frame).</td></tr>
+    </table>
+
+    <h3>Pins</h3>
+    <div class="nl"><span class="ann">1</span><span class="t13">The changeset card sits in the content, not the chrome, so the phone keeps its rows. It shows the count, since when, the finish against v1 with “as of”, and one action.</span></div>
+    <div class="nl"><span class="ann">2</span><span class="t13">There is no dead end. The note says what is desktop-only, what the phone can still do, and gives two ways to hand off: Copy link, and Email it to me. That email goes to the signed-in user's own address and nowhere else.</span></div>
+    <div class="nl"><span class="ann">3</span><span class="t13">The two exits are equal buttons, with neither primary. “Take v2…” opens the reason step. “Keep v1” takes one tap, followed by an Undo toast that lasts 10 s. The extra step on v2 is the product commitment, not an imbalance in weight.</span></div>
+
+    <h3>Open questions</h3>
+    <div class="q"><span class="id">Q4.1</span><span class="t13"><b>Should Keep v1 on the phone take a note?</b> I made it one tap with Undo. Desktop offers an optional note. Should the phone match, at the cost of a step?</span></div>
+    <div class="q"><span class="id">Q4.2</span><span class="t13"><b>Is “Email it to me” worth building,</b> or is Copy link enough? It relies on the existing notification email, so it may be free.</span></div>
+    <div class="q"><span class="id">Q4.3</span><span class="t13"><b>Can the phone take v2 while desktop edits are mid-flight</b> (another tab has the reason sheet open)? I propose that the server rejects a stale v2 when the changeset changed after the sheet opened (409 with the new count), and the sheet reloads.</span></div>
+    <div class="q"><span class="id">Q4.4</span><span class="t13"><b>Should push fire for “3 changes open” after N days?</b> Not drawn. It overlaps Pass 4 · §4 preferences.</span></div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":720,"height":1700}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

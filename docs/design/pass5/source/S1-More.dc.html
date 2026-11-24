@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>More menu and view visibility</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="/_blob/2ee9e1bacea833009fec2e7181ade9c1">
+<link rel="stylesheet" href="/_blob/9750f9d53047ee742d684b22b625c65d">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div class="scr {{th}}" style="width: 1440px; height: 1000px">
+  <div class="app">
+    <nav class="rail" aria-label="Global">
+      <div class="ws"><span class="mark">N</span><div class="col" style="line-height: 16px; flex: 1"><span class="m5">Northwind</span><span class="t12 tx3">Workspace</span></div></div>
+      <a class="ri" href="#">Home</a><a class="ri" href="#">Inbox</a><a class="ri on" href="#">Work</a><a class="ri" href="#">People</a><a class="ri" href="#">Agents</a>
+      <div class="rl">Pinned</div>
+      <a class="ri on" href="#" style="font-weight: 400">Atlas Migration</a>
+      <div class="rfoot"><a class="ri" href="#"><span class="av s">LK</span>Lee K. · Scrum Master</a></div>
+    </nav>
+    <main class="main">
+      <div class="top"><div class="crumbs"><span>Work</span><span class="sep">/</span><span>Atlas Migration</span><span class="sep">/</span><b>Deliver</b></div></div>
+      <div class="ctx">
+        <div class="ctx-h"><span class="t20">Atlas Migration</span><span class="chip risk"><b>◆</b>At risk</span><span class="chip out"><b>◑</b>Hybrid</span></div>
+        <div class="tabs" role="tablist"><a class="tab" href="#">Overview</a><a class="tab on" href="#">Deliver</a><a class="tab" href="#">Plan</a><a class="tab" href="#">Risks</a><a class="tab focus" href="#" aria-expanded="true">More ▾</a></div>
+      </div>
+      <div class="toolbar"><div class="seg" role="radiogroup" aria-label="Deliver layout"><button type="button" class="on">Board</button><button type="button">Sprints</button><button type="button">Backlog</button></div></div>
+      <div style="padding: 16px 20px"><div class="skel" style="width: 40%"></div></div>
+
+      <div class="menu" role="menu" aria-label="More views" style="top: 200px; left: 270px; width: 380px">
+        <div class="mg">Track <span class="pend">pending consolidation</span></div>
+        <a class="mi" role="menuitem" href="#">Timesheet</a>
+        <a class="mi" role="menuitem" href="#">Baselines</a>
+        <div class="mg">Project</div>
+        <a class="mi" role="menuitem" href="#">Activity</a>
+        <a class="mi" role="menuitem" href="#">Project settings</a>
+        <div class="msep"></div>
+        <div class="mg">Hidden from your tabs · still open from here</div>
+        <a class="mi dim" role="menuitem" href="#">People<span class="why">◌ Suggested for Scrum Masters</span></a>
+        <a class="mi dim" role="menuitem" href="#">Plan › Gantt<span class="why">◌ Suggested for Scrum Masters</span></a>
+        <a class="mi dim" role="menuitem" href="#">Plan › Calendar<span class="why">◌ Suggested for Scrum Masters</span></a>
+        <a class="mi dim" role="menuitem" href="#">Reports<span class="why">⊖ Hidden by you</span></a>
+        <div class="msep"></div>
+        <div class="mg">Off in Northwind</div>
+        <div class="mi dim" role="menuitem" aria-disabled="true">Cost<span class="why">⊘ Time &amp; cost is off · <a href="#">Why</a></span></div>
+        <div class="msep"></div>
+        <a class="mi" role="menuitem" href="#" style="color: var(--brand)">Customize views…</a>
+        <span class="ann pin" style="top: 268px; left: -12px">1</span>
+        <span class="ann pin" style="top: 520px; left: -12px">2</span>
+      </div>
+
+      <aside class="drawer" aria-labelledby="vv-h" style="width: 560px">
+        <div class="dh"><h2 class="t15" id="vv-h">Views in Atlas Migration</h2><span class="sp"></span><button class="btn ghost" type="button" aria-label="Close">✕</button></div>
+        <div class="db" style="gap: 12px; padding-top: 14px">
+          <p class="t12 tx2">Only for you, in this project. Hiding a view removes it from your tabs and toggles, but it stays reachable from More and by link. It never changes what anyone can see or do.</p>
+          <div class="card">
+            <sc-for list="{{rows}}" as="v" hint-placeholder-count="8">
+              <div class="vrow" style="background: {{v.bg}}">
+                <div class="col" style="min-width: 0"><span class="m5">{{v.name}}</span><span class="t12 tx3">{{v.where}}</span></div>
+                <span class="src">{{v.src}}</span>
+                <sc-if value="{{v.toggle}}" hint-placeholder-val="{{true}}"><button class="{{v.swCls}}" type="button" role="switch" aria-checked="{{v.on}}" aria-label="Show {{v.name}}"><span class="trk"><i></i></span><span class="w">{{v.word}}</span></button></sc-if>
+                <sc-if value="{{v.fixed}}" hint-placeholder-val="{{false}}"><span class="t12 tx3" style="min-width: 76px; text-align: right">{{v.fixed}}</span></sc-if>
+              </div>
+            </sc-for>
+          </div>
+          <span class="ann" style="align-self: flex-start">3</span>
+        </div>
+        <div class="df"><button class="btn" type="button">Reset to Scrum Master suggestions</button><span class="sp"></span><button class="btn" type="button">Show all</button></div>
+      </aside>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const v = (name, where, src, state) => {
+      const base = { name, where, src, bg: 'transparent', toggle: true, fixed: '', on: 'true', word: 'On', swCls: 'sw on' };
+      if (state === 'off') return Object.assign(base, { on: 'false', word: 'Off', swCls: 'sw' });
+      if (state === 'lock') return Object.assign(base, { toggle: false, fixed: 'Always on' });
+      if (state === 'cap') return Object.assign(base, { toggle: false, fixed: 'Ask an admin', bg: 'var(--surface-0)' });
+      return base;
+    };
+    return {
+      th: (this.props.theme ?? 'light') === 'dark' ? 'dk' : 'lt',
+      rows: [
+        v('Overview', 'Tab', '■ Always on', 'lock'),
+        v('Plan › Grid', 'Plan layout · the last Plan layout can’t be hidden', '■ Always on', 'lock'),
+        v('Deliver › Board, Sprints, Backlog', 'Tab + 3 layouts', 'Shown', 'on'),
+        v('Risks', 'Tab', 'Shown', 'on'),
+        v('People', 'Tab', '◌ Suggested hidden · Scrum Master', 'off'),
+        v('Plan › Gantt', 'Plan layout', '◌ Suggested hidden · Scrum Master', 'off'),
+        v('Plan › Calendar', 'Plan layout', '◌ Suggested hidden · Scrum Master', 'off'),
+        v('Reports', 'More', '⊖ Hidden by you · Nov 12', 'off'),
+        v('Cost', 'More', '⊘ Off in Northwind (Time & cost)', 'cap')
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

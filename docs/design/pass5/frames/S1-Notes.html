@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Section 1 notes</title>
+<link rel="stylesheet" href="../css/p4-shared.css">
+<link rel="stylesheet" href="../css/p5.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<style>body{margin:0}</style>
+</head>
+<body>
+<div class="scr lt" style="width: 720px; height: 2850px; background: var(--surface-1)">
+  <div class="notes">
+    <div class="col g4"><span class="t12 tx3">Section 1 · Role-seeded view composition · #3715, designed with #3713 (methodology seeding)</span><h2>Notes</h2></div>
+
+    <h3>Ground truth</h3>
+    <p class="t13 tx2">Today the role lens reorders the project rail and never changes which views are in it, so a Scrum Master carries the full waterfall rail. This section adds a <b>suggest</b> layer. On a user's first open of a project it seeds their hidden views as a default they can override. It never enforces anything: permissions, workspace capabilities (Pass 4 · §1, #4888) and methodology still own what is allowed. The prototype states the same principle, “the preset communicates; it never enforces”, and “hidden views stay reachable by URL” (<span class="mono">proto-designer.js</span>).</p>
+
+    <h3>Precedence · one line</h3>
+    <p class="t13"><span class="mono">permissions ∩ capability ∩ methodology</span> → the <b>allowed</b> set. The <span class="mono">lens seed</span> then suggests hiding some of it, and the <span class="mono">user's own choices</span> override the seed. A seed can only narrow the allowed set. It can't show something the allowed set excludes, and it can't hide an always-on view.</p>
+
+    <h3>Pins · 1A first open</h3>
+    <div class="nl"><span class="ann">1</span><span class="t13">The tab row is seeded. People is gone and Deliver comes first. The lens control sits in the context header, as it does today, so this adds no new chrome. Tab order still comes from the lens, which is today's behavior.</span></div>
+    <div class="nl"><span class="ann">2</span><span class="t13">The explanation, “◌ Shown for Scrum Masters · 3 views hidden · Show all ✕”, is a <b>toolbar item in row 3</b>, not a banner. The layout toggle keeps its place and the 3-row limit holds. It shows once per project. Dismissing it is stored server-side per user. “Show all” clears the seed's hides for this project only and leaves the user's own hides alone.</span></div>
+    <div class="nl"><span class="ann">3</span><span class="t13">The same Hybrid project for three lenses. The seed acts on tabs <b>and</b> on layouts inside Plan and Deliver, which is why it still matters after consolidation (see Q8.2 below). Outlined tabs are always on.</span></div>
+
+    <h3>Pins · 1B More and settings</h3>
+    <div class="nl"><span class="ann">1</span><span class="t13">A seeded-hidden view sits in More under “Hidden from your tabs” and opens from there. Opening it doesn't un-hide it: the view opens with a one-line “Keep Gantt in your tabs” offer in row 3.</span></div>
+    <div class="nl"><span class="ann">2</span><span class="t13">A view that is off for the workspace (#4888) is listed but can't be opened, and it says why (“⊘ Time &amp; cost is off · Why”), using the Pass 4 · 1B AreaOff copy. It never appears as merely hidden, because the user can't turn it back on.</span></div>
+    <div class="nl"><span class="ann">3</span><span class="t13">View visibility settings: one list with one switch per view, and a <b>source label</b> on each: ■ Always on · Shown · ◌ Suggested hidden · {lens} · ⊖ Hidden by you · {date} · ⊘ Off in {workspace}. “Reset to {lens} suggestions” rewrites only the seed entries.</span></div>
+
+    <h3>Decision · seeded vs user-hidden</h3>
+    <p class="t13"><span class="chip ok"><b>✓</b>Decided Nov 24</span> <b>A distinct state.</b> It uses the same control and position, a different label, and a distinct glyph (◌ vs ⊖). The source is stored per entry: <span class="mono">{view, hidden, source: seed|user, lens, at}</span>. Without the stored source, a re-seed can't tell the user's curation from the seed's, and a user can't tell why Gantt is missing. No new color is used. The difference is words and a glyph.</p>
+
+    <h3>Pins · 1C lens change</h3>
+    <div class="nl"><span class="ann">1</span><span class="t13">Changing the lens reorders the tabs immediately and changes no visibility. Row 3 then carries the offer “Apply Product Owner suggestions…” in place of the toolbar until it is dismissed. This is the one Pass 5 case where a banner replaces row 3, and the layout toggle returns once it is dismissed.</span></div>
+    <div class="nl"><span class="ann">2</span><span class="t13">The confirm is a diff: <b>Will hide</b>, <b>Will open on</b>, and <b>Kept</b>, which names the user's own choices so it's visible that they survive. The action is “Apply 2 changes”, a count, never “OK”.</span></div>
+    <div class="nl"><span class="ann">3</span><span class="t13">Methodology × lens decides where the project opens. ◑ marks a cell where the lens asked for a view the methodology doesn't include.</span></div>
+    <div class="nl"><span class="ann">4</span><span class="t13">When they disagree, the note names the methodology (“This project is Waterfall, so it has no sprints”), so nobody hunts for a missing view. The methodology wins, because it governs the allowed set.</span></div>
+    <div class="nl"><span class="ann">5</span><span class="t13">Never empty: Overview, one Plan layout and More are always on. The last Plan layout's switch is disabled and says why. The server rejects a seed that would hide an always-on view, so a bad seed can't empty the rail.</span></div>
+
+    <h3>Decision · re-seed on lens change</h3>
+    <p class="t13"><span class="chip ok"><b>✓</b>Decided Nov 24</span> <b>Never re-seed automatically.</b> Offer it once per lens change, with the 1C diff confirm, and touch only seed-sourced entries. Lens switches are often a quick look, and an automatic re-seed would destroy weeks of curation on a look.</p>
+
+    <h3>Seed keyed to a role context, not a list</h3>
+    <table class="spec">
+      <tr><td class="mono" style="width: 190px">lens</td><td class="tx2">A key in a server registry (<span class="mono">project_manager</span>, <span class="mono">scrum_master</span>, <span class="mono">product_owner</span>, …). Adding a lens means adding an entry, with no redesign.</td></tr>
+      <tr><td class="mono">seed.hide[]</td><td class="tx2">View ids from the shared view registry (the same ids #3887's inventory produces).</td></tr>
+      <tr><td class="mono">seed.landing{method}</td><td class="tx2">The landing view per methodology, which is the 1C matrix.</td></tr>
+      <tr><td class="mono">seed.order[]</td><td class="tx2">Tab order, which exists today.</td></tr>
+      <tr><td class="mono">GET …/views/</td><td class="tx2">Returns the resolved view set for this user and project, with each entry's source. The UI renders it and never resolves precedence itself.</td></tr>
+      <tr><td class="mono">entry.binding</td><td class="tx2"><span class="mono">advisory</span> (seed or user hide: opens from More and by URL) vs <span class="mono">enforced</span> (off in workspace, or not in the methodology: refused). A client must never read “hidden” as “forbidden”.</td></tr>
+    </table>
+
+    <h3>Migrating from what shipped in #3713 <span class="chip ok"><b>✓</b>Decided Nov 24 · surfaced by a simulated panel</span></h3>
+    <p class="t13">Today <span class="mono">UserProfile.hidden_views</span> is one flat per-user list, seeded once on a user's <b>first</b> project from methodology, with no source per entry. This design replaces it with per-user-per-project entries <span class="mono">{view, hidden, source, lens, at}</span>. The migration:</p>
+    <div class="nl"><span class="ann">a</span><span class="t13">Each existing entry becomes <span class="mono">source: user</span> for every project the user already belongs to. Nobody's curation is re-seeded or lost, and nothing they hid reappears.</span></div>
+    <div class="nl"><span class="ann">b</span><span class="t13">A new project the user opens for the first time gets the lens seed, so the flat list no longer drives new projects.</span></div>
+    <div class="nl"><span class="ann">c</span><span class="t13">The profile field stays readable for one minor release. It returns the user's user-sourced hides <b>across all projects, de-duplicated</b>, and never the seeded ones. Responses carry <span class="mono">Deprecation</span> and <span class="mono">Sunset</span> headers, and the schema and changelog both say so. Writes to it return a pointer to <span class="mono">…/views/</span>. <span class="mono">source</span> and <span class="mono">binding</span> are enums in the OpenAPI schema.</span></div>
+    <div class="nl"><span class="ann">d</span><span class="t13">The 1A toolbar line is the hint #5088 asks for. #5088 was closed against this section on Nov 24, so no separate rail hint ships.</span></div>
+
+    <h3>People for resource owners <span class="chip ok"><b>✓</b>Decided Nov 24 · surfaced by a simulated panel</span></h3>
+    <p class="t13">No lens seed may hide People from a capacity-pool manager (ADR-1461), because they are often the one who reads the grid (Q1.7). The rule is applied server-side, so the 1A Scrum Master example still holds for everyone else.</p>
+
+    <h3>Pass 4 Q8.2 · does this need its own pass, or is it moot after consolidation?</h3>
+    <p class="t13"><b>It isn't moot, and this section is its pass.</b> Consolidation reduces the tabs to six, but about seven layouts still live inside Plan and Deliver, and More carries the rest. The seed still decides which layouts a lens sees and where the project opens. It no longer needs to hide whole tabs often, so it gets smaller. Because the seed is keyed to view ids, #3887's inventory can drop or merge views without a redesign here. A seed entry naming a retired view id is ignored and logged.</p>
+
+    <h3>Open questions</h3>
+    <div class="q"><span class="id">Q1.1</span><span class="t13"><b>Does methodology own the allowed set, or only suggest?</b> The brief says methodology owns what is allowed. The prototype says the methodology preset “never enforces” and hidden views stay reachable by URL. I followed the brief: a Waterfall project has no Sprints view. Confirm this, or demote methodology to a second suggest input beside the lens.</span></div>
+    <div class="q"><span class="id">Q1.2</span><span class="t13"><b>Is the seed per project or per user?</b> I seeded per user per project, at first open. The alternative is one per-user default that every project inherits. Per project is noisier, but it is the only option that respects methodology differences.</span></div>
+    <div class="q"><span class="id">Q1.3</span><span class="t13"><b>Who maintains the seed registry?</b> Are seeds shipped defaults only, or can a workspace admin edit them? Editable seeds would edge toward org governance, which may need an <span class="mono">enterprise-check</span>.</span></div>
+    <div class="q"><span class="id">Q1.4</span><span class="t13"><b>What happens when a project's methodology changes</b> (Waterfall to Hybrid)? I propose the same opt-in offer as a lens change, never an automatic re-seed. Not drawn.</span></div>
+    <div class="q"><span class="id">Q1.5</span><span class="t13"><span class="chip ok"><b>✓</b>Decided Nov 24 · surfaced by a simulated panel</span> <b>Yes, as an MCP read tool.</b> <span class="mono">…/views/</span> holds no domain data, but an agent explaining “why can't I see Sprints?” needs <span class="mono">source</span> and <span class="mono">binding</span>.</span></div>
+    <div class="q"><span class="id">Q1.6</span><span class="t13"><b>Which seeds are right?</b> The PM, Scrum Master and Product Owner seeds in 1A are my proposal. They have not been checked against #3713's methodology defaults or real users.</span></div>
+    <div class="q"><span class="id">Q1.7</span><span class="t13"><span class="chip ok"><b>✓</b>Decided Nov 24 · surfaced by a simulated panel</span> <b>Someone who manages a capacity pool</b> (ADR-1461) never has People seed-hidden, in any project. Their own hide still works, and the seed never overrides it. Scheduler rights alone don't count, so a Scrum Master who isn't a pool manager still gets the 1A seed.</span></div>
+  </div>
+</div>
+</body>
+</html>

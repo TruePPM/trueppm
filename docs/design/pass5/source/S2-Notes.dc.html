@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Section 2 notes</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="/_blob/2ee9e1bacea833009fec2e7181ade9c1">
+<link rel="stylesheet" href="/_blob/9750f9d53047ee742d684b22b625c65d">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div class="scr lt" style="width: 720px; height: 2100px; background: var(--surface-1)">
+  <div class="notes">
+    <div class="col g4"><span class="t12 tx3">Section 2 · Project layout toggles and the More menu · #3887, frames only</span><h2>Notes</h2></div>
+
+    <h3>Ground truth and scope</h3>
+    <p class="t13 tx2">The Pass 1 shell spec consolidates project tabs to Overview · Plan · Deliver · Risks · People · More, with about seven layout toggles inside Plan and Deliver, but no frame drew them. These frames draw the <b>control</b>. Which views survive (#3887's inventory and per-view <span class="mono">sunset-check</span>) is a separate analysis and is not decided here. Every list that depends on it carries a <span class="pend">pending consolidation</span> tag: the Plan set, the Deliver set beyond Board · Sprints · Backlog, and the More groups.</p>
+
+    <h3>Pins · 2A Plan</h3>
+    <div class="nl"><span class="ann">1</span><span class="t13">The layout toggle is a segmented radio group in <b>row 3</b>, at the left of the page toolbar. Each segment is 44px tall, and arrow keys move between them. The toolbar controls to its right (Filter, Group, Zoom) belong to the current layout and change with it.</span></div>
+    <div class="nl"><span class="ann">2</span><span class="t13"><b>Remembered layout:</b> clicking the Plan tab reopens the layout you used last, per user and project. It is stored server-side so it follows you across desktop browsers. A link with a layout in the path (<span class="mono">/plan/calendar</span>) always wins over the remembered one. The quiet “Opened in Gantt, your last Plan layout” line is shown only when the remembered layout differs from the default.</span></div>
+    <div class="nl"><span class="ann">3</span><span class="t13">States: a layout hidden (it leaves the toggle), one layout left (the toggle turns into a label), a per-layout skeleton, and a per-layout error with a way out to another layout.</span></div>
+
+    <h3>Pins · 2B Deliver and More</h3>
+    <div class="nl"><span class="ann">1</span><span class="t13">The Deliver toggle is Board · Sprints, with Backlog suggested hidden for this PM. A hidden layout leaves the toggle and is listed in More, whether a seed or the user hid it.</span></div>
+    <div class="nl"><span class="ann">2</span><span class="t13">More is grouped as <b>Track</b> (timesheet, baselines, reports) and <b>Project</b> (activity, files, settings), followed by two fixed groups: <b>Hidden from your tabs</b> and <b>Off in {workspace}</b>. The first two groups are pending consolidation. The two fixed groups are part of the design whatever the inventory decides.</span></div>
+    <div class="nl"><span class="ann">3</span><span class="t13">An area that is off (#4888) is listed and disabled, with a “Why” link to the Pass 4 · 1B page. Hidden items open. Off items don't, and say why.</span></div>
+    <div class="nl"><span class="ann">4</span><span class="t13">The URL carries the layout, so a shared link opens the same layout. Layout changes push history, so Back returns to the previous layout.</span></div>
+
+    <h3>Phone · 2C</h3>
+    <p class="t13"><b>Rule:</b> with three or fewer visible layouts, use a full-width segmented control under the tab strip. With more, use a “Board ▾” button that opens a picker sheet with the same groups as More. Segmented wins whenever it fits, because it shows the options without an extra tap. A link that opens a hidden layout shows “◌ … hidden from your tabs · Keep it” in place of row 3. A link to an area that is off goes to the AreaOff page, never to a hidden layout.</p>
+
+    <h3>Open questions</h3>
+    <div class="q"><span class="id">Q2.1</span><span class="t13"><b>Remembered per device or per user?</b> I drew desktop as per user (server-side) and phone as remembered separately, because a phone user usually wants Grid and a desktop user Gantt. Is one per-user value enough?</span></div>
+    <div class="q"><span class="id">Q2.2</span><span class="t13"><b>What survives the inventory:</b> the Plan set (Gantt · Grid · Calendar, plus Scope/WBS?) and the Deliver set (Board · Sprints · Backlog, plus Releases or Swimlanes?) depend on #3887's inventory. If either set ends up above three, the desktop toggle still fits at 1280, but the phone switches to the sheet.</span></div>
+    <div class="q"><span class="id">Q2.3</span><span class="t13"><b>Backlog's home:</b> BacklogItem is program-scoped. Should a project's Deliver › Backlog be a filtered view of the program backlog, or should it live only at the program level? This affects the Product Owner landing view in 1C.</span></div>
+    <div class="q"><span class="id">Q2.4</span><span class="t13"><b>Should toolbar controls be kept per layout</b> (Filter and Group remembered for each layout separately) or shared across layouts? I propose per layout.</span></div>
+    <div class="q"><span class="id">Q2.5</span><span class="t13"><b>Does Baselines belong in More › Track</b> or in a Plan layout? Section 3 makes the baseline state part of Plan's context header, so the More entry may only be the history page.</span></div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":720,"height":2100}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

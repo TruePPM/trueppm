@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>First open, seeded per lens</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="/_blob/2ee9e1bacea833009fec2e7181ade9c1">
+<link rel="stylesheet" href="/_blob/9750f9d53047ee742d684b22b625c65d">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div class="scr {{th}}" style="width: 1440px; height: 1000px; display: flex; flex-direction: column">
+  <div class="app" style="height: 600px; flex: none">
+    <nav class="rail" aria-label="Global">
+      <div class="ws"><span class="mark">N</span><div class="col" style="line-height: 16px; flex: 1"><span class="m5">Northwind</span><span class="t12 tx3">Workspace</span></div></div>
+      <sc-for list="{{rail}}" as="r" hint-placeholder-count="5">
+        <a class="{{r.cls}}" href="#"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="{{r.d}}"></path></svg>{{r.label}}</a>
+      </sc-for>
+      <div class="rl">Pinned</div>
+      <a class="ri on" href="#" style="font-weight: 400">Atlas Migration</a>
+      <div class="rfoot"><a class="ri" href="#"><span class="av s">LK</span>Lee K. · Scrum Master</a></div>
+    </nav>
+    <main class="main">
+      <div class="top">
+        <div class="crumbs"><span>Work</span><span class="sep">/</span><span>Atlas Migration</span><span class="sep">/</span><b>Deliver</b></div>
+        <span class="sp"></span>
+        <span class="slot" style="background: var(--surface-2)">✓ Synced · 09:40</span>
+      </div>
+      <div class="ctx" style="position: relative">
+        <div class="ctx-h"><span class="t20">Atlas Migration</span><span class="chip risk"><b>◆</b>At risk</span><span class="chip out"><b>◑</b>Hybrid</span><span class="sp"></span><button class="btn ghost" type="button" style="min-height: 36px">Lens · Scrum Master ▾</button></div>
+        <div class="tabs" role="tablist" aria-label="Project views"><a class="tab" href="#">Overview</a><a class="tab on" href="#" aria-current="page">Deliver</a><a class="tab" href="#">Plan</a><a class="tab" href="#">Risks</a><a class="tab" href="#">More ▾</a></div>
+        <span class="ann pin" style="top: 66px; left: 330px">1</span>
+      </div>
+      <div class="toolbar" style="position: relative">
+        <div class="seg" role="radiogroup" aria-label="Deliver layout"><button type="button" class="on" aria-checked="true">Board</button><button type="button">Sprints</button><button type="button">Backlog</button></div>
+        <button class="btn ghost" type="button" style="min-height: 44px">Filter</button>
+        <span class="sp"></span>
+        <div class="row" role="note" style="gap: 6px; height: 36px; padding: 0 4px 0 12px; border-radius: 18px; background: var(--info-tint)"><span class="t13"><b>◌</b> Shown for Scrum Masters · 3 views hidden</span><a class="btn ghost" href="#" style="min-height: 36px; color: var(--brand)">Show all</a><button class="btn ghost" type="button" aria-label="Dismiss this note" style="min-height: 36px; padding: 0 10px">✕</button></div>
+        <span class="ann pin" style="top: 12px; right: 330px">2</span>
+      </div>
+      <div style="padding: 16px 20px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
+        <sc-for list="{{cols}}" as="c" hint-placeholder-count="4">
+          <div class="well" style="padding: 10px; display: flex; flex-direction: column; gap: 8px">
+            <div class="row"><span class="t13 b">{{c.name}}</span><span class="chip">{{c.n}}</span></div>
+            <sc-for list="{{c.cards}}" as="k" hint-placeholder-count="2">
+              <div class="card" style="padding: 10px; display: flex; flex-direction: column; gap: 4px"><span class="m5">{{k.t}}</span><span class="t12 tx3 mono">{{k.id}}</span></div>
+            </sc-for>
+          </div>
+        </sc-for>
+      </div>
+    </main>
+  </div>
+
+  <div style="flex: 1; padding: 20px 28px 24px; display: flex; flex-direction: column; gap: 12px; background: var(--surface-1); border-top: 1px solid var(--hairline); position: relative">
+    <div class="row"><span class="t15">First open of the same Hybrid project, by lens</span><span class="ann">3</span><span class="sp"></span><span class="t12 tx3">Struck-through dashed tab = suggested hidden · outlined tab = always on</span></div>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+      <sc-for list="{{lenses}}" as="l" hint-placeholder-count="3">
+        <div class="mini">
+          <div class="row"><span class="m5">{{l.name}}</span><span class="sp"></span><span class="t12 tx3">opens on {{l.land}}</span></div>
+          <div class="row wrap" style="gap: 4px"><sc-for list="{{l.tabs}}" as="t" hint-placeholder-count="6"><span class="{{t.cls}}">{{t.n}}</span></sc-for></div>
+          <span class="t12 tx2">Layouts: {{l.lay}}</span>
+          <span class="t12" style="background: var(--info-tint); padding: 6px 8px; border-radius: 6px">◌ {{l.line}} · <a href="#">Show all</a></span>
+        </div>
+      </sc-for>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+      <div class="state-card" style="padding: 10px"><span class="state-tag">Loading</span><span class="t12">The seed comes with the project payload, so the tabs paint once, already seeded. While the payload loads, the tab row is a skeleton. A full rail is never drawn and then pruned.</span></div>
+      <div class="state-card" style="padding: 10px"><span class="state-tag">No seed for this lens</span><span class="t12">A lens with no seed entry, or a user with no lens, gets every view the project allows and no note. Nothing is hidden by default.</span></div>
+      <div class="state-card" style="padding: 10px"><span class="state-tag">Error · seed unavailable</span><span class="t12">If the seed can't be read, the rail fails open and shows every allowed view. Nothing is hidden on a guess, and nothing is saved, so it seeds on the next open.</span></div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const on = (n) => ({ n, cls: 'mtab' });
+    const lk = (n) => ({ n, cls: 'mtab lock' });
+    const hd = (n) => ({ n, cls: 'mtab hid' });
+    return {
+      th: (this.props.theme ?? 'light') === 'dark' ? 'dk' : 'lt',
+      rail: [
+        { label: 'Home', cls: 'ri', d: 'M3 10l9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z' },
+        { label: 'Inbox', cls: 'ri', d: 'M22 12h-6l-2 3h-4l-2-3H2 M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z' },
+        { label: 'Work', cls: 'ri on', d: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z' },
+        { label: 'People', cls: 'ri', d: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8' },
+        { label: 'Agents', cls: 'ri', d: 'M12 8V4H8 M4 8h16v12H4z M2 14h2 M20 14h2 M9 13v2 M15 13v2' }
+      ],
+      cols: [
+        { name: 'To do', n: '6', cards: [{ t: 'Cutover runbook', id: 'ATL-163' }, { t: 'Rollback drill', id: 'ATL-171' }] },
+        { name: 'In progress', n: '3', cards: [{ t: 'Data sync service', id: 'ATL-150' }, { t: 'Auth shim', id: 'ATL-158' }] },
+        { name: 'Review', n: '2', cards: [{ t: 'API cutover', id: 'ATL-142' }] },
+        { name: 'Done', n: '14', cards: [{ t: 'Schema freeze', id: 'ATL-118' }] }
+      ],
+      lenses: [
+        { name: 'Project Manager', land: 'Plan › Gantt', tabs: [lk('Overview'), lk('Plan'), on('Deliver'), on('Risks'), on('People'), lk('More')], lay: 'Gantt · Grid · Calendar · Board · Sprints. Backlog hidden.', line: 'Shown for Project Managers · 1 view hidden' },
+        { name: 'Scrum Master (this frame)', land: 'Deliver › Board', tabs: [lk('Overview'), on('Deliver'), lk('Plan'), on('Risks'), hd('People'), lk('More')], lay: 'Board · Sprints · Backlog · Grid. Gantt and Calendar hidden.', line: 'Shown for Scrum Masters · 3 views hidden' },
+        { name: 'Product Owner', land: 'Deliver › Backlog', tabs: [lk('Overview'), on('Deliver'), lk('Plan'), hd('Risks'), hd('People'), lk('More')], lay: 'Backlog · Board · Sprints · Grid. Gantt and Calendar hidden.', line: 'Shown for Product Owners · 4 views hidden' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

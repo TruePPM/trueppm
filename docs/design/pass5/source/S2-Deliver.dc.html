@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Deliver layout toggle and More menu</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="/_blob/2ee9e1bacea833009fec2e7181ade9c1">
+<link rel="stylesheet" href="/_blob/9750f9d53047ee742d684b22b625c65d">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div class="scr {{th}}" style="width: 1440px; height: 1000px">
+  <div class="app">
+    <nav class="rail" aria-label="Global">
+      <div class="ws"><span class="mark">N</span><div class="col" style="line-height: 16px; flex: 1"><span class="m5">Northwind</span><span class="t12 tx3">Workspace</span></div></div>
+      <a class="ri" href="#">Home</a><a class="ri" href="#">Inbox</a><a class="ri on" href="#">Work</a><a class="ri" href="#">People</a><a class="ri" href="#">Agents</a>
+      <div class="rl">Pinned</div>
+      <a class="ri on" href="#" style="font-weight: 400">Atlas Migration</a>
+      <div class="rfoot"><a class="ri" href="#"><span class="av s">PN</span>Priya N. · PM</a></div>
+    </nav>
+    <main class="main">
+      <div class="top"><div class="crumbs"><span>Work</span><span class="sep">/</span><span>Atlas Migration</span><span class="sep">/</span><b>Deliver</b><span class="sep">·</span><span>Sprints</span></div></div>
+      <div class="ctx">
+        <div class="ctx-h"><span class="t20">Atlas Migration</span><span class="chip risk"><b>◆</b>At risk</span></div>
+        <div class="tabs" role="tablist"><a class="tab" href="#">Overview</a><a class="tab" href="#">Plan</a><a class="tab on" href="#" aria-current="page">Deliver</a><a class="tab" href="#">Risks</a><a class="tab" href="#">People</a><a class="tab focus" href="#" aria-expanded="true" aria-haspopup="menu">More ▾</a></div>
+      </div>
+      <div class="toolbar" style="position: relative">
+        <div class="seg" role="radiogroup" aria-label="Deliver layout"><button type="button" aria-checked="false">Board</button><button type="button" class="on" aria-checked="true">Sprints</button></div>
+        <span class="ann">1</span>
+        <span style="width: 1px; height: 24px; background: var(--hairline); margin: 0 6px"></span>
+        <button class="btn ghost" type="button">Sprint 14 ▾</button><button class="btn ghost" type="button">Filter</button>
+        <span class="sp"></span><span class="t12 tx3">Sprint 14 · Nov 18 – Dec 1 · as of 10:12</span>
+      </div>
+      <div style="padding: 16px 20px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+        <div class="metric card" style="padding: 12px"><span class="m-l">Committed</span><span class="t20">34 pts</span><span class="m-asof">at sprint start, Nov 18</span></div>
+        <div class="metric card" style="padding: 12px"><span class="m-l">Done</span><span class="t20">19 pts</span><span class="m-asof">as of 10:12</span></div>
+        <div class="metric card" style="padding: 12px"><span class="m-l">Velocity · last 3</span><span class="t20">31 pts</span><span class="m-asof">mean of sprints 11–13</span></div>
+      </div>
+      <div style="padding: 0 20px; display: flex; flex-direction: column; gap: 8px"><div class="skel" style="width: 60%"></div><div class="skel" style="width: 45%"></div><div class="skel" style="width: 52%"></div></div>
+
+      <div class="menu" role="menu" aria-label="More" style="top: 150px; left: 360px; width: 400px">
+        <div class="mg">Track <span class="pend">pending consolidation</span></div>
+        <a class="mi" role="menuitem" href="#">Timesheet<span class="why">your hours, this project</span></a>
+        <a class="mi" role="menuitem" href="#">Baselines<span class="why">v1 · Nov 4</span></a>
+        <a class="mi" role="menuitem" href="#">Reports</a>
+        <div class="mg">Project <span class="pend">pending consolidation</span></div>
+        <a class="mi" role="menuitem" href="#">Activity</a>
+        <a class="mi" role="menuitem" href="#">Files</a>
+        <a class="mi" role="menuitem" href="#">Project settings</a>
+        <div class="msep"></div>
+        <div class="mg">Hidden from your tabs</div>
+        <a class="mi dim" role="menuitem" href="#">Deliver › Backlog<span class="why">◌ Suggested for PMs</span></a>
+        <div class="msep"></div>
+        <div class="mg">Off in Northwind</div>
+        <div class="mi dim" role="menuitem" aria-disabled="true">Agents activity<span class="why">⊘ Agents is off · <a href="#">Why</a></span></div>
+        <div class="msep"></div>
+        <a class="mi" role="menuitem" href="#" style="color: var(--brand)">Customize views…</a>
+        <span class="ann pin" style="top: 8px; right: -10px">2</span>
+        <span class="ann pin" style="top: 380px; right: -10px">3</span>
+      </div>
+
+      <div style="position: absolute; left: 800px; top: 150px; width: 380px; display: flex; flex-direction: column; gap: 10px">
+        <div class="row"><span class="t15">Toggle anatomy</span><span class="ann">4</span></div>
+        <table class="spec">
+          <tr><td style="width: 120px" class="tx2">Control</td><td>A segmented radio group in row 3, with each segment 44px tall. Arrow keys move between segments. It is never a dropdown.</td></tr>
+          <tr><td class="tx2">Seeded-hidden</td><td>Leaves the toggle. Here Backlog is suggested hidden for PMs, so the toggle reads Board · Sprints, and Backlog is listed under More › Hidden from your tabs. A link to it still opens it. Seeded-hidden and user-hidden layouts behave the same way here, and only their labels differ (1B).</td></tr>
+          <tr><td class="tx2">Capability off</td><td>Never in the toggle. If Agile is off, Deliver is gone (Pass 4 · 1B) and More lists it under “Off in Northwind”.</td></tr>
+          <tr><td class="tx2">URL</td><td><span class="mono">/p/atlas/deliver/sprints</span>. The layout is in the path, so a shared link opens that layout.</td></tr>
+        </table>
+      </div>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { th: (this.props.theme ?? 'light') === 'dark' ? 'dk' : 'lt' };
+  }
+}
+</script>
+</body>
+</html>

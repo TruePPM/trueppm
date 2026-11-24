@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Section 3 notes</title>
+<link rel="stylesheet" href="../css/p4-shared.css">
+<link rel="stylesheet" href="../css/p5.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<style>body{margin:0}</style>
+</head>
+<body>
+<div class="scr lt" style="width: 720px; height: 3800px; background: var(--surface-1)">
+  <div class="notes">
+    <div class="col g4"><span class="t12 tx3">Section 3 · Baseline amend loop · #3150 (0.5 release::committed) · source: design_handoff_trueppm_v4/proto-designer.js</span><h2>Notes</h2></div>
+
+    <h3>Source, and what governs it</h3>
+    <p class="t13"><span class="chip ok"><b>✓</b>Decided Nov 24</span> <b>#3150's D9–D11 govern the interaction, and the prototype is transcribed only where they agree.</b> <span class="mono">proto-designer.js</span> holds the drop until a modal reason is given (<span class="mono">amendGuard</span>). #3150 §C rejected that: a reason is a <i>property of the changeset entry</i>, not a precondition of the edit. Pass 5 first drew the modal, then was redrawn to D9–D11 on Nov 24.</p>
+    <table class="spec">
+      <tr><th style="width: 230px">Source</th><th>Pass 5 frame</th></tr>
+      <tr><td class="mono">amendGuard kinds · add / move / delete</td><td>3B. These are the only kinds that join a changeset. Duration, date, owner and status edits don't, and neither do sprint moves.</td></tr>
+      <tr><td class="mono">S.state === 'draft' → fn()</td><td>3A. No changeset before baseline v1.</td></tr>
+      <tr><td class="mono">commitAction(): Commit plan / Review N changes / Baseline vN</td><td>The three context-header states in 3A, 3B and 3D. The count appends “· N need a reason” (D11).</td></tr>
+      <tr><td class="mono">commitSheet() draft branch</td><td>3A Commit sheet, with the copy word for word.</td></tr>
+      <tr><td class="mono">reasonSheet() — <b>replaced</b></td><td>3B's non-modal reason line in row 3 (D10). The required-reason copy moves to the blocked Take v2 (D11).</td></tr>
+      <tr><td class="mono">commitSheet() pending branch</td><td>3C: unreasoned changes first, then the change list, net effect, the “not the only honest answer” note, and the two exits.</td></tr>
+      <tr><td class="mono">keepbaseline · docommit toasts</td><td>3D. The docommit toast is reworded for D9.</td></tr>
+      <tr><td class="mono">#4813 reason code · impact · commitment tick</td><td>3C, 3D zero-changeset variant, and 4A-c.</td></tr>
+    </table>
+
+    <h3>Departures from the prototype</h3>
+    <div class="nl"><span class="ann">a</span><span class="t13"><b>No gesture waits for a reason (D9).</b> A drop applies, reschedules and reaches the server exactly as in draft, and the entry starts as <span class="mono">reason: null</span>. Delete lands with an Undo action toast, not a confirmation dialog first.</span></div>
+    <div class="nl"><span class="ann">b</span><span class="t13"><b>Reasons are asked afterwards, in place, never modally (D10).</b> The line sits in row 3's right slot, which is the Pass 2 shell's equivalent of #3150's “Forecast strip”. It takes no new row and never takes focus after a pointer gesture.</span></div>
+    <div class="nl"><span class="ann">c</span><span class="t13"><b>Only Take v2 waits (D11).</b> Take v2 is disabled, and refused by the server, while any entry lacks a reason. Keep v1 is never blocked.</span></div>
+    <div class="nl"><span class="ann">d</span><span class="t13"><b>The exits are coequal.</b> The prototype draws Keep v1 as a ghost button. Here they are two identical cards with identical buttons, and Enter does nothing.</span></div>
+    <div class="nl"><span class="ann">e</span><span class="t13"><b>Take v2 carries #4813's reason.</b> That is a structured code plus 500 characters of free text, the impact preview, and a commitment tick that is off by default. Keep v1 takes an optional note.</span></div>
+    <div class="nl"><span class="ann">f</span><span class="t13">Each change shows its author, the sheet's title is neutral, and “portfolio health” is dropped (Enterprise).</span></div>
+
+    <h3>Pins · 3A draft</h3>
+    <div class="nl"><span class="ann">1</span><span class="t13">Draft state: “○ Draft” chip, with Commit plan as the one primary action in the context header.</span></div>
+    <div class="nl"><span class="ann">2</span><span class="t13">Draft edits apply directly. The quiet toolbar line says why nothing is collected yet.</span></div>
+    <div class="nl"><span class="ann">3</span><span class="t13">The Commit sheet's primary is legitimate here: going from draft to v1 isn't re-baselining.</span></div>
+
+    <h3>Pins · 3B amend</h3>
+    <div class="nl"><span class="ann">1</span><span class="t13"><b>Open-changeset indicator:</b> “◷ 3 changes open · 1 needs a reason”, then “⚑ Review 3 changes” as the context header's primary action. Variance reads beside it with “as of”.</span></div>
+    <div class="nl"><span class="ann">2</span><span class="t13"><b>The reason line</b> states what happened in the system's words (“HR-5 moved under HR-3 · finish Jun 12 → Jun 17”), with a <span class="mono">Why?</span> field, <span class="mono">⌥W</span> and ✕. It has <span class="mono">role=status</span> and is polite and live. It takes no focus after a pointer gesture and is one Tab away for the keyboard. Esc dismisses it without answering.</span></div>
+    <div class="nl"><span class="ann">3</span><span class="t13"><b>The four D10 states:</b> just after a drop, a batched session, answered, and left unanswered. <b>Batching rule:</b> an entry absorbs the next act only when it is the same kind, on the same surface, by the same author, within 2 minutes. A group closes on answering, opening the changeset, a change of mode or surface, or unload. A closed group can't be changed. Undoing the last act deletes the entry.</span></div>
+    <div class="nl"><span class="ann">4</span><span class="t13"><b>The rules that hold everywhere:</b> delete has an Undo toast; non-structural edits and sprint moves never join; the API, MCP and agents follow the same rule (reason optional on write, Take v2 refused while any entry lacks one); and a refused move snaps back and makes no entry.</span></div>
+    <div class="nl"><span class="ann">5</span><span class="t13"><span class="chip ok"><b>✓</b>Decided Nov 24 · surfaced by a simulated panel</span> <b>Sprint moves are not structural.</b> Moving a card between sprints, or from the backlog into a sprint, goes to the team's sprint-scope history, not the PM-facing changeset. Adding a <i>new</i> task to an active sprint after v1 is still an add. The panel's “one reason per multi-select” is covered by D10's session batching.</span></div>
+
+    <h3>Pins · 3C review</h3>
+    <div class="nl"><span class="ann">1</span><span class="t13">Unreasoned changes sort to the top, marked “◌ Needs a reason” and answerable in place, with “no reason given yet” beside the author. Each change shows its kind (prototype labels), reason, what changed, author and time, and its finish impact. Impacts come from the server, recorded when each amendment was applied.</span></div>
+    <div class="nl"><span class="ann">2</span><span class="t13">The net effect is the server's current CPM finish against v1, with its run time, plus #4813's impact preview: the milestones that move, tasks with new dates (N of M), and whether the commitment moves. The preview and activation share one code path.</span></div>
+    <div class="nl"><span class="ann">3</span><span class="t13">Equal weight: the same card, the same button style and the same width. Take v2 needs a reason code, free text and every change reasoned, and offers the commitment tick (off by default). Keep v1 needs nothing and takes an optional note. That asymmetry in requirements which is the product commitment that re-baselining is not the easy path.</span></div>
+    <div class="nl"><span class="ann">4</span><span class="t13">No default exit, so Enter does nothing. Closing leaves the changeset open.</span></div>
+
+    <h3>Pins · 3D after</h3>
+    <div class="nl"><span class="ann">1</span><span class="t13">After v2, the header reads “⚑ Baseline v2” (secondary), and variance is 0 wd vs v2. <b>Health doesn't change</b>, because it measures P80 against the commitment date (Pass 4 · §5), not variance against a baseline. Re-baselining can't turn health green.</span></div>
+    <div class="nl"><span class="ann">2</span><span class="t13">After keeping v1, the changeset stays open, as in the prototype. But Review is <b>demoted</b> to a secondary “◷ 3 changes · v1 kept” button (Q3.1, decided Nov 24). It becomes primary again only on the next structural edit, so Keep v1 doesn't nag toward v2. This departs from the prototype.</span></div>
+    <div class="nl"><span class="ann">3</span><span class="t13">The trail gains <b>taken</b> and <b>kept</b> entries, each with its reason and a link to its changeset.</span></div>
+    <div class="nl"><span class="ann">4</span><span class="t13">One surface: the Pass 3 dialog becomes the zero-changeset variant. When both apply, the changeset sheet wins.</span></div>
+
+    <h3>Open questions</h3>
+    <div class="q"><span class="id">Q3.1</span><span class="t13"><span class="chip ok"><b>✓</b>Decided Nov 24 · demote</span> <b>After Keep v1, should “Review 3 changes” stay primary?</b> The prototype keeps the changeset open, so the button keeps pulling. I recommend demoting it to secondary, “◷ 3 changes · v1 kept”, until the next structural edit. Otherwise Keep v1 nags until someone takes v2, which reverses the commitment.</span></div>
+    <div class="q"><span class="id">Q3.2</span><span class="t13"><span class="chip ok"><b>✓</b>Decided Nov 24 · surfaced by a simulated panel</span> <b>Who is asked, and who decides.</b> The “Why?” line and the “needs a reason” marker are shown only to <b>Scheduler, Admin and Owner</b>. A Member's structural edit still joins the changeset as <span class="mono">reason: null</span>, and the plan owner answers it in Review. Members never see the line, the marker or the sheet. Only Owner, Admin and Scheduler may take v2 or keep v1. <span class="mono">rbac-check</span> runs at implementation.</span></div>
+    <div class="q"><span class="id">Q3.3</span><span class="t13"><span class="chip ok"><b>✓</b>Decided Nov 24 · surfaced by a simulated panel</span> <b>Who is told:</b> the owners of tasks whose finish or dependencies changed, <b>once, on the change</b>, and not again for a missing reason (D11). It arrives as an Inbox digest, with push opt-in only and never a default. A resource owner is told when an assigned person's task moves.</span></div>
+    <div class="q"><span class="id">Q3.4</span><span class="t13"><span class="chip ok"><b>✓</b>Decided Nov 24</span> <b>API, MCP and agents follow D9–D11.</b> A structural write after v1 succeeds without <span class="mono">reason</span> and creates a <span class="mono">reason: null</span> entry. A reason is added later on the entry. <span class="mono">POST …/baselines/</span> for v2 is refused while any entry lacks one, and the error names the entries. The changeset, its reasons, impacts and the taken/kept trail are first-class API and MCP reads. An agent's entry is attributed to the agent and its provisioning human. Webhook events are tracked in #5121 (0.5).</span></div>
+    <div class="q"><span class="id">Q3.5</span><span class="t13"><b>Offline:</b> the Pass 4 outbox queues add and move, so the reason is captured offline and queued with the edit. Delete is online-only there (ADR-1465), so the two rules agree. Please confirm.</span></div>
+    <div class="q"><span class="id">Q3.6</span><span class="t13"><span class="chip ok"><b>✓</b>Decided Nov 24 · surfaced by a simulated panel</span> <b>No.</b> A reason can't be edited once given; only “add a note” is allowed. The trail is immutable: no endpoint edits or deletes a <span class="mono">taken</span> or <span class="mono">kept</span> entry (#4813). Keep v1's note stays optional, because living with variance isn't a claim about why.</span></div>
+    <div class="q"><span class="id">Q3.7</span><span class="t13"><span class="chip ok"><b>✓</b>Decided Nov 24 · surfaced by a simulated panel</span> <b>No.</b> A sprint move isn't structural (3B pin 5). Board drags that reparent across lanes still are, and they batch per D10 rather than prompting.</span></div>
+    <div class="q"><span class="id">Q3.8</span><span class="t13"><span class="chip ok"><b>✓</b>Decided Nov 24 · surfaced by a simulated panel</span> <b>Batching by selection.</b> A multi-select move, indent or delete is <b>one act</b>, so it makes one entry with one reason whatever its size. The D10 2-minute window then groups separate acts. <b>Decided Nov 24: keep D10's 2-minute window.</b> Stretching it to the whole editing session would let one reason cover unrelated moves, which is the defect D10's batching rule exists to prevent. An interrupted resequence leaves two entries, and both can be answered in Review.</span></div>
+    <div class="q"><span class="id">Q3.9</span><span class="t13"><span class="chip ok"><b>✓</b>Decided Nov 24 · surfaced by a simulated panel</span> <b>Mid-sprint scope.</b> Moving an existing backlog card into an <i>active</i> sprint stays out of the changeset, but it writes a sprint-scope entry and sends one Inbox line to the sprint's Product Owner and Scrum Master: “{who} added {card} to Sprint 14 mid-sprint”. Adding a <i>new</i> task to an active sprint after v1 is still an add.</span></div>
+    <div class="q"><span class="id">Q3.10</span><span class="t13"><span class="chip ok"><b>✓</b>Decided Nov 24 · surfaced by a simulated panel</span> <b>The API contract.</b>
+      <ul style="margin: 4px 0 0; padding-left: 18px">
+        <li>Each changeset entry carries <span class="mono">reason_state: unreasoned | reasoned</span>.</li>
+        <li>Taking v2 with unreasoned entries returns <span class="mono">409 {"code": "changeset_unreasoned", "entries": [ids]}</span>.</li>
+        <li>Finish impacts and net effect carry the <span class="mono">_provenance</span> envelope (engine version, inputs, baseline).</li>
+        <li>Changeset and trail reads are MCP tools.</li>
+        <li><b>Webhooks: filed as #5121 (0.5).</b> It adds <span class="mono">changeset.opened</span>, <span class="mono">changeset.entry_added</span>, <span class="mono">changeset.entry_reasoned</span> and <span class="mono">baseline.kept</span>, and adds reason fields to the existing <span class="mono">baseline.captured</span>. Not drawn.</li>
+      </ul></span></div>
+    <div class="q"><span class="id">Q3.11</span><span class="t13"><span class="chip ok"><b>✓</b>Decided Nov 24 · surfaced by a simulated panel</span> <b>Who sees the per-author rows.</b> Anyone who can read the plan sees the same rows: the changeset is project data under the project's own roles, with no separate higher-level view. A view across projects would be portfolio governance (Enterprise) and isn't drawn.</span></div>
+  </div>
+</div>
+</body>
+</html>

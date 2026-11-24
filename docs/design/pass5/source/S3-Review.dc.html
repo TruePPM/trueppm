@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Review changes, two coequal exits</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="/_blob/2ee9e1bacea833009fec2e7181ade9c1">
+<link rel="stylesheet" href="/_blob/9750f9d53047ee742d684b22b625c65d">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<style>body{margin:0}</style>
+</helmet>
+<div class="scr {{th}}" style="width: 1440px; height: 1180px">
+  <div class="app">
+    <nav class="rail" aria-label="Global">
+      <div class="ws"><span class="mark">N</span><div class="col" style="line-height: 16px; flex: 1"><span class="m5">Northwind</span><span class="t12 tx3">Workspace</span></div></div>
+      <a class="ri" href="#">Home</a><a class="ri" href="#">Inbox</a><a class="ri on" href="#">Work</a><a class="ri" href="#">People</a>
+      <div class="rfoot"><a class="ri" href="#"><span class="av s">PN</span>Priya N. · PM</a></div>
+    </nav>
+    <main class="main">
+      <div class="top"><div class="crumbs"><span>Work</span><span class="sep">/</span><span>Hangar Retrofit</span><span class="sep">/</span><b>Plan</b></div></div>
+      <div class="ctx">
+        <div class="ctx-h"><span class="t20">Hangar Retrofit</span><span class="chip risk"><b>◆</b>At risk</span><span class="sp"></span><span class="chip out"><b>◷</b>3 changes open · 1 needs a reason</span><button class="btn pri focus" type="button" style="min-height: 36px">⚑ Review 3 changes</button></div>
+        <div class="tabs"><a class="tab" href="#">Overview</a><a class="tab on" href="#">Plan</a><a class="tab" href="#">Deliver</a></div>
+      </div>
+      <div class="scrim"></div>
+      <div class="dlg" role="dialog" aria-labelledby="rv-h" aria-describedby="rv-s" style="top: 24px; left: 50%; margin-left: -450px; width: 900px; z-index: 10; gap: 14px; padding: 22px 24px">
+        <div class="row" style="align-items: flex-start"><div class="col g4" style="flex: 1"><h2 class="t20" id="rv-h">3 changes since baseline v1</h2><span class="t13 tx2" id="rv-s">Baseline v1 (Nov 4) is kept forever, whatever you choose. Decide what variance is measured against from now on.</span></div><button class="btn ghost" type="button" aria-label="Close without deciding" style="padding: 0 10px">✕</button></div>
+        <div class="col" style="position: relative">
+          <div class="chg" style="border-top: 0; padding-top: 0"><span class="t12 tx3">Kind</span><span class="t12 tx3">Reason</span><span class="t12 tx3">Who · when</span><span class="t12 tx3">Finish impact</span></div>
+          <div class="chg" style="background: var(--surface-0)"><span class="mono">restructured</span><div class="col g4"><span class="chip out" style="align-self: flex-start"><b>◌</b>Needs a reason</span><span class="t12 tx3">HR-5 moved under HR-3 · sorted to the top</span><div class="row" style="gap: 6px"><input class="inp" id="rv-r1" aria-label="Why HR-5 moved" placeholder="Why this moved" style="min-height: 32px; flex: 1"><button class="btn" type="button" style="min-height: 32px">Save</button></div></div><span class="t12 tx2">Wei L. · Nov 12, 10:05 · no reason given yet</span><span class="mono" style="color: var(--text-1)">Jun 12 → Jun 17</span></div>
+          <sc-for list="{{chg}}" as="c" hint-placeholder-count="2">
+            <div class="chg"><span class="mono">{{c.k}}</span><div class="col g4"><span class="t13">“{{c.r}}”</span><span class="t12 tx3">{{c.what}}</span></div><span class="t12 tx2">{{c.who}}</span><span class="mono" style="color: {{c.col}}">{{c.imp}}</span></div>
+          </sc-for>
+          <span class="ann pin" style="top: 30px; left: -34px">1</span>
+        </div>
+        <div class="well" style="padding: 10px 14px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; position: relative">
+          <span class="t12 b">Net effect</span>
+          <span class="t13">Finish <span class="mono">Jun 12</span> → <b class="mono">Jun 17</b></span><span class="chip risk"><b>◆</b>+3 wd vs v1</span>
+          <span class="t13 tx2">42 items, unchanged in count · 1 added, 1 removed · 1 milestone moves (Handover) · 9 of 42 tasks get new dates · commitment Jun 30 unchanged</span><span class="sp"></span><span class="m-asof">CPM run 15:22 · server values</span>
+          <span class="ann pin" style="top: -10px; right: -10px">2</span>
+        </div>
+        <div class="banner" role="note"><span class="g">i</span><span><b>Re-baselining is not the only honest answer.</b> If this slip is the news, keep v1 and let the variance stand. That is what it is for. Re-baseline when the plan itself was re-agreed, not to make a number go green.</span></div>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; position: relative">
+          <div class="exit">
+            <h3 class="t15">Take baseline v2</h3>
+            <ul class="t12 tx2" style="margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 2px"><li>v2 becomes what variance is measured against, so it starts at 0 wd</li><li>v1 and these 3 reasons stay in the change-control trail</li><li>The 6 people in the plan are told what was re-agreed</li></ul>
+            <div class="fld"><label for="v2-code">Reason · required</label><select class="inp" id="v2-code"><option>Approved scope change</option><option>Sponsor moved the commitment</option><option>External or vendor delay</option><option>Estimate correction</option><option>Team or resource change</option><option>Calendar change</option></select></div>
+            <div class="fld"><label for="v2-why">Why re-baseline · required · 500 characters</label><input class="inp" id="v2-why" placeholder="Customer approved the revised handover date on Nov 24"></div>
+            <label class="row t12" style="gap: 8px; min-height: 44px"><input type="checkbox" style="appearance: none; -webkit-appearance: none; flex: none; width: 18px; height: 18px; margin: 0; border: 2px solid var(--text-2); border-radius: 4px; background: var(--surface-1)"> <span>Also move the commitment date (Jun 30). This is a separate sponsor decision and is off by default.</span></label>
+            <span class="t12 tx2" id="v2-blk"><b>1 change needs a reason before this plan can be re-baselined.</b> The server enforces this too.</span>
+            <button class="btn blk" type="button" disabled aria-describedby="v2-blk" style="margin-top: auto">Take baseline v2</button>
+          </div>
+          <div class="exit">
+            <h3 class="t15">Keep v1 · let variance stand</h3>
+            <ul class="t12 tx2" style="margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 2px"><li>Variance keeps reading +3 wd. That is the number this plan is carrying</li><li>The 3 changes stay open, and unreasoned ones stay marked. Living with variance isn't a claim about why, so Keep v1 is never blocked</li><li>Nobody is re-notified, because each change was already told</li></ul>
+            <div class="fld"><label for="v1-note">Note for the trail · optional</label><input class="inp" id="v1-note" placeholder="Slip accepted; reporting it at Thursday's review"></div>
+            <button class="btn blk" type="button" style="margin-top: auto">Keep v1 · let variance stand</button>
+          </div>
+          <span class="ann pin" style="top: -10px; left: 50%; margin-left: -11px">3</span>
+        </div>
+        <div class="row t12 tx3"><span>Esc or ✕ closes without deciding, and the changeset stays open. Neither exit is the default, so Enter doesn't choose one.</span><span class="ann">4</span></div>
+      </div>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1440,"height":1180}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      th: (this.props.theme ?? 'light') === 'dark' ? 'dk' : 'lt',
+      chg: [
+                { k: 'removed work', r: 'Paint booth dropped; the customer paints in-house', what: 'HR-7 deleted · 6d', who: 'Priya N. · Nov 20, 16:40', imp: 'no date change', col: 'var(--text-2)' },
+        { k: 'added work', r: 'Range safety added a second dry-run', what: 'Second range safety dry run · 3d', who: 'Priya N. · Nov 24, 15:21', imp: 'no date change', col: 'var(--text-2)' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

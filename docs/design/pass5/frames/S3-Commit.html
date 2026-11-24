@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Draft edits and Commit plan</title>
+<link rel="stylesheet" href="../css/p4-shared.css">
+<link rel="stylesheet" href="../css/p5.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<style>body{margin:0}</style>
+</head>
+<body>
+<div class="scr lt" style="width: 1440px; height: 1000px">
+  <div class="app">
+    <nav class="rail" aria-label="Global">
+      <div class="ws"><span class="mark">N</span><div class="col" style="line-height: 16px; flex: 1"><span class="m5">Northwind</span><span class="t12 tx3">Workspace</span></div></div>
+      <a class="ri" href="#">Home</a><a class="ri" href="#">Inbox</a><a class="ri on" href="#">Work</a><a class="ri" href="#">People</a><a class="ri" href="#">Agents</a>
+      <div class="rl">Pinned</div>
+      <a class="ri on" href="#" style="font-weight: 400">Hangar Retrofit</a>
+      <div class="rfoot"><a class="ri" href="#"><span class="av s">PN</span>Priya N. · PM</a></div>
+    </nav>
+    <main class="main">
+      <div class="top"><div class="crumbs"><span>Work</span><span class="sep">/</span><span>Hangar Retrofit</span><span class="sep">/</span><b>Plan</b></div><span class="sp"></span><span class="slot" style="background: var(--surface-2)">✓ Saved · 14:02</span></div>
+      <div class="ctx" style="position: relative">
+        <div class="ctx-h"><span class="t20">Hangar Retrofit</span><span class="chip out"><b>○</b>Draft</span><span class="chip out"><b>◑</b>Hybrid</span><span class="sp"></span><span class="t12 tx2">CPM finish <b class="num" style="color: var(--text-1)">Jun 12</b> · as of 14:02</span><button class="btn pri" type="button" style="min-height: 36px">⚑ Commit plan</button></div>
+        <div class="tabs" role="tablist"><a class="tab" href="#">Overview</a><a class="tab on" href="#">Plan</a><a class="tab" href="#">Deliver</a><a class="tab" href="#">Risks</a><a class="tab" href="#">People</a><a class="tab" href="#">More ▾</a></div>
+        <span class="ann pin" style="top: 8px; right: 150px">1</span>
+      </div>
+      <div class="toolbar"><div class="seg" role="radiogroup" aria-label="Edit mode"><button type="button">Read</button><button type="button" class="on" aria-checked="true">Author</button></div><span style="width: 1px; height: 24px; background: var(--hairline); margin: 0 6px"></span><div class="seg" role="radiogroup" aria-label="Plan layout"><button type="button">Gantt</button><button type="button" class="on">Grid</button></div><span class="sp"></span><span class="t12 tx3">Draft: edits apply directly and no reason is asked</span><span class="ann">2</span></div>
+      <div style="padding: 16px 20px">
+        <div class="card">
+          <div class="lrow lhead" style="grid-template-columns: 80px minmax(0, 1fr) 90px 90px 120px"><span>ID</span><span>Task</span><span>Duration</span><span>Finish</span><span>Owner</span></div>
+          
+            <div class="lrow" style="grid-template-columns: 80px minmax(0, 1fr) 90px 90px 120px; background: transparent"><span class="mono tx2">HR-1</span><span class="m5" style="padding-left: 0px">Survey and permits</span><span class="mono">15d</span><span class="mono">Apr 3</span><span class="t12 tx2">Sam O.</span></div>
+          
+            <div class="lrow" style="grid-template-columns: 80px minmax(0, 1fr) 90px 90px 120px; background: transparent"><span class="mono tx2">HR-2</span><span class="m5" style="padding-left: 0px">Strip-out</span><span class="mono">10d</span><span class="mono">Apr 17</span><span class="t12 tx2">Jon B.</span></div>
+          
+            <div class="lrow" style="grid-template-columns: 80px minmax(0, 1fr) 90px 90px 120px; background: transparent"><span class="mono tx2">HR-3</span><span class="m5" style="padding-left: 14px">Crane C-2 lift plan</span><span class="mono">5d</span><span class="mono">Apr 24</span><span class="t12 tx2">Wei L.</span></div>
+          
+            <div class="lrow" style="grid-template-columns: 80px minmax(0, 1fr) 90px 90px 120px; background: var(--surface-0)"><span class="mono tx2">HR-4</span><span class="m5" style="padding-left: 14px">Range safety dry run</span><span class="mono">3d</span><span class="mono">Apr 29</span><span class="t12 tx2">Sam O.</span></div>
+          
+            <div class="lrow" style="grid-template-columns: 80px minmax(0, 1fr) 90px 90px 120px; background: transparent"><span class="mono tx2">HR-5</span><span class="m5" style="padding-left: 0px">Structural repairs</span><span class="mono">20d</span><span class="mono">May 27</span><span class="t12 tx2">Marco S.</span></div>
+          
+            <div class="lrow" style="grid-template-columns: 80px minmax(0, 1fr) 90px 90px 120px; background: transparent"><span class="mono tx2">HR-6</span><span class="m5" style="padding-left: 0px">Handover</span><span class="mono">10d</span><span class="mono">Jun 12</span><span class="t12 tx2">Priya N.</span></div>
+          
+        </div>
+      </div>
+
+      <div class="scrim"></div>
+      <div class="dlg" role="dialog" aria-labelledby="cm-h" style="top: 90px; left: 50%; margin-left: -330px; width: 660px; z-index: 10; gap: 14px">
+        <div class="row" style="align-items: flex-start"><div class="col g4" style="flex: 1"><h2 class="t20" id="cm-h">Commit this plan</h2><span class="t13 tx2">You keep authoring afterward. What changes is that the plan starts having a past.</span></div><button class="btn ghost" type="button" aria-label="Close" style="padding: 0 10px">✕</button></div>
+        <span class="t12 tx3 b">What this does</span>
+        <div class="col" style="gap: 8px">
+          
+            <div class="well" style="padding: 10px 12px; display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 10px"><span class="b" aria-hidden="true">⚑</span><div class="col"><span class="m5">Takes baseline v1</span><span class="t12 tx2">42 items · finish Jun 12 · span 72 d. Every variance number from here on is measured against this.</span></div></div>
+          
+            <div class="well" style="padding: 10px 12px; display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 10px"><span class="b" aria-hidden="true">↻</span><div class="col"><span class="m5">Commits sprint-mode work</span><span class="t12 tx2">12 items run in sprints. Structural changes to them will carry a reason and a notice.</span></div></div>
+          
+            <div class="well" style="padding: 10px 12px; display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 10px"><span class="b" aria-hidden="true">◎</span><div class="col"><span class="m5">Tells 6 people</span><span class="t12 tx2">Everyone with a resource assignment in the plan. It names what was committed, not that a button was pressed.</span></div></div>
+          
+            <div class="well" style="padding: 10px 12px; display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 10px"><span class="b" aria-hidden="true">◐</span><div class="col"><span class="m5">Makes the project visible</span><span class="t12 tx2">It leaves draft and appears in the program rollup, search and the API.</span></div></div>
+          
+        </div>
+        <div class="banner" role="note"><span class="g">✎</span><span><b>This is not a lock. It is how editing works from here.</b> Author becomes <b>Amend</b>, with the same keys and the same row entry, except that a structural edit carries a reason. Those reasons collect into a changeset, and this sheet is where you turn the changeset into <b>baseline v2</b>.</span></div>
+        <div class="row" style="justify-content: flex-end"><button class="btn" type="button">Stay in draft</button><button class="btn pri" type="button">Commit &amp; take baseline v1</button></div>
+        <span class="ann pin" style="top: 60px; right: -10px">3</span>
+      </div>
+    </main>
+  </div>
+</div>
+</body>
+</html>

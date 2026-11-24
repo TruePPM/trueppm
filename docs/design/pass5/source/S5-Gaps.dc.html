@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Phone gap check</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="/_blob/2ee9e1bacea833009fec2e7181ade9c1">
+<link rel="stylesheet" href="/_blob/9750f9d53047ee742d684b22b625c65d">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap">
+<style>body{margin:0}.spec td{font-size:12px;line-height:17px}</style>
+</helmet>
+<div class="scr {{th}}" style="width: 1440px; height: 1400px; padding: 40px 48px; display: flex; flex-direction: column; gap: 22px; background: var(--surface-1)">
+  <div class="row" style="align-items: flex-end">
+    <div class="col g4" style="flex: 1"><span class="t12 tx3">Pass 5 · Section 5 · checked frame by frame against the Pass 4 canvas (read Nov 24) and Pass 4's 8f table for Pass 3</span><h1 class="t32">Phone gap check</h1></div>
+    <p class="t13 tx2" style="max-width: 520px; text-align: right"><b>Collapses</b> means the desktop layout restacks into a single column with the same task. <b>Different flow</b> means the phone does a smaller or different job, and says what is on desktop. Rows marked <b>Drawn here</b> link to 5A.</p>
+  </div>
+
+  <section aria-labelledby="p3-h">
+    <h2 class="t15" id="p3-h" style="margin-bottom: 6px">Pass 3</h2>
+    <table class="spec">
+      <tr><th style="width: 230px">Section · desktop frame</th><th style="width: 230px">Phone 390</th><th style="width: 130px">Treatment</th><th>Note</th></tr>
+      <tr><td>1 Status update · one-page PDF</td><td class="tx2">None needed</td><td>—</td><td class="tx2">Print-only by nature. The Pass 3 phone “Share” frame covers sending it (Pass 4 · 8f).</td></tr>
+      <tr><td>2 Allocation · non-human resource</td><td>Pass 4 · 8f-1</td><td>Collapses</td><td class="tx2">Already drawn.</td></tr>
+      <tr><td>3 Cost · Project Settings › Budget</td><td>Pass 4 · 8f-2</td><td>Collapses</td><td class="tx2">Already drawn.</td></tr>
+      <tr><td>4 Baselines · Rebaseline dialog</td><td><b>Pass 5 · 4A</b></td><td>Different flow</td><td class="tx2">Pass 3 kept this desktop-only. Section 4 reverses that: the phone can decide (v2 with a reason, or keep v1) but can't restructure. The dialog itself merges into the 3C sheet.</td></tr>
+      <tr><td>5 Agents and decisions</td><td>Pass 3 phones</td><td>—</td><td class="tx2">None missing at the Pass 3 level. Pass 4's 8e amendment adds one, listed below.</td></tr>
+      <tr><td>6 Onboarding · empty workspace start</td><td>Pass 4 · 8f-3</td><td>Collapses</td><td class="tx2">Already drawn.</td></tr>
+    </table>
+  </section>
+
+  <section aria-labelledby="p4-h">
+    <h2 class="t15" id="p4-h" style="margin-bottom: 6px">Pass 4</h2>
+    <table class="spec">
+      <tr><th style="width: 230px">Section · desktop frame</th><th style="width: 230px">Phone 390</th><th style="width: 130px">Treatment</th><th>Note</th></tr>
+      <tr><td>1A Capabilities settings</td><td>1C-a</td><td>Collapses</td><td class="tx2">The confirm step is described in 1C-a's caption as a bottom sheet with 1A's counts. Its content is identical, so no frame is needed.</td></tr>
+      <tr><td>1B Area off: rail, tabs, deep link</td><td>1C-b</td><td>Collapses</td><td class="tx2">—</td></tr>
+      <tr><td>2A PM compose + status trail</td><td>2D-a</td><td>Collapses</td><td class="tx2">The status trail is reachable from the ask in the Inbox.</td></tr>
+      <tr><td>2B RM inbox + heat map + counter-offer</td><td>2D-b</td><td>Different flow</td><td class="tx2">The heat map is 4 weeks wide and swipes for more.</td></tr>
+      <tr><td><b>2C Explained change / explained refusal</b></td><td><b>Missing · drawn here 5A-1</b></td><td>Collapses</td><td class="tx2">The PM reads the outcome where the push lands (Pass 4 · §4), so this is the screen the phone opens most. The chain stacks, and the refusal keeps its “earliest date that fits” action.</td></tr>
+      <tr><td>3A Expenses beside labor</td><td>3C-a</td><td>Collapses</td><td class="tx2">—</td></tr>
+      <tr><td><b>3B Rate grid for grantees, and the grant</b></td><td><b>Missing · drawn here 5A-2</b> (no-grant view is 3C-b)</td><td>Different flow</td><td class="tx2">Grantees can read rates and change one rate in a sheet. Assigning the Rate editor grant is an admin task and stays on desktop, and the phone says so.</td></tr>
+      <tr><td><b>4A Profile › Notifications, non-iOS</b></td><td><b>Missing · drawn here 5A-3</b> (4B covers iOS only)</td><td>Collapses</td><td class="tx2">An installed PWA on Android, or a browser that supports push. Shows the granted, denied and error states, and the Inbox alert row.</td></tr>
+      <tr><td>5A Health scale spec</td><td>5B</td><td>Collapses</td><td class="tx2">—</td></tr>
+      <tr><td>6A / 6B Offline queue, reconnect</td><td>6C</td><td>Collapses</td><td class="tx2">—</td></tr>
+      <tr><td>7A Constraint picker, markers</td><td>7C</td><td>Collapses</td><td class="tx2">—</td></tr>
+      <tr><td><b>7B MS Project import review</b></td><td><b>Missing · drawn here 5A-4</b></td><td>Different flow</td><td class="tx2">Importing a file stays on desktop. But 7C-a's “13 constraints changed on import · Review” link led nowhere on a phone. The phone shows the stored import report, read-only.</td></tr>
+      <tr><td>8c Getting-started checklist + empty-state calls to action</td><td>8f-4</td><td>Collapses</td><td class="tx2">The empty-state cards are already single-column. No frame is needed.</td></tr>
+      <tr><td><b>8e Agents Write column in 0.5</b></td><td><b>Missing · drawn here 5A-5</b></td><td>Collapses</td><td class="tx2">The 4-column grid becomes one row per area, with Read and Dry run as switches and Write shown as “◌ Ships in 0.6”.</td></tr>
+      <tr><td>8b Simulated persona panel</td><td class="tx2">None needed</td><td>—</td><td class="tx2">This is analysis, not product UI.</td></tr>
+    </table>
+  </section>
+
+  <section aria-labelledby="p5-h">
+    <h2 class="t15" id="p5-h" style="margin-bottom: 6px">Pass 5 (this canvas)</h2>
+    <p class="t13">Every section has its phone frame: 1D (seeded views, More sheet), 2C (segmented, picker sheet, hidden-layout link), 4A (the amend loop on a phone). Section 3 is desktop-first by design, and 4A says which parts stay there.</p>
+  </section>
+
+  <section aria-labelledby="q-h">
+    <h2 class="t15" id="q-h" style="margin-bottom: 6px">Open questions · Section 5</h2>
+    <div class="q"><span class="id">Q5.4</span><span class="t13"><b>Pass 3 was not re-read frame by frame in this pass.</b> Its rows come from Pass 4's 8f table, which was read from <span class="mono">p3/*.js</span> on Nov 22. If Pass 3 has frames that 8f didn't list, they aren't checked here. Worth one pass over the Pass 3 canvas before handoff.</span></div>
+    <div class="q"><span class="id">Q5.5</span><span class="t13"><b>Should rate edits happen on a phone at all?</b> 5A-2 allows a grantee to change one rate. The alternative is read-only on the phone, like assigning the grant.</span></div>
+    <div class="q"><span class="id">Q5.6</span><span class="t13"><b>Can the phone accept a counter-offer</b> (5A-1)? I drew Accept on the phone, because the PM is the one who decides. Releasing assignments stays on desktop.</span></div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":1440,"height":1400}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { th: (this.props.theme ?? 'light') === 'dark' ? 'dk' : 'lt' };
+  }
+}
+</script>
+</body>
+</html>
