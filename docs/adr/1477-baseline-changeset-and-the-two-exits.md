@@ -2,7 +2,14 @@
 
 ## Status
 
-Proposed (2026-11-24)
+Accepted (2026-11-24)
+
+> **Implementation status (2026-11-24, at acceptance):** the *decision* stands, but **none of it
+> is built yet**. Verified 2026-11-24: no `ChangesetEntry`, `BaselineDecision`,
+> `record_structural_change` or `baseline-decisions` route exists anywhere under
+> `packages/api/src`, `packages/web/src` or `packages/mcp/src`. `amend.py` (#2964) and
+> `BaselineActivateView` behave as §Context describes. Implementation is #3150 and #4813;
+> webhooks are #5121.
 
 ## Context
 
@@ -288,12 +295,10 @@ delivery channel.
    entry whose recalc never succeeds keeps `finish_after = null`, shown as not computed.
 
 ### On Acceptance
-- [ ] `python3 scripts/adr-accepted-issue-sweep.py --adr 1477`
-- [ ] Rewrite any issue carrying pre-ADR scope. Known before acceptance:
-  - #3150 and #4813 acceptance, and the Pass 5 canvas (Q3.2), said "Owner, Admin and Scheduler". They were corrected to Admin and above on 2026-11-24, when the role was decided.
-  - #4813 described the dialog as its own surface. This ADR merges it into §5's endpoint.
-
-  Record the count, including zero.
+- [x] `python3 scripts/adr-accepted-issue-sweep.py --adr 1477`: **0** issues, because the
+      issues named this ADR only in comments when the sweep ran.
+- [x] Rewritten by hand, each led by a dated correction note: **3** (#3150, #4813, #5122).
+      Their titles still describe the problem accurately, so the titles were kept.
 
 ## AI review (2026-11-24, before implementation)
 

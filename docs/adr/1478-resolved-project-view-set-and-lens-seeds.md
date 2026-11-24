@@ -2,7 +2,14 @@
 
 ## Status
 
-Proposed (2026-11-24)
+Accepted (2026-11-24)
+
+> **Implementation status (2026-11-24, at acceptance):** the *decision* stands, but **none of it
+> is built yet**. Verified 2026-11-24: no `ProjectViewState`, `resolve_project_views`,
+> `LENS_VIEW_SEEDS` or `/views/` route exists under `packages/api/src`, `packages/web/src`
+> or `packages/mcp/src`, and `contracts/` holds no `methodology-views.json`.
+> `UserProfile.hidden_views` and the #3713 seed are still the live mechanism.
+> Implementation is #3715.
 
 ## Context
 
@@ -263,10 +270,11 @@ instead.
    next read (§4).
 
 ### On Acceptance
-- [ ] `python3 scripts/adr-accepted-issue-sweep.py --adr 1478`
-- [ ] Rewrite any issue carrying pre-ADR scope. Known before acceptance:
-  - #3715 and #5122 say methodology "owns the allowed set" and that `hidden_views` writes
-    "return a pointer".
-  - #3715 lists a Product Owner seed as if the lens existed.
-
-  Record the count, including zero.
+- [x] `python3 scripts/adr-accepted-issue-sweep.py --adr 1478`: **0** issues, because the
+      issues named this ADR only in comments when the sweep ran.
+- [x] Rewritten by hand, each led by a dated correction note: **2** (#3715, #5122). The
+      deviations below were confirmed by the maintainer at acceptance:
+  - methodology stays advisory (Q1.1);
+  - Schedule is always offered (ADR-1298);
+  - `hidden_views` writes fan out;
+  - the Product Owner seed waits for #1467.
