@@ -1,0 +1,1 @@
+The `/api/v1/projects/{id}/views/` write routes now declare their `400 {code: last_plan_layout}` body in the OpenAPI schema, and an `mcp:read` agent's `get_project_views` read no longer seeds the owner's view set.

@@ -1196,9 +1196,9 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         ``default``) and a ``binding``. ``advisory`` means the view is only hidden from
         the tabs and still opens from More or by URL; ``enforced`` means the workspace
         turned the area off. Never read a hidden view as forbidden. ``hidden`` lists the
-        hidden views with their reasons. A first read for a project applies the owner's
-        role-lens suggestion, exactly as their first open in the web app would. Read-only
-        otherwise.
+        hidden views with their reasons. Before the owner first opens the project in the
+        web app, the answer includes the role-lens suggestion that open will apply. It
+        is read-only: this call never applies the suggestion or writes anything.
 
         Args:
             project_id: The project's UUID.

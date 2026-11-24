@@ -25,12 +25,13 @@ from trueppm_api.apps.profiles.models import UserPin, UserProfile
 from trueppm_api.apps.profiles.serializers import (
     ApplySeedRequestSerializer,
     PinnedItemSerializer,
+    ProjectViewsErrorSerializer,
     ProjectViewSetSerializer,
     ProjectViewsPatchSerializer,
     SeedDiffSerializer,
     UserProfileSerializer,
 )
-from trueppm_api.apps.projects.models import Project
+from trueppm_api.apps.projects.models import Project, is_agent_token
 
 #: ``hidden_views`` deprecation (ADR-1478 §6.2, RFC 9745 / RFC 8594). The field is removed
 #: one minor release after 0.5; the Sunset date is that release's planning date.
@@ -157,7 +158,11 @@ def _pinned_item(pin: UserPin) -> dict[str, Any] | None:
 
 
 _LAST_PLAN_LAYOUT = OpenApiResponse(
-    description="`{code: last_plan_layout}`: the write would leave Plan with no layout."
+    response=ProjectViewsErrorSerializer,
+    description=(
+        "`code: last_plan_layout`: the write would leave Plan with no layout. A body "
+        "that fails validation returns the standard field-error shape instead."
+    ),
 )
 
 
@@ -212,7 +217,10 @@ class ProjectViewsView(McpReadableViewMixin, IdempotencyMixin, _ProjectViewsBase
         responses={200: ProjectViewSetSerializer},
     )
     def get(self, request: Request, pk: Any) -> Response:
-        resolved = services.resolve_project_views(request.user, self._project(pk))
+        # An agent read never seeds (ai-review): see resolve_project_views(persist=).
+        resolved = services.resolve_project_views(
+            request.user, self._project(pk), persist=not is_agent_token(request.auth)
+        )
         return Response(ProjectViewSetSerializer(asdict(resolved)).data)
 
     @extend_schema(

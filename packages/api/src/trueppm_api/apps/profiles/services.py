@@ -906,7 +906,7 @@ def _fail_open(lens: str, project: Any) -> ResolvedViewSet:
     return ResolvedViewSet(views, lens, None, None, None, None, {})
 
 
-def resolve_project_views(user: Any, project: Any) -> ResolvedViewSet:
+def resolve_project_views(user: Any, project: Any, *, persist: bool = True) -> ResolvedViewSet:
     """The caller's resolved view set for ``project``, seeding it on first resolve.
 
     The first read for a ``(user, project)`` creates the row with the current lens's
@@ -917,9 +917,22 @@ def resolve_project_views(user: Any, project: Any) -> ResolvedViewSet:
     ``source: default`` — and writes nothing, so the next read seeds.
 
     Changing the lens later never re-seeds (Q5.2): it only raises ``lens_offer``.
+
+    ``persist=False`` is the agent (MCP) read: it answers with the seed the first web
+    read *would* write, from an unsaved row, and writes nothing. Seeding is permanent
+    (a later lens change never re-seeds), so letting an ``mcp:read`` token write it
+    would freeze the user's seed at whatever lens they held when an agent first asked,
+    and a read-scoped credential would be making a write.
     """
 
     lens = _role_context(user)
+    if not persist:
+        existing = ProjectViewState.objects.filter(user=user, project=project).first()
+        if existing is None:
+            existing = ProjectViewState(
+                user=user, project=project, **_seed_defaults(user, project, lens)
+            )
+        return _build(existing, lens, project)
     try:
         with transaction.atomic():
             state, _ = ProjectViewState.objects.get_or_create(

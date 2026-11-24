@@ -28720,7 +28720,14 @@
                         }
                     },
                     "400": {
-                        "description": "`{code: last_plan_layout}`: the write would leave Plan with no layout."
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectViewsError"
+                                }
+                            }
+                        },
+                        "description": "`code: last_plan_layout`: the write would leave Plan with no layout. A body that fails validation returns the standard field-error shape instead."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -28825,7 +28832,14 @@
                         }
                     },
                     "400": {
-                        "description": "`{code: last_plan_layout}`: the write would leave Plan with no layout."
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectViewsError"
+                                }
+                            }
+                        },
+                        "description": "`code: last_plan_layout`: the write would leave Plan with no layout. A body that fails validation returns the standard field-error shape instead."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -28910,7 +28924,14 @@
                         }
                     },
                     "400": {
-                        "description": "`{code: last_plan_layout}`: the write would leave Plan with no layout."
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectViewsError"
+                                }
+                            }
+                        },
+                        "description": "`code: last_plan_layout`: the write would leave Plan with no layout. A body that fails validation returns the standard field-error shape instead."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -81773,6 +81794,30 @@
                     "seeded_lens",
                     "views"
                 ]
+            },
+            "ProjectViewsError": {
+                "type": "object",
+                "description": "The ``400`` a view-state write returns when it would leave Plan with no layout.",
+                "properties": {
+                    "code": {
+                        "$ref": "#/components/schemas/ProjectViewsErrorCodeEnum"
+                    },
+                    "detail": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "code",
+                    "detail"
+                ]
+            },
+            "ProjectViewsErrorCodeEnum": {
+                "enum": [
+                    "last_plan_layout"
+                ],
+                "type": "string",
+                "description": "* `last_plan_layout` - last_plan_layout",
+                "x-trueppm-enum": "open"
             },
             "ProjectViewsPatchKeyEnum": {
                 "enum": [

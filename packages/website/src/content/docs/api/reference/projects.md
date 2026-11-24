@@ -310,6 +310,92 @@ at creation; remove the member and add the other account instead. See
 
 See [RBAC](/administration/rbac/) for the permission matrix and role escalation rules.
 
+## Project views
+
+:::note[Ships in 0.5]
+These routes ship in 0.5. On the current release, view visibility is the
+workspace-wide `hidden_views` list on `/api/v1/auth/me/profile/`.
+:::
+
+Your own resolved tab set for one project, and why each view is shown or hidden.
+Every route reads and writes **only the caller's own** row; no parameter names
+another user. Any project member (Viewer and up) may call them, archived projects
+included, because they change navigation, not project data. See
+[Customize views](/features/view-focus/).
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/projects/{id}/views/` | Your resolved view set. Your first read for a project seeds it from your role lens; an `mcp:read` agent token's read reports that seed without writing it |
+| PATCH | `/api/v1/projects/{id}/views/` | Change your view state (body below) |
+| POST | `/api/v1/projects/{id}/views/apply-seed/` | Preview (`dry_run: true`, the default) or apply another lens's suggestions |
+| POST | `/api/v1/projects/{id}/views/reset/` | Restore your current lens's suggestions. No body |
+
+The `GET` and `PATCH` response:
+
+```json
+{
+  "views": [
+    {"key": "board", "visible": false, "source": "seed", "binding": "advisory",
+     "lens": "pm", "at": "2026-11-20T14:02:00Z"}
+  ],
+  "lens": "pm",
+  "seeded_lens": "pm",
+  "seed_line": {"lens": "pm", "hidden_count": 3},
+  "lens_offer": null,
+  "landing": "overview",
+  "last_layouts": {"plan": "schedule"}
+}
+```
+
+Each view's `source` says why it has its visibility:
+
+| `source` | Meaning |
+|----------|---------|
+| `always` | A core view that cannot be hidden |
+| `methodology` | The project's methodology does not include the view |
+| `capability` | The workspace turned the area off |
+| `seed` | Your role lens suggested hiding it (`lens` names which) |
+| `user` | You hid or showed it yourself (`at` is when) |
+| `default` | Shown, with no rule applied |
+
+`binding` is `enforced` only for `capability`: the web shows the area as off and
+asks you to contact an admin. Every other hidden view is `advisory` and still opens
+from **More** and by URL. Neither value is authorization; never read
+`visible: false` as forbidden.
+
+`PATCH` accepts any of these fields; send at least one:
+
+| Field | Type | Effect |
+|-------|------|--------|
+| `key` + `hidden` | string + boolean | Record your own choice for one view. Sent together |
+| `seed_line_dismissed` | boolean | Dismiss the "Shown for {lens}" line |
+| `lens_offer_dismissed` | `pm` / `scrum_master` / `unified` | Dismiss the "Apply {lens} suggestions" offer for that lens |
+| `clear_seed` | boolean | **Show all**: drop this project's seed hides, keeping your own choices |
+| `last_layouts` | object | Remember the last layout per view, at most 8 entries |
+
+`apply-seed/` takes `{"lens": "scrum_master", "dry_run": true}` (`pm`, `scrum_master` or `unified`). It and `reset/`
+return the diff the confirm dialog shows, and change only `seed` entries; your own
+choices come back under `kept`:
+
+```json
+{
+  "lens": "scrum_master",
+  "will_hide": ["calendar"],
+  "will_show": ["board"],
+  "will_open_on": "board",
+  "kept": [{"view": "risk", "hidden": true}],
+  "change_count": 2,
+  "applied": false
+}
+```
+
+A write that would hide the last visible Plan layout is refused with `400` on
+`PATCH`, `apply-seed/` and `reset/`:
+
+```json
+{"code": "last_plan_layout", "detail": "Plan needs at least one layout. Show another layout first."}
+```
+
 ## Workspace
 
 | Method | Path | Auth | Description |

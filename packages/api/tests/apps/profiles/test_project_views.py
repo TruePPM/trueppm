@@ -362,3 +362,33 @@ def test_last_layouts_stay_bounded_across_requests(cal: Calendar) -> None:
         assert c.patch(_url(p), body, format="json").status_code == 200
     layouts = ProjectViewState.objects.get(user=user, project=p).last_layouts
     assert len(layouts) == 16 and "t4-7" in layouts and "t0-0" not in layouts
+
+
+def test_agent_read_reports_the_seed_without_writing_it(cal: Calendar) -> None:
+    """An ``mcp:read`` agent asking "why can't I see Sprints?" must not seed the row.
+
+    Seeding is permanent, so an agent's first read would otherwise freeze the user's seed
+    at whatever lens they held then, and a read-scoped credential would be writing.
+    """
+    from trueppm_api.apps.profiles import services
+
+    p = _project(cal, "HYBRID")
+    user = _member(p, "scrum_master")
+    preview = services.resolve_project_views(user, p, persist=False)
+    assert {v.key for v in preview.views if v.source == "seed"} == {
+        "schedule",
+        "calendar",
+        "resources",
+    }
+    assert not ProjectViewState.objects.filter(user=user, project=p).exists()
+
+    with mock.patch("trueppm_api.apps.profiles.views.is_agent_token", return_value=True):
+        data = _client(user).get(_url(p)).json()
+    assert data["seed_line"] == {"lens": "scrum_master", "hidden_count": 3}
+    assert not ProjectViewState.objects.filter(user=user, project=p).exists()
+
+    # The web's own first read still seeds, and the agent then reads the stored row.
+    _client(user).get(_url(p))
+    assert ProjectViewState.objects.filter(user=user, project=p).count() == 1
+    with mock.patch("trueppm_api.apps.profiles.views.is_agent_token", return_value=True):
+        assert _client(user).get(_url(p)).json()["seeded_lens"] == "scrum_master"

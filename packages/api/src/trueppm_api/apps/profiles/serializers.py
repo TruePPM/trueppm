@@ -335,6 +335,13 @@ class ProjectViewsPatchSerializer(serializers.Serializer[Any]):
         return attrs
 
 
+class ProjectViewsErrorSerializer(serializers.Serializer[Any]):
+    """The ``400`` a view-state write returns when it would leave Plan with no layout."""
+
+    code = serializers.ChoiceField(choices=["last_plan_layout"])
+    detail = serializers.CharField()
+
+
 class ApplySeedRequestSerializer(serializers.Serializer[Any]):
     """``POST …/views/apply-seed/``: preview (``dry_run``, the default) or apply."""
 
