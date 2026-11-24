@@ -10,6 +10,7 @@ import {
   useChangeset,
   type ApiChangeset,
   type ApiChangesetEntry,
+  type BaselineDecisionBody,
   type RebaselineReasonCode,
 } from '@/hooks/useChangeset';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
@@ -230,8 +231,11 @@ function ChangesetSheetBody({ projectId, data, currentRole, isPhone, onClose, de
   const takeReady = !blocked && draft.reasonCode !== '' && draft.reason.trim() !== '';
   const v = shortBaselineName(data.active_baseline_name);
 
+  // `mutateAsync`, not `mutate` with per-call callbacks: the phone's deferred
+  // Keep posts after the sheet has unmounted, and TanStack drops a per-call
+  // callback whose component is gone, which would swallow a refusal silently.
   const post = (kind: 'taken' | 'kept') => {
-    decide.mutate(
+    const body: BaselineDecisionBody =
       kind === 'taken'
         ? {
             kind,
@@ -239,25 +243,24 @@ function ChangesetSheetBody({ projectId, data, currentRole, isPhone, onClose, de
             reason_code: draft.reasonCode || undefined,
             reason: draft.reason.trim(),
           }
-        : { kind, expected_open_count: data.open_count, note: draft.note.trim() },
-      {
-        onSuccess: () => {
-          writeDraft(projectId, null);
-          toast.success(
-            kind === 'taken'
-              ? 'New baseline taken.'
-              : `${data.active_baseline_name ?? 'Baseline'} kept. Variance stands.`,
-          );
-          onClose();
-        },
-        onError: (err) => {
-          const code = refusalCode(err);
-          if (code === 'changeset_changed' || code === 'changeset_unreasoned') {
-            toast.error('The changes moved since you opened this. Review the updated list.');
-          } else {
-            toast.error("Couldn't record the decision. Try again.");
-          }
-        },
+        : { kind, expected_open_count: data.open_count, note: draft.note.trim() };
+    decide.mutateAsync(body).then(
+      () => {
+        writeDraft(projectId, null);
+        toast.success(
+          kind === 'taken'
+            ? 'New baseline taken.'
+            : `${data.active_baseline_name ?? 'Baseline'} kept. Variance stands.`,
+        );
+        onClose();
+      },
+      (err: unknown) => {
+        const code = refusalCode(err);
+        if (code === 'changeset_changed' || code === 'changeset_unreasoned') {
+          toast.error('The changes moved since you opened this. Review the updated list.');
+        } else {
+          toast.error("Couldn't record the decision. Try again.");
+        }
       },
     );
   };

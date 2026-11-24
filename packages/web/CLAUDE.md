@@ -269,6 +269,7 @@ These rules are enforced at review time. Violations block merge.
 309. **The Schedule row's far-left edge is spoken for twice — a third row-level meaning goes at the indent origin, not there.** → [rule](../../docs/design/invariants/309-the-schedule-row-s-far-left-edge-is-spoken-for-twice-a.md)
 279. **An effect that needs a DOM node takes the node from `useElementRef` and lists it as a dependency — never `someRef.current` read inside an effect that cannot re-run when the node mounts (#2365).** → [rule](../../docs/design/invariants/279-an-effect-that-needs-a-dom-node-takes-the-node-from.md)
 411. **`disabled` on a form control removes it from the tab order and takes its `aria-describedby` explanation with it — so the state that most needs explaining becomes the one a keyboard or screen-reader user cannot reach. Use `readOnly` + an `onChange` guard for "inert right now", and reserve `disabled` for controls with no explanation to offer.** → [rule](../../docs/design/invariants/411-disabled-on-a-form-control-removes-it-from-the-tab-order.md)
+469. **A write that outlives the surface that started it (a closed sheet, an Undo-window post) reports its outcome through `mutateAsync(...).then`, never through per-call `mutate` callbacks, which TanStack drops on unmount.** → [rule](../../docs/design/invariants/469-a-write-that-outlives-its-surface-uses-mutateasync.md)
 
 ## Canvas
 

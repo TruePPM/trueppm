@@ -261,7 +261,9 @@ test.describe('Baseline changeset on a committed plan', () => {
     await expect(line.getByRole('status')).toHaveText(
       'Structural repairs moved · finish 2026-11-14 → 2026-11-19',
     );
-    await expect(page.getByText('◷ 1 change open · 1 needs a reason')).toBeVisible();
+    await expect(page.getByTestId('changeset-counts')).toHaveText(
+      '◷ 1 change open · 1 needs a reason',
+    );
 
     // ⌥W reaches the field; the line never took focus on its own.
     await page.keyboard.press('Alt+KeyW');
@@ -271,7 +273,7 @@ test.describe('Baseline changeset on a committed plan', () => {
     await why.press('Enter');
     await expect(page.getByText('✓ reasons up to date')).toBeVisible();
 
-    await page.getByRole('button', { name: '⚑ Review 1 change' }).click();
+    await page.getByRole('button', { name: 'Review 1 change' }).click();
     const sheet = page.getByRole('dialog', { name: '1 change since Baseline v1' });
     await expect(sheet).toBeVisible();
     await expect(sheet.getByText('“Repairs wait for the crane lift plan”')).toBeVisible();
@@ -291,7 +293,7 @@ test.describe('Baseline changeset on a committed plan', () => {
 
   test('Take v2 is blocked while a change needs a reason; Keep v1 is not', async ({ page }) => {
     await gotoCommittedSchedule(page, freshStore([entry()]));
-    await page.getByRole('button', { name: '⚑ Review 1 change' }).click();
+    await page.getByRole('button', { name: 'Review 1 change' }).click();
     const sheet = page.getByRole('dialog', { name: '1 change since Baseline v1' });
     await sheet.getByLabel('Reason · required').selectOption('external_delay');
     await sheet.getByLabel(/Why re-baseline/).fill('Vendor slipped');
@@ -302,20 +304,20 @@ test.describe('Baseline changeset on a committed plan', () => {
     // Esc closes without deciding; the changeset stays open.
     await page.keyboard.press('Escape');
     await expect(sheet).toBeHidden();
-    await expect(page.getByRole('button', { name: '⚑ Review 1 change' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Review 1 change' })).toBeVisible();
   });
 
   test('Keep v1 records the decision and demotes Review', async ({ page }) => {
     const store = freshStore([entry()]);
     await gotoCommittedSchedule(page, store);
-    await page.getByRole('button', { name: '⚑ Review 1 change' }).click();
+    await page.getByRole('button', { name: 'Review 1 change' }).click();
     const sheet = page.getByRole('dialog', { name: '1 change since Baseline v1' });
     await sheet.getByLabel(/Note for the trail/).fill('Reporting the slip on Thursday');
     await sheet.getByRole('button', { name: 'Keep v1 · let variance stand' }).click();
 
     await expect(page.getByText('Baseline v1 kept. Variance stands.')).toBeVisible();
     expect(store.posts[0]).toMatchObject({ kind: 'kept', note: 'Reporting the slip on Thursday' });
-    await expect(page.getByRole('button', { name: '◷ 1 change · v1 kept' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '1 change · v1 kept' })).toBeVisible();
   });
 });
 
@@ -329,7 +331,7 @@ test.describe('Baseline changeset on a phone', () => {
       page,
       freshStore([entry({ reason: 'Crane on site after Apr 24', reason_state: 'reasoned' })]),
     );
-    await page.getByRole('button', { name: '⚑ Review 1 change' }).click();
+    await page.getByRole('button', { name: 'Review 1 change' }).click();
     const sheet = page.getByRole('dialog', { name: '1 change since Baseline v1' });
     await expect(sheet).toBeVisible();
 

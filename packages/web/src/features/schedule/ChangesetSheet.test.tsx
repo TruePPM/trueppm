@@ -22,7 +22,13 @@ const toastAction = vi.hoisted(() => vi.fn());
 vi.mock('@/hooks/useChangeset', async (importActual) => ({
   ...(await importActual<typeof import('@/hooks/useChangeset')>()),
   useChangeset: () => ({ data: state.data, refetch: vi.fn() }),
-  useBaselineDecision: () => ({ mutate: decideMutate, isPending: false }),
+  useBaselineDecision: () => ({
+    mutateAsync: (body: unknown) => {
+      decideMutate(body);
+      return Promise.resolve({});
+    },
+    isPending: false,
+  }),
   useAnswerChangesetReason: () => ({ mutate: answerMutate, isPending: false }),
 }));
 vi.mock('@/hooks/useOnlineStatus', () => ({ useOnlineStatus: () => state.online }));
@@ -123,10 +129,7 @@ describe('ChangesetSheet (desktop, Pass 5 3C)', () => {
     expect(takeButton()).toBeDisabled();
     expect(takeButton()).toHaveAccessibleDescription(/1 change needs a reason/i);
     fireEvent.click(keepButton());
-    expect(decideMutate).toHaveBeenCalledWith(
-      { kind: 'kept', expected_open_count: 1, note: '' },
-      expect.any(Object),
-    );
+    expect(decideMutate).toHaveBeenCalledWith({ kind: 'kept', expected_open_count: 1, note: '' });
   });
 
   it('takes v2 once every change is reasoned and a code and reason are given', () => {
@@ -140,15 +143,12 @@ describe('ChangesetSheet (desktop, Pass 5 3C)', () => {
       target: { value: 'Sponsor signed CO-7' },
     });
     fireEvent.click(takeButton());
-    expect(decideMutate).toHaveBeenCalledWith(
-      {
-        kind: 'taken',
-        expected_open_count: 1,
-        reason_code: 'approved_scope_change',
-        reason: 'Sponsor signed CO-7',
-      },
-      expect.any(Object),
-    );
+    expect(decideMutate).toHaveBeenCalledWith({
+      kind: 'taken',
+      expected_open_count: 1,
+      reason_code: 'approved_scope_change',
+      reason: 'Sponsor signed CO-7',
+    });
   });
 
   it('shows the two exits as identical buttons, and Enter in a field decides nothing', () => {
@@ -221,10 +221,7 @@ describe('ChangesetSheet (phone, Pass 5 4A)', () => {
       void act(() => {
         vi.advanceTimersByTime(KEEP_UNDO_MS);
       });
-      expect(decideMutate).toHaveBeenCalledWith(
-        expect.objectContaining({ kind: 'kept' }),
-        expect.any(Object),
-      );
+      expect(decideMutate).toHaveBeenCalledWith(expect.objectContaining({ kind: 'kept' }));
     } finally {
       vi.useRealTimers();
     }
@@ -263,8 +260,10 @@ describe('ChangesetIndicator (Pass 5 3B pin 1, 3D)', () => {
   it('shows the counts and a primary Review that opens the sheet', () => {
     state.data = changeset([entry({ id: 'a' }), reasoned('b'), reasoned('c')]);
     render(<ChangesetIndicator projectId="p1" currentRole={ROLE_SCHEDULER} />);
-    expect(screen.getByText('◷ 3 changes open · 1 needs a reason')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '⚑ Review 3 changes' }));
+    expect(screen.getByTestId('changeset-counts')).toHaveTextContent(
+      '◷ 3 changes open · 1 needs a reason',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Review 3 changes' }));
     expect(screen.getByRole('dialog', { name: '3 changes since Baseline v1' })).toBeInTheDocument();
   });
 
@@ -277,7 +276,7 @@ describe('ChangesetIndicator (Pass 5 3B pin 1, 3D)', () => {
     expect(isReviewDemoted({ ...kept, entries_since_kept: 1 })).toBe(false);
     state.data = kept;
     render(<ChangesetIndicator projectId="p1" currentRole={ROLE_ADMIN} />);
-    expect(screen.getByRole('button', { name: '◷ 1 change · v1 kept' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '1 change · v1 kept' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /review/i })).toBeNull();
   });
 });

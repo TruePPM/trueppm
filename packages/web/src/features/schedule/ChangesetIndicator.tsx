@@ -68,12 +68,13 @@ export function ChangesetIndicator({
           onClick={() => setSheet(true)}
           data-testid="changeset-review-trigger"
         >
-          ◷ {changes} · {shortBaselineName(data.active_baseline_name)} kept
+          <span aria-hidden="true">◷</span> {changes} ·{' '}
+          {shortBaselineName(data.active_baseline_name)} kept
         </Button>
       ) : (
         <span className="inline-flex items-center gap-2">
           <span className="text-xs text-neutral-text-secondary" data-testid="changeset-counts">
-            ◷ {changes} open
+            <span aria-hidden="true">◷</span> {changes} open
             {data.unreasoned_count > 0 &&
               ` · ${data.unreasoned_count} ${data.unreasoned_count === 1 ? 'needs' : 'need'} a reason`}
           </span>
@@ -84,7 +85,7 @@ export function ChangesetIndicator({
             onClick={() => setSheet(true)}
             data-testid="changeset-review-trigger"
           >
-            ⚑ Review {changes}
+            <span aria-hidden="true">⚑</span> Review {changes}
           </Button>
         </span>
       )}
