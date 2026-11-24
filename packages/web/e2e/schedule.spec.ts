@@ -1,5 +1,6 @@
 import { test, expect } from './fixtures/coverage';
 import { setupCatchAll, useFullToolbar } from './fixtures';
+import { pinFixtureClock } from './fixtures/fixture-clock';
 
 /**
  * Schedule view E2E tests — toolbar, task list panel, and accessibility basics.
@@ -59,6 +60,7 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
   // Fit out of the bar — at Playwright's 1280 default. What the bar concedes as
   // it narrows is schedule-toolbar-fit.spec.ts's subject, not this file's.
   await useFullToolbar(page);
+  await pinFixtureClock(page);
   // Seed auth state so RequireAuth lets the test through.
   await page.addInitScript(() => {
     localStorage.setItem(
@@ -493,6 +495,7 @@ test.describe('Schedule zoom & pan (#351 / #491)', () => {
  */
 test.describe('Schedule task edit — failed rename rolls back (#1518)', () => {
   async function setupForEdit(page: import('@playwright/test').Page) {
+    await pinFixtureClock(page);
     await page.addInitScript(() => {
       localStorage.setItem(
         'trueppm-auth',

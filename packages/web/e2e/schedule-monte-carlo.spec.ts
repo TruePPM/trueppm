@@ -1,5 +1,6 @@
 import { test, expect } from './fixtures/coverage';
 import { setupCatchAll } from './fixtures/api-mocks';
+import { pinFixtureClock } from './fixtures/fixture-clock';
 
 /**
  * Monte Carlo integration tests for the Schedule view — issue #333, consolidated
@@ -333,6 +334,7 @@ const MC_TASK_RUN_ID = '00000000-0000-4000-8000-00000000c0de';
 // NOT live in gotoScheduleWithMC: that runs after the per-test /monte-carlo/ route
 // here, and a late catch-all would shadow it (the recomputing-indicator test).
 test.beforeEach(async ({ page }) => {
+  await pinFixtureClock(page);
   // Shared 404 catch-all (issue 1513): unmocked endpoints 404 loudly instead of
   // being masked by a permissive 200-list body (the #1190 flake class).
   await setupCatchAll(page);

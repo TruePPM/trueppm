@@ -7,6 +7,7 @@
  */
 import { test, expect, type Page } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll, useFullToolbar } from './fixtures';
+import { pinFixtureClock } from './fixtures/fixture-clock';
 
 const FIXTURE_PROJECT_ID = 'e2e-fixture-00000000-0000-0000-0000-000000000755';
 
@@ -38,6 +39,7 @@ async function gotoSchedule(page: Page, fiscalMonth: number) {
   // zoom stepper at, and this spec reaches quarter zoom *through* the stepper —
   // the fiscal toggle is the subject, not where the ladder puts a button.
   await useFullToolbar(page);
+  await pinFixtureClock(page);
   await setupAuth(page);
   await setupCatchAll(page);
   await setupApiMocks(page, {
