@@ -3,9 +3,11 @@
 #
 # This is the enforcement mechanism for "all future work inherits the v2 golden
 # standard" (docs/design/v2-golden-standard.md). It blocks the design-drift
-# antipatterns the standard forbids. Each check below maps 1:1 to a claim in
-# ADR-0126 §5 — keep them in sync (do not advertise a check here or in the ADR
-# that the script does not actually run).
+# antipatterns the standard forbids. The maintained registry of what this gate enforces,
+# with each check's mode (ratchet vs zero tolerance), is the table in ADR-0653 ("Registry of
+# check-design-system-v2.sh checks"); ADR-0126 §5 is the original four-check decision, kept
+# as history. Add, remove, or change the mode of a check -> update that table in the same
+# commit (do not advertise a check there that this script does not actually run).
 #
 #   1. arbitrary Tailwind color VALUE classes — e.g. `bg-[#7C3AED]`, `text-[#abc]` —
 #      which bypass the token system entirely. RATCHET against a committed baseline.

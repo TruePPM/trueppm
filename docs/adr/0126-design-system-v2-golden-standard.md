@@ -76,9 +76,15 @@ tokens live in the same `:root` / `.dark` scopes, so they swap automatically.
 
 ### 5. Enforcement gate (makes the rest enforceable)
 A CI/lint check (`scripts/check-design-system-v2.sh`, wired into `make lint` / the
-`lint` CI job) blocks the four legacy patterns ADR-0103 + the handoff forbid. Each
-check below maps 1:1 to a function in the script — the gate enforces exactly what
-this list claims, no more (the script header carries the same contract):
+`lint` CI job) blocks the legacy patterns ADR-0103 + the handoff forbid. The four checks below are
+the original decision, kept as history.
+
+> **Note — 2026-11-24 (#3543):** this list is demoted to history and is **not**
+> exhaustive. The gate has grown one check per incident since; the maintained registry
+> of what it enforces, with each check's mode (ratchet vs zero tolerance), is the
+> table in ADR-0653 § "Registry of `check-design-system-v2.sh` checks". The earlier
+> claim that each item maps 1:1 to the script and that the gate enforces "no more" is
+> retired.
 
 1. **Arbitrary Tailwind color value classes** (`bg-[#…]`, `text-[#…]`, …) — ratchet
    against a committed baseline; new offenders fail.
