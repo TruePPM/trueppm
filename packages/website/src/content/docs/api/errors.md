@@ -200,6 +200,8 @@ the envelope uses; every other field key is unambiguous.
 | `write_not_grantable` | Ships in 0.5. `PATCH /agents/{id}/scope/` asked for `write` on an area. The committing write path ships in 0.6, so the server refuses it whatever the client sends; nothing was changed. The message is in `scope` | — |
 | `above_principal` | Ships in 0.5. `PATCH /agents/{id}/scope/` asked for a level above what the person the agent acts for can do now. An agent never exceeds its person, including when a workspace Admin edits it; nothing was changed. The message is in `scope` | — |
 | `invalid_scope` | Ships in 0.5. `PATCH /agents/{id}/scope/` named an unknown area or level; nothing was changed. The message is in `scope` | — |
+| `commitment_not_available` | Ships in 0.5. `POST /projects/{id}/baseline-decisions/` set `commitment_moved`, but the project has no commitment field yet, so there is nothing to move. Nothing was written | — |
+| `decision_not_in_program` | Ships in 0.5. `POST /projects/{id}/baseline-decisions/` linked a program decision that does not exist or belongs to a different program than the project. Nothing was written | — |
 
 ### Monte Carlo refusals
 
@@ -526,6 +528,11 @@ capped sample naming them:
 | `seed_replace_ambiguous` | `409` | Two live programs you own already share this seed's slug as their `code` — a reload can't tell which one to replace | — |
 | `seed_slug_taken` | `409` | The seed document's `program.slug` is already in use as another program's `code`. Change `program.slug` in the document and import it again | — |
 | `too_large` | `409` | The structural act affected too many rows to be reversed automatically | — |
+| `project_not_committed` | `409` | Ships in 0.5. `POST /projects/{id}/baseline-decisions/` refused: the project is still a draft. Commit the plan first | — |
+| `changeset_changed` | `409` | Ships in 0.5. `POST /projects/{id}/baseline-decisions/` refused: the number of open changeset entries is not the `expected_open_count` the client sent, so the plan changed after the sheet loaded. Reload the changeset and decide again | `open_count` (the current number of open entries) |
+| `changeset_unreasoned` | `409` | Ships in 0.5. `POST /projects/{id}/baseline-decisions/` refused for a `taken` decision: one or more open changeset entries have no reason. Answer each, then retry. A `kept` decision is never refused for this | `entries` (ids of the entries with no reason) |
+| `reason_already_set` | `409` | Ships in 0.5. `PATCH /projects/{id}/changeset/entries/{entry_id}/` refused: the entry already has a reason. A reason is set once and cannot be edited | — |
+| `use_baseline_decision` | `409` | Ships in 0.5. `POST /projects/{id}/baselines/{id}/activate/` refused: the project is committed, so its active baseline moves only through `POST /projects/{id}/baseline-decisions/`, which records the reasons. Activating a baseline on a draft project is unchanged | — |
 | `not_top_of_stack` | `409` | A more recent structural act sits above this one — undo that first | `blocking_operation_id` |
 | `shape_changed` | `409` | The outline has changed in the affected region since the act ran — it can no longer be undone | `changed` |
 | `not_found` | `404` | The targeted poker round or ceiling proposal does not exist | — |
