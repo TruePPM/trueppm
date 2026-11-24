@@ -191,6 +191,18 @@
         "className": {
           "type": "string"
         },
+        "webhookBodyLimit": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "size": {
+              "type": "string"
+            }
+          }
+        },
         "annotations": {
           "description": "Controller / cert-manager annotations, passed through with toYaml. Open: the set of valid annotations belongs to your ingress controller.",
           "type": "object"

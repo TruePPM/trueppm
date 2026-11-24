@@ -576,6 +576,16 @@ data:
                 client_max_body_size 10M;
                 proxy_pass http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
             }
+            # Inbound Git-event receiver (#2932): anonymous (HMAC-authenticated
+            # only after the body is read) and aimed at a project UUID that may
+            # have no automation at all, so it gets a TIGHTER ceiling than the 2M
+            # default. Mirrors the app's own 1 MB cap and the dedicated Ingress
+            # (templates/ingress.yaml) that enforces the same limit on the
+            # default topology, where /api never reaches this nginx.
+            location ~ ^/api/v1/integrations/projects/[^/]+/git-webhook/$ {
+                client_max_body_size 1M;
+                proxy_pass http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
+            }
         }
 
         # WebSocket (Django Channels)

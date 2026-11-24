@@ -2434,6 +2434,23 @@ helm:template:
       helm template trueppm packages/helm --set image.tag=latest --set ingress.enabled=true \
         | grep -q 'nginx.ingress.kubernetes.io/proxy-body-size: 110m' \
         || { echo "PROD REGRESSION: ingress no longer clears the 100 MB attachment cap — a default install 413s every attachment >50 MB (#2604, #3189)"; exit 1; }
+    # The anonymous Git-event receiver gets a 1 MB ceiling at BOTH edges (#2932):
+    # a dedicated Ingress (the 110m annotation on the main one covers every path
+    # of that object) and a nested web-tier nginx location. Without the Ingress
+    # an anonymous caller can push 110 MB at an unconfigured project UUID.
+    - |
+      helm template trueppm packages/helm --set image.tag=latest --set ingress.enabled=true > /tmp/rendered-ingress.yaml
+      [ "$(grep -c 'location ~ ^/api/v1/integrations/projects/\[^/\]+/git-webhook/\$ {' /tmp/rendered.yaml)" = 1 ] \
+        || { echo "PROD REGRESSION: web nginx lost its once-only git-webhook 1M location (#2932)"; exit 1; }
+      grep -A2 -F 'git-webhook/$ {' /tmp/rendered.yaml | grep -q 'client_max_body_size 1M;' \
+        || { echo "PROD REGRESSION: git-webhook web-tier location no longer caps the body at 1M (#2932)"; exit 1; }
+      awk '/name: .*-git-webhook$/{f=1} f' /tmp/rendered-ingress.yaml | grep -q 'proxy-body-size: "1m"' \
+        || { echo "PROD REGRESSION: no dedicated git-webhook Ingress with a 1m body limit (#2932)"; exit 1; }
+    - |
+      if helm template trueppm packages/helm --set image.tag=latest --set ingress.enabled=true \
+          --set ingress.webhookBodyLimit.enabled=false | grep -q 'git-webhook$'; then
+        echo "PROD REGRESSION: ingress.webhookBodyLimit.enabled=false still renders the webhook Ingress (#2932)"; exit 1
+      fi
     # The demo keeps its own 1M ceiling: it is read-only and imports nothing. If
     # web.maxBodySize ever leaks into the demo branch, the demo has silently
     # gained a 50 MB upload surface.
