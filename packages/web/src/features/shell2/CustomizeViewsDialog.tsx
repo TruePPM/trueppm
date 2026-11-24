@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type KeyboardEvent } from 'react';
+import { useId } from 'react';
 import { createPortal } from 'react-dom';
 import type { ProjectViewSet, ResolvedView } from '@/api/types';
 import { Toggle } from '@/features/settings/components/Toggle';
@@ -8,6 +8,7 @@ import {
   viewsErrorDetail,
 } from '@/hooks/useProjectViews';
 import { useWorkspaceSettings } from '@/features/settings/hooks/useWorkspaceSettings';
+import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 import { lensLabel } from './ViewsRow3';
 
@@ -85,7 +86,8 @@ export function CustomizeViewsDialog({
 }: Props) {
   const titleId = useId();
   const errorId = useId();
-  const dialogRef = useRef<HTMLDivElement>(null);
+  // Always active while mounted: seats focus, wraps Tab, Escape closes, restores the opener.
+  const dialogRef = useFocusTrap<HTMLDivElement>(true, onClose);
   const update = useUpdateProjectViews(projectId);
   const reset = useResetProjectViews(projectId);
   // Read only when the dialog opens, so the header costs no extra request.
@@ -98,42 +100,14 @@ export function CustomizeViewsDialog({
   const error = viewsErrorDetail(update.error ?? reset.error);
   const failed = (update.isError || reset.isError) && !error;
 
-  useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null;
-    dialogRef.current?.querySelector<HTMLElement>('button')?.focus();
-    return () => opener?.focus();
-  }, []);
-
-  const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      onClose();
-      return;
-    }
-    if (e.key !== 'Tab' || !dialogRef.current) return;
-    const focusables = Array.from(
-      dialogRef.current.querySelectorAll<HTMLElement>('button, a[href]'),
-    ).filter((el) => !el.hasAttribute('disabled'));
-    const first = focusables[0];
-    const last = focusables[focusables.length - 1];
-    if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault();
-      last?.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault();
-      first?.focus();
-    }
-  };
-
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 md:items-center">
-      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- the modal dialog owns Escape and the Tab wrap while it holds focus */}
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        onKeyDown={onKeyDown}
+        tabIndex={-1}
         className="w-full max-w-lg rounded-lg border border-p1-hairline-strong bg-p1-surface-1 p-4 text-p1-text-1 shadow-xl"
       >
         <div className="flex items-start justify-between gap-2">
