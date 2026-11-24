@@ -24,6 +24,7 @@ from trueppm_api.apps.access.models import (
 )
 from trueppm_api.apps.access.permissions import is_workspace_operator as _is_workspace_operator
 from trueppm_api.apps.profiles.models import DateFormat, RoleContext
+from trueppm_api.apps.profiles.serializers import HIDDEN_VIEWS_DEPRECATED_SCHEMA
 from trueppm_api.apps.workspace.models import WorkspaceRole
 from trueppm_api.apps.workspace.permissions import (
     _workspace_membership_role,
@@ -1001,7 +1002,7 @@ class MeSerializer(serializers.Serializer[Any]):
             "home_program": home.program,
         }
 
-    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    @extend_schema_field(HIDDEN_VIEWS_DEPRECATED_SCHEMA)
     def get_hidden_views(self, obj: Any) -> list[str]:
         return self._prefs(obj)[1]
 

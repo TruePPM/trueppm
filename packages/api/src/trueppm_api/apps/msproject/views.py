@@ -35,7 +35,6 @@ from trueppm_api.apps.access.permissions import (
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.msproject.serializers import ImportProvenancePageSerializer
-from trueppm_api.apps.profiles.services import seed_hidden_views_for_first_project
 
 logger = logging.getLogger(__name__)
 
@@ -321,9 +320,6 @@ class CreateProjectFromMsProjectView(IdempotencyMixin, APIView):
         # hiccup never leaves an ownerless project or an unreferenced import.
         with transaction.atomic():
             project = serializer.save(methodology=methodology)
-            # Same first-project starter rail as POST /projects/ (#3713); must precede
-            # the Owner row, which is what marks the user as no longer new.
-            seed_hidden_views_for_first_project(request.user, project.methodology)
             ProjectMembership.objects.create(
                 project=project,
                 user=request.user,  # type: ignore[misc]

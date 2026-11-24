@@ -1,0 +1,22 @@
+{
+  "_comment": [
+    "Cross-language contract for the methodology view defaults (ADR-0041, ADR-1478 §2).",
+    "",
+    "`hiddenByMethodology` is the raw advisory preset: the views a methodology hides by",
+    "default. `methodologyNeverHides` lists the views the resolved set keeps visible",
+    "regardless (ADR-1298: Plan always offers Schedule), so AGILE resolves to hiding only",
+    "`calendar`.",
+    "",
+    "The server owns resolution (`apps/profiles/services.py::resolve_project_views`). The",
+    "web keeps its own copy only for the pre-save methodology flip warning (#3294). Both",
+    "copies assert against this file: `METHODOLOGY_HIDDEN_VIEWS` in",
+    "`apps/profiles/constants.py` from pytest, and `HIDDEN_FOR_METHODOLOGY` in",
+    "`packages/web/src/features/shell/methodologyTabs.ts` from vitest."
+  ],
+  "hiddenByMethodology": {
+    "AGILE": ["calendar", "schedule"],
+    "HYBRID": [],
+    "WATERFALL": ["product-backlog", "sprints"]
+  },
+  "methodologyNeverHides": ["schedule"]
+}

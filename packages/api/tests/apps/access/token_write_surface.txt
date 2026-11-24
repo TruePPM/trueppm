@@ -213,6 +213,9 @@ api/v1/projects/<pk>/tasks/classification/
 api/v1/projects/<pk>/tasks/group/
 api/v1/projects/<pk>/tasks/reorder/
 api/v1/projects/<pk>/tasks/ungroup/
+api/v1/projects/<pk>/views/
+api/v1/projects/<pk>/views/apply-seed/
+api/v1/projects/<pk>/views/reset/
 api/v1/projects/<project_pk>/baselines/
 api/v1/projects/<project_pk>/baselines/<baseline_pk>/activate/
 api/v1/projects/<project_pk>/baselines/<pk>/

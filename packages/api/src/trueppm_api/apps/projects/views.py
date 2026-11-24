@@ -108,10 +108,7 @@ from trueppm_api.apps.history.diff_policy import (
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.integrations.registry import LINK_STATUS_RANK, LINK_STATUS_UNKNOWN
 from trueppm_api.apps.profiles.serializers import RecentProjectSerializer
-from trueppm_api.apps.profiles.services import (
-    annotate_is_pinned,
-    seed_hidden_views_for_first_project,
-)
+from trueppm_api.apps.profiles.services import annotate_is_pinned
 from trueppm_api.apps.projects.agent_scope import ALL_AREAS
 from trueppm_api.apps.projects.metric_provenance import (
     BURN_COMBINED_DEFINED,
@@ -2085,8 +2082,6 @@ class ProjectViewSet(
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         project = serializer.save()
-        # Before the Owner row exists: the seed fires only on the creator's first project.
-        seed_hidden_views_for_first_project(self.request.user, project.methodology)
         ProjectMembership.objects.create(
             project=project,
             user=self.request.user,  # type: ignore[misc]

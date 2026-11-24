@@ -1560,7 +1560,11 @@ class MeView(McpReadableViewMixin, APIView):
     def get(self, request: Request) -> Response:
         # context={"request": request} so MeSerializer.get_token can read
         # request.auth — the caller's own token, absent for a session/JWT caller (#2938).
-        return Response(MeSerializer(request.user, context={"request": request}).data)
+        from trueppm_api.apps.profiles.views import with_hidden_views_deprecation
+
+        return with_hidden_views_deprecation(
+            Response(MeSerializer(request.user, context={"request": request}).data)
+        )
 
 
 class ProgramMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[ProgramMembership]):

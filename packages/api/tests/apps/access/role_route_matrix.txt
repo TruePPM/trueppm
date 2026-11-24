@@ -264,6 +264,7 @@
 --+++++  GET api/v1/projects/<pk>/sprint-forecast/::get
 --+++++  GET api/v1/projects/<pk>/sprint-health/::get
 --+++++  GET api/v1/projects/<pk>/velocity/::get
+--+++++  GET api/v1/projects/<pk>/views/::get
 --+++++  GET api/v1/projects/<project_pk>/api-token-audit/::get
 --+++++  GET api/v1/projects/<project_pk>/api-tokens/::list
 --+++++  GET api/v1/projects/<project_pk>/api-tokens/<pk>/::retrieve
@@ -400,6 +401,7 @@
 ---++++  PATCH api/v1/projects/<pk>/board-views/<view_pk>/::patch
 -----++  PATCH api/v1/projects/<pk>/phases/reorder/::patch
 ---+-++  PATCH api/v1/projects/<pk>/tasks/classification/::patch
+--+++++  PATCH api/v1/projects/<pk>/views/::patch
 --+++++  PATCH api/v1/projects/<project_pk>/decisions-policy/::patch
 ----+++  PATCH api/v1/projects/<project_pk>/fields/<pk>/::partial_update
 ---++++  PATCH api/v1/projects/<project_pk>/guardrail-policy/::patch
@@ -535,6 +537,8 @@
 ---+-++  POST api/v1/projects/<pk>/tasks/group/::post
 ---++++  POST api/v1/projects/<pk>/tasks/reorder/::post
 ---+-++  POST api/v1/projects/<pk>/tasks/ungroup/::post
+--+++++  POST api/v1/projects/<pk>/views/apply-seed/::post
+--+++++  POST api/v1/projects/<pk>/views/reset/::post
 -----++  POST api/v1/projects/<project_pk>/api-tokens/::create
 -----++  POST api/v1/projects/<project_pk>/baselines/::create
 -----++  POST api/v1/projects/<project_pk>/baselines/<baseline_pk>/activate/::post

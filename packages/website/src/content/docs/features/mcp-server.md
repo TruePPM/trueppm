@@ -126,7 +126,7 @@ the [MCP server administration guide](/administration/mcp-server/).
 
 Comments on tasks and risks are not readable by agents yet; they are user-authored text and mentions, and a later release (0.5 or after) will decide whether to open them.
 
-The server registers **19 read-only tools** (seven more are planned for 0.5: `get_project_cost`, `get_schedule_driving_chain`, `get_project_history`, `list_dependencies`, `list_baselines`, `list_phases`, and `list_calendars`), each mapping to one existing REST
+The server registers **19 read-only tools** (eight more are planned for 0.5: `get_project_cost`, `get_schedule_driving_chain`, `get_project_history`, `get_project_views`, `list_dependencies`, `list_baselines`, `list_phases`, and `list_calendars`), each mapping to one existing REST
 endpoint and returning only what your role permits. Results are compacted for an
 LLM context budget: empty and null fields are omitted, long free-text fields are
 truncated (with a `"truncated": true` marker), and project/program results carry
@@ -187,6 +187,7 @@ only ever reflects data your token can already read.
 | Tool | Arguments | Returns |
 |------|-----------|---------|
 | `get_project_history` | `project_id` | The change history of the project's own fields (the stored `health` field behind a reported health band, status, dates, and so on; the diff field you see is `health`), newest first, as an `{items, total_count}` envelope: when each change happened, its type, and the per-field `old`/`new` values. It answers "who set this project's health to Critical, and when?" after `get_project` reports `health_band_source: reported`. Project-row changes only: task, sprint and risk changes are not included, and the aggregated project changelog is not exposed to tokens. The actor (`history_user`) appears only when your token's owner is an Owner or Admin of the project, exactly as in the web UI. Ships in 0.5. |
+| `get_project_views` | `project_id` | Which views your token's owner sees in the project, and why each hidden one is hidden. Every view carries `visible`, a `source` (`always`, `methodology`, `capability`, `seed`, `user` or `default`) and a `binding`: `advisory` means the view is only hidden from the tabs and still opens from More or by URL, and `enforced` means the workspace turned the area off. A `hidden` list repeats the hidden views with their reasons, which answers "why can't I see Sprints?". The first read for a project applies the owner's role-lens suggestion, as their first open in the web app would. Ships in 0.5. |
 | `list_dependencies` | `project_id` | The outgoing dependency edges of a project (those whose predecessor is in this project): predecessor, successor, type and lag (in calendar days). Incoming cross-project edges are not returned yet (#5051). `{items, total_count}` envelope. Ships in 0.5. |
 | `list_baselines` | `project_id` | The project's schedule baselines (name, capture date, task count). `{items, total_count}` envelope. Ships in 0.5. |
 | `list_phases` | `project_id` | The project's phases (root-level WBS tasks) with task counts. `{items, total_count}` envelope. Ships in 0.5. |

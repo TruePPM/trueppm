@@ -35,6 +35,7 @@ from trueppm_mcp.tools import (
     _get_project,
     _get_project_cost,
     _get_project_history,
+    _get_project_views,
     _get_release_forecast,
     _get_schedule_derivation,
     _get_schedule_driving_chain,
@@ -1479,6 +1480,41 @@ async def test_get_project_history_returns_envelope_and_keeps_actor(settings: Se
     assert result["items"][0]["history_user"] == {"id": 3, "username": "pm"}
     assert result["items"][0]["diff"][0]["new"] == "CRITICAL"
     assert "truncated" not in result
+
+
+async def test_get_project_views_explains_each_hidden_view(settings: Settings) -> None:
+    payload = {
+        "views": [
+            {"key": "overview", "visible": True, "source": "always", "binding": "advisory"},
+            {
+                "key": "sprints",
+                "visible": False,
+                "source": "methodology",
+                "binding": "advisory",
+                "lens": None,
+            },
+            {
+                "key": "schedule",
+                "visible": False,
+                "source": "seed",
+                "binding": "advisory",
+                "lens": "scrum_master",
+            },
+        ],
+        "lens": "scrum_master",
+        "seed_line": None,
+    }
+    routes: Routes = {"projects/p-1/views/": _json(payload)}
+    async with _client(settings, routes) as client:
+        result = await _get_project_views(client, "p-1")
+    assert [h["key"] for h in result["hidden"]] == ["sprints", "schedule"]
+    assert result["hidden"][1] == {
+        "key": "schedule",
+        "source": "seed",
+        "binding": "advisory",
+        "lens": "scrum_master",
+    }
+    assert result["lens"] == "scrum_master"
 
 
 async def test_list_dependencies_filters_by_project(settings: Settings) -> None:

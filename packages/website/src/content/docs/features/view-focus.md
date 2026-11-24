@@ -1,6 +1,7 @@
 ---
 title: View focus
 description: A per-user lens that organizes each project around the hat you're wearing — PM, Scrum Master, or both — without changing anyone's access.
+documentedFor: "0.5"
 ---
 
 :::note[Added in 0.3]
@@ -28,9 +29,49 @@ There are three focuses, and **Unified Today** is the default:
   **Today** split view in Unified Today. You can still navigate anywhere; this only
   changes where you *start*.
 - **Emphasizes your views.** Your focus moves its priority views to the front of the
-  navigation rail, so the views you reach for most are first. Nothing is hidden or
-  removed — the same views are all there, just reordered. Unified Today keeps the
+  navigation rail, so the views you reach for most are first. Reordering hides and
+  removes nothing — the same views are all there, just reordered. Unified Today keeps the
   standard order.
+
+## Suggested views per focus
+
+:::note[Ships in 0.5]
+This section describes suggested views, which ship in 0.5. In the current release,
+View focus only reorders views and picks where a project opens. **Customize views** hides
+a view in every project at once.
+:::
+
+The first time you open a project, your focus suggests which views to keep out of your
+tabs:
+
+| Focus | Hidden from your tabs | Opens on |
+|---|---|---|
+| PM | Product backlog | Schedule |
+| Scrum Master | Schedule, Calendar, Team | Board |
+| Unified Today | nothing | as today |
+
+- **A suggestion, not a rule.** A suggested-hidden view still opens from **More** and by
+  its link, and you can bring it back to your tabs at any time.
+- **Per project.** Each project keeps its own set. Hiding a view in one project leaves the
+  others alone.
+- **Methodology comes first.** A Waterfall project already hides Sprints and the product
+  backlog, and an Agile project already hides Calendar. Your focus only narrows that.
+  Schedule is always offered in Plan.
+- **Your own choices win.** A view you hid or kept yourself stays that way. **Show all**
+  clears only the suggestions for this project, and **Reset to suggestions** restores
+  them without touching your own choices.
+- **Switching focus never re-hides anything.** The tabs reorder right away. The project
+  then offers *Apply Scrum Master suggestions…*, which shows exactly what it will hide,
+  where the project will open, and which of your own choices it keeps, before you confirm.
+- **Plan never empties.** You can't hide the last Plan layout, and if your choices would
+  leave Plan empty, Schedule stays.
+
+Each view's state comes from the server, with a reason: always on, methodology, your
+focus's suggestion, your own choice, or turned off for the workspace. The API serves it at
+`GET /api/v1/projects/{id}/views/`, and AI agents can read it with the
+`get_project_views` MCP tool. The older `hidden_views` preference on your profile keeps
+working through 0.5 (a change to it applies to every project you belong to) and is removed
+in the release after.
 
 ## The Today view
 

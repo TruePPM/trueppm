@@ -2591,20 +2591,6 @@ class TestCreateProjectFromImport:
         c.force_authenticate(user=u)
         return u, c
 
-    def test_first_import_seeds_the_starter_rail(self) -> None:
-        """The import door seeds ``hidden_views`` like POST /projects/ does (#3713)."""
-        from trueppm_api.apps.profiles.models import UserProfile
-        from trueppm_api.apps.profiles.services import SEED_HIDDEN_VIEWS
-
-        user, client = self._auth_client("seeded-importer")
-        resp = client.post(self.URL, {"file": _xml_upload()}, format="multipart")
-
-        assert resp.status_code == 202, resp.content
-        project = Project.objects.get(pk=resp.json()["project_id"])
-        assert UserProfile.objects.get(user=user).hidden_views == sorted(
-            SEED_HIDDEN_VIEWS[project.methodology]
-        )
-
     def test_creates_named_shell_and_queues(self) -> None:
         from trueppm_api.apps.msproject.models import ImportRequest, ImportRequestStatus
 
