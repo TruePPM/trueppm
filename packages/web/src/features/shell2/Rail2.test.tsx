@@ -38,7 +38,6 @@ vi.mock('@/hooks/usePins', () => ({
 }));
 vi.mock('@/hooks/useProjectId', () => ({ useProjectId: vi.fn(() => undefined) }));
 vi.mock('@/hooks/useProgramId', () => ({ useProgramId: vi.fn(() => undefined) }));
-vi.mock('@/hooks/useProject', () => ({ useProject: vi.fn(() => ({ data: undefined })) }));
 vi.mock('@/hooks/usePrograms', () => ({ usePrograms: vi.fn(() => ({ data: [] })) }));
 vi.mock('@/hooks/useProjects', () => ({ useProjects: vi.fn(() => ({ data: [] })) }));
 // The identity control is the v1 UserMenu, tested on its own; keep it inert here.
@@ -47,41 +46,32 @@ vi.mock('@/features/shell/UserMenu', () => ({
 }));
 
 import { useProjectId } from '@/hooks/useProjectId';
-import { useProject } from '@/hooks/useProject';
 
 const mockUseProjectId = useProjectId as ReturnType<typeof vi.fn>;
-const mockUseProject = useProject as ReturnType<typeof vi.fn>;
 
 describe('Rail2', () => {
   beforeEach(() => {
     mockUseProjectId.mockReturnValue(undefined);
-    mockUseProject.mockReturnValue({ data: undefined });
   });
 
-  it('renders the four global destinations off a program, with the unread count on Inbox', () => {
+  it('renders the five global destinations off a program, with the unread count on Inbox', () => {
     renderWithRouter(<Rail2 collapsed={false} canExpand />, { initialEntries: ['/me/work'] });
     const nav = screen.getByRole('navigation', { name: 'Destinations' });
     const names = within(nav)
       .getAllByRole('link')
       .map((a) => a.textContent?.replace(/unread: /, '').trim());
-    expect(names).toEqual(['Home', 'Inbox4', 'Work', 'People']);
+    expect(names).toEqual(['Home', 'Inbox4', 'Work', 'People', 'Agents']);
     expect(within(nav).getByRole('link', { name: /Home/ })).toHaveAttribute('aria-current', 'true');
     expect(within(nav).getByRole('link', { name: /Inbox/ })).not.toHaveAttribute('aria-current');
   });
 
-  it('adds Agents when the project in context belongs to a program', () => {
+  it('always lands Agents on the workspace page, even inside a program (#4757)', () => {
     mockUseProjectId.mockReturnValue('pr-1');
-    mockUseProject.mockReturnValue({
-      data: { id: 'pr-1', name: 'Atlas', program_detail: { id: 'pm-1', name: 'PM' } },
-    });
     renderWithRouter(<Rail2 collapsed={false} canExpand />, {
       initialEntries: ['/projects/pr-1/schedule'],
     });
     const nav = screen.getByRole('navigation', { name: 'Destinations' });
-    expect(within(nav).getByRole('link', { name: 'Agents' })).toHaveAttribute(
-      'href',
-      '/programs/pm-1/agents',
-    );
+    expect(within(nav).getByRole('link', { name: 'Agents' })).toHaveAttribute('href', '/agents');
     expect(within(nav).getByRole('link', { name: 'Work' })).toHaveAttribute('aria-current', 'true');
   });
 

@@ -189,6 +189,9 @@
 -++++++  GET api/v1/^velocity-suggestions/(?P<pk>[^/.]+)/$::retrieve
 -++++++  GET api/v1/agent-actions/::list
 -++++++  GET api/v1/agent-actions/<uuid:pk>/::retrieve
+-++++++  GET api/v1/agents/::get
+-++++++  GET api/v1/agents/<uuid:pk>/::get
+-------  GET api/v1/agents/audit-verify/::get
 -++++++  GET api/v1/assets/::get
 -++++++  GET api/v1/auth/me/::get
 -++++++  GET api/v1/auth/me/pinned/::get
@@ -378,6 +381,7 @@
 -++++++  PATCH api/v1/^task-resources/(?P<pk>[^/.]+)/$::partial_update
 -++++++  PATCH api/v1/^task-skill-requirements/(?P<pk>[^/.]+)/$::partial_update
 -++++++  PATCH api/v1/^tasks/(?P<pk>[^/.]+)/$::partial_update
+-++++++  PATCH api/v1/agents/<uuid:pk>/scope/::patch
 -++++++  PATCH api/v1/auth/me/profile/::patch
 -------  PATCH api/v1/calendars/<calendar_pk>/exceptions/<pk>/::partial_update
 -------  PATCH api/v1/health/retention/::patch
@@ -484,6 +488,9 @@
 -++++++  POST api/v1/^template-applications/(?P<pk>[^/.]+)/undo/$::undo
 -++++++  POST api/v1/^velocity-suggestions/(?P<pk>[^/.]+)/accept/$::accept
 -++++++  POST api/v1/^velocity-suggestions/(?P<pk>[^/.]+)/dismiss/$::dismiss
+-++++++  POST api/v1/agents/<uuid:pk>/pause/::post
+-++++++  POST api/v1/agents/<uuid:pk>/resume/::post
+-++++++  POST api/v1/agents/<uuid:pk>/revoke/::post
 +++++++  POST api/v1/auth/logout/::post
 +++++++  POST api/v1/auth/password/reset/::post
 +++++++  POST api/v1/auth/password/reset/confirm/::post

@@ -2949,6 +2949,9 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
 
     # ADR-0678 (#2482): projects/<pk>/schedule/derivation/
     mcp_scope = McpScope.PATH
+    # A derivation is the chain of dependency edges that set a date (#4814), so it is
+    # governed by the agent's Dependencies scope, not Schedule.
+    agent_area = "dependencies"
 
     # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
     # this the project-scoped classes below resolve nothing and `has_permission`
@@ -3212,6 +3215,8 @@ class ScheduleDrivingChainView(McpReadableViewMixin, APIView):
     """
 
     mcp_scope = McpScope.PATH
+    # The driving chain is dependency edges (#4814): governed by Dependencies scope.
+    agent_area = "dependencies"
     project_url_kwarg = "pk"
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
     # One full schedule() pass per call — same cost class as the derivation (#2839).

@@ -1,23 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import { resolveRailItems } from './railItems';
 
-const base = { landingPath: '/me/work', programAgentsPath: null, inboxCount: 0, agentsCount: 0 };
+const base = { landingPath: '/me/work', inboxCount: 0, agentsCount: 0 };
 
 describe('resolveRailItems', () => {
-  it('yields four destinations off a program and five inside one, in rail order', () => {
-    expect(resolveRailItems({ ...base, pathname: '/me/work' }).map((i) => i.key)).toEqual([
-      'home',
-      'inbox',
-      'work',
-      'people',
-    ]);
+  it('yields all five destinations on every route, in rail order (#4757)', () => {
+    for (const pathname of ['/me/work', '/programs/PM/overview', '/resources', '/x']) {
+      expect(resolveRailItems({ ...base, pathname }).map((i) => i.key)).toEqual([
+        'home',
+        'inbox',
+        'work',
+        'people',
+        'agents',
+      ]);
+    }
+  });
+
+  it('lands Agents on the workspace page', () => {
     expect(
-      resolveRailItems({
-        ...base,
-        pathname: '/programs/PM/overview',
-        programAgentsPath: '/programs/PM/agents',
-      }).map((i) => i.key),
-    ).toEqual(['home', 'inbox', 'work', 'people', 'agents']);
+      resolveRailItems({ ...base, pathname: '/me/work' }).find((i) => i.key === 'agents')?.to,
+    ).toBe('/agents');
   });
 
   it('points Home at the server-resolved landing and falls back to My Work', () => {
@@ -45,9 +47,8 @@ describe('resolveRailItems', () => {
     expect(resolveRailItems({ ...base, pathname: '/x' }).find((i) => i.key === 'people')?.to).toBe(
       '/people',
     );
-    expect(active('/programs/PM/agents', { programAgentsPath: '/programs/PM/agents' })).toEqual([
-      'agents',
-    ]);
+    expect(active('/programs/PM/agents')).toEqual(['agents']);
+    expect(active('/agents')).toEqual(['agents']);
   });
 
   it('a project landing does not light Home while inside the work tree', () => {
@@ -66,7 +67,6 @@ describe('resolveRailItems', () => {
       pathname: '/x',
       inboxCount: 4,
       agentsCount: 2,
-      programAgentsPath: '/programs/PM/agents',
     });
     expect(items.find((i) => i.key === 'inbox')?.badge).toBe(4);
     expect(items.find((i) => i.key === 'agents')?.badge).toBe(2);

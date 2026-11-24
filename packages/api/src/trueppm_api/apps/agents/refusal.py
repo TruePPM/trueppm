@@ -59,6 +59,8 @@ DISCLOSABLE_CONSTRAINTS: frozenset[str] = frozenset(
     {
         RefusalConstraint.TOKEN_IDENTITY,
         RefusalConstraint.CAPABILITY_SCOPE,
+        # #4814: the agent's own pause state, nothing about any resource.
+        RefusalConstraint.AGENT_PAUSED,
     }
 )
 

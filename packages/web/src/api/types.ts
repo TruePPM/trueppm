@@ -895,8 +895,12 @@ export type AgentActionVerdict = 'allowed' | 'refused' | 'requires_approval';
  */
 export type AgentActionRefusalReason = 'identity' | 'policy' | '';
 
-/** What kind of actor performed the action. Only `mcp_token` is recorded today. */
-export type AgentActorKind = 'mcp_token';
+/**
+ * What kind of actor performed the action. `mcp_token` is an agent's own call;
+ * `person` is a person acting on an agent through the control plane (pause,
+ * resume, scope edit, revoke — #4814), recorded in the same hash chain.
+ */
+export type AgentActorKind = 'mcp_token' | 'person';
 
 /**
  * Non-hashed refusal telemetry attached to a refused action (ADR-0421, #1850).
@@ -940,6 +944,90 @@ export interface AgentAction {
   occurred_at: string;
 }
 
+
+// ---------------------------------------------------------------------------
+// Workspace Agents page + control plane (#4814, #4757)
+// ---------------------------------------------------------------------------
+
+/**
+ * A capability level on the ladder none < read < propose < write. `propose` is
+ * shown as "Dry run" in 0.5 (#1813); `write` is the 0.6 committing path and the
+ * server refuses to grant it.
+ */
+export type AgentScopeLevel = 'none' | 'read' | 'propose' | 'write';
+
+/** Area → level. Keys are the `areas[].key` values from `GET /agents/`. */
+export type AgentScope = Record<string, AgentScopeLevel>;
+
+export interface AgentPerson {
+  id: number;
+  name: string;
+}
+
+export interface AgentRow {
+  id: string;
+  name: string;
+  token_prefix: string;
+  principal: AgentPerson;
+  created_at: string;
+  last_used_at: string | null;
+  expires_at: string | null;
+  revoked_at: string | null;
+  /** Null when running. `paused_by` is null only when that account was deleted. */
+  paused: { paused_at: string; paused_by: AgentPerson | null } | null;
+  /** The stored grant. */
+  scope: AgentScope;
+  /** The grant ∩ what the principal can do now — what the server enforces. */
+  effective_scope: AgentScope;
+  /** `summary` is empty and `redacted` true when its project is not readable. */
+  last_action: {
+    occurred_at: string;
+    verdict: AgentActionVerdict;
+    summary: string;
+    redacted: boolean;
+  } | null;
+  /** Refused calls in the last 7 days, among actions the viewer can see. */
+  refusals_7d: number;
+  /** Programs the agent acted in that the viewer can see. */
+  programs: { id: string; name: string }[];
+  /** The principal, or a workspace Admin. */
+  can_manage: boolean;
+}
+
+export interface AgentRecentAction {
+  id: string;
+  occurred_at: string;
+  actor_kind: AgentActorKind;
+  action: string;
+  verdict: AgentActionVerdict;
+  constraint: string;
+  summary: string;
+  redacted: boolean;
+}
+
+export interface AgentDetail extends AgentRow {
+  recent_actions: AgentRecentAction[];
+}
+
+export interface AgentListResponse {
+  agents: AgentRow[];
+  /** True when the server capped the list and more agents exist. */
+  truncated: boolean;
+  /** Each scope area, its label, and the endpoint families it governs (server words). */
+  areas: { key: string; label: string; covers: string }[];
+  grantable_levels: AgentScopeLevel[];
+  /** True for a workspace Admin: only they may call `GET /agents/audit-verify/`. */
+  can_verify_log: boolean;
+}
+
+/** `GET /agents/audit-verify/` — the "Action log verified" line. */
+export interface AgentAuditVerify {
+  ok: boolean;
+  record_count: number;
+  checked_at: string;
+  anchor: string;
+  break_sequence: number | null;
+}
 
 /**
  * One entry from `GET /auth/me/pinned/` — the caller's own pinned items,

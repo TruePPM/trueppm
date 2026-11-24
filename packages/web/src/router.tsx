@@ -191,6 +191,9 @@ const ProgramMembersTab = lazy(() =>
     default: m.ProgramMembersTab,
   })),
 );
+const AgentsPage = lazy(() =>
+  import('@/features/agents/AgentsPage').then((m) => ({ default: m.AgentsPage })),
+);
 const ProgramAgentsPage = lazy(() =>
   import('@/features/programs/agents/ProgramAgentsPage').then((m) => ({
     default: m.ProgramAgentsPage,
@@ -980,6 +983,17 @@ export const routes: RouteObject[] = [
                   </Suspense>
                 ),
                 handle: { title: 'People' } satisfies RouteHandle,
+              },
+              // Workspace Agents — every agent the person can see, and the control
+              // plane for their own (#4757, #4814). The shell v2 rail always links here.
+              {
+                path: 'agents',
+                element: (
+                  <Suspense fallback={<RouteLoadingFallback />}>
+                    <AgentsPage />
+                  </Suspense>
+                ),
+                handle: { title: 'Agents' } satisfies RouteHandle,
               },
               // My Work — cross-project contributor surface (#499, ADR-0065 Gap 2)
               {

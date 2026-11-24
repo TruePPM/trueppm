@@ -11,7 +11,7 @@ import re
 import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.paginator import InvalidPage
@@ -112,6 +112,7 @@ from trueppm_api.apps.profiles.services import (
     annotate_is_pinned,
     seed_hidden_views_for_first_project,
 )
+from trueppm_api.apps.projects.agent_scope import ALL_AREAS
 from trueppm_api.apps.projects.metric_provenance import (
     BURN_COMBINED_DEFINED,
     BURN_DEFINED,
@@ -1752,6 +1753,18 @@ class ProjectViewSet(
     # health_summary — the one cross-project list action — reads through
     # self.get_queryset(), so it inherits the same filter rather than needing its own.
     mcp_scope = McpScope.QUERYSET
+    # Resource reads on a project route (#4814): governed by the agent's Resources
+    # scope. The JSON export and the bundle download carry resources, dependencies,
+    # baselines and assignments in one response, so they need every area. Every other
+    # action on this viewset is Schedule.
+    agent_action_areas: ClassVar[dict[str, str | tuple[str, ...]]] = {
+        "utilization": "resources",
+        "resource_allocation": "resources",
+        "heatmap": "resources",
+        "resources_summary": "resources",
+        "export": ALL_AREAS,
+        "export_job_download": ALL_AREAS,
+    }
 
     # ADR-1434: only the project record itself widens to WORKSPACE visibility.
     workspace_visible_actions = frozenset({"list", "retrieve"})

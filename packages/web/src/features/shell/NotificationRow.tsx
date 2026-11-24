@@ -73,7 +73,11 @@ export function NotificationRow({ notification, onNavigate }: Props) {
     if (!notification.is_read) {
       update.mutate({ id: notification.id, is_read: true });
     }
-    if (!notification.project) {
+    if (isEvent && notification.event_type === 'agent.refused') {
+      // A refused or paused agent call (#4814) is about the person's own agent, not
+      // a project: open the Agents page, where Pause / Edit scope / Revoke live.
+      void navigate('/agents');
+    } else if (!notification.project) {
       // No project to link to: either an ADR-0663 account-scoped digest row, or
       // (since #3510) a row whose subject/body/project were redacted because
       // the recipient is no longer a current member of the source project.

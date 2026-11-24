@@ -5,7 +5,6 @@ import { useUnreadNotificationCount } from '@/hooks/useNotifications';
 import { usePinned } from '@/hooks/usePins';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProgramId } from '@/hooks/useProgramId';
-import { useProject } from '@/hooks/useProject';
 import { programPath, projectPath } from '@/lib/refPath';
 import { ArrowLeftIcon, ArrowRightIcon, LogoMark } from '@/components/Icons';
 import { UserMenu } from '@/features/shell/UserMenu';
@@ -100,16 +99,11 @@ export function Rail2({ collapsed, canExpand }: Rail2Props) {
   const { data: pins } = usePinned();
   const projectId = useProjectId();
   const programId = useProgramId();
-  const { data: project } = useProject(projectId);
   const toggleSidebar = useShellStore((s) => s.toggleSidebar);
 
-  const programIdInContext = programId ?? project?.program_detail?.id ?? null;
   const items = resolveRailItems({
     pathname,
     landingPath: HOME_PATH,
-    programAgentsPath: programIdInContext
-      ? programPath({ id: programIdInContext }, 'agents')
-      : null,
     inboxCount,
     agentsCount: 0,
   });

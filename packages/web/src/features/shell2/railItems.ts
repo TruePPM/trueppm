@@ -26,19 +26,15 @@ export interface RailItemsInput {
   pathname: string;
   /** The Home destination. Shell v2 passes `/home`, which renders the server-resolved role home. */
   landingPath: string | undefined;
-  /**
-   * The Agents surface for the program in context, or `null` when no program is
-   * in context. Agent governance is program-scoped until the workspace-level
-   * page lands, so the item is omitted rather than pointed at a page that
-   * cannot answer "what did agents do?" for the person's own work.
-   */
-  programAgentsPath: string | null;
   inboxCount: number;
   agentsCount: number;
 }
 
 const INBOX_PATH = '/me/notifications';
 const HOME_FALLBACK_PATH = '/me/work';
+/** The workspace Agents page (#4757): agents across the programs the person can see. */
+export const AGENTS_PATH = '/agents';
+const PROGRAM_AGENTS_RE = /^\/programs\/[^/]+\/agents\/?$/;
 
 const under = (pathname: string, prefix: string) =>
   pathname === prefix || pathname.startsWith(`${prefix}/`);
@@ -82,7 +78,7 @@ export function resolveRailItems(input: RailItemsInput): RailItem[] {
         (under(pathname, '/projects') ||
           under(pathname, '/programs') ||
           under(pathname, WORK_PATH)) &&
-        !(input.programAgentsPath !== null && pathname === input.programAgentsPath),
+        !PROGRAM_AGENTS_RE.test(pathname),
       Icon: FolderIcon,
     },
     {
@@ -94,16 +90,16 @@ export function resolveRailItems(input: RailItemsInput): RailItem[] {
       active: under(pathname, PEOPLE_PATH) || under(pathname, '/resources'),
       Icon: ResourcesIcon,
     },
-  ];
-  if (input.programAgentsPath !== null) {
-    items.push({
+    // Always present (#4757): the workspace page lists agents across every program
+    // the person can see, and a program's own agents page still lights this item.
+    {
       key: 'agents',
       label: 'Agents',
-      to: input.programAgentsPath,
-      active: pathname === input.programAgentsPath,
+      to: AGENTS_PATH,
+      active: under(pathname, AGENTS_PATH) || PROGRAM_AGENTS_RE.test(pathname),
       badge: input.agentsCount > 0 ? input.agentsCount : undefined,
       Icon: AgentIcon,
-    });
-  }
+    },
+  ];
   return items;
 }

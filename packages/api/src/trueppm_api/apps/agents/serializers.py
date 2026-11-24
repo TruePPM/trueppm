@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -9,6 +11,8 @@ from trueppm_api.apps.agents.models import (
     AgentAction,
     AgentActionRefusalDetail,
     AgentActionRefusalReason,
+    AgentActionVerdict,
+    AgentActorKind,
 )
 
 
@@ -83,3 +87,120 @@ class AgentActionSerializer(serializers.ModelSerializer[AgentAction]):
         except AgentActionRefusalDetail.DoesNotExist:
             return None
         return AgentActionRefusalDetailSerializer(detail).data
+
+
+class AgentPersonSerializer(serializers.Serializer[Any]):
+    """A person named on the Agents page (principal, or who paused)."""
+
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+
+
+class AgentPauseSerializer(serializers.Serializer[Any]):
+    """Pause state, for people. The agent itself is only ever told it is paused."""
+
+    paused_at = serializers.DateTimeField()
+    paused_by = AgentPersonSerializer(allow_null=True)
+
+
+class AgentLastActionSerializer(serializers.Serializer[Any]):
+    """The agent's latest call, redacted to what the viewer can read."""
+
+    occurred_at = serializers.DateTimeField()
+    verdict = serializers.ChoiceField(choices=AgentActionVerdict.choices)
+    summary = serializers.CharField(help_text="Empty when the action's project is not readable.")
+    redacted = serializers.BooleanField()
+
+
+class AgentProgramSerializer(serializers.Serializer[Any]):
+    """A program the agent acted in that the viewer can see (links to its agents page)."""
+
+    id = serializers.UUIDField()
+    name = serializers.CharField()
+
+
+class AgentSerializer(serializers.Serializer[Any]):
+    """One agent on the workspace Agents page (#4814, #4757).
+
+    ``scope`` is the stored grant; ``effective_scope`` is that grant intersected with
+    what the principal can do right now, which is what the server enforces. Each maps
+    every area to one of ``none``, ``read``, ``propose`` (shown as "Dry run") or
+    ``write`` (never present in 0.5).
+    """
+
+    id = serializers.UUIDField()
+    name = serializers.CharField()
+    token_prefix = serializers.CharField()
+    principal = AgentPersonSerializer()
+    created_at = serializers.DateTimeField()
+    last_used_at = serializers.DateTimeField(allow_null=True)
+    expires_at = serializers.DateTimeField(allow_null=True)
+    revoked_at = serializers.DateTimeField(allow_null=True)
+    paused = AgentPauseSerializer(allow_null=True)
+    scope = serializers.DictField(child=serializers.CharField())
+    effective_scope = serializers.DictField(child=serializers.CharField())
+    last_action = AgentLastActionSerializer(allow_null=True)
+    refusals_7d = serializers.IntegerField(
+        help_text="Refused calls in the last 7 days, counting only actions the viewer can see."
+    )
+    programs = AgentProgramSerializer(many=True)
+    can_manage = serializers.BooleanField()
+
+
+class AgentListResponseSerializer(serializers.Serializer[Any]):
+    """``GET /agents/``: the agents plus the scope vocabulary the matrix renders."""
+
+    agents = AgentSerializer(many=True)
+    truncated = serializers.BooleanField(
+        help_text="True when more agents exist than the list carries (the list is capped)."
+    )
+    areas = serializers.ListField(child=serializers.DictField(child=serializers.CharField()))
+    grantable_levels = serializers.ListField(child=serializers.CharField())
+    can_verify_log = serializers.BooleanField(
+        help_text=(
+            "True for a workspace Admin, who may call GET /agents/audit-verify/. The page "
+            "omits the action-log verified line for everyone else."
+        )
+    )
+
+
+class AgentActionSummarySerializer(serializers.Serializer[Any]):
+    """One recent action in an agent's detail panel, redacted by project membership."""
+
+    id = serializers.UUIDField()
+    occurred_at = serializers.DateTimeField()
+    actor_kind = serializers.ChoiceField(choices=AgentActorKind.choices)
+    action = serializers.CharField()
+    verdict = serializers.ChoiceField(choices=AgentActionVerdict.choices)
+    constraint = serializers.CharField(allow_blank=True)
+    summary = serializers.CharField(allow_blank=True)
+    redacted = serializers.BooleanField()
+
+
+class AgentDetailSerializer(AgentSerializer):
+    """``GET /agents/{id}/``: the row plus recent actions."""
+
+    recent_actions = AgentActionSummarySerializer(many=True)
+
+
+class AgentControlRequestSerializer(serializers.Serializer[Any]):
+    """Body of pause / resume / revoke."""
+
+    reason = serializers.CharField(required=False, allow_blank=True, max_length=500)
+
+
+class AgentScopeEditSerializer(serializers.Serializer[Any]):
+    """Body of ``PATCH /agents/{id}/scope/`` — areas left out keep their level."""
+
+    scope = serializers.DictField(child=serializers.CharField())
+    reason = serializers.CharField(required=False, allow_blank=True, max_length=500)
+
+
+class AgentAuditVerifySerializer(serializers.Serializer[Any]):
+    """The "Action log verified" line: the ``audit_verify`` result, cached briefly."""
+
+    ok = serializers.BooleanField()
+    record_count = serializers.IntegerField()
+    checked_at = serializers.DateTimeField()
+    anchor = serializers.CharField()
+    break_sequence = serializers.IntegerField(allow_null=True)

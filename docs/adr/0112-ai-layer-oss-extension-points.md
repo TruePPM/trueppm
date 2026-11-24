@@ -56,6 +56,30 @@ delegation is carried to the **0.5 planning agenda**. The load-bearing point is 
 the ADR is Accepted (not Proposed) before the 0.4 audit substrate lands. _Source: MCP
 audit & governance roadmap, 2026-07-10 — finding F7, RC1/RC2/RC4/RC5._
 
+## Amendment (2026-11-23, #4814): `person` rows on the agent-action chain
+
+The agent control plane (#4814: pause, resume, capability-scope edit, revoke) appends
+its events to the same hash chain, under a new `actor_kind = "person"`. Those rows reach
+`agent_action_recorded` receivers like every other row, so Enterprise receivers will see
+them. Their field semantics differ from an `mcp_token` row and are stated here because
+`AGENT_ACTION_SCHEMA_VERSION` stays `1` (the hashed record gained no field, only a value
+of an existing enum):
+
+- `actor_kind` is `person`: a human acted on an agent; no agent acted.
+- `actor_token` is the **agent acted on**, not the credential that made the call (the
+  control plane accepts only a signed-in person, never a token).
+- `principal` is that agent's owner, so the row sits in the owner's log.
+- `capability_used` is the fixed string `agent:control`.
+- `action` is one of `agent.pause`, `agent.resume`, `agent.scope_edit`, `agent.revoke`.
+- The **acting person** is named, with their user id, only inside the hashed `summary`
+  text. There is no structured actor-user field.
+
+A receiver that treats every row as "an agent did this" will misread these rows; it must
+branch on `actor_kind`. If Enterprise needs the acting person as a structured field (for
+example to attribute a control event in an org trail without parsing `summary`), that is
+an additive field and a schema-version bump on this contract, and it would be tracked as
+an `enterprise-extension-point` issue; none is filed by this amendment.
+
 ## Context
 
 TruePPM is evolving for the AI era. The product strategy splits AI capabilities into two layers that map cleanly onto the existing open-core boundary:

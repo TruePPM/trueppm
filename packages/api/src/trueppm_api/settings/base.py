@@ -2608,6 +2608,12 @@ SPECTACULAR_SETTINGS = {
             "and refusals, scoped to project membership.",
         },
         {
+            "name": "agents",
+            "description": "Workspace Agents page and the person-only agent control plane: "
+            "list agents, pause, resume, edit capability scope, revoke, and verify the "
+            "action log. Token-authenticated requests are refused.",
+        },
+        {
             "name": "meta",
             "description": "Deployment metadata, health probes and administrative endpoints.",
         },
