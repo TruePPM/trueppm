@@ -49,7 +49,7 @@ class TeamSerializer(serializers.ModelSerializer[Team]):
         # voter-roster seams in services.py, restated once rather than per caller.
         return (
             obj.memberships.filter(is_deleted=False)
-            .filter(live_project_membership_exists())
+            .filter(live_project_membership_exists(live_project_only=False))
             .count()
         )
 

@@ -64,6 +64,7 @@ def _require_project_scheduler(user: object, project_pk: str) -> None:
     role = (
         ProjectMembership.objects.filter(
             project_id=project_pk,
+            project__is_deleted=False,
             user=user,  # type: ignore[misc]
             is_deleted=False,
         )
@@ -100,6 +101,7 @@ def _require_project_admin(user: object, project_pk: str) -> None:
     role = (
         ProjectMembership.objects.filter(
             project_id=project_pk,
+            project__is_deleted=False,
             user=user,  # type: ignore[misc]
             is_deleted=False,
         )

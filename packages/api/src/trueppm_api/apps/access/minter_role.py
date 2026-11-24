@@ -31,6 +31,9 @@ def last_recorded_project_role(project_id: Any, user_id: Any) -> int | None:
         The role ordinal, or ``None`` when no row exists at all.
     """
     return (
+        # The minter's last recorded role on the token's project, including a trashed one,
+        # so removal stays a role comparison rather than an unconditional pass.
+        # project-axis-ok: reads the last recorded role on a possibly trashed project
         ProjectMembership.objects.filter(project_id=project_id, user_id=user_id)
         .order_by("-server_version")
         .values_list("role", flat=True)

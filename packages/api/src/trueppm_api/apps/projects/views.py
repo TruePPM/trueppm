@@ -1984,6 +1984,7 @@ class ProjectViewSet(
         if user is not None and user.is_authenticated:
             my_role_sq = ProjectMembership.objects.filter(
                 project=OuterRef("pk"),
+                project__is_deleted=False,
                 user=user,
                 is_deleted=False,
             ).values("role")[:1]
@@ -2228,7 +2229,9 @@ class ProjectViewSet(
         actor = cast(User, self.request.user)
         team_recipient_ids: list[str | None] = [
             str(uid)
-            for uid in ProjectMembership.objects.filter(project=instance, is_deleted=False)
+            for uid in ProjectMembership.objects.filter(
+                project=instance, project__is_deleted=False, is_deleted=False
+            )
             .exclude(user=actor)
             .values_list("user_id", flat=True)
         ]
@@ -2812,6 +2815,7 @@ class ProjectViewSet(
         user = self.request.user
         if user is None or not user.is_authenticated:
             return Project.objects.none()
+        # project-axis-ok: the Trash list must see trashed projects (selected below)
         member_ids = ProjectMembership.objects.filter(user=user, is_deleted=False).values_list(
             "project_id", flat=True
         )
@@ -2872,6 +2876,7 @@ class ProjectViewSet(
         # Caller's role per project in one query (no N+1) so the web can gate Restore.
         role_by_project = {
             pid: role
+            # project-axis-ok: Restore needs the caller's role on trashed projects
             for pid, role in ProjectMembership.objects.filter(
                 user=request.user.pk, is_deleted=False, project__in=projects
             ).values_list("project_id", "role")
@@ -6418,7 +6423,7 @@ def _sprint_team_recipients(instance: Task, sprint_pk: Any, exclude: set[str]) -
     member_ids = {
         str(uid)
         for uid in ProjectMembership.objects.filter(
-            project_id=instance.project_id, is_deleted=False
+            project_id=instance.project_id, project__is_deleted=False, is_deleted=False
         ).values_list("user_id", flat=True)
     }
     return [
@@ -11575,7 +11580,9 @@ class TaskBulkView(IdempotencyMixin, APIView):
 
         _caller = cast(_User, request.user)
         caller_role: int = (
-            ProjectMembership.objects.filter(project_id=pk, user=_caller, is_deleted=False)
+            ProjectMembership.objects.filter(
+                project_id=pk, project__is_deleted=False, user=_caller, is_deleted=False
+            )
             .values_list("role", flat=True)
             .first()
             or -1
@@ -13262,6 +13269,7 @@ def _validate_retro_assignees(items_in: list[dict[str, Any]], project_id: Any) -
     member_ids = set(
         ProjectMembership.objects.filter(
             project_id=project_id,
+            project__is_deleted=False,
             user_id__in=requested,
             is_deleted=False,
             user__is_active=True,
@@ -14310,7 +14318,7 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
         # least one live Owner, and ``owner_name`` already tolerates None regardless.
         owner_membership = (
             ProjectMembership.live()
-            .filter(project=project, role=Role.OWNER)
+            .filter(project=project, project__is_deleted=False, role=Role.OWNER)
             .select_related("user")
             .first()
         )
@@ -18442,7 +18450,10 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         caller = cast(_User, request.user)
         caller_role: int = (
             ProjectMembership.objects.filter(
-                project_id=sprint.project_id, user=caller, is_deleted=False
+                project_id=sprint.project_id,
+                project__is_deleted=False,
+                user=caller,
+                is_deleted=False,
             )
             .values_list("role", flat=True)
             .first()
@@ -18680,7 +18691,10 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         caller = cast(_User, request.user)
         caller_role: int = (
             ProjectMembership.objects.filter(
-                project_id=sprint.project_id, user=caller, is_deleted=False
+                project_id=sprint.project_id,
+                project__is_deleted=False,
+                user=caller,
+                is_deleted=False,
             )
             .values_list("role", flat=True)
             .first()

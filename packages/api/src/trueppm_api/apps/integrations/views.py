@@ -374,7 +374,7 @@ class TaskLinkViewSet(
         project_pk = self.kwargs["project_pk"]
         task_pk = self.kwargs["task_pk"]
         if not ProjectMembership.objects.filter(
-            user=user, project_id=project_pk, is_deleted=False
+            user=user, project_id=project_pk, project__is_deleted=False, is_deleted=False
         ).exists():
             return TaskLink.objects.none()
         return TaskLink.objects.filter(

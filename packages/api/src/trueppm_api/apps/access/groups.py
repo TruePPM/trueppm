@@ -146,6 +146,7 @@ def resolve_group_members(
         rows = list(
             ProjectMembership.objects.filter(
                 project_id=project_id,
+                project__is_deleted=False,
                 role__gte=role_floors[key],
                 is_deleted=False,
             )
@@ -156,7 +157,9 @@ def resolve_group_members(
 
     if key == "all":
         rows = list(
-            ProjectMembership.objects.filter(project_id=project_id, is_deleted=False)
+            ProjectMembership.objects.filter(
+                project_id=project_id, project__is_deleted=False, is_deleted=False
+            )
             .values_list("user_id", flat=True)
             .distinct()
         )
@@ -453,6 +456,7 @@ def resolve_user_defined_group_members(
     active_member_ids = set(
         ProjectMembership.objects.filter(
             project_id=project_id,
+            project__is_deleted=False,
             is_deleted=False,
         ).values_list("user_id", flat=True)
     )

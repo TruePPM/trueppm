@@ -125,6 +125,12 @@ def _drop_webhooks_without_live_member_owner(webhooks: list[Any], project_id: st
         live_owners: set[Any] = set()
     else:
         live_owners = set(
+            # This gates delivery of EVERY event the project fires, not only trash/restore:
+            # a project-floored read would drop the trash event itself (its registrants must
+            # still resolve against the project just trashed) and any event emitted while
+            # the project sits in Trash. Accepted limit: a registrant who was still Admin+
+            # keeps receiving events fired on a trashed project until it is hard-deleted.
+            # project-axis-ok: the trash event and Trash-time events must still resolve owners
             ProjectMembership.live()
             .filter(
                 project_id=project_id,

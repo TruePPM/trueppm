@@ -1640,6 +1640,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         # into — mirrors the filter added to ``transfer_project_ownership``.
         has_membership = ProjectMembership.objects.filter(
             project=instance,
+            project__is_deleted=False,
             user=value,
             user__is_active=True,
             is_deleted=False,
@@ -4996,7 +4997,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             # that reads this method. `_membership_role` in apps.access.permissions
             # answers the same question and has always filtered it; the two must not
             # disagree about who is a member.
-            ProjectMembership.objects.filter(project=project, user=user, is_deleted=False)
+            ProjectMembership.objects.filter(
+                project=project, project__is_deleted=False, user=user, is_deleted=False
+            )
             .values_list("role", flat=True)
             .first()
         )
@@ -5685,6 +5688,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             if project is not None:
                 is_member = ProjectMembership.objects.filter(
                     project=project,
+                    project__is_deleted=False,
                     user=assignee,
                     user__is_active=True,
                     is_deleted=False,
@@ -9961,6 +9965,7 @@ class RiskSerializer(serializers.ModelSerializer[Risk]):
         if "owner" in attrs and owner is not None and project_pk:
             is_member = ProjectMembership.objects.filter(
                 project_id=project_pk,
+                project__is_deleted=False,
                 user=owner,
                 is_deleted=False,
                 user__is_active=True,
@@ -10378,7 +10383,7 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
         # is a soft delete against an unconditional (project, user) unique constraint,
         # so without this a revoked Scheduler keeps passing the gate.
         return ProjectMembership.objects.filter(
-            project_id=project_id, user=user, is_deleted=False
+            project_id=project_id, project__is_deleted=False, user=user, is_deleted=False
         ).first()
 
     class Meta:
@@ -10673,7 +10678,7 @@ class SprintGenerateSerializer(serializers.Serializer[dict[str, Any]]):
                 {"first_sprint_capacity_points": "Authentication required."}
             )
         membership = ProjectMembership.objects.filter(
-            project_id=project_id, user=user, is_deleted=False
+            project_id=project_id, project__is_deleted=False, user=user, is_deleted=False
         ).first()
         if membership is None or membership.role < Role.SCHEDULER:
             raise serializers.ValidationError(

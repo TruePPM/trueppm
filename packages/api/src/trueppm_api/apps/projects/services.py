@@ -3293,7 +3293,9 @@ def assert_scope_gate_for_project(project_id: Any, by: Any) -> None:
     if by is None or not getattr(by, "is_authenticated", False):
         raise ScopeAcceptForbidden
     role = (
-        ProjectMembership.objects.filter(project_id=project_id, user=by, is_deleted=False)
+        ProjectMembership.objects.filter(
+            project_id=project_id, project__is_deleted=False, user=by, is_deleted=False
+        )
         .values_list("role", flat=True)
         .first()
     )
@@ -5135,7 +5137,10 @@ def notify_milestone_forecast_shift(
     # they no longer belong to (rbac-check 🔴).
     recipient_ids = list(
         ProjectMembership.objects.filter(
-            project_id=snapshot.project_id, role__gte=Role.ADMIN, is_deleted=False
+            project_id=snapshot.project_id,
+            project__is_deleted=False,
+            role__gte=Role.ADMIN,
+            is_deleted=False,
         )
         .exclude(user_id=actor_id)
         .values_list("user_id", flat=True)
@@ -5486,7 +5491,7 @@ def _sprint_lead_recipient_ids(project_id: Any, actor_id: Any) -> list[Any]:
 
     admin_ids = set(
         ProjectMembership.objects.filter(
-            project_id=project_id, role__gte=Role.ADMIN, is_deleted=False
+            project_id=project_id, project__is_deleted=False, role__gte=Role.ADMIN, is_deleted=False
         ).values_list("user_id", flat=True)
     )
     recipients = admin_ids | facet_holder_user_ids(project_id)

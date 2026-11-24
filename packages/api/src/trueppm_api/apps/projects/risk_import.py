@@ -393,7 +393,7 @@ def build_owner_index(project_id: str) -> dict[str, User]:
 
     index: dict[str, User] = {}
     memberships = ProjectMembership.objects.filter(
-        project_id=project_id, is_deleted=False, user__is_active=True
+        project_id=project_id, project__is_deleted=False, is_deleted=False, user__is_active=True
     ).select_related("user")
     for membership in memberships:
         user = membership.user

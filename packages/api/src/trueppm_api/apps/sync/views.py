@@ -451,6 +451,9 @@ class ProjectSyncView(IdempotencyMixin, APIView):
             ),
             (
                 "memberships",
+                # The sync delta ships tombstones by protocol; a project-floored stream would
+                # leave a trashed project's membership rows on the device forever.
+                # project-axis-ok: the sync delta ships tombstones by protocol
                 ProjectMembership.objects.filter(project=project, sync_seq__gt=since),
                 SyncMembershipSerializer,
             ),

@@ -140,6 +140,7 @@ def _check_project_role(user: object, project_pk: str, min_role: int) -> None:
     membership = (
         ProjectMembership.objects.filter(
             project_id=project_pk,
+            project__is_deleted=False,
             user=user,  # type: ignore[misc]
             is_deleted=False,
         )
@@ -154,6 +155,7 @@ def _check_project_member(user: object, project_pk: str) -> None:
     """Verify the user is a project member (any role)."""
     exists = ProjectMembership.objects.filter(
         project_id=project_pk,
+        project__is_deleted=False,
         user=user,
         is_deleted=False,  # type: ignore[misc]
     ).exists()

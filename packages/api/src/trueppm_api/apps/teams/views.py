@@ -53,7 +53,7 @@ class TeamViewSet(viewsets.GenericViewSet[Team]):
         # which a same-level aggregate filter cannot see.
         live_member_counts = (
             TeamMembership.objects.filter(team=OuterRef("pk"), is_deleted=False)
-            .filter(live_project_membership_exists())
+            .filter(live_project_membership_exists(live_project_only=False))
             .order_by()
             .values("team")
             .annotate(cnt=Count("pk"))
@@ -132,7 +132,7 @@ class TeamMembershipViewSet(IdempotencyMixin, viewsets.GenericViewSet[TeamMember
         return (
             TeamMembership.objects.select_related("user", "team")
             .filter(team_id=self.kwargs["team_pk"], is_deleted=False)
-            .filter(live_project_membership_exists())
+            .filter(live_project_membership_exists(live_project_only=False))
             .order_by("user__username")
         )
 

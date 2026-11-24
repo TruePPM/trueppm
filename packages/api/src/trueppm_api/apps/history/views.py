@@ -168,6 +168,7 @@ def _caller_can_see_user(request: Request, project: Project) -> bool:
         m = ProjectMembership.objects.get(
             user=request.user,  # type: ignore[misc]
             project=project,
+            project__is_deleted=False,
             is_deleted=False,
         )
         return m.role >= Role.ADMIN

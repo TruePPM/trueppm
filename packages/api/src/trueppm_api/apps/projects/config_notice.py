@@ -246,7 +246,10 @@ def assigned_recipient_ids(
         if live_member_ids is not None
         else set(
             ProjectMembership.objects.filter(
-                project_id=project_id, is_deleted=False, user_id__in=candidates
+                project_id=project_id,
+                project__is_deleted=False,
+                is_deleted=False,
+                user_id__in=candidates,
             ).values_list("user_id", flat=True)
         )
     )
@@ -346,7 +349,7 @@ def surface_recipient_ids_by_project(
 
     live_roles: dict[str, dict[Any, int]] = {}
     for project_id, user_id, role in ProjectMembership.objects.filter(
-        project_id__in=project_ids, is_deleted=False
+        project_id__in=project_ids, project__is_deleted=False, is_deleted=False
     ).values_list("project_id", "user_id", "role"):
         live_roles.setdefault(str(project_id), {})[user_id] = role
 

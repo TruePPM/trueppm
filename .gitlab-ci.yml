@@ -2799,8 +2799,9 @@ api:static:
   stage: analyze
   variables:
     # Full history: migration-numbering diffs against origin/main, schema-breaking
-    # reads the latest v* tag, and app-layering and on-commit-durability read the
-    # merge-base copy of their baselines (CI_MERGE_REQUEST_DIFF_BASE_SHA). Each of
+    # reads the latest v* tag, and app-layering, on-commit-durability and
+    # membership-live-floor read the merge-base copy of their baselines
+    # (CI_MERGE_REQUEST_DIFF_BASE_SHA). Each of
     # them fails closed if what it needs is unreachable.
     GIT_DEPTH: "0"
   needs:
