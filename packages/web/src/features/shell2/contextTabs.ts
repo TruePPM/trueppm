@@ -1,3 +1,5 @@
+import type { ResolvedView } from '@/api/types';
+
 export type ContextTabKey = 'overview' | 'plan' | 'deliver' | 'risks' | 'people';
 
 export interface ContextToggle {
@@ -18,10 +20,20 @@ export interface ContextTab {
   toggles: ContextToggle[];
 }
 
+/** A view hidden from the tabs that still opens from More (ADR-1478 `advisory`). */
+export interface HiddenToggle extends ContextToggle {
+  source: 'seed' | 'user';
+  lens: string | null;
+}
+
 export interface ContextTabsModel {
   tabs: ContextTab[];
   /** Everything that is not one of the five — rendered behind "More". */
   more: ContextToggle[];
+  /** More › "Hidden from your tabs": seed- and user-hidden views. Empty without a resolved set. */
+  hidden: HiddenToggle[];
+  /** More › "Off in this workspace": `binding: enforced` views, listed but not openable. */
+  off: ContextToggle[];
 }
 
 export interface ContextTabsInput {
@@ -44,6 +56,14 @@ export interface ContextTabsInput {
    */
   userHiddenViews: ReadonlyArray<string>;
   labelFor: (view: string) => string;
+  /**
+   * The server-resolved set (ADR-1478). When present it alone decides personal and
+   * methodology visibility (the UI never re-derives precedence) and `visibleViews` /
+   * `userHiddenViews` are ignored. Only `allows` (role and surface gates) narrows it.
+   */
+  resolved?: ReadonlyArray<ResolvedView>;
+  /** Non-preference gates (role, surface visibility), applied with `resolved` only. */
+  allows?: (view: string) => boolean;
 }
 
 /**
@@ -94,9 +114,14 @@ export function resolveContextTabs(input: ContextTabsInput): ContextTabsModel {
   const moreKeys = input.scope === 'project' ? PROJECT_MORE : PROGRAM_MORE;
   const visible = new Set(input.visibleViews);
   const userHidden = new Set(input.userHiddenViews);
+  const resolved = input.resolved ? new Map(input.resolved.map((r) => [r.key, r])) : null;
+  const allows = input.allows ?? (() => true);
   const isVisible = (view: string) =>
-    !userHidden.has(view) &&
-    (visible.has(view) || (input.scope === 'project' && ALWAYS_VISIBLE_PROJECT_VIEWS.has(view)));
+    resolved
+      ? (resolved.get(view)?.visible ?? false) && allows(view)
+      : !userHidden.has(view) &&
+        (visible.has(view) ||
+          (input.scope === 'project' && ALWAYS_VISIBLE_PROJECT_VIEWS.has(view)));
   const toggle = (view: string): ContextToggle => ({
     view,
     label: input.labelFor(view),
@@ -118,5 +143,13 @@ export function resolveContextTabs(input: ContextTabsInput): ContextTabsModel {
     });
   }
   const more = moreKeys.filter(isVisible).map(toggle);
-  return { tabs, more };
+  const hidden: HiddenToggle[] = [];
+  const off: ContextToggle[] = [];
+  for (const r of input.resolved ?? []) {
+    if (r.visible || !allows(r.key)) continue;
+    if (r.binding === 'enforced') off.push(toggle(r.key));
+    else if (r.source === 'seed' || r.source === 'user')
+      hidden.push({ ...toggle(r.key), source: r.source, lens: r.lens });
+  }
+  return { tabs, more, hidden, off };
 }

@@ -7,12 +7,24 @@ import { useCreateProject, useCalendars, useUpdateProject } from './useProjectMu
 
 const postMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({
-    data: { id: 'proj-new', name: 'New Project', description: '', start_date: '2026-05-01', calendar: null },
+    data: {
+      id: 'proj-new',
+      name: 'New Project',
+      description: '',
+      start_date: '2026-05-01',
+      calendar: null,
+    },
   }),
 );
 const patchMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({
-    data: { id: 'proj-1', name: 'Updated Project', description: 'new desc', start_date: '2026-05-01', calendar: null },
+    data: {
+      id: 'proj-1',
+      name: 'Updated Project',
+      description: 'new desc',
+      start_date: '2026-05-01',
+      calendar: null,
+    },
   }),
 );
 const getMock = vi.hoisted(() =>
@@ -44,7 +56,9 @@ describe('useCreateProject', () => {
   let qc: QueryClient;
 
   beforeEach(() => {
-    qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
     vi.clearAllMocks();
   });
 
@@ -61,7 +75,7 @@ describe('useCreateProject', () => {
     });
   });
 
-  it('refetches the current user so the server-seeded hidden_views reaches the rail (#3713)', async () => {
+  it('refetches the current user after a project is created', async () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     const { result } = renderHook(() => useCreateProject(), { wrapper: makeWrapper(qc) });
 
@@ -83,7 +97,10 @@ describe('useCreateProject', () => {
     const { result } = renderHook(() => useCreateProject(), { wrapper: makeWrapper(qc) });
     result.current.mutate({ name: 'New Project', start_date: '2026-05-01', description: 'A desc' });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(postMock).toHaveBeenCalledWith('/projects/', expect.objectContaining({ description: 'A desc' }));
+    expect(postMock).toHaveBeenCalledWith(
+      '/projects/',
+      expect.objectContaining({ description: 'A desc' }),
+    );
   });
 });
 
@@ -91,7 +108,9 @@ describe('useUpdateProject', () => {
   let qc: QueryClient;
 
   beforeEach(() => {
-    qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
     vi.clearAllMocks();
   });
 
@@ -121,7 +140,7 @@ describe('useUpdateProject', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] });
   });
 
-  it('invalidates shellStats too, so the saver\'s own health chip follows the report', async () => {
+  it("invalidates shellStats too, so the saver's own health chip follows the report", async () => {
     // #3501: `health` is one of the seven fields this PATCH carries, and the
     // shell chip's word is the server's `health_band` derived from it. The
     // socket echo covers other viewers; this covers the person who saved, whose

@@ -358,3 +358,11 @@ surface and a single issue live as individually-linkable **decision records**
 under [`docs/design/decisions/`](../../docs/design/decisions/) — see
 [the index](../../docs/design/decisions/README.md). They are still binding for
 the surfaces they govern; they are simply not part of the set indexed above.
+
+## Project view visibility comes from the server (ADR-1478, #3715)
+
+- Which views a project shows is `GET /projects/{id}/views/`, never a client composition of methodology plus `hidden_views`. `resolveContextTabs` takes the resolved set and applies only role and surface gates on top. Do not re-derive precedence in a component.
+- The shell v2 tab row is a skeleton until that read answers, so a seeded rail never paints full and then prunes. On an error or a malformed payload it fails open to the unseeded composition, and nothing is written.
+- Seeded-hidden and user-hidden are distinct states with the same control and position: label them `◌ Suggested for {lens}` and `⊖ Hidden by you`, with the glyph `aria-hidden` and the words carrying the meaning, and no new color.
+- A row-3 control that removes itself when used (Apply suggestions…, Show all) must leave focus on a stable target. The diff confirm seats focus on its own action.
+

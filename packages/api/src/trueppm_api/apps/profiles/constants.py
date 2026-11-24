@@ -97,7 +97,7 @@ METHODOLOGY_HIDDEN_VIEWS: dict[str, frozenset[str]] = {
     "HYBRID": frozenset(),
 }
 
-#: Views methodology may never remove from the resolved set. ADR-1298: Plan always offers
+#: Views methodology may never remove from the resolved set. Shell v2 rule: Plan always offers
 #: Schedule, so AGILE's methodology default hides only ``calendar`` once resolved. A seed
 #: or user hide of ``schedule`` is still honored.
 METHODOLOGY_NEVER_HIDES: frozenset[str] = frozenset({"schedule"})

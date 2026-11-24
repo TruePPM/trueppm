@@ -726,7 +726,7 @@ class ResolvedView:
     """One view's resolved visibility and the reason for it (ADR-1478 §3).
 
     ``binding`` is a UI contract, not API authorization: ``enforced`` means only that the
-    workspace turned the area off (ADR-1460) and the web shows AreaOff. Every other
+    workspace turned the area off (#4888) and the web shows AreaOff. Every other
     hidden view is ``advisory`` and still opens from More and by URL.
     """
 
@@ -752,7 +752,7 @@ class ResolvedViewSet:
 
 
 def is_allocation_manager(user: Any, workspace: Any = None) -> bool:
-    """Whether ``user`` manages a capacity pool (ADR-1461), so no seed hides People.
+    """Whether ``user`` manages a capacity pool (#3122), so no seed hides People.
 
     Capacity pools do not exist yet; this returns ``False`` until #3122 implements it.
     A person's own hide of ``resources`` is honored either way (Q1.7).
@@ -763,7 +763,7 @@ def is_allocation_manager(user: Any, workspace: Any = None) -> bool:
 
 
 def _workspace_off_views(project: Any) -> frozenset[str]:
-    """Views the workspace turned off (ADR-1460): ``source: capability, binding: enforced``.
+    """Views the workspace turned off (#4888): ``source: capability, binding: enforced``.
 
     The server-side area switch is not built yet (#4888), so nothing is off and the
     resolver degrades to the other sources, as ADR-1478 §3 allows.
@@ -774,7 +774,7 @@ def _workspace_off_views(project: Any) -> frozenset[str]:
 
 
 def _methodology_hidden(methodology: str) -> frozenset[str]:
-    """The advisory methodology default, minus what ADR-1298 keeps (Schedule)."""
+    """The advisory methodology default, minus what the shell v2 Plan rule keeps (Schedule)."""
 
     return METHODOLOGY_HIDDEN_VIEWS.get(methodology, frozenset()) - METHODOLOGY_NEVER_HIDES
 

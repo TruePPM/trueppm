@@ -19,7 +19,9 @@ import { ChevronDownIcon } from '@/components/Icons';
 import { HealthBandChip } from '@/components/page2/StatusChip';
 import { DefinitionTip } from '@/components/page2/DefinitionTip';
 import { QueryErrorState } from '@/components/QueryErrorState';
+import { useProjectViews } from '@/hooks/useProjectViews';
 import { resolveContextTabs, type ContextTabsModel } from './contextTabs';
+import { ViewsRow3, lensLabel } from './ViewsRow3';
 
 const PROGRAM_VIEW_LABEL: Record<string, string> = {
   overview: 'Overview',
@@ -108,7 +110,7 @@ function MoreMenu({ model }: { model: ContextTabsModel }) {
   >({
     open,
     width: 200,
-    estimatedHeight: 44 * model.more.length + 16,
+    estimatedHeight: 44 * (model.more.length + model.hidden.length + model.off.length) + 72,
     align: 'right',
     onDismiss: () => setOpen(false),
   });
@@ -147,7 +149,10 @@ function MoreMenu({ model }: { model: ContextTabsModel }) {
     }
   };
 
-  if (model.more.length === 0) return null;
+  if (model.more.length + model.hidden.length + model.off.length === 0) return null;
+  const item =
+    'flex min-h-11 flex-col justify-center rounded-md px-2.5 text-sm text-p1-text-2 no-underline hover:bg-p1-surface-2 hover:text-p1-text-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-p1-focus aria-[current=page]:bg-p1-brand-tint aria-[current=page]:text-p1-text-1';
+  const heading = 'px-2.5 pb-0.5 pt-2 text-xs font-semibold text-p1-text-3';
   return (
     <>
       <button
@@ -197,11 +202,58 @@ function MoreMenu({ model }: { model: ContextTabsModel }) {
                 tabIndex={-1}
                 aria-current={t.active ? 'page' : undefined}
                 onClick={() => setOpen(false)}
-                className="flex h-11 items-center rounded-md px-2.5 text-sm text-p1-text-2 no-underline hover:bg-p1-surface-2 hover:text-p1-text-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-p1-focus aria-[current=page]:bg-p1-brand-tint aria-[current=page]:text-p1-text-1"
+                className={item}
               >
                 {t.label}
               </Link>
             ))}
+            {/* ADR-1478: advisory hides still open from here; only `enforced` ones cannot. */}
+            {model.hidden.length > 0 && (
+              <div role="group" aria-labelledby={`${menuId}-hidden`}>
+                <div id={`${menuId}-hidden`} className={heading}>
+                  Hidden from your tabs
+                </div>
+                {model.hidden.map((t, i) => (
+                  <Link
+                    key={t.view}
+                    ref={(el) => {
+                      itemsRef.current[model.more.length + i] = el;
+                    }}
+                    to={t.to}
+                    role="menuitem"
+                    tabIndex={-1}
+                    aria-current={t.active ? 'page' : undefined}
+                    onClick={() => setOpen(false)}
+                    className={item}
+                  >
+                    <span>{t.label}</span>
+                    <span className="text-xs text-p1-text-3">
+                      <span aria-hidden="true">{t.source === 'seed' ? '◌ ' : '⊖ '}</span>
+                      {t.source === 'seed'
+                        ? `Suggested for ${lensLabel(t.lens ?? '')}`
+                        : 'Hidden by you'}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            )}
+            {model.off.length > 0 && (
+              <div role="group" aria-labelledby={`${menuId}-off`}>
+                <div id={`${menuId}-off`} className={heading}>
+                  Off in this workspace
+                </div>
+                {model.off.map((t) => (
+                  <div
+                    key={t.view}
+                    role="menuitem"
+                    aria-disabled="true"
+                    className="flex min-h-11 items-center px-2.5 text-sm text-p1-text-3"
+                  >
+                    ⊘ {t.label} is off
+                  </div>
+                ))}
+              </div>
+            )}
           </div>,
           document.body,
         )}
@@ -277,7 +329,11 @@ function ProjectContextHeader({ projectId }: { projectId: string }) {
   const { data: project } = useProject(projectId);
   const unavailable = useProjectUnavailable(projectId);
   const { user } = useCurrentUser();
-  const { groups, labelFor } = useGroupedProjectViews(projectId);
+  const { groups, labelFor, allows } = useGroupedProjectViews(projectId);
+  // ADR-1478: the server resolves which views show, seeding on the first open. Until it
+  // answers, the tab row is a skeleton (never a full row that is pruned a moment later).
+  // On error it fails open to the unseeded composition below, and nothing is saved.
+  const viewSet = useProjectViews(projectId);
   if (unavailable || !project) return null;
   const basePath = projectPath(project);
   const activeView = segmentAfterRef(pathname, 'project') ?? 'overview';
@@ -289,6 +345,8 @@ function ProjectContextHeader({ projectId }: { projectId: string }) {
     visibleViews,
     userHiddenViews: user?.hidden_views ?? [],
     labelFor,
+    resolved: viewSet.data?.views,
+    allows,
   });
   return (
     <div className="shrink-0 border-b border-p1-hairline px-3 pt-3 md:px-6 md:pt-4">
@@ -305,11 +363,32 @@ function ProjectContextHeader({ projectId }: { projectId: string }) {
         </Link>
       </div>
       <div className="mt-1.5">
-        <TabRow
-          model={model}
-          layoutLabel={`${model.tabs.find((t) => t.active)?.label ?? 'View'} layout`}
-        />
+        {viewSet.isPending ? (
+          <div
+            data-testid="shell2-tabs-skeleton"
+            role="status"
+            aria-busy="true"
+            aria-label="Loading views"
+            className="flex h-11 items-end gap-2 pb-1"
+          >
+            {[56, 40, 56, 44, 52].map((w) => (
+              <span
+                key={w}
+                className="h-6 animate-pulse rounded bg-p1-surface-2 motion-reduce:animate-none"
+                style={{ width: w }}
+              />
+            ))}
+          </div>
+        ) : (
+          <TabRow
+            model={model}
+            layoutLabel={`${model.tabs.find((t) => t.active)?.label ?? 'View'} layout`}
+          />
+        )}
       </div>
+      {viewSet.data && (
+        <ViewsRow3 projectId={projectId} viewSet={viewSet.data} labelFor={labelFor} />
+      )}
     </div>
   );
 }

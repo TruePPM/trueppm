@@ -24,6 +24,8 @@ export interface GroupedProjectViews {
   groups: VisibleViewGroup[];
   /** Per-view display label; `sprints` adopts the configured iteration label. */
   labelFor: (view: string) => string;
+  /** Role and surface gates only, for the server-resolved view set (ADR-1478). */
+  allows: (view: string) => boolean;
 }
 
 /**
@@ -102,5 +104,12 @@ export function useGroupedProjectViews(projectId: string | null | undefined): Gr
   const labelFor = (view: string) =>
     view === 'sprints' ? iteration.plural : (VIEW_TAB_META[view]?.label ?? view);
 
-  return { methodology, groups, labelFor };
+  // For the server-resolved path (ADR-1478): the resolver owns personal and methodology
+  // visibility, while role gates and surface visibility stay client gates.
+  const surfaceHidden = new Set(
+    surfaceHiddenViews(project.data?.effective_surface_visibility ?? { reporting: true }),
+  );
+  const allows = (view: string) => roleAllows(view) && !surfaceHidden.has(view);
+
+  return { methodology, groups, labelFor, allows };
 }
