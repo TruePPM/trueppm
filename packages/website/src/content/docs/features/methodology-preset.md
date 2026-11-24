@@ -1,6 +1,7 @@
 ---
 title: Project methodology preset
 description: Tab visibility per planning model (Waterfall / Agile / Hybrid).
+documentedFor: "0.5"
 ---
 
 A project-level preset that tells TruePPM which planning model the team uses, and hides the irrelevant tabs by default. The API surface is unchanged — methodology hides tabs but does not gate routes.
@@ -61,9 +62,18 @@ Switching to Hybrid never warns: Hybrid hides nothing. Neither does a flip whose
 
 The methodology preset is the team-level default; **Customize views** is your personal layer on top of it. Open the **Views** menu in the top bar (or **Settings → General → Views**) and toggle off the tabs you never use — a Product Owner who lives in Backlog and Board can hide Schedule and Calendar; a scheduler can hide the board. Your choice is saved to your account and applies to **every** project you open.
 
+:::note[Ships in 0.5]
+In the new project header (shell v2), Customize views is per project, and the
+methodology default becomes advisory there: a view you switch on yourself shows even
+where the methodology hides it by default. Your [View focus](/features/view-focus/#suggested-views-per-focus)
+can also suggest views to keep out of your tabs. The classic header, which is the
+default in the current release, works as described in this section: one list for every
+project, layered on top of the methodology.
+:::
+
 A few rules keep it predictable:
 
-- You can only hide views that the project's methodology already shows — Customize views layers on top of the preset, it never re-shows a methodology-hidden tab.
+- In the classic header, you can only hide views that the project's methodology already shows — Customize views layers on top of the preset, it never re-shows a methodology-hidden tab.
 - **Dashboard and Settings are always shown** — Dashboard is the orientation landing and Settings is an administrative surface, so your nav can never be emptied. (This row is named "Overview" in the current release — see the note above the matrix.)
 - Hidden views are not gone: they stay listed in the Views menu and are reachable from the **⌘K command palette** as "Go to {view}". A hidden view's URL still works — hiding is cosmetic, never a permission change.
 - **Reset to {methodology} default** clears your personal hides for the current project and falls back to the methodology layout.

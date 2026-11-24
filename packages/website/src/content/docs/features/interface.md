@@ -225,14 +225,12 @@ hidden views stay reachable from the command palette. **Dashboard** and **Settin
 can never be hidden, so your navigation can never end up empty.
 
 :::note[Ships in 0.5]
-The first project you ever create starts with a smaller rail: your hidden-views
-preference is seeded from the methodology you picked, so a Hybrid project opens with
-about six views (Dashboard, Schedule, Grid, Board, Today, Settings) rather than all
-fourteen. Turn the rest on from **Customize views** at any time. The seed applies once,
-at your first project, and never overwrites a rail you have already customized or
-re-applies when you change a project's methodology. A Waterfall project starts without
-Board, Today, Reports, Activity, Assets and Team; an Agile project starts without Grid,
-Risk, Reports, Activity, Assets and Team. Until then, every view starts visible.
+In the new project header (shell v2), the views kept out of your tabs are set per
+project, and your [View focus](/features/view-focus/#suggested-views-per-focus) suggests a
+starting set the first time you open each project. The classic header, still the
+default, keeps one **Customize views** list that applies to every project you belong to.
+Until then, every view starts visible and Customize views hides a view in every project
+at once.
 :::
 
 ### Collapsing the rail
