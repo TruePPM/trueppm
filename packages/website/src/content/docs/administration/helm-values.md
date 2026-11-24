@@ -228,6 +228,7 @@ cluster-specific, so a default-on ingress would render a broken object.
 | `ingress.enabled` | `false` | Render a chart-managed Ingress + edge TLS. |
 | `ingress.className` | `""` | IngressClass to bind (`nginx`, `traefik`, …). Empty uses the cluster default. |
 | `ingress.annotations` | `nginx.ingress.kubernetes.io/proxy-body-size: "110m"` | Controller / cert-manager annotations. The shipped default raises the upload ceiling — see [Upload size limits](#upload-size-limits). Helm deep-merges this map, so your own keys are added alongside it. |
+| `ingress.webhookBodyLimit.enabled` / `.size` | `true` / `"1m"` | Render a second Ingress, `<release>-git-webhook`, that caps the anonymous Git-event receiver (`/api/v1/integrations/projects/<id>/git-webhook/`) at 1 MB. See [Git-webhook body ceiling](#git-webhook-body-ceiling). |
 | `ingress.hosts` | one example host | Virtual hosts; each path routes to `web` or `api`. List `/api` and `/ws` **before** `/` so they win longest-prefix matching. With [`demo.enabled`](#public-read-only-demo-mode) the chart refuses to render unless **every** path uses `service: web`. |
 | `ingress.tls` | `[]` | TLS Secrets per host. Empty renders **HTTP-only** — dev/demo only, never production. |
 
@@ -273,6 +274,34 @@ otherwise-default install*. If you are carrying a values file that pins
 `ingress.annotations` to your own map, confirm it includes `proxy-body-size` — an
 explicit map that omits it inherits the 1 MB default again.
 :::
+
+#### Git-webhook body ceiling
+
+`proxy-body-size` applies to every path of the Ingress that carries it, so the
+`110m` attachment ceiling would also apply to the anonymous inbound Git-event
+receiver. The application's own 1 MB cap there runs only after the body has
+already been received and spooled, so the edge has to enforce it. The chart
+therefore renders a second Ingress, `<release>-git-webhook`, scoped to
+`/api/v1/integrations/projects/<id>/git-webhook/` with `proxy-body-size: 1m`
+(`ingress.webhookBodyLimit.size`). The web tier's nginx carries the same 1M on that
+path for installs that route everything through it. Both real providers send
+far less than 1 MB.
+
+Only the git-webhook path gets this 1 MiB edge limit, and only in the Helm chart;
+the Compose and bare-metal nginx configs keep the 2 MB default tier for that path.
+Other unauthenticated routes (login, password reset, SSO, invite and share links)
+still inherit the Ingress `proxy-body-size` default. On the default topology the
+application's 2 MiB middleware is the only other limit on them, and it runs after
+the body has been received.
+
+The path contains a project id, so the second Ingress sets
+`nginx.ingress.kubernetes.io/use-regex: "true"`. ingress-nginx then treats every
+path on that host as a regular expression; the plain prefixes in `ingress.hosts`
+keep matching as anchored prefixes, so routing is unchanged. Set
+`ingress.webhookBodyLimit.enabled=false` to drop the object, for example when
+your controller does not support these annotations and you enforce the limit
+elsewhere. It is rendered only for hosts that send at least one path straight to
+the API Service, and never with `demo.enabled`.
 
 **On other ingress controllers** the annotation is a no-op. Traefik uses a
 `buffering` middleware with `maxRequestBodyBytes`; HAProxy uses

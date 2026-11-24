@@ -246,6 +246,15 @@ ingress:
   # IngressClass to bind (e.g. "nginx", "traefik"). Empty uses the cluster's
   # default IngressClass, if one is marked default.
   className: ""
+  # Tight body ceiling for the anonymous Git-event receiver (#2932). The
+  # proxy-body-size annotation below is sized for 100 MB attachments and applies
+  # to every path of its Ingress, so a second Ingress scopes a smaller limit to
+  # /api/v1/integrations/projects/<id>/git-webhook/. Matches the app's 1 MB cap
+  # (real providers send far less); the web tier's nginx enforces the same 1M.
+  # ingress-nginx only: it sets use-regex for the host (see templates/ingress.yaml).
+  webhookBodyLimit:
+    enabled: true
+    size: "1m"
   # Controller / cert-manager annotations. Example for cert-manager:
   #   cert-manager.io/cluster-issuer: letsencrypt-prod
   #

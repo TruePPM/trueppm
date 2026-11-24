@@ -107,4 +107,69 @@ spec:
           {{- end }}
           {{- end }}
     {{- end }}
+{{- /*
+  Webhook body ceiling (#2932). ingress.annotations carries proxy-body-size 110m
+  for the attachment uploads, and ingress-nginx applies an annotation to every
+  path of its Ingress — so without a second object an anonymous caller could push
+  110 MB at the Git-event receiver (the app's own 1 MB cap runs only after ASGI
+  has already read and spooled the whole body). A separate Ingress is the only
+  way to scope proxy-body-size to one path. It is emitted only for hosts that
+  route something straight to the API Service; a host whose paths all use
+  `service: web` is covered by the web tier's own nginx location instead.
+
+  The path needs a regex for the project UUID segment, so this Ingress sets
+  use-regex. ingress-nginx then treats every path of that HOST as a regex,
+  including the plain prefixes on the main Ingress; those still match as
+  anchored prefixes, so routing is unchanged. No tls block here: TLS is per host
+  and is already provided by the main Ingress, and repeating it would make
+  cert-manager mint a duplicate Certificate.
+*/ -}}
+{{- if and .Values.ingress.webhookBodyLimit.enabled (not .Values.demo.enabled) }}
+{{- $apiHosts := list }}
+{{- range $h := .Values.ingress.hosts }}
+{{- $direct := false }}
+{{- range $p := $h.paths }}
+{{- if or (eq ($p.service | default "api") "api") (not $.Values.web.enabled) }}
+{{- $direct = true }}
+{{- end }}
+{{- end }}
+{{- if $direct }}
+{{- $apiHosts = append $apiHosts $h.host }}
+{{- end }}
+{{- end }}
+{{- if $apiHosts }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "trueppm.fullname" . }}-git-webhook
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+  annotations:
+    {{- range $k, $v := .Values.ingress.annotations }}
+    {{- if ne $k "nginx.ingress.kubernetes.io/proxy-body-size" }}
+    {{ $k | quote }}: {{ $v | quote }}
+    {{- end }}
+    {{- end }}
+    nginx.ingress.kubernetes.io/proxy-body-size: {{ .Values.ingress.webhookBodyLimit.size | quote }}
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  rules:
+    {{- range $apiHosts }}
+    - host: {{ . | quote }}
+      http:
+        paths:
+          - path: /api/v1/integrations/projects/[^/]+/git-webhook/
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: {{ include "trueppm.fullname" $ }}-api
+                port:
+                  number: {{ $.Values.service.port }}
+    {{- end }}
+{{- end }}
+{{- end }}
 {{- end }}

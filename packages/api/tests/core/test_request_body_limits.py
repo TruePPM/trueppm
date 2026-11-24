@@ -294,3 +294,18 @@ def test_nginx_sizes_are_at_least_the_django_ceilings() -> None:
     for tier in (DEFAULT_TIER, BULK_TIER, UPLOAD_TIER):
         n = int(tier.nginx_size[:-1]) * units[tier.nginx_size[-1]]
         assert n >= tier.max_body_bytes
+
+
+_GIT_WEBHOOK_PATH = (
+    "/api/v1/integrations/projects/00000000-0000-4000-8000-000000000003/git-webhook/"
+)
+
+
+def test_helm_web_tier_pins_the_git_webhook_location_at_1m() -> None:
+    """The chart's web-tier nginx must carry the 1M git-webhook location (#2932).
+
+    The route is not in the table (the app-level cap there is 1 MB, not a tier),
+    so the table-driven drift test cannot see it; pin the location and its pairing.
+    """
+    _default, located = _parse(_nginx_text("packages/helm/templates/web/configmap.yaml"))
+    assert _nginx_tier_size(located, _default, _GIT_WEBHOOK_PATH) == "1M"
