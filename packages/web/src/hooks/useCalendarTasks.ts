@@ -25,6 +25,8 @@ interface ApiTask {
   // Null for a task outside the committed set (ADR-1152): no CPM output exists for it.
   is_critical: boolean | null;
   status: TaskStatus;
+  status_source?: 'derived' | 'none' | 'committed';
+  status_rollup_count?: number;
   is_milestone: boolean;
   is_summary: boolean;
   parent_id: string | null;
@@ -66,6 +68,8 @@ function mapTask(t: ApiTask): Task {
     isSummary: t.is_summary,
     isMilestone: t.is_milestone,
     status: t.status,
+    statusSource: t.status_source,
+    statusRollupCount: t.status_rollup_count,
     assignees,
     notes: t.notes ?? '',
   };

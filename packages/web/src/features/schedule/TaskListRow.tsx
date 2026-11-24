@@ -759,7 +759,9 @@ function handleRowShortcuts(e: React.KeyboardEvent, ctx: RowKeyDownCtx): void {
   // Space rebinds to Mark complete on the focused row (ADR-0066 Q5).
   // Today both Enter and Space were redundant ("open drawer"); Enter
   // keeps that meaning, Space gets the new high-frequency action.
-  if (e.key === ' ') {
+  // A rolled-up / empty phase has no completion toggle (its status is computed), so
+  // Space must fall through rather than preventDefault into a silent no-op.
+  if (e.key === ' ' && !isStatusComputed(ctx.task)) {
     e.preventDefault();
     handleToggleComplete();
     return;

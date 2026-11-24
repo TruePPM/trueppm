@@ -119,6 +119,21 @@ describe('MobileSchedule', () => {
     ).toBeInTheDocument();
   });
 
+  it('does not announce a computed phase status as a committed one (#3531)', () => {
+    renderSchedule({
+      tasks: [
+        makeTask({ id: 'e', name: 'Empty phase', status: 'NOT_STARTED', statusSource: 'none', statusRollupCount: 0 }),
+        makeTask({ id: 'd', name: 'Busy phase', status: 'IN_PROGRESS', statusSource: 'derived', statusRollupCount: 4 }),
+      ],
+    });
+    const empty = screen.getByRole('button', { name: /^Empty phase/ });
+    expect(empty.getAttribute('aria-label')).not.toContain('Not started');
+    expect(empty.getAttribute('aria-label')).toContain('no status');
+    expect(
+      screen.getByRole('button', { name: /^Busy phase, In progress, rolled up from 4 tasks/ }),
+    ).toBeInTheDocument();
+  });
+
   it('shows the Unscheduled tray with a count only when there are unscheduled tasks', () => {
     const scheduled = makeTask({ id: 's', name: 'Scheduled work' });
     const unscheduled = makeTask({

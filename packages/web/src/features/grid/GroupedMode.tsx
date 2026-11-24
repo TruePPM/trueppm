@@ -123,6 +123,8 @@ function groupKeys(
     case 'owner':
       return [task.assignees[0]?.name ?? 'Unassigned'];
     case 'status':
+      // An empty phase has no status (design rule 0); never bucket it as "Not started".
+      if (task.statusSource === 'none') return ['No status'];
       return [STATUS_LABEL[task.status] ?? task.status];
     case 'sprint':
       return [task.sprintId ? (sprintNameById.get(task.sprintId) ?? 'Unknown sprint') : 'Backlog'];
