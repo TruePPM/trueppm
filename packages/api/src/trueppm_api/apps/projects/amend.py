@@ -117,7 +117,7 @@ def _amend_body(actor_name: str, task_name: str, reason: str | None) -> str:
 
 def _emit_amend_notifications(
     project_id: str,
-    rows: list[tuple[Any, str, str, str]],
+    rows: list[tuple[Any, str, str, str | None]],
     task_pk: Any,
 ) -> None:
     from trueppm_api.apps.notifications.models import NotificationEventType
