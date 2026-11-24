@@ -197,19 +197,16 @@ test.describe('Load demo data', () => {
     // The empty state shows the loader both in the header and the hero; the
     // header button comes first in DOM order. With more than one bundled sample,
     // the button opens a picker.
-    await page
-      .getByRole('button', { name: /Load demo data/i })
-      .first()
-      .click();
+    await page.getByRole('button', { name: /Load demo data/i }).first().click();
     await page.getByRole('menuitem', { name: /Atlas Platform Launch/i }).click();
 
     await expect(page).toHaveURL(new RegExp(`/programs/${PROGRAM_ID}/overview`));
 
     // The post-load "Start exploring" guidance renders on the landing page,
     // keyed to the loaded sample (#1054).
-    await expect(page.getByRole('region', { name: 'Start exploring this demo' })).toContainText(
-      'Start exploring — Atlas Platform Launch',
-    );
+    await expect(
+      page.getByRole('region', { name: 'Start exploring this demo' }),
+    ).toContainText('Start exploring — Atlas Platform Launch');
   });
 
   test('a 429 from load-sample names the Retry-After wait and holds the trigger (#2432)', async ({
@@ -230,9 +227,7 @@ test.describe('Load demo data', () => {
     await trigger.click();
     await page.getByRole('menuitem', { name: /Atlas Platform Launch/i }).click();
 
-    await expect(
-      page.getByRole('alert').filter({ hasText: 'Try again in 27 seconds' }),
-    ).toBeVisible();
+    await expect(page.getByRole('alert').filter({ hasText: 'Try again in 27 seconds' })).toBeVisible();
     await expect(page.getByText('Could not load the demo')).toHaveCount(0);
     await expect(trigger).toBeDisabled();
   });
@@ -271,11 +266,7 @@ test.describe('Load demo data', () => {
     );
     await page.route('**/api/v1/programs/load-sample/', async (r) => {
       sampleLoaded = true;
-      await r.fulfill({
-        status: 201,
-        contentType: 'application/json',
-        body: pj(FIXTURE_LOAD_RESULT),
-      });
+      await r.fulfill({ status: 201, contentType: 'application/json', body: pj(FIXTURE_LOAD_RESULT) });
     });
 
     await page.goto('/programs');
@@ -294,13 +285,12 @@ test.describe('Load demo data', () => {
     // fixed assertion timeout.
     const refetch = page.waitForResponse(
       (res) =>
-        res.url().includes('/api/v1/projects/') && res.request().method() === 'GET' && sampleLoaded,
+        res.url().includes('/api/v1/projects/') &&
+        res.request().method() === 'GET' &&
+        sampleLoaded,
     );
 
-    await page
-      .getByRole('button', { name: /Load demo data/i })
-      .first()
-      .click();
+    await page.getByRole('button', { name: /Load demo data/i }).first().click();
     await page.getByRole('menuitem', { name: /Atlas Platform Launch/i }).click();
     await expect(page).toHaveURL(new RegExp(`/programs/${PROGRAM_ID}/overview`));
 

@@ -36,6 +36,14 @@ function rollup(overrides: Partial<RollupShape> = {}): RollupShape {
 // exercise the rollup failure path while the header still renders.
 function mockApi(rollupData: RollupShape | Error, program: Record<string, unknown> = {}) {
   mockGet.mockImplementation((url: string) => {
+    if (url.includes('/members')) {
+      return Promise.resolve({
+        data: [
+          { id: 'm1', role: 400, user_detail: { id: 7, username: 'olivia.owner', email: '' } },
+          { id: 'm2', role: 200, user_detail: { id: 8, username: 'mark.member', email: '' } },
+        ],
+      });
+    }
     if (url.includes('/rollup')) {
       return rollupData instanceof Error
         ? Promise.reject(rollupData)
@@ -423,5 +431,35 @@ describe('kpiDrillTarget (#2155)', () => {
     expect(
       kpiDrillTarget('baseline_variance', { available: true, value: 9 }, 'pg'),
     ).toBeUndefined();
+  });
+});
+
+describe('ProgramOverviewPage sample banner owner wiring (#3875)', () => {
+  const membersFetched = () => mockGet.mock.calls.some(([u]) => String(u).includes('/members'));
+
+  beforeEach(() => {
+    mockGet.mockReset();
+  });
+
+  it('fetches members and shows the owner name only for a non-owner on a sample', async () => {
+    mockApi(rollup(), { is_sample: true, my_role: 200, sample_days_stale: null });
+    renderPage();
+    expect(await screen.findByText('olivia.owner')).toBeInTheDocument();
+    expect(screen.queryByText('mark.member')).not.toBeInTheDocument();
+    expect(membersFetched()).toBe(true);
+  });
+
+  it('does not fetch members for the owner of a sample', async () => {
+    mockApi(rollup(), { is_sample: true, my_role: 400, sample_days_stale: null });
+    renderPage();
+    expect(await screen.findByText(/dates may be out of date/i)).toBeInTheDocument();
+    expect(membersFetched()).toBe(false);
+  });
+
+  it('does not fetch members for a non-sample program', async () => {
+    mockApi(rollup(), { is_sample: false, my_role: 200 });
+    renderPage();
+    expect(await screen.findByText('Program One')).toBeInTheDocument();
+    expect(membersFetched()).toBe(false);
   });
 });

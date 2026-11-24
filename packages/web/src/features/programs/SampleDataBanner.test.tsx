@@ -208,9 +208,12 @@ describe('SampleDataBanner — legacy sample with no anchor and owner path (#387
     expect(screen.getByText('alice')).toBeInTheDocument();
   });
 
-  it('does not name owners to the owner or on a current demo', () => {
+  it('does not name owners to the owner', () => {
     renderBanner({ canRemove: true, sampleDaysStale: 47, ownerNames: ['alice'] });
     expect(screen.queryByText(/program owner/i)).not.toBeInTheDocument();
+  });
+
+  it('does not name owners on a current demo', () => {
     renderBanner({ canRemove: false, sampleDaysStale: 0, ownerNames: ['alice'] });
     expect(screen.queryByText('alice')).not.toBeInTheDocument();
   });
