@@ -97,7 +97,9 @@ def notify_amend(task: Task, *, actor: Any, reason: str | None) -> None:
         task.name,
         reason,
     )
-    rows = [(rid, "A committed plan changed", body, str(task.pk)) for rid in recipient_ids]
+    rows: list[tuple[Any, str, str, str | None]] = [
+        (rid, "A committed plan changed", body, str(task.pk)) for rid in recipient_ids
+    ]
     transaction.on_commit(partial(_emit_amend_notifications, str(task.project_id), rows, task.pk))
 
 
