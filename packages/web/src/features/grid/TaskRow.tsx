@@ -354,7 +354,11 @@ export function TaskRow({
         </span>
 
         <span role="gridcell" className="flex items-center flex-shrink-0 md:w-28">
-          <StatusPill status={task.status} />
+          <StatusPill
+            status={task.status}
+            source={task.statusSource}
+            rollupCount={task.statusRollupCount}
+          />
         </span>
       </div>
     </div>

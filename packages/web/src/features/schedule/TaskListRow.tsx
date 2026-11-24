@@ -1,5 +1,6 @@
 import { renameRowLabel } from './rowVocabulary';
 import type { DependencyDirection } from './deps/linkTypes';
+import { isStatusComputed } from '@/features/grid/ui';
 import { memo, useState, useRef, useCallback, useEffect } from 'react';
 import { formatChord } from '@/lib/platform';
 import type React from 'react';
@@ -758,7 +759,9 @@ function handleRowShortcuts(e: React.KeyboardEvent, ctx: RowKeyDownCtx): void {
   // Space rebinds to Mark complete on the focused row (ADR-0066 Q5).
   // Today both Enter and Space were redundant ("open drawer"); Enter
   // keeps that meaning, Space gets the new high-frequency action.
-  if (e.key === ' ') {
+  // A rolled-up / empty phase has no completion toggle (its status is computed), so
+  // Space must fall through rather than preventDefault into a silent no-op.
+  if (e.key === ' ' && !isStatusComputed(ctx.task)) {
     e.preventDefault();
     handleToggleComplete();
     return;
@@ -870,7 +873,7 @@ function buildRowMenuItems(ctx: RowMenuCtx): RowMenuItem[] {
     onClassifyRequest,
     onMoveToRequest,
   } = ctx;
-  return [
+  const items: RowMenuItem[] = [
     {
       key: 'edit',
       label: 'Edit',
@@ -977,6 +980,8 @@ function buildRowMenuItems(ctx: RowMenuCtx): RowMenuItem[] {
       onSelect: () => buildMode.deleteTask(task.id),
     },
   ];
+  // A computed (rolled-up) status has no status action: absent, not disabled (#3531).
+  return isStatusComputed(task) ? items.filter((i) => i.key !== 'toggle-complete') : items;
 }
 
 /**
@@ -1544,8 +1549,9 @@ function useRowActions(ctx: {
     setScheduleActionToast,
   } = ctx;
 
+  const statusComputed = isStatusComputed(task);
   const handleToggleComplete = useCallback(() => {
-    if (!projectId || task.isMilestone) return;
+    if (!projectId || task.isMilestone || statusComputed) return;
     // Captured before the optimistic flip: only celebrate the transition INTO
     // complete, never un-completing. Warm toast fires on confirmed success.
     const becomingComplete = task.status !== 'COMPLETE';
@@ -1570,6 +1576,7 @@ function useRowActions(ctx: {
     task.name,
     task.status,
     task.isMilestone,
+    statusComputed,
     toggleComplete,
     setScheduleError,
   ]);

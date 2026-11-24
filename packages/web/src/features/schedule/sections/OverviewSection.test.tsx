@@ -74,6 +74,36 @@ beforeEach(() => {
 // Status selector (#405)
 // ---------------------------------------------------------------------------
 
+describe('OverviewSection — rolled-up status (#3531)', () => {
+  it('derived status: no select, derived pill and the structural-refusal copy', () => {
+    mockTasks.splice(0, 1, {
+      ...baseTask,
+      isSummary: true,
+      isPhase: true,
+      statusSource: 'derived',
+      statusRollupCount: 4,
+    });
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
+    expect(screen.queryByRole('combobox', { name: /Task status/i })).not.toBeInTheDocument();
+    expect(screen.getByTestId('status-pill-derived')).toBeInTheDocument();
+    expect(
+      screen.getByText('Rolled up from 4 tasks in this phase. Not editable by anyone.'),
+    ).toBeInTheDocument();
+  });
+
+  it('none status: em dash, no select', () => {
+    mockTasks.splice(0, 1, {
+      ...baseTask,
+      isSummary: true,
+      statusSource: 'none',
+      statusRollupCount: 0,
+    });
+    renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);
+    expect(screen.queryByRole('combobox', { name: /Task status/i })).not.toBeInTheDocument();
+    expect(screen.getByTestId('status-none')).toBeInTheDocument();
+  });
+});
+
 describe('OverviewSection — status select', () => {
   it('renders an editable status select for leaf tasks', () => {
     renderWithProviders(<OverviewSection taskId="t1" projectId="p1" canEdit />);

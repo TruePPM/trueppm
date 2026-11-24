@@ -20,6 +20,7 @@ import {
   PlusIcon,
   WarningIcon,
 } from '@/components/Icons';
+import { statusRollupPhrase } from '@/features/grid/ui';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import type { Methodology } from '@/types';
 import {
@@ -402,8 +403,16 @@ function MobileScheduleRow({ task, window, onOpen, onComplete, completeDisabled 
     ? fmtUtcShort(task.finish)
     : `${fmtUtcShort(task.start)} – ${fmtUtcShort(task.finish)}`;
 
+  // A computed status must not read as a committed one: derived announces the rollup,
+  // an empty phase announces no status at all (never "Not started").
+  const statusText =
+    task.statusSource === 'none'
+      ? 'no status'
+      : task.statusSource === 'derived'
+        ? statusRollupPhrase(task.status, task.statusRollupCount ?? 0)
+        : STATUS_LABEL[task.status];
   const ariaLabel =
-    `${task.name}, ${STATUS_LABEL[task.status]}, ${datesText}` +
+    `${task.name}, ${statusText}, ${datesText}` +
     (task.isCritical ? ', on the critical path' : '') +
     (task.isBlocked ? ', blocked' : '');
 

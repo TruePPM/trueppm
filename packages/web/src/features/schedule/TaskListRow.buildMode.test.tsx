@@ -32,6 +32,26 @@ import {
 } from './scheduleConstants';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
+// Wrap the real useToggleComplete so a test can assert the write was (not) attempted.
+vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => 'p1' }));
+const toggleMutateSpy = vi.hoisted(() => vi.fn());
+vi.mock('@/hooks/useTaskMutations', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/hooks/useTaskMutations')>();
+  return {
+    ...actual,
+    useToggleComplete: () => {
+      const m = actual.useToggleComplete();
+      return {
+        ...m,
+        mutate: (...args: Parameters<typeof m.mutate>) => {
+          toggleMutateSpy(...args);
+          return m.mutate(...args);
+        },
+      };
+    },
+  };
+});
+
 const widths: ColumnWidths['widths'] = {
   wbs: 48, task: 220, links: 76, dur: 60, start: 80, finish: 80, progress: 50, owner: 72, totalFloat: 64, freeFloat: 64,
 };
@@ -1368,5 +1388,38 @@ describe('TaskListRow — the row-edge `+` meets the touch floor on a coarse poi
     const cls = insertDisc().className;
     expect(cls).toContain('opacity-100');
     expect(cls).not.toContain('opacity-0');
+  });
+});
+
+describe('TaskListRow — computed-status phases have no completion toggle (#3531)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it.each(['derived', 'none'] as const)(
+    'Space on a statusSource=%s row does not toggle complete and has no Mark complete menu item',
+    (statusSource) => {
+      const c = renderHarness({ task: { ...baseTask, isSummary: true, statusSource } });
+      act(() => c.current.focus.focusRow('t-build-1'));
+      const row = screen.getByRole('row');
+      const notPrevented = fireEvent.keyDown(row, { key: ' ' });
+      expect(toggleMutateSpy).not.toHaveBeenCalled();
+      // Not preventDefault-ed: Space falls through instead of becoming a silent no-op.
+      expect(notPrevented).toBe(true);
+
+      fireEvent.contextMenu(row, { clientX: 50, clientY: 50 });
+      expect(screen.queryByRole('menuitem', { name: /Mark complete/ })).toBeNull();
+      expect(screen.queryByRole('menuitem', { name: /Unmark complete/ })).toBeNull();
+    },
+  );
+
+  it('Space on a leaf row still toggles complete and the menu offers Mark complete', () => {
+    const c = renderHarness({ task: { ...baseTask, statusSource: 'committed' } });
+    act(() => c.current.focus.focusRow('t-build-1'));
+    const row = screen.getByRole('row');
+    fireEvent.keyDown(row, { key: ' ' });
+    expect(toggleMutateSpy).toHaveBeenCalledTimes(1);
+    fireEvent.contextMenu(row, { clientX: 50, clientY: 50 });
+    expect(screen.getByRole('menuitem', { name: /Mark complete/ })).toBeInTheDocument();
   });
 });

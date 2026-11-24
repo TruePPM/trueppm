@@ -34,6 +34,7 @@ import {
   type WeekStartDay,
   type WorkingTimeInputs,
 } from './calendarUtils';
+import { statusRollupPhrase } from '@/features/grid/ui';
 import { useCalendarTasks } from '@/hooks/useCalendarTasks';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
@@ -106,11 +107,19 @@ export function TaskDetailBanner({ task, projectId, onClose }: TaskDetailBannerP
       <span className="text-sm text-neutral-text-primary font-medium">{task.name}</span>
 
       <span className="inline-flex items-center gap-1.5 text-xs text-neutral-text-secondary">
-        <span
-          aria-hidden="true"
-          className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${statusDotClass(task.status)}`}
-        />
-        {STATUS_LABEL[task.status]}
+        {task.statusSource === 'none' ? (
+          <span>—<span className="sr-only">no status</span></span>
+        ) : task.statusSource === 'derived' ? (
+          <span>{statusRollupPhrase(task.status, task.statusRollupCount ?? 0)}</span>
+        ) : (
+          <>
+            <span
+              aria-hidden="true"
+              className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${statusDotClass(task.status)}`}
+            />
+            {STATUS_LABEL[task.status]}
+          </>
+        )}
       </span>
 
       <span className="text-xs text-neutral-text-secondary tppm-mono">{formatTaskDates(task)}</span>

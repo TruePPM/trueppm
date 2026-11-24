@@ -152,6 +152,15 @@ describe('GroupedMode — group key resolution', () => {
     expect(screen.getAllByText('In progress').length).toBeGreaterThan(0);
   });
 
+  it('groups by status: an empty phase (statusSource none) lands in "No status", not "Not started" (#3531)', () => {
+    hookState.tasks = [
+      { ...mockTasks[0], id: 'empty', name: 'Empty phase', status: 'NOT_STARTED', statusSource: 'none', statusRollupCount: 0 },
+    ];
+    renderGrouped('status');
+    expect(screen.getAllByText('No status').length).toBeGreaterThan(0);
+    expect(screen.queryAllByText('Not started')).toHaveLength(0);
+  });
+
   it('groups by sprint: tasks under sprint name; sprintless tasks fall under Backlog', () => {
     renderGrouped('sprint');
     expect(screen.getByText('Sprint 5')).toBeInTheDocument();

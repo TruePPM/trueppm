@@ -41,6 +41,15 @@ describe('TaskDetailBanner', () => {
     expect(screen.queryByText('t1')).not.toBeInTheDocument();
   });
 
+  it('shows an em dash for an empty phase and the rollup phrase for a derived one (#3531)', () => {
+    const { unmount } = renderBanner(baseTask({ status: 'NOT_STARTED', statusSource: 'none' }));
+    expect(screen.queryByText('To Do')).toBeNull();
+    expect(screen.getByText('—')).toBeInTheDocument();
+    unmount();
+    renderBanner(baseTask({ statusSource: 'derived', statusRollupCount: 3 }));
+    expect(screen.getByText('In progress, rolled up from 3 tasks')).toBeInTheDocument();
+  });
+
   it('renders the date window for a multi-day task', () => {
     renderBanner(baseTask());
     expect(screen.getByText('May 5 – May 8')).toBeInTheDocument();
