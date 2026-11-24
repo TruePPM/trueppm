@@ -1,5 +1,6 @@
 import { test, expect } from './fixtures/coverage';
 import { setupCatchAll, useFullToolbar } from './fixtures';
+import { pinFixtureClock } from './fixtures/fixture-clock';
 
 /**
  * Schedule view E2E tests — toolbar, task list panel, and accessibility basics.
@@ -59,14 +60,7 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
   // Fit out of the bar — at Playwright's 1280 default. What the bar concedes as
   // it narrows is schedule-toolbar-fit.spec.ts's subject, not this file's.
   await useFullToolbar(page);
-  // Pin "today" inside the fixture range. The fixture dates are absolute
-  // (Oct-Nov 2026) but ScheduleView's one-shot initial framing reads the wall
-  // clock; once today is far enough past the bars, coverage drops below
-  // MIN_FRAMED_BAR_COVERAGE and framing falls back to fit-to-project, which
-  // changes pxPerDay and breaks the zoom-stepper assertions (#5119).
-  // setFixedTime freezes Date only; timers (e.g. the 250 ms zoom announce
-  // debounce) still run.
-  await page.clock.setFixedTime(new Date('2026-10-15T12:00:00Z'));
+  await pinFixtureClock(page);
   // Seed auth state so RequireAuth lets the test through.
   await page.addInitScript(() => {
     localStorage.setItem(
@@ -501,6 +495,7 @@ test.describe('Schedule zoom & pan (#351 / #491)', () => {
  */
 test.describe('Schedule task edit — failed rename rolls back (#1518)', () => {
   async function setupForEdit(page: import('@playwright/test').Page) {
+    await pinFixtureClock(page);
     await page.addInitScript(() => {
       localStorage.setItem(
         'trueppm-auth',
