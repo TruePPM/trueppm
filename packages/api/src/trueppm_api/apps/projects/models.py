@@ -5391,6 +5391,10 @@ class ChangesetEntry(models.Model):
     agent_actor_id = models.UUIDField(null=True, blank=True)
     task_ids = models.JSONField(default=list)
     task_names = models.JSONField(default=list)
+    # User ids already told about this entry, direct assignees and downstream
+    # alike (ADR-1477 §6). The `(entry_id, recipient)` idempotency key: a batched
+    # drag, a re-stamp after an absorbed act, or a recalc re-run sends nothing new.
+    notified_user_ids = models.JSONField(default=list)
     # Null is meaningful, not a blank: "no reason given yet" (D11) is the state
     # that blocks re-baselining, and an empty string would read as answered.
     reason = models.TextField(max_length=500, null=True, blank=True)  # noqa: DJ001

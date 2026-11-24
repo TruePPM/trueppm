@@ -171,6 +171,10 @@ def import_jira(
                 source_kind=TaskSource.JIRA_IMPORT,
                 source_id=import_request_id or None,
             )
+            # ADR-1477 §2: an import into a committed plan is one `add` act.
+            from trueppm_api.apps.projects import amend
+
+            amend.record_import(project_id, summary.pop("_created_task_ids", []), initiated_by_id)
 
         tracker.set_result(summary)
 

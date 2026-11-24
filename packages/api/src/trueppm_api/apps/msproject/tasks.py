@@ -227,6 +227,14 @@ def import_msproject(
             summary = import_project(
                 project_id, project_data, tracker=tracker, wipe_existing=creates_project
             )
+            from trueppm_api.apps.projects import amend
+
+            created_ids = summary.pop("_created_task_ids", [])
+            if not creates_project and created_ids:
+                # ADR-1477 §2: an import into a committed plan adds tasks to it,
+                # so it is one `add` act, recorded in the import's transaction.
+                # A no-op on a draft (and a freshly created project is a draft).
+                amend.record_import(project_id, created_ids, initiated_by_id)
 
         tracker.set_result(summary)
 

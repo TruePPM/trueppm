@@ -144,6 +144,7 @@ class Migration(migrations.Migration):
                 ("agent_actor_id", models.UUIDField(blank=True, null=True)),
                 ("task_ids", models.JSONField(default=list)),
                 ("task_names", models.JSONField(default=list)),
+                ("notified_user_ids", models.JSONField(default=list)),
                 ("reason", models.TextField(blank=True, max_length=500, null=True)),
                 ("reason_at", models.DateTimeField(blank=True, null=True)),
                 ("finish_before", models.DateField(blank=True, null=True)),

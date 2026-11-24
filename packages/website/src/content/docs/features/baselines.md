@@ -107,7 +107,7 @@ From the **Schedule** view, open the toolbar's **Actions** menu:
   section of a task's detail drawer when no baseline exists yet.
 - **Baselines…** opens the baseline manager, where any project member can see every
   baseline (name, capture date, and task count) and which one is active. A Project
-  Manager can **Set active** to switch the comparison baseline, and a Project Owner can
+  Manager can **Set active** to switch the comparison baseline on a draft plan (a committed plan hides it: its baseline moves only through **Take v2** in the changeset review), and a Project Owner can
   **Delete** one.
 
 The same operations are available through the [REST API](#capturing-and-managing-baselines-via-the-api)

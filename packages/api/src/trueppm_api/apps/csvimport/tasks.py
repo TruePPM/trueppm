@@ -114,7 +114,9 @@ def import_csv(
         tracker.update(20, "Validating dependency graph...")
         _validate_graph_or_mark_dead(parsed, import_request_id)
 
-        summary = _import_within_transaction(project_id, parsed, tracker, import_request_id)
+        summary = _import_within_transaction(
+            project_id, parsed, tracker, import_request_id, initiated_by_id
+        )
         if summary is None:
             return {"skipped": True, "tasks_created": 0}
 
@@ -205,6 +207,7 @@ def _import_within_transaction(
     parsed: Any,
     tracker: Any,
     import_request_id: str | None,
+    initiated_by_id: int | None = None,
 ) -> dict[str, Any] | None:
     """Claim the outbox row and run the bulk import in one transaction.
 
@@ -246,6 +249,10 @@ def _import_within_transaction(
                 source_kind=TaskSource.CSV_IMPORT,
                 source_id=import_request_id or None,
             )
+            # ADR-1477 §2: an import into a committed plan is one `add` act.
+            from trueppm_api.apps.projects import amend
+
+            amend.record_import(project_id, summary.pop("_created_task_ids", []), initiated_by_id)
             if import_request_id:
                 # ADR-0810 (#2756): the ⌘Z undo ledger, in the same
                 # transaction as the write it records — the row already

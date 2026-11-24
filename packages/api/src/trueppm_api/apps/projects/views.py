@@ -109,6 +109,7 @@ from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.integrations.registry import LINK_STATUS_RANK, LINK_STATUS_UNKNOWN
 from trueppm_api.apps.profiles.serializers import RecentProjectSerializer
 from trueppm_api.apps.profiles.services import annotate_is_pinned
+from trueppm_api.apps.projects import amend
 from trueppm_api.apps.projects.agent_scope import ALL_AREAS
 from trueppm_api.apps.projects.metric_provenance import (
     BURN_COMBINED_DEFINED,
@@ -8165,6 +8166,8 @@ class TaskViewSet(
 
         name = request.data.get("name") if isinstance(request.data, dict) else None
         child = split_story(parent, request.user, name=name)
+        # ADR-1477 §2: a split adds a story to the plan.
+        amend.record_from_request(request, child.project, "add", [child.pk])
         # Serialize the child through the annotated queryset (#1546) so the
         # annotation-backed fields do not cost per-field queries.
         annotated = annotate_tasks_queryset(
@@ -9010,15 +9013,13 @@ class BaselineViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.Model
         return qs  # type: ignore[no-any-return]
 
     def perform_create(self, serializer: BaseSerializer[Baseline]) -> None:
-        """Snapshot all live task dates atomically and broadcast baseline_created.
+        """Capture a named comparison baseline through ``baselines.capture``.
 
         All three pre-flight reads (auto-name count, unique-name check, task values)
         are inside the atomic block so concurrent creates can't race on the auto-name
         counter — two simultaneous POSTs can't both read ``count=2`` and both produce
         "Baseline 3" (P24 correctness fix).
         """
-        from trueppm_api.apps.sync.broadcast import broadcast_board_event
-
         project_pk = self.kwargs["project_pk"]
         project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
         self.check_object_permissions(self.request, project)
@@ -9040,90 +9041,57 @@ class BaselineViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.Model
                     {"name": f"A baseline named '{name}' already exists for this project."}
                 )
 
-            from django.db.models import DateField
-            from django.db.models.functions import Coalesce
+            # The one capture (ADR-1477 Implementation Notes §4): the same frozen
+            # rows, calendar snapshot, board event and webhook a taken decision
+            # gets. A REST capture is a named comparison snapshot, never active.
+            from . import baselines
 
-            from trueppm_api.apps.scheduling.finish_reading import values_finish_at_day_start
-
-            # Snapshot the task's SPAN (ADR-0752's scheduled_start), not
-            # early_start. Since ADR-0132, early_start on an in-progress task
-            # is the remaining-work window and narrows toward early_finish as
-            # percent_complete rises — a baseline captured mid-progress would
-            # otherwise snapshot an already-narrowed start, matching #2623's
-            # class of bug. scheduled_start falls back to early_start via
-            # Coalesce for rows a CPM run has not (re)populated it on yet
-            # (additive migration, no data backfill) — the two coincide for
-            # not-started and complete tasks anyway.
-            live_tasks = list(
-                Task.objects.filter(project_id=project_pk, is_deleted=False)
-                .annotate(
-                    _span_start=Coalesce("scheduled_start", "early_start", output_field=DateField())
-                )
-                .values(
-                    "id",
-                    "name",
-                    "early_start",
-                    "early_finish",
-                    "duration",
-                    "actual_start",
-                    "actual_finish",
-                    "story_points",
-                    "_span_start",
-                    # FINISH_READING_FIELDS: what values_finish_at_day_start
-                    # reads (#4197).
-                    "is_milestone",
-                    "milestone_at_day_end",
-                )
+            extra = {
+                k: v for k, v in serializer.validated_data.items() if k not in {"name", "is_active"}
+            }
+            baseline, task_count = baselines.capture(
+                project, self.request.user, name, active=False, source="api", **extra
             )
-            has_cpm_dates = bool(live_tasks) and all(
-                t["early_start"] is not None for t in live_tasks
-            )
-
-            baseline = serializer.save(
-                project=project,
-                created_by=self.request.user,
-                name=name,
-                has_cpm_dates=has_cpm_dates,
-            )
-            BaselineTask.objects.bulk_create(
-                [
-                    BaselineTask(
-                        baseline=baseline,
-                        task_id=t["id"],
-                        task_name=t["name"],
-                        start=t["_span_start"],
-                        finish=t["early_finish"],
-                        # Which edge of that day the finish sits on (#4197), so
-                        # drift is compared in working time, not by shown day.
-                        finish_at_day_start=values_finish_at_day_start(t),
-                        duration=t["duration"],
-                        actual_start=t["actual_start"],
-                        actual_finish=t["actual_finish"],
-                        story_points=t["story_points"],
-                    )
-                    for t in live_tasks
-                ]
-            )
+            serializer.instance = baseline
             # Annotate task_count on the instance so the create response includes it
-            # (get_queryset annotates for list/retrieve, but perform_create returns the
-            # unsaved instance which lacks the annotation).
-            baseline.task_count = len(live_tasks)  # type: ignore[attr-defined]
-            baseline_id = str(baseline.pk)
-            transaction.on_commit(
-                lambda: broadcast_board_event(
-                    str(project_pk), "baseline_created", {"id": baseline_id}
+            # (get_queryset annotates for list/retrieve, not the created instance).
+            baseline.task_count = task_count  # type: ignore[attr-defined]
+
+    @extend_schema(
+        responses={
+            204: None,
+            409: OpenApiResponse(
+                description=(
+                    "`use_baseline_decision`: the active baseline of a committed plan "
+                    "moves only through `baseline-decisions/` (ADR-1477)."
                 )
+            ),
+        },
+    )
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Delete a baseline; never the active one of a committed plan (ADR-1477 §5).
+
+        Deleting the active baseline of an ACTIVE project would leave variance
+        measured against nothing, with no decision row and no reasons: the same
+        bypass as the old activate route. Inactive comparison baselines, and
+        every baseline of a draft, stay deletable.
+        """
+        from trueppm_api.apps.projects.models import ProjectLifecycle
+
+        instance = self.get_object()
+        if instance.is_active and instance.project.lifecycle == ProjectLifecycle.ACTIVE:
+            return Response(
+                {
+                    "code": "use_baseline_decision",
+                    "detail": (
+                        "This is the committed plan's active baseline. Take a new "
+                        "baseline through baseline-decisions/ instead of deleting it."
+                    ),
+                },
+                status=status.HTTP_409_CONFLICT,
             )
-            # ADR-0206: emit the baseline.captured webhook (first-party domain
-            # event). Payload is built now inside the transaction (task_count is
-            # known from the snapshot) and captured by value.
-            project_id_str = str(project_pk)
-            captured_payload = _baseline_webhook_payload(
-                baseline, task_count=len(live_tasks), source="api"
-            )
-            transaction.on_commit(
-                lambda: _dispatch_webhooks(project_id_str, "baseline.captured", captured_payload)
-            )
+        self.perform_destroy(instance)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def perform_destroy(self, instance: Baseline) -> None:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -18849,6 +18817,9 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         actor = cast(_User, request.user)
         try:
             task = promote_retro_action_item(action_item, actor)
+            amend.record_from_request(
+                request, task.project, "add", [task.pk]
+            )  # ADR-1477 §2: an add to a committed plan
         except AlreadyPromotedError as exc:
             return Response(
                 {"detail": "Already promoted.", "task_id": exc.existing_task_id},
@@ -18940,6 +18911,9 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         actor = cast(_User, request.user)
         try:
             task = pull_carryover_item_to_sprint(action_item, target_sprint, actor)
+            amend.record_from_request(
+                request, task.project, "add", [task.pk]
+            )  # ADR-1477 §2: an add to a committed plan
         except DjangoValidationError as exc:
             return Response(
                 {"detail": "; ".join(exc.messages)},

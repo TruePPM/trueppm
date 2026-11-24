@@ -46,7 +46,8 @@ User = get_user_model()
 # blocker/AC rows whose count could be varied through the API. 30 is the measured cost
 # after #1546 (the old bare-Task serialize measured 31), with zero headroom so a new
 # per-field query on the pull response fails here and forces a conscious bump.
-_PULL_QUERY_BOUND = 30
+# +7 since ADR-1477 §2: a pull into a committed plan records one changeset entry.
+_PULL_QUERY_BOUND = 37
 
 
 # ---------------------------------------------------------------------------

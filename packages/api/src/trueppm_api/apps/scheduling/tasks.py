@@ -1497,13 +1497,6 @@ def _bulk_write_cpm_results(
                 summary_rows, ["duration"], batch_size=_WRITEBACK_BATCH_SIZE
             )
 
-    # ADR-1477 §4: stamp the finish impact on open changeset entries, inside this
-    # same write transaction, after the new dates are persisted. IS NULL-guarded,
-    # so a re-run is a no-op. No new task, no new dispatch.
-    from trueppm_api.apps.projects.amend import stamp_finish_after
-
-    stamp_finish_after({t.project_id for t in tasks_to_update})
-
     # The delta is built per project (the program pass ships one per member), so the
     # plan is made per project — by the same helper the payload builder uses, so the
     # rows re-read here are exactly the full rows that ship.
@@ -1632,6 +1625,12 @@ def _run_schedule(
         project_id: UUID string of the project to schedule.
         tracker: Optional TaskRunTracker for progress reporting.
     """
+    from django.utils import timezone as _tz
+
+    from trueppm_api.apps.projects.amend import stamp_finish_after
+
+    # The run's input snapshot time (ADR-1477 §4): taken before any input is read.
+    run_snapshot_at = _tz.now()
     from trueppm_scheduler.engine import schedule
     from trueppm_scheduler.models import Dependency as SchedDependency
     from trueppm_scheduler.models import DependencyType
@@ -1948,6 +1947,15 @@ def _run_schedule(
         # Leaf `duration` is excluded on purpose (#4371): see _CPM_WRITE_FIELDS.
         _bulk_write_cpm_results(
             Task, tasks_to_update, summary_durations, moved_tasks, float_only_ids
+        )
+        # ADR-1477 §4/§6: stamp open changeset entries and tell downstream
+        # assignees, in this write transaction. Every run, even one that re-dated
+        # nothing. No new task, no new dispatch.
+        stamp_finish_after(
+            [project_id],
+            snapshot_at=run_snapshot_at,
+            moved_tasks=moved_tasks,
+            float_only_ids=float_only_ids,
         )
         delta_payload = _member_cpm_delta(moved_tasks, float_only_ids)
 
@@ -2559,6 +2567,12 @@ def _run_program_schedule(program_id: str, task: object | None = None) -> None:
     Extracted from the Celery task for testability — exercised directly by the
     program-pass tests without a broker.
     """
+    from django.utils import timezone as _tz
+
+    from trueppm_api.apps.projects.amend import stamp_finish_after
+
+    # The run's input snapshot time (ADR-1477 §4): taken before any input is read.
+    run_snapshot_at = _tz.now()
     from django.db import transaction
     from django.utils import timezone
 
@@ -2701,6 +2715,13 @@ def _run_program_schedule(program_id: str, task: object | None = None) -> None:
             _bulk_write_cpm_results(
                 Task, tasks_to_update, summary_durations, moved_tasks, float_only_ids
             )
+        # ADR-1477 §4/§6, as in the single-project pass: every member, every run.
+        stamp_finish_after(
+            member_ids,
+            snapshot_at=run_snapshot_at,
+            moved_tasks=moved_tasks,
+            float_only_ids=float_only_ids,
+        )
 
         # #3531: phase status rollup for every member project, same transaction.
         _, backlog_flips, status_changed_projects = rollup_phase_statuses_detailed(member_ids)

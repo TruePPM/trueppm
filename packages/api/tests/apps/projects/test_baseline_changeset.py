@@ -505,3 +505,78 @@ class TestInvariants:
         amend.stamp_finish_after({committed.pk})
         entry.refresh_from_db()
         assert entry.finish_after == date(2026, 3, 25)
+
+
+class TestTheOneCapture:
+    """Taking v2 announces itself like any capture; the REST create shares it (B5, G4, G6)."""
+
+    def _taken(self, client: APIClient, project: Project) -> object:
+        return client.post(
+            f"{API}/projects/{project.pk}/baseline-decisions/",
+            {
+                "kind": "taken",
+                "expected_open_count": 0,
+                "reason_code": "approved_scope_change",
+                "reason": "Sponsor re-agreed scope",
+            },
+            format="json",
+        )
+
+    def test_taken_fires_the_webhook_and_the_board_event(
+        self, client: APIClient, committed: Project, django_capture_on_commit_callbacks: object
+    ) -> None:
+        from unittest.mock import patch
+
+        with (
+            patch("trueppm_api.apps.projects.views._dispatch_webhooks") as hook,
+            patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as board,
+            django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+        ):
+            r = self._taken(client, committed)
+        assert r.status_code == 201, r.content
+        v2 = Baseline.objects.get(project=committed, is_active=True)
+        captured = [c.args for c in hook.call_args_list if c.args[1] == "baseline.captured"]
+        assert len(captured) == 1 and captured[0][2]["id"] == str(v2.pk)
+        assert (str(committed.pk), "baseline_created", {"id": str(v2.pk)}) in [
+            c.args for c in board.call_args_list
+        ]
+
+    def test_rest_create_goes_through_capture_and_is_never_active(
+        self, client: APIClient, committed: Project, django_capture_on_commit_callbacks: object
+    ) -> None:
+        from unittest.mock import patch
+
+        with (
+            patch("trueppm_api.apps.projects.views._dispatch_webhooks") as hook,
+            django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+        ):
+            r = client.post(
+                f"{API}/projects/{committed.pk}/baselines/", {"name": "Compare"}, format="json"
+            )
+        assert r.status_code == 201, r.content
+        b = Baseline.objects.get(pk=r.json()["id"])
+        assert not b.is_active and b.tasks.count() == 3 and r.json()["task_count"] == 3
+        assert [c.args[1] for c in hook.call_args_list] == ["baseline.captured"]
+
+    def test_the_active_baseline_of_a_committed_plan_is_not_deletable(
+        self, client: APIClient, committed: Project
+    ) -> None:
+        active = Baseline.objects.get(project=committed, is_active=True)
+        r = client.delete(f"{API}/projects/{committed.pk}/baselines/{active.pk}/")
+        assert r.status_code == 409 and r.json()["code"] == "use_baseline_decision"
+        other = client.post(
+            f"{API}/projects/{committed.pk}/baselines/", {"name": "Compare"}, format="json"
+        ).json()
+        assert (
+            client.delete(f"{API}/projects/{committed.pk}/baselines/{other['id']}/").status_code
+            == 204
+        )
+
+    def test_taking_v2_leaves_project_health_unchanged(
+        self, client: APIClient, committed: Project
+    ) -> None:
+        before = Project.objects.get(pk=committed.pk).health
+        overview_before = client.get(f"{API}/projects/{committed.pk}/").json().get("health")
+        assert self._taken(client, committed).status_code == 201
+        assert Project.objects.get(pk=committed.pk).health == before
+        assert client.get(f"{API}/projects/{committed.pk}/").json().get("health") == overview_before

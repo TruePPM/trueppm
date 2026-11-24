@@ -553,4 +553,19 @@ def apply_task_changes(
     for del_id in tasks.get("deleted", []) or []:
         _apply_deleted_row(del_id, ctx, result)
 
+    # ADR-1477 §2: an offline add or delete on a committed plan is an amendment
+    # like any other, or sync is a bypass of the changeset (threat model, "Sync
+    # bypass"). One act per kind per upload, recorded in this same transaction.
+    # An idempotent re-create is an in-place edit (`task_updated`), not an add.
+    from trueppm_api.apps.projects import amend
+
+    for kind, event in (("add", "task_created"), ("delete", "task_deleted")):
+        amend.record_ids(
+            project,
+            kind,
+            [tid for ev, tid in result.events if ev == event],
+            surface="sync",
+            actor=request.user,
+        )
+
     return result

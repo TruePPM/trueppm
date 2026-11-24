@@ -1457,7 +1457,8 @@ def test_split_query_count_is_bounded(
     epic = _story(project, name="EP", type=TaskType.EPIC)
     parent = _story(project, name="big story", parent_epic=epic, story_points=8)
     _criterion(parent, met=False, pos=0, text="remaining bit")
-    with django_assert_max_num_queries(28):
+    # +7: the split is an add on a committed plan, recorded once (ADR-1477 §2).
+    with django_assert_max_num_queries(35):
         resp = owner_client.post(f"/api/v1/tasks/{parent.pk}/split/", {}, format="json")
     assert resp.status_code == 201
 

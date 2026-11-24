@@ -267,18 +267,144 @@ def record_structural_change(
     return entry
 
 
+def _assignee_pairs(task_ids: list[Any]) -> list[tuple[Any, str]]:
+    """``(user_id, task_id)`` for every user-linked resource assignment, one query.
+
+    ``TaskResource`` rather than ``Task.assignee``, for the reason
+    :func:`notify_amend` gives.
+    """
+    from trueppm_api.apps.resources.models import TaskResource
+
+    if not task_ids:
+        return []
+    return [
+        (uid, str(tid))
+        for uid, tid in TaskResource.objects.filter(
+            task_id__in=task_ids, resource__user_id__isnull=False
+        ).values_list("resource__user_id", "task_id")
+    ]
+
+
+def _many_body(actor_name: str, names: list[str], reason: str | None, *, downstream: bool) -> str:
+    """The notice text for one recipient of one entry, however many tasks it covers."""
+    text = (reason or "").strip()
+    if downstream:
+        what = (
+            f"“{names[0] or 'Untitled'}” moved"
+            if len(names) == 1
+            else f"{len(names)} of your tasks moved"
+        )
+        head = f"{what} after {actor_name} changed a committed plan"
+        return f"{head} — {text}" if text else f"{head}. No reason has been given yet."
+    if len(names) == 1:
+        return _amend_body(actor_name, names[0], reason)
+    head = f"{actor_name} changed {len(names)} of your tasks on a committed plan"
+    return f"{head} — {text}" if text else f"{head}. No reason was given."
+
+
+def _rows_for_entry(
+    entry: Any,
+    pairs: list[tuple[Any, str]],
+    *,
+    exclude_user_id: Any,
+    actor_name: str,
+    names_by_id: dict[str, str],
+    downstream: bool,
+) -> list[tuple[Any, str, str, str | None]]:
+    """One row per new recipient of ``entry``; records them on the entry.
+
+    ``entry.notified_user_ids`` is the ``(entry_id, recipient)`` idempotency key
+    (ADR-1477 §6): a recipient already told about this entry, directly or
+    downstream, is never told again — not by an absorbed act, not by a re-stamp,
+    not by a recalc re-run. The caller saves the entry.
+    """
+    already = {str(u) for u in entry.notified_user_ids}
+    by_user: dict[Any, list[str]] = {}
+    for uid, tid in pairs:
+        if exclude_user_id is not None and uid == exclude_user_id:
+            continue
+        if str(uid) in already:
+            continue
+        by_user.setdefault(uid, [])
+        if tid not in by_user[uid]:
+            by_user[uid].append(tid)
+    rows: list[tuple[Any, str, str, str | None]] = []
+    for uid, tids in by_user.items():
+        names = [names_by_id.get(t, "") for t in tids]
+        body = _many_body(actor_name, names, entry.reason, downstream=downstream)
+        rows.append((uid, "A committed plan changed", body, tids[0] if len(tids) == 1 else None))
+        entry.notified_user_ids.append(uid)
+    return rows
+
+
 def _notify_entry(entry: Any, task_ids: list[str], *, actor: Any) -> None:
     """Tell the assignees of the newly touched tasks, once per entry (ADR-1477 §6).
 
-    Absorbed acts notify only the tasks this act added to the entry, so a batched
-    drag of five cards over the same task does not notify five times. Answering
-    the reason later sends nothing (D11).
+    One ``TaskResource`` query and one deferred batch emit however many tasks the
+    act touched, so a paste of N rows is constant in queries, and one person on
+    five tasks of one bulk act gets one notice. Absorbed acts dedupe through
+    ``notified_user_ids``. Answering the reason later sends nothing (D11).
+    Best-effort after commit, like :func:`notify_amend`: a notification failure
+    never reverts an accepted edit.
     """
-    from .models import Task
+    actor_id = actor.pk if actor is not None and getattr(actor, "is_authenticated", False) else None
+    rows = _rows_for_entry(
+        entry,
+        _assignee_pairs(task_ids),
+        exclude_user_id=actor_id,
+        actor_name=getattr(actor, "username", "") or "Someone",
+        names_by_id=dict(zip(entry.task_ids, entry.task_names, strict=False)),
+        downstream=False,
+    )
+    if not rows:
+        return
+    entry.save(update_fields=["notified_user_ids"])
+    transaction.on_commit(partial(_emit_amend_notifications, str(entry.project_id), rows, entry.pk))
 
-    # `Task.objects` includes tombstoned rows, which a `delete` entry needs.
-    for task in Task.objects.filter(pk__in=task_ids):
-        notify_amend(task, actor=actor, reason=entry.reason)
+
+def notify_downstream(entries: list[Any], moved: dict[Any, dict[str, str]]) -> int:
+    """Tell the assignees of tasks a stamped entry re-dated (ADR-1477 §6).
+
+    ``moved`` maps a project id to ``{task_id: name}`` for the tasks the run
+    actually re-dated. The entry's own tasks are not downstream — their assignees
+    were told by :func:`_notify_entry`. Runs synchronously inside the recalc's
+    write transaction, so the rows commit or roll back with the stamp, but in a
+    savepoint: a notification fault must never roll back a schedule. Returns the
+    number of rows written.
+    """
+    from trueppm_api.apps.notifications.models import NotificationEventType
+    from trueppm_api.apps.notifications.services import create_event_notifications_batch
+
+    all_ids = [tid for names in moved.values() for tid in names]
+    if not entries or not all_ids:
+        return 0
+    pairs = _assignee_pairs(all_ids)
+    written = 0
+    for entry in entries:
+        names_by_id = moved.get(entry.project_id) or moved.get(str(entry.project_id)) or {}
+        own = set(entry.task_ids)
+        down = [(u, t) for u, t in pairs if t in names_by_id and t not in own]
+        rows = _rows_for_entry(
+            entry,
+            down,
+            exclude_user_id=entry.author_id,
+            actor_name=getattr(entry.author, "username", "") or "Someone",
+            names_by_id=names_by_id,
+            downstream=True,
+        )
+        if not rows:
+            continue
+        try:
+            with transaction.atomic():
+                written += create_event_notifications_batch(
+                    event_type=NotificationEventType.PLAN_AMENDED,
+                    project_id=str(entry.project_id),
+                    rows=rows,
+                )
+                entry.save(update_fields=["notified_user_ids"])
+        except Exception:
+            logger.exception("notify_downstream: emit failed for entry %s", entry.pk)
+    return written
 
 
 def broadcast_changeset(project_id: Any) -> None:
@@ -347,32 +473,70 @@ def retract(project_id: Any, task_ids: list[Any]) -> None:
         broadcast_changeset(project_id)
 
 
-def stamp_finish_after(project_ids: set[Any]) -> None:
+def stamp_finish_after(
+    project_ids: set[Any] | list[Any],
+    *,
+    snapshot_at: Any = None,
+    moved_tasks: list[Any] | None = None,
+    float_only_ids: set[str] | None = None,
+) -> list[Any]:
     """Stamp ``finish_after`` from the recalculation that follows an act (ADR-1477 §4).
 
     Called inside the recalc's own write transaction, after the new dates are
-    persisted. Conditional on ``finish_after IS NULL`` so a re-run is a no-op.
+    persisted, for every project the run covered — including a run that re-dated
+    nothing, or an act that moved no date would read "not computed" forever.
+    Conditional on ``finish_after IS NULL`` so a re-run is a no-op, and on
+    ``last_act_at <= snapshot_at`` (the run's input snapshot): an act that landed
+    after the run read its inputs is not in this run's dates, and the recalc that
+    act enqueued stamps it instead. Then tells downstream assignees (§6). Returns
+    the stamped entries.
     """
     from .models import ChangesetEntry
 
+    stamped: list[Any] = []
     for pid in project_ids:
-        pending = ChangesetEntry.objects.filter(
+        qs = ChangesetEntry.objects.filter(
             project_id=pid, resolved_by__isnull=True, finish_after__isnull=True
         )
-        if not pending.exists():
+        if snapshot_at is not None:
+            qs = qs.filter(last_act_at__lte=snapshot_at)
+        pending = list(qs.select_related("author"))
+        if not pending:
             continue
         finish = current_finish(pid)
-        if finish is not None:
-            pending.update(finish_after=finish)
+        if finish is None:
+            continue
+        ChangesetEntry.objects.filter(pk__in=[e.pk for e in pending]).update(finish_after=finish)
+        for e in pending:
+            e.finish_after = finish
+        stamped.extend(pending)
+    if stamped and moved_tasks:
+        skip = float_only_ids or set()
+        moved: dict[Any, dict[str, str]] = {}
+        for t in moved_tasks:
+            if str(t.pk) in skip:
+                continue
+            moved.setdefault(t.project_id, {})[str(t.pk)] = getattr(t, "name", "") or ""
+        notify_downstream(stamped, moved)
+    return stamped
 
 
-def record_from_request(request: Any, project: Project, kind: str, task_ids: list[Any]) -> Any:
-    """Record a structural act from a view, reading the request's changeset hints.
+def record_ids(
+    project: Project,
+    kind: str,
+    task_ids: list[Any],
+    *,
+    surface: str,
+    actor: Any,
+    reason: str | None = None,
+    new_group: bool = False,
+) -> Any:
+    """Record one structural act over ``task_ids`` from any write path.
 
-    Subtasks are dropped: a checklist item is never structural (#2950), so
-    adding or deleting one is not an amendment of the plan's shape. Every
-    structural route calls this, which is what ADR-1477 §7's route enumeration
-    test pins.
+    The non-request form of :func:`record_from_request`, for the paths that are
+    not a DRF view with changeset hints: sync upload (``surface="sync"``) and MS
+    Project import (``surface="import"``). Subtasks are dropped (#2950), and
+    ``Task.objects`` includes tombstones, which a ``delete`` act needs.
     """
     from .models import Task
 
@@ -384,13 +548,52 @@ def record_from_request(request: Any, project: Project, kind: str, task_ids: lis
     rows = list(
         Task.objects.filter(pk__in=ids, project_id=project.pk, is_subtask=False).only("id", "name")
     )
-    ctx = amend_context(request)
     return record_structural_change(
         project,
         kind=kind,
+        surface=surface,
+        actor=actor,
+        tasks=rows,
+        reason=reason,
+        new_group=new_group,
+    )
+
+
+def record_import(project_id: Any, task_ids: list[Any], user_id: int | None) -> Any:
+    """One ``add`` entry, ``surface="import"``, for an import into an existing project.
+
+    One import is one decision however many rows it carries, so it always opens
+    its own entry. A no-op on a draft, which every freshly created project is.
+    Called inside the import's transaction (MS Project, CSV, Jira).
+    """
+    from django.contrib.auth import get_user_model
+
+    from .models import Project
+
+    project = Project.objects.filter(pk=project_id).first()
+    if project is None or not is_amendable(project) or not task_ids:
+        return None
+    actor = get_user_model().objects.filter(pk=user_id).first() if user_id else None
+    return record_ids(project, "add", task_ids, surface="import", actor=actor, new_group=True)
+
+
+def record_from_request(request: Any, project: Project, kind: str, task_ids: list[Any]) -> Any:
+    """Record a structural act from a view, reading the request's changeset hints.
+
+    Subtasks are dropped: a checklist item is never structural (#2950), so
+    adding or deleting one is not an amendment of the plan's shape. Every
+    structural route calls this, which is what ADR-1477 §7's route enumeration
+    test pins.
+    """
+    if not is_amendable(project):
+        return None
+    ctx = amend_context(request)
+    return record_ids(
+        project,
+        kind,
+        task_ids,
         surface=ctx["surface"],
         actor=getattr(request, "user", None),
-        tasks=rows,
         reason=ctx["reason"],
         new_group=ctx["new_group"],
     )

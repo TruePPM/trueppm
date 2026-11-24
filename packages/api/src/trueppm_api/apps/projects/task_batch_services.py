@@ -173,6 +173,10 @@ def undo_paste_many_operation(operation: PasteManyOperation) -> dict[str, int]:
             for row in Task.objects.filter(pk__in=untouched, is_deleted=False):
                 row.soft_delete()
             _broadcast_and_recalc(operation.project_id, untouched)
+            # ADR-1477 §3: undo takes the acts back out of their open entries.
+            from . import amend
+
+            amend.retract(operation.project_id, list(untouched))
 
         result = {"deleted": len(untouched), "kept": len(touched)}
         operation.status = SyncBatchOperationStatus.UNDONE

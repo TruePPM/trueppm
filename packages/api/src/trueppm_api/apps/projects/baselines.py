@@ -115,24 +115,61 @@ def snapshot_tasks(baseline: Baseline, rows: list[dict[str, Any]]) -> int:
     return len(rows)
 
 
-def capture(project: Project, user: Any, name: str) -> tuple[Baseline, int]:
-    """Capture an ACTIVE baseline of the plan as it stands. Caller holds the transaction.
+def capture(
+    project: Project,
+    user: Any,
+    name: str,
+    *,
+    active: bool = True,
+    source: str = "decision",
+    **fields: Any,
+) -> tuple[Baseline, int]:
+    """Capture a baseline of the plan as it stands. Caller holds the transaction.
 
-    Stands down any incumbent active baseline first: ``Baseline`` has a partial
-    unique constraint on (project) WHERE is_active. Deactivated, never deleted —
-    baseline history is kept forever.
+    The one capture (ADR-1477 Implementation Notes §4): a taken decision and the
+    REST create both go through it, so both freeze the same rows and the same
+    calendar, and both announce the capture the same way.
+
+    ``active=True`` stands down any incumbent active baseline first: ``Baseline``
+    has a partial unique constraint on (project) WHERE is_active. Deactivated,
+    never deleted — baseline history is kept forever. A non-active capture is a
+    named comparison snapshot, never a re-baseline.
     """
     rows = live_task_rows(project.pk)
-    Baseline.objects.filter(project_id=project.pk, is_active=True).update(is_active=False)
+    if active:
+        Baseline.objects.filter(project_id=project.pk, is_active=True).update(is_active=False)
     baseline = Baseline.objects.create(
         project=project,
         name=name,
         created_by=user if user is not None and getattr(user, "is_authenticated", False) else None,
-        is_active=True,
+        is_active=active,
         has_cpm_dates=has_cpm_dates_for(rows),
         **calendar_snapshot(project),
+        **fields,
     )
-    return baseline, snapshot_tasks(baseline, rows)
+    count = snapshot_tasks(baseline, rows)
+    _announce_capture(baseline, count, source)
+    return baseline, count
+
+
+def _announce_capture(baseline: Baseline, task_count: int, source: str) -> None:
+    """``baseline_created`` to the board and the ``baseline.captured`` webhook, after commit.
+
+    Other clients refetch their baselines on the board event; integrators hear
+    a v(n+1) the same way they hear any other capture (ADR-0206). The payload is
+    built now, inside the transaction, and captured by value.
+    """
+    from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+    from .views import _baseline_webhook_payload, _dispatch_webhooks
+
+    project_id = str(baseline.project_id)
+    baseline_id = str(baseline.pk)
+    payload = _baseline_webhook_payload(baseline, task_count=task_count, source=source)
+    transaction.on_commit(
+        lambda: broadcast_board_event(project_id, "baseline_created", {"id": baseline_id})
+    )
+    transaction.on_commit(lambda: _dispatch_webhooks(project_id, "baseline.captured", payload))
 
 
 # ── The changeset read ───────────────────────────────────────────────────────
