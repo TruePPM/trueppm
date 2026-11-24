@@ -6,6 +6,7 @@ import { QueryErrorState } from '@/components/QueryErrorState';
 import { PinToggle } from '@/components/PinToggle';
 import { ProgramIdentitySquare } from './ProgramIdentitySquare';
 import { SampleDataBanner } from './SampleDataBanner';
+import { useProgramMembers } from './hooks/useProgramMembers';
 import { ROLE_ADMIN, ROLE_OWNER } from '@/lib/roles';
 import { HEALTH_BAND_LABEL, type HealthBand as SharedHealthBand } from '@/lib/healthBand';
 import { useProgramId } from '@/hooks/useProgramId';
@@ -589,6 +590,12 @@ function ProgramOverviewV1({ programId }: { programId: string | undefined }) {
   const kpiEntries = rollup ? Object.entries(rollup.kpis) : [];
   // Only program admins can change the rollup config, so only they get the link.
   const canConfigure = (program?.my_role ?? 0) >= ROLE_ADMIN;
+  // Non-owners cannot shift/remove a sample, so the banner names who can.
+  const sampleNeedsOwner = !!program?.is_sample && program.my_role !== ROLE_OWNER;
+  const { data: sampleMembers } = useProgramMembers(sampleNeedsOwner ? programId : undefined);
+  const ownerNames = (sampleMembers ?? [])
+    .filter((m) => m.role === ROLE_OWNER)
+    .map((m) => m.user_detail.username);
 
   return (
     <div className="flex flex-col gap-6 p-6 overflow-y-auto h-full bg-app-canvas">
@@ -597,6 +604,7 @@ function ProgramOverviewV1({ programId }: { programId: string | undefined }) {
           programId={programId}
           canRemove={program.my_role === ROLE_OWNER}
           sampleDaysStale={program.sample_days_stale}
+          ownerNames={ownerNames}
         />
       )}
       {/* Identity header (#963): the lg tile is the ONLY accent on this page —

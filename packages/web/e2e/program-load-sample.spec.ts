@@ -60,7 +60,7 @@ const FIXTURE_LOAD_RESULT = {
 
 const pj = (o: unknown) => JSON.stringify(o);
 
-async function setup(page: Page) {
+async function setup(page: Page, overrides: Record<string, unknown> = {}) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -127,8 +127,29 @@ async function setup(page: Page) {
       body: pj(
         shifted
           ? { ...FIXTURE_PROGRAM, sample_days_stale: 0, sample_anchor_date: '2026-09-17' }
-          : FIXTURE_PROGRAM,
+          : { ...FIXTURE_PROGRAM, ...overrides },
       ),
+    }),
+  );
+  // Registered after the program wildcard so it wins for the members list.
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/members/`, (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: pj([
+        {
+          id: 'm-1',
+          server_version: 1,
+          program: PROGRAM_ID,
+          user: 7,
+          user_detail: { id: 7, username: 'olivia.owner', email: 'olivia@example.com' },
+          role: 400,
+          role_label: 'Owner',
+          joined_at: '2026-01-01T00:00:00Z',
+          role_changed_at: null,
+          reinstated_at: null,
+        },
+      ]),
     }),
   );
   // Registered after the catch-all so it wins for this specific path.
@@ -176,16 +197,19 @@ test.describe('Load demo data', () => {
     // The empty state shows the loader both in the header and the hero; the
     // header button comes first in DOM order. With more than one bundled sample,
     // the button opens a picker.
-    await page.getByRole('button', { name: /Load demo data/i }).first().click();
+    await page
+      .getByRole('button', { name: /Load demo data/i })
+      .first()
+      .click();
     await page.getByRole('menuitem', { name: /Atlas Platform Launch/i }).click();
 
     await expect(page).toHaveURL(new RegExp(`/programs/${PROGRAM_ID}/overview`));
 
     // The post-load "Start exploring" guidance renders on the landing page,
     // keyed to the loaded sample (#1054).
-    await expect(
-      page.getByRole('region', { name: 'Start exploring this demo' }),
-    ).toContainText('Start exploring — Atlas Platform Launch');
+    await expect(page.getByRole('region', { name: 'Start exploring this demo' })).toContainText(
+      'Start exploring — Atlas Platform Launch',
+    );
   });
 
   test('a 429 from load-sample names the Retry-After wait and holds the trigger (#2432)', async ({
@@ -206,7 +230,9 @@ test.describe('Load demo data', () => {
     await trigger.click();
     await page.getByRole('menuitem', { name: /Atlas Platform Launch/i }).click();
 
-    await expect(page.getByRole('alert').filter({ hasText: 'Try again in 27 seconds' })).toBeVisible();
+    await expect(
+      page.getByRole('alert').filter({ hasText: 'Try again in 27 seconds' }),
+    ).toBeVisible();
     await expect(page.getByText('Could not load the demo')).toHaveCount(0);
     await expect(trigger).toBeDisabled();
   });
@@ -245,7 +271,11 @@ test.describe('Load demo data', () => {
     );
     await page.route('**/api/v1/programs/load-sample/', async (r) => {
       sampleLoaded = true;
-      await r.fulfill({ status: 201, contentType: 'application/json', body: pj(FIXTURE_LOAD_RESULT) });
+      await r.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: pj(FIXTURE_LOAD_RESULT),
+      });
     });
 
     await page.goto('/programs');
@@ -264,12 +294,13 @@ test.describe('Load demo data', () => {
     // fixed assertion timeout.
     const refetch = page.waitForResponse(
       (res) =>
-        res.url().includes('/api/v1/projects/') &&
-        res.request().method() === 'GET' &&
-        sampleLoaded,
+        res.url().includes('/api/v1/projects/') && res.request().method() === 'GET' && sampleLoaded,
     );
 
-    await page.getByRole('button', { name: /Load demo data/i }).first().click();
+    await page
+      .getByRole('button', { name: /Load demo data/i })
+      .first()
+      .click();
     await page.getByRole('menuitem', { name: /Atlas Platform Launch/i }).click();
     await expect(page).toHaveURL(new RegExp(`/programs/${PROGRAM_ID}/overview`));
 
@@ -321,6 +352,19 @@ test.describe('Load demo data', () => {
     // The stateful mock now reports zero drift, so the promise sentence returns
     // and the control retires itself.
     await expect(page.getByText(/includes 60 days of history/i)).toBeVisible();
+    await expect(page.getByRole('button', { name: /Shift dates to today/i })).toHaveCount(0);
+  });
+
+  test('a legacy sample (no anchor) warns a non-owner and names the owner (#3875)', async ({
+    page,
+  }) => {
+    await setup(page, { my_role: 200, my_role_label: 'Member', sample_days_stale: null });
+    await page.goto(`/programs/${PROGRAM_ID}/overview`);
+
+    await expect(page.getByText(/dates may be out of date/i)).toBeVisible();
+    await expect(page.getByText(/render out of the box/i)).toHaveCount(0);
+    await expect(page.getByText(/ask a program owner/i)).toBeVisible();
+    await expect(page.getByText('olivia.owner')).toBeVisible();
     await expect(page.getByRole('button', { name: /Shift dates to today/i })).toHaveCount(0);
   });
 });

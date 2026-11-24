@@ -16,6 +16,12 @@ interface SampleDataBannerProps {
    * be shifted.
    */
   sampleDaysStale?: number | null;
+  /**
+   * Display names of the program's owners, shown to a viewer who cannot act so
+   * they know who to ask. The Owner-only gate on shift/remove is deliberate
+   * (bulk rewrite); naming the owner is the path forward for everyone else.
+   */
+  ownerNames?: string[];
 }
 
 /**
@@ -38,7 +44,25 @@ const SHIFT_THRESHOLD_DAYS = 7;
 const STALE_THRESHOLD_DAYS = 28;
 
 /** The promise sentence, replaced by a drift warning once the demo is stale. */
-function SampleIntro({ isStale, days }: { isStale: boolean; days: number }) {
+function SampleIntro({
+  isStale,
+  anchorUnknown,
+  days,
+}: {
+  isStale: boolean;
+  anchorUnknown: boolean;
+  days: number;
+}) {
+  if (anchorUnknown) {
+    // No anchor means no way to know how stale the demo is, so neither the
+    // "render out of the box" promise nor a day count can be asserted.
+    return (
+      <>
+        This demo&rsquo;s dates may be out of date, so the active sprint, burndown, and overdue
+        counts may not match today.
+      </>
+    );
+  }
   if (isStale) {
     return (
       <>
@@ -94,6 +118,7 @@ export function SampleDataBanner({
   programId,
   canRemove,
   sampleDaysStale = null,
+  ownerNames = [],
 }: SampleDataBannerProps) {
   const navigate = useNavigate();
   const removeSample = useRemoveSampleProgram();
@@ -109,6 +134,7 @@ export function SampleDataBanner({
   const anchorUnknown = sampleDaysStale === null;
   const days = sampleDaysStale ?? 0;
   const isStale = !anchorUnknown && days >= STALE_THRESHOLD_DAYS;
+  const showWarning = isStale || anchorUnknown;
   const canShift = canRemove && !anchorUnknown && days >= SHIFT_THRESHOLD_DAYS;
 
   const onRemove = () => {
@@ -146,14 +172,14 @@ export function SampleDataBanner({
       tabIndex={-1}
       className={`flex flex-wrap items-center justify-between gap-3 rounded-card border px-4 py-3
         focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary ${
-          isStale
+          showWarning
             ? 'border-semantic-warning/40 bg-semantic-warning-bg'
             : 'border-brand-primary/30 bg-brand-primary-light'
         }`}
     >
       <p className="text-sm text-neutral-text-primary">
         <span className="font-semibold">This is sample data.</span>{' '}
-        <SampleIntro isStale={isStale} days={days} />
+        <SampleIntro isStale={isStale} anchorUnknown={anchorUnknown} days={days} />
       </p>
 
       {confirming === 'shift' ? (
@@ -245,6 +271,18 @@ export function SampleDataBanner({
         <p className="w-full text-xs text-neutral-text-secondary">
           Dates can&rsquo;t be refreshed for a demo loaded before this version. Remove and reload it
           to get current dates.
+        </p>
+      )}
+      {anchorUnknown && !canRemove && (
+        <p className="w-full text-xs text-neutral-text-secondary">
+          Dates can&rsquo;t be refreshed for a demo loaded before this version. Ask a program owner
+          to remove and reload it.
+        </p>
+      )}
+      {!canRemove && showWarning && ownerNames.length > 0 && (
+        <p className="w-full text-xs text-neutral-text-secondary">
+          Program {ownerNames.length === 1 ? 'owner' : 'owners'}:{' '}
+          <span className="font-semibold text-neutral-text-primary">{ownerNames.join(', ')}</span>
         </p>
       )}
 
