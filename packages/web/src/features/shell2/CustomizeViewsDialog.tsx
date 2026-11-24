@@ -86,8 +86,6 @@ export function CustomizeViewsDialog({
 }: Props) {
   const titleId = useId();
   const errorId = useId();
-  // Always active while mounted: seats focus, wraps Tab, Escape closes, restores the opener.
-  const dialogRef = useFocusTrap<HTMLDivElement>(true, onClose);
   const update = useUpdateProjectViews(projectId);
   const reset = useResetProjectViews(projectId);
   // Read only when the dialog opens, so the header costs no extra request.
@@ -97,6 +95,9 @@ export function CustomizeViewsDialog({
     formatInstantDate(iso, 'short'),
   );
   const busy = update.isPending || reset.isPending;
+  // Always active while mounted: seats focus, wraps Tab, Escape closes, restores the opener.
+  // `busy` disables the buttons mid-request, so it is the focusKey that re-seats focus.
+  const dialogRef = useFocusTrap<HTMLDivElement>(true, onClose, busy);
   const error = viewsErrorDetail(update.error ?? reset.error);
   const failed = (update.isError || reset.isError) && !error;
 
@@ -108,7 +109,7 @@ export function CustomizeViewsDialog({
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="w-full max-w-lg rounded-lg border border-p1-hairline-strong bg-p1-surface-1 p-4 text-p1-text-1 shadow-xl"
+        className="w-full max-w-lg rounded-lg border border-p1-hairline-strong bg-p1-surface-1 p-4 text-p1-text-1 shadow-pop"
       >
         <div className="flex items-start justify-between gap-2">
           <h2 id={titleId} className="text-base font-semibold">
