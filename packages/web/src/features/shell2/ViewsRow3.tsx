@@ -21,6 +21,8 @@ interface Props {
   labelFor: (view: string) => string;
   /** The open view, when it is hidden from the tabs but was opened from More or by link. */
   openHiddenView?: string | null;
+  /** Opens the Customize views dialog; the seed line links to it (#5088). */
+  onCustomize?: () => void;
 }
 
 /**
@@ -32,7 +34,7 @@ interface Props {
  * `GET /projects/{id}/views/`, so dismissal survives reloads and devices. The offer
  * outranks the seed line because it is the one case where a banner replaces row 3.
  */
-export function ViewsRow3({ projectId, viewSet, labelFor, openHiddenView }: Props) {
+export function ViewsRow3({ projectId, viewSet, labelFor, openHiddenView, onCustomize }: Props) {
   const update = useUpdateProjectViews(projectId);
   const apply = useApplyLensSeed(projectId);
   const [diff, setDiff] = useState<SeedDiff | null>(null);
@@ -106,6 +108,11 @@ export function ViewsRow3({ projectId, viewSet, labelFor, openHiddenView }: Prop
       <button type="button" className={BTN} onClick={() => update.mutate({ clear_seed: true })}>
         Show all
       </button>
+      {onCustomize && (
+        <button type="button" className={`${BTN} underline`} onClick={onCustomize}>
+          Customize views
+        </button>
+      )}
       <button
         type="button"
         className={BTN}
@@ -171,7 +178,9 @@ function DiffConfirm({
           ref={firstAction}
           type="button"
           className={BTN}
-          disabled={pending || n === 0}
+          // A zero-change apply stays enabled: it records the new lens on the server,
+          // which is what clears this offer (AC 6: the offer appears once per change).
+          disabled={pending}
           onClick={onApply}
         >
           Apply {n} {n === 1 ? 'change' : 'changes'}

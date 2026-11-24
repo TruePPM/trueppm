@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProjectViewSet, SeedDiff } from '@/api/types';
 import { ViewsRow3 } from './ViewsRow3';
@@ -40,6 +40,45 @@ describe('ViewsRow3', () => {
     expect(screen.getByText('Shown for Scrum Masters · 3 views hidden')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Show all' }));
     expect(patch).toHaveBeenCalledWith({ clear_seed: true });
+  });
+
+  it('links the seed line to Customize views', () => {
+    const onCustomize = vi.fn();
+    render(<ViewsRow3 projectId="p" viewSet={SET} labelFor={label} onCustomize={onCustomize} />);
+    fireEvent.click(
+      within(screen.getByTestId('views-seed-line')).getByRole('button', {
+        name: 'Customize views',
+      }),
+    );
+    expect(onCustomize).toHaveBeenCalledTimes(1);
+    expect(patch).not.toHaveBeenCalled();
+  });
+
+  it('keeps a zero-change apply enabled so confirming it clears the offer', () => {
+    const diff: SeedDiff = {
+      lens: 'pm',
+      will_hide: [],
+      will_show: [],
+      will_open_on: null,
+      kept: [],
+      change_count: 0,
+      applied: false,
+    };
+    post.mockImplementation((_body: unknown, opts?: { onSuccess?: (d: SeedDiff) => void }) =>
+      opts?.onSuccess?.(diff),
+    );
+    render(
+      <ViewsRow3
+        projectId="p"
+        viewSet={{ ...SET, seed_line: null, lens_offer: 'pm' }}
+        labelFor={label}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Apply Project Manager suggestions…' }));
+    const confirm = screen.getByRole('button', { name: 'Apply 0 changes' });
+    expect(confirm).toBeEnabled();
+    fireEvent.click(confirm);
+    expect(post).toHaveBeenLastCalledWith({ lens: 'pm', dry_run: false }, expect.anything());
   });
 
   it('persists dismissal server-side', () => {

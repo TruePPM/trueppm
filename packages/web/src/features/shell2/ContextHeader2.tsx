@@ -443,6 +443,7 @@ function ProjectContextHeader({ projectId }: { projectId: string }) {
           viewSet={viewSet.data}
           labelFor={labelFor}
           openHiddenView={model.hidden.find((t) => t.active)?.view ?? null}
+          onCustomize={() => setCustomizing(true)}
         />
       )}
       {customizing && viewSet.data && (

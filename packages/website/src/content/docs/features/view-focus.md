@@ -52,8 +52,14 @@ tabs:
 
 - **A suggestion, not a rule.** A suggested-hidden view still opens from **More** and by
   its link, and you can bring it back to your tabs at any time.
-- **Per project.** Each project keeps its own set. Hiding a view in one project leaves the
-  others alone.
+- **Per project, in the new project header.** Suggestions and per-project hiding apply in
+  the new project header (shell v2): each project keeps its own set, and hiding a view in
+  one project leaves the others alone. The classic header, still the default, keeps one
+  **Customize views** list for all your projects, so a change made there applies to every
+  project you belong to, as before. Those choices carry into the new header as your own.
+- **A one-time note.** The first time suggestions hide something, a line above the tabs
+  says so (*Shown for Scrum Masters · 3 views hidden*), with **Show all**, a **Customize
+  views** link and ✕ to dismiss it.
 - **Methodology comes first.** A Waterfall project already hides Sprints and the product
   backlog, and an Agile project already hides Calendar. Your focus only narrows that.
   Schedule is always offered in Plan.
@@ -63,6 +69,8 @@ tabs:
 - **Switching focus never re-hides anything.** The tabs reorder right away. The project
   then offers *Apply Scrum Master suggestions…*, which shows exactly what it will hide,
   where the project will open, and which of your own choices it keeps, before you confirm.
+  The offer appears only after you switch focus, once per switch: applying it (even when
+  it would change nothing in that project) or dismissing it clears it.
 - **Plan never empties.** You can't hide the last Plan layout, and if your choices would
   leave Plan empty, Schedule stays.
 - **Keep it in your tabs.** Opening a hidden view from **More** doesn't un-hide it. The

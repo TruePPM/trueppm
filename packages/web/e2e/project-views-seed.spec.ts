@@ -152,6 +152,37 @@ test.describe('Role-seeded project views (ADR-1478)', () => {
     );
   });
 
+  test('tabs paint once, after the resolved set, behind a skeleton', async ({ page }) => {
+    await setup(page, () => viewSet(SEEDED));
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    // Registered after setup, so it runs first; it holds the read, then defers to setup's.
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/views/`, async (route: Route) => {
+      await held;
+      await route.fallback();
+    });
+    await page.goto(`/projects/${PROJECT_ID}/grid`);
+    await expect(page.getByTestId('shell2-tabs-skeleton')).toBeVisible();
+    // No unseeded composition paints first: the tab row is absent until the read lands.
+    await expect(tabs(page)).toHaveCount(0);
+    release();
+    await expect(tabs(page).getByRole('link', { name: 'Plan' })).toBeVisible();
+    await expect(page.getByTestId('shell2-tabs-skeleton')).toHaveCount(0);
+    await expect(page.getByRole('navigation', { name: 'Plan layout' })).toHaveCount(0);
+  });
+
+  test('the seed line links to Customize views', async ({ page }) => {
+    await setup(page, () => viewSet(SEEDED));
+    await page.goto(`/projects/${PROJECT_ID}/grid`);
+    await page
+      .getByTestId('views-seed-line')
+      .getByRole('button', { name: 'Customize views' })
+      .click();
+    await expect(page.getByRole('dialog', { name: 'Views in Atlas' })).toBeVisible();
+  });
+
   test('Show all clears the seed hides and the line', async ({ page }) => {
     const { writes } = await setup(page, () => viewSet(SEEDED));
     await page.goto(`/projects/${PROJECT_ID}/grid`);
