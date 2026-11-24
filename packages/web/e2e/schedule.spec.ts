@@ -59,6 +59,14 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
   // Fit out of the bar — at Playwright's 1280 default. What the bar concedes as
   // it narrows is schedule-toolbar-fit.spec.ts's subject, not this file's.
   await useFullToolbar(page);
+  // Pin "today" inside the fixture range. The fixture dates are absolute
+  // (Oct-Nov 2026) but ScheduleView's one-shot initial framing reads the wall
+  // clock; once today is far enough past the bars, coverage drops below
+  // MIN_FRAMED_BAR_COVERAGE and framing falls back to fit-to-project, which
+  // changes pxPerDay and breaks the zoom-stepper assertions (#5119).
+  // setFixedTime freezes Date only; timers (e.g. the 250 ms zoom announce
+  // debounce) still run.
+  await page.clock.setFixedTime(new Date('2026-10-15T12:00:00Z'));
   // Seed auth state so RequireAuth lets the test through.
   await page.addInitScript(() => {
     localStorage.setItem(
