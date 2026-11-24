@@ -154,7 +154,7 @@ describe('GroupedMode — group key resolution', () => {
 
   it('groups by status: an empty phase (statusSource none) lands in "No status", not "Not started" (#3531)', () => {
     hookState.tasks = [
-      { ...mockTasks[0]!, id: 'empty', name: 'Empty phase', status: 'NOT_STARTED', statusSource: 'none', statusRollupCount: 0 },
+      { ...mockTasks[0], id: 'empty', name: 'Empty phase', status: 'NOT_STARTED', statusSource: 'none', statusRollupCount: 0 },
     ];
     renderGrouped('status');
     expect(screen.getAllByText('No status').length).toBeGreaterThan(0);
