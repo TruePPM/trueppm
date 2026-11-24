@@ -54,6 +54,10 @@ def evict_all_live_project_sockets(user_id: Any) -> None:
     eventually reach. Live memberships only: a soft-deleted one already evicted via
     :func:`_evict_on_revocation`, and the consumer would refuse the reconnect anyway.
     """
+    # Lists every project the user holds a live membership in so each socket is closed on
+    # account deactivation or password reset; a socket opened before the project was
+    # trashed is still connected, and a floored list would leave it open.
+    # project-axis-ok: must include trashed projects so their still-open sockets close
     project_ids = ProjectMembership.objects.filter(user_id=user_id, is_deleted=False).values_list(
         "project_id", flat=True
     )
@@ -105,6 +109,9 @@ def _evict_on_revocation(sender: type, instance: ProjectMembership, **kwargs: An
     """
     if instance.pk is None:
         return  # brand-new membership — nothing to revoke
+    # Reads the PRIOR row by pk to detect the revocation transition, which is independent
+    # of the project's state.
+    # project-axis-ok: pk lookup of the prior row, independent of the project's state
     old = ProjectMembership.objects.filter(pk=instance.pk).only("role", "is_deleted").first()
     if old is None:
         return
