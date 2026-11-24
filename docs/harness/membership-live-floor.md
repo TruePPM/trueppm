@@ -26,7 +26,7 @@ There are two ways a read is not flagged, in decreasing order of preference:
 - **Opt the site out** with a real comment `# project-axis-ok: <reason>` on the read's own line, or alone on
   the line directly above it. The marker is read with `tokenize`, so the text inside a string literal is not
   a marker; a marker trailing read A's code does not reach read B below it; one marker covers one read. The
-  reason is required; a bare marker is ignored and the read still counts. There is no per-module exemption.
+  reason is required; a bare marker is ignored and the read still counts. A marker that binds no unfloored read (its read was deleted or later floored) is itself reported as a hit. There is no per-module exemption.
   Used for reads that must see a trashed project: the Trash list (`projects/views.py` `_trashed_queryset`,
   and the Trash `my_role` lookup that Restore needs), `teams/services.live_project_membership_exists`, whose
   floor is applied through its `live_project_only` kwarg, which the AST cannot see, and five sites that carry

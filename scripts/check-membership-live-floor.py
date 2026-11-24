@@ -430,6 +430,10 @@ def scan_project_axis_detail(path: Path) -> tuple[list[tuple[int, str]], int, in
             continue
         src = " ".join(ast.unparse(top).split())
         hits.append((lineno, src[:117] + "..." if len(src) > 120 else src))
+    # A marker that bound no unfloored read is stale (its read was deleted or floored):
+    # left alone it would silently opt out whatever unfloored read lands on the line below.
+    for line in sorted(set(markers) - used):
+        hits.append((line, f"project-axis-ok marker at {line} binds no unfloored read"))
     return hits, opted_out, floored
 
 
@@ -767,6 +771,12 @@ def run(pairs: list[tuple[Path, str]], partial: bool = False) -> int:
         f"{sum(counts.values())} "
         f"unfloored/baselined, {len(project_problems)} ratchet failures."
     )
+    if base_errors and not violations:
+        print(
+            "\nThe ratchet base could not be resolved, so the run fails closed. Fetch full\n"
+            "history (`GIT_DEPTH: 0` in CI) or rebase onto the default branch, then re-run."
+        )
+        return 1
     if project_problems and not violations:
         print(
             "\nA ProjectMembership read that omits `project__is_deleted` still answers for a\n"
@@ -988,6 +998,12 @@ def self_test() -> int:
                 "ProjectMembership.live().filter(project__is_deleted__in=[False])\n",
             ),
             (
+                "project-axis: a stale marker above a floored read is reported",
+                True,
+                "# project-axis-ok: stale\n"
+                "ProjectMembership.live().filter(project__is_deleted=False)\n",
+            ),
+            (
                 "project-axis: an opt-out two lines away does not apply",
                 True,
                 "# project-axis-ok: stale\nx = 1\nProjectMembership.objects.filter(project_id=p)\n",
@@ -1021,10 +1037,16 @@ def self_test() -> int:
                 "ProjectMembership.objects.filter(project_id=q, is_deleted=False)\n",
                 encoding="utf-8",
             )
-            with contextlib.redirect_stdout(io.StringIO()):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
                 rc_run = run([(target, rel)], partial=True)
             target.unlink()
-            if rc_run == 1:
+            # Assert the read text, so a base-resolution error cannot pass this vacuously.
+            if (
+                rc_run == 1
+                and "ProjectMembership reads without project__is_deleted"
+                in out.getvalue()
+            ):
                 print(f"SELF-TEST OK: an unmarked read in {rel} fails.")
             else:
                 print(
@@ -1044,8 +1066,9 @@ def self_test() -> int:
         os.environ["CI_MERGE_REQUEST_DIFF_BASE_SHA"] = "0" * 40
         try:
             err = io.StringIO()
+            base_out = io.StringIO()
             with (
-                contextlib.redirect_stdout(io.StringIO()),
+                contextlib.redirect_stdout(base_out),
                 contextlib.redirect_stderr(err),
             ):
                 rc_run = run([(clean, "trueppm_api/apps/x/clean.py")], partial=True)
@@ -1055,8 +1078,13 @@ def self_test() -> int:
             else:
                 os.environ["CI_MERGE_REQUEST_DIFF_BASE_SHA"] = saved_sha
         clean.unlink()
-        if rc_run != 0:
-            print("SELF-TEST OK: an unreachable CI base SHA fails closed.")
+        if rc_run != 0 and (
+            "ratchet base could not be resolved" in base_out.getvalue()
+            and "mark that site" not in base_out.getvalue()
+        ):
+            print(
+                "SELF-TEST OK: an unreachable CI base SHA fails closed with the base hint."
+            )
         else:
             print(
                 "SELF-TEST FAILED: an unreachable CI base SHA was skipped.",
