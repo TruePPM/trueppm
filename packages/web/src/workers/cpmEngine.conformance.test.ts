@@ -234,6 +234,10 @@ const OUT_OF_SCOPE: Record<string, string> = {
   // (`wasm:test` / `scheduler:snapshot-regression` assert it).
   progress_closed_milestone_edge_is_the_pin: 'adapter: does not thread actuals/status date',
   progress_closed_milestone_link_instant_exception: 'adapter: does not thread actuals/status date',
+  // ADR-1474 (#4819). Open work with no remaining work keeps its SS/SF links on its
+  // recorded or derived start; only the engine's own what-if perturbation sets it, and
+  // this adapter threads neither actuals nor the status date.
+  zero_remaining_links: 'adapter: does not thread actuals/status date',
   // #4345. Pins a milestone's free instant reading a work successor's Saturday
   // actual_start at its working-day start. Free float is outside this suite's
   // scope (forward pass only); excluded for the same actuals adapter gap.

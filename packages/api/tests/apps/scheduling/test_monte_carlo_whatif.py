@@ -402,6 +402,37 @@ class TestWhatIfMovesCpmAndBandsTogether:
             "new_duration_days": expected,
         }
 
+    def test_a_bigger_pull_in_across_a_start_to_start_link_never_finishes_later(
+        self, member_client: APIClient, project: Project
+    ) -> None:
+        """#4819: once a pull-in uses up the remaining work, the SS link out of the task
+        still reads its recorded start (ADR-1474), so pulling in more never moves the
+        what-if finish later."""
+        project.status_date = date(2027, 3, 8)
+        project.save()
+        pred = Task.objects.create(project=project, name="Pred", duration=5)
+        target = Task.objects.create(
+            project=project,
+            name="Started",
+            duration=5,
+            percent_complete=40,
+            actual_start=date(2027, 3, 5),
+        )
+        succ = Task.objects.create(project=project, name="Succ", duration=3)
+        Dependency.objects.create(predecessor=pred, successor=target, lag=0)
+        Dependency.objects.create(predecessor=target, successor=succ, lag=2, dep_type="SS")
+
+        finishes = []
+        for delta in (-2, -3, -4):
+            r = member_client.get(
+                _url(project),
+                {"task_id": str(target.pk), "duration_delta": delta, "n_simulations": 100},
+            )
+            assert r.status_code == 200, r.data
+            finishes.append(r.data["whatif"]["cpm_finish"])
+        assert finishes[1] <= finishes[0]
+        assert finishes[2] == finishes[1]
+
 
 # ---------------------------------------------------------------------------
 # Non-mutation guarantee

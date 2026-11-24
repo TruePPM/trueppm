@@ -45,6 +45,7 @@ from trueppm_scheduler.engine.milestones import (
     _milestone_link,
     _milestone_proposal,
     _milestone_refs,
+    _reads_instant,
     _sf_latest_start,
     _start_fixed_link,
     _window_start_bound,
@@ -150,7 +151,11 @@ def _backward_pass(
             # are read, and reverse topological order has already placed them.
             _inheriting_paths(
                 node_id,
-                lambda n: ((s, g[n][s]["dep"]) for s in g.successors(n)),
+                lambda n: (
+                    (s, g[n][s]["dep"])
+                    for s in g.successors(n)
+                    if _reads_instant(task_map[n], g[n][s]["dep"].dep_type)
+                ),
                 late_instants.__contains__,
                 cal_for,
                 inherits,
@@ -290,6 +295,22 @@ def _apply_milestone_late_date(
         dep: Dependency = g[node_id][succ_id]["dep"]
         if succ_id in late_instants:
             dep = _milestone_link(dep)
+        if not _reads_instant(task, dep.dep_type):
+            # An SS/SF link measured from the start of work with nothing left to do
+            # (ADR-1474): a recorded start bounds nothing (#4523); a derived one is
+            # inverted like a link out of work and moved onto the instant, the day
+            # the remaining work would resume on (_window_start_bound).
+            if _start_fixed_link(task, dep):
+                continue
+            start_ref, finish_ref = _late_refs(
+                succ_id, succ, late_instants, cal_for, (dep, False, project_finish), inherited
+            )
+            span_bounds: list[date] = []
+            _append_successor_constraint(
+                dep, start_ref, finish_ref, node_cal, [], span_bounds, task
+            )
+            bounds.extend(span_bounds)
+            continue
         start_ref, finish_ref = _late_refs(
             succ_id, succ, late_instants, cal_for, (dep, True, project_finish), inherited
         )
@@ -712,12 +733,22 @@ def _free_float_days(
         label = dep.dep_type.value
         succ_cal = calendar if task_calendars is None else task_calendars.get(succ_id, calendar)
         # Checked on the link's own type: a milestone proposal reads FF as FS itself.
-        binds = _link_binds(dep, task, succ, (links.get(node_id), succ_instant), node_cal, succ_cal)
+        reads = _reads_instant(task, dep.dep_type)
+        binds = _link_binds(
+            dep,
+            task,
+            succ,
+            (links.get(node_id) if reads else None, succ_instant),
+            node_cal,
+            succ_cal,
+        )
         if succ_free is not None:
             dep = _milestone_link(dep)
-        own = instants.get(node_id)
+        # An SS/SF link out of work with nothing left measures from its start, like
+        # a link out of work (ADR-1474, _reads_instant).
+        own = instants.get(node_id) if reads else None
         own_instant = None if own is None else own[0]
-        own_link = links.get(node_id, own)
+        own_link = links.get(node_id, own) if reads else None
         if succ_free is None:
             # A work successor is measured from the working day its start sits at,
             # not the raw date (#4332). The only early start that can fall on a

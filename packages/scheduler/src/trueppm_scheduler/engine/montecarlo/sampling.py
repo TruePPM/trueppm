@@ -745,6 +745,17 @@ def _sample_column(
     column be redrawn a row block at a time from a saved generator state.
     """
     base = float(t.duration.days)
+    # No remaining work (ADR-1474): the column is sampled as a total, floored at the
+    # elapsed days rather than the duration, and handed on as remaining work, since
+    # the forward pass subtracts no elapsed days from such a task (forward.py).
+    # The velocity branch reads remaining points and subtracts no elapsed days
+    # (#5012), so it is floored at nothing at all.
+    no_remaining = t.zero_remaining and not _is_complete(t)
+    elapsed_only = no_remaining and t.duration.days > 0 and t.id not in velocity_points
+    if elapsed_only:
+        base = float(_elapsed_working_days(t.duration.days, t.percent_complete or 0.0))
+    elif no_remaining:
+        base = 0.0
     if t.id in velocity_points:
         # Agile-aware path (#411, ADR-1412): takes precedence over PERT, since the
         # delivery mode declares that uncertainty comes from throughput.
@@ -773,6 +784,8 @@ def _sample_column(
     # samples and P50/P80/P95 — is byte-for-byte unchanged.
     if _is_complete(t):
         column[:] = base
+    elif elapsed_only:
+        column -= base
     return column
 
 
@@ -967,12 +980,14 @@ def _shift_remaining_work(task: Task, delta_days: int) -> Task:
     100, so the task stays in progress. The original percentage is kept whenever it
     already yields the same elapsed count.
 
-    A pull-in that leaves no remaining work returns a zero-duration task, which is how
-    the engine expresses an open task with nothing left to do. No duration above zero
-    can say it, because the integer rule always leaves a day below 100%. Everything
-    else stays as recorded: the percentage and ``actual_start`` describe work the
-    what-if did not change. Layout no longer reads the percentage at zero duration, but
-    ``actual_start`` still floors the task, which can limit how far the finish moves.
+    A pull-in that leaves no remaining work returns the task with
+    ``zero_remaining`` set (ADR-1474), which is how the engine expresses an open task
+    with nothing left to do. No duration above zero can say it, because the integer
+    rule always leaves a day below 100%. Everything else stays as recorded: the
+    duration, percentage and ``actual_start`` describe work the what-if did not
+    change, so start-to-start and start-to-finish links out of the task keep reading
+    its start. ``actual_start`` still floors the task, which can limit how far the
+    finish moves.
 
     The task stays open rather than becoming complete because a completed task is
     pinned at its actuals and stops reading its predecessors. That would be a statement
@@ -981,22 +996,30 @@ def _shift_remaining_work(task: Task, delta_days: int) -> Task:
     risk would drop out of the Monte Carlo bands, moving the forecast far more than the
     pull-in asked for. Open, the task still sits behind its predecessors, so with no
     lag and no other floor, finish-to-start and finish-to-finish links out of it move
-    the finish by the remaining days. Start-to-start and start-to-finish links do not
-    get that result yet; see the comment on the return below. A velocity-sampled task
-    needs its points capped as well, which :func:`perturb_task_duration` does.
+    the finish by the remaining days. A velocity-sampled task needs its points capped
+    as well, which :func:`perturb_task_duration` does.
     """
     duration_days = task.duration.days
     pct = min(task.percent_complete or 0.0, 100.0)
-    elapsed = _elapsed_working_days(duration_days, pct)
-    remaining = duration_days - elapsed + delta_days
+    elapsed = _elapsed_working_days(duration_days, pct) if pct > 0 else 0
+    remaining = _effective_duration_days(task) + delta_days
     if remaining <= 0:
-        # TODO(#4819): SS and SF links out of a zero-duration task stop reading the
-        # recorded start, so a bigger pull-in can finish later than a smaller one.
-        return replace(task, duration=timedelta(0))
+        if duration_days == 0:
+            return task  # a milestone has no work to consume
+        # Open work with nothing left (ADR-1474): duration, percentage and actuals
+        # keep describing the work done, so SS/SF links still read its start.
+        return replace(task, zero_remaining=True)
+    if pct <= 0 and not task.zero_remaining:
+        # Unstarted: the whole-duration shift this task got before ADR-1474, kept
+        # exactly (sub-day seconds and an unset percentage included), so a network
+        # that never sets ``zero_remaining`` perturbs byte-identically.
+        return replace(task, duration=task.duration + timedelta(days=delta_days))
     new_days = elapsed + remaining
-    if _elapsed_working_days(new_days, pct) != elapsed:
+    if pct > 0 and _elapsed_working_days(new_days, pct) != elapsed:
         pct = (elapsed + 0.5) * 100.0 / new_days
-    return replace(task, duration=timedelta(days=new_days), percent_complete=pct)
+    return replace(
+        task, duration=timedelta(days=new_days), percent_complete=pct, zero_remaining=False
+    )
 
 
 def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Project:
@@ -1131,19 +1154,16 @@ def perturb_task_duration(project: Project, task_id: str, delta_days: int) -> Pr
         # so returning here is what makes "nothing changed" true of any input.
         return replace(project, tasks=list(project.tasks))
 
-    if target.percent_complete and target.percent_complete > 0:
+    if target.duration.days > 0 or (target.percent_complete or 0.0) > 0:
         shifted = _shift_remaining_work(target, delta_days)
     else:
+        # A milestone: a pull-in has no work to consume, a slip gives it some.
         # ``duration`` is non-optional on Task, so the shift is never None here.
         new_duration = _shift_duration(target.duration, delta_days) or timedelta(0)
         shifted = replace(target, duration=new_duration)
-    # Monte Carlo subtracts elapsed days, read off ``duration``, from every sampled value.
-    # A pull-in to zero duration ends that subtraction, so the sampled inputs must absorb
-    # those days or the task's remaining work would grow by them.
-    sampled_delta = delta_days - (
-        (target.duration.days - _effective_duration_days(target))
-        - (shifted.duration.days - _effective_duration_days(shifted))
-    )
+    # The elapsed days Monte Carlo sets aside are held constant by the shift, even at
+    # no remaining work (ADR-1474), so every sampled input moves by the whole delta.
+    sampled_delta = delta_days
 
     story_points = target.story_points
     # Gate the points conversion on the same predicate the sampler uses, so a task

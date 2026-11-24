@@ -290,7 +290,7 @@ the count simulated; `runs` is a deprecated alias). The response carries:
 | `whatif` | The same fields recomputed with your perturbation applied. |
 | `critical_path_changed` | `true` when the perturbation moved which tasks are on the critical path. |
 | `delta_vs_current` | Per-field signed calendar-day shift (`p50`/`p80`/`p95`/`cpm_finish`); positive = later/worse. All four are measured in working time: a finish shown at the start of a Monday counts as the end of the Friday before it, so a finish whose shown date only hops a weekend is `0` ([Scheduler Conventions](/features/scheduler-conventions/)). |
-| `applied` | The resolved perturbation (`base_duration_days`, `duration_delta_days`, `new_duration_days`). `new_duration_days` is the duration the forecast used, which is 0 once a pull-in uses up the remaining work. |
+| `applied` | The resolved perturbation (`base_duration_days`, `duration_delta_days`, `new_duration_days`). `new_duration_days` is the task's new duration, or 0 once a pull-in uses up the remaining work (the forecast then keeps the full duration with no remaining work, ADR-1474). |
 | `cpm_status_date` / `mc_status_date` | The resolved data dates fed to the deterministic CPM and Monte Carlo passes respectively — both floor a null project status date at today, so they always agree — see [Progress-aware forecasting](#progress-aware-forecasting) below. Shared by both `current` and `whatif`, since one call resolves each once. This endpoint never persists a run, so these are the only record of which data date produced the answer. |
 
 A perturbation target must be a real unit of work: a milestone (zero duration by
@@ -321,21 +321,17 @@ on the critical path and their risk stays in the bands. A recorded actual start 
 holds the task at or after that date, which can limit how far the finish moves. With
 no lag on finish-to-start or finish-to-finish links out of the task, `cpm_finish` moves
 earlier by the remaining days. On a finish-to-start chain, the bands of a task with no
-estimate of its own move by the same amount.
+estimate of its own move by the same amount. Start-to-start and start-to-finish links
+out of the task keep measuring from when it started: its recorded actual start, or,
+with progress and no recorded start, the start the elapsed days imply. So pulling in
+more work never moves the finish later, on any link type
+([ADR-1474](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/1474-open-work-with-no-remaining-work.md)).
 
 :::note[Ships in 0.5]
 Keeping the task open ships in 0.5. Through 0.4, a pull-in of all remaining work marks
 the task finished on the working day before its remaining work would have started, so
 its predecessors can drop off the critical path and the bands can move further than
 the pull-in.
-
-Do not rely on a pull-in that uses up the remaining work on **start-to-start and
-start-to-finish links out of the task**, a known defect in the 0.5 behavior
-([#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)). At zero duration the link
-stops measuring from the task's recorded start. On a start-to-start link, even with no
-lag, a bigger pull-in can finish later than a smaller one and can land back at or past
-the current finish. On a start-to-finish link the finish can move by a different number
-of days than you pulled in.
 :::
 
 On a sprint-delivered task, a what-if pull-in will move the story's remaining points at

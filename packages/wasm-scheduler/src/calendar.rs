@@ -832,6 +832,7 @@ mod tests {
             scheduled_start: Some(es),
             milestone_at_day_end: false,
             live_day_end_on: None,
+            zero_remaining: false,
             total_float: 0.0,
             free_float: 0.0,
             is_critical: false,

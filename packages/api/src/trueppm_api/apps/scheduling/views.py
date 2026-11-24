@@ -1839,12 +1839,17 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                     perturbed_tasks = perturb_task_duration(
                         _make_project(leaf_tasks, cpm_status_date), task_id, delta_days
                     ).tasks
-                    # Read back rather than computed here: the engine decides the duration
-                    # (a pull-in of all remaining work lands on zero whatever is elapsed),
-                    # and the response has to report the input the forecast really used.
-                    new_duration_days = next(
-                        t for t in perturbed_tasks if t.id == task_id
-                    ).duration.days
+                    # Read back rather than computed here: the engine decides the new
+                    # duration. A pull-in of all remaining work is the exception: the
+                    # forecast keeps the full duration and marks the task as having no
+                    # remaining work (``zero_remaining``, ADR-1474), so its start-to-start
+                    # links still read the recorded start. By convention the response
+                    # reports that case as a new duration of 0, as before, whatever is
+                    # elapsed, so it is not the duration the forecast sampled.
+                    perturbed_target = next(t for t in perturbed_tasks if t.id == task_id)
+                    new_duration_days = (
+                        0 if perturbed_target.zero_remaining else perturbed_target.duration.days
+                    )
                     baseline_cpm = schedule(_make_project(leaf_tasks, cpm_status_date))
                     perturbed_cpm = schedule(_make_project(perturbed_tasks, cpm_status_date))
                     # One budget for both runs (#4496): computed once, so the

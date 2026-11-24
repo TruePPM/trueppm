@@ -646,6 +646,11 @@ def _mc_progress_state(
     # Monte Carlo and the deterministic pass hold the same elapsed days.
     elapsed_days: dict[str, float] = {}
     for t in task_map.values():
+        # A task with no remaining work (ADR-1474) is sampled as remaining work
+        # already (_sample_column), so nothing is subtracted from it; its elapsed
+        # days reach its SS/SF links through ``link_elapsed`` (_mc_forward_pass).
+        if t.zero_remaining:
+            continue
         if not _is_complete(t) and t.percent_complete and t.percent_complete > 0:
             elapsed_days[t.id] = float(_elapsed_working_days(t.duration.days, t.percent_complete))
 
@@ -749,6 +754,7 @@ def _mc_forward_pass(
     milestone_floors: dict[str, _MilestoneFloors] | None = None,
     zero_base_ids: frozenset[str] = frozenset(),
     velocity: _VelocityCapacity | None = None,
+    link_elapsed: dict[str, int] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, date | None, dict[str, _InstantRuns]]:
     """Vectorised forward pass — early-start/early-finish working-day offset matrices.
 
@@ -821,6 +827,9 @@ def _mc_forward_pass(
     # _mc_span_link): elapsed working days, by task. A recorded start never reaches
     # those links here — they are constants in ``completed_edge``.
     span_elapsed = {tid: int(days) for tid, days in elapsed_days.items() if days > 0}
+    # ``link_elapsed``: tasks with no remaining work and a derived span start
+    # (ADR-1474), whose elapsed days are not in ``elapsed_days``.
+    span_elapsed.update(link_elapsed or {})
 
     for col, tid in enumerate(topo_order):
         # Completed: pin both offsets to constants across every run and skip the
@@ -1215,14 +1224,15 @@ def _mc_milestone_bounds(
             offer(np.full(runs, fixed[2], dtype=np.int64), fixed[3])
             continue
         p = task_idx[pred_id]
-        if pred_id in milestone_ids:
+        elapsed = (span_elapsed or {}).get(pred_id, 0)
+        # A derived span start is read in every run, instant or not (ADR-1474).
+        from_span = elapsed > 0 and dep.dep_type in (DependencyType.SS, DependencyType.SF)
+        if pred_id in milestone_ids and not from_span:
             offer(*_mc_instant_proposal(dep, p, instants, index))
             continue
-        proposal, display, deficit = _mc_work_proposal(
-            dep, p, col, es_mat, ef_mat, index, (span_elapsed or {}).get(pred_id, 0)
-        )
+        proposal, display, deficit = _mc_work_proposal(dep, p, col, es_mat, ef_mat, index, elapsed)
         # A zero-base predecessor is an instant in some runs (#4698).
-        pred_runs = (instant_runs or {}).get(pred_id)
+        pred_runs = None if from_span else (instant_runs or {}).get(pred_id)
         if pred_runs is not None:
             at_instant, at_display, at_deficit = _mc_instant_proposal(dep, p, instants, index)
             proposal = np.where(pred_runs, at_instant, proposal)
@@ -1392,7 +1402,13 @@ def _mc_edge_constraints(
         dep: Dependency = g[pred_id][tid]["dep"]
         p = task_idx[pred_id]
 
-        if pred_id in milestone_ids:
+        # Checked before the instant branch: a task with no remaining work is an
+        # instant in some or all runs, but its SS/SF links measure from its derived
+        # span start in every run (ADR-1474).
+        elapsed = (span_elapsed or {}).get(pred_id, 0)
+        if pred_id in milestone_ids and not (
+            elapsed > 0 and dep.dep_type in (DependencyType.SS, DependencyType.SF)
+        ):
             assert index is not None
             bound = _mc_instant_edge_bound(dep, p, col, instants, index)
             if dep.dep_type in _START_ANCHORED:
@@ -1402,7 +1418,6 @@ def _mc_edge_constraints(
                 has_ef_constraint = True
             continue
 
-        elapsed = (span_elapsed or {}).get(pred_id, 0)
         if elapsed > 0 and dep.dep_type in (DependencyType.SS, DependencyType.SF):
             # Measured from a derived span start (#4523, _mc_span_link).
             assert index is not None

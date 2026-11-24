@@ -508,6 +508,9 @@ def _effective_duration_days(task: Task) -> int:
     A completed task (see :func:`_is_complete`) is laid out at its full duration by
     the caller and never routed through this function.
     """
+    if task.zero_remaining:
+        # Open work with nothing left to do (ADR-1474): placed as an instant.
+        return 0
     duration_days = task.duration.days
     pct = task.percent_complete
     if not pct or pct <= 0:

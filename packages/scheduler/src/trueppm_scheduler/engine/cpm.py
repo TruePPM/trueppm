@@ -201,7 +201,8 @@ def schedule(project: Project) -> ScheduleResult:
         [project.start_date, *(t.early_start for t in task_map.values() if t.early_start)]
     )
     wd_counter = _WorkingDayCounter.build(counter_lo, project_finish, project.calendar)
-    has_milestone = any(t.duration.days == 0 for t in project.tasks)
+    # A no-remaining-work task is placed as an instant too (ADR-1474).
+    has_milestone = any(t.duration.days == 0 or t.zero_remaining for t in project.tasks)
     free_instants: dict[str, date] | None = {} if has_milestone else None
     driving_edges = _compute_floats(
         task_map,

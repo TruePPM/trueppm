@@ -15,7 +15,7 @@ use crate::calendar::{
     prev_working_day, start_from_finish, PassCalendars,
 };
 use crate::graph::ProjectGraph;
-use crate::models::{Calendar, Dependency, DependencyType, Task};
+use crate::models::{elapsed_days, Calendar, Dependency, DependencyType, Task};
 
 /// A zero-duration milestone's position (#4079): `(instant, start_display)`.
 ///
@@ -331,7 +331,7 @@ fn link_proposal(
         dep.lag_days(),
         // SS/SF measure from a started task's recorded start (#4523).
         (pred.link_start(), pred.early_finish.unwrap()),
-        links[p],
+        links[p].filter(|_| pred.reads_instant(dep.dep_type)),
         cals.for_node(p),
         cal,
     )?;
@@ -730,6 +730,21 @@ fn compute_scheduled_start(task: &Task, calendar: &Calendar) -> Result<NaiveDate
         return Ok(a);
     }
     let full_days = task.duration_days();
+    if task.zero_remaining && full_days > 0 {
+        // No remaining work (ADR-1474): the elapsed days end at the instant, the
+        // close of its day after work, else the close of the working day before.
+        let last = if task.milestone_at_day_end {
+            early_finish
+        } else {
+            prev_working_day(checked_offset_days(early_start, -1)?, calendar)?
+        };
+        let elapsed = elapsed_days(full_days, task.percent_complete);
+        return if elapsed > 0 {
+            start_from_finish(last, elapsed, calendar)
+        } else {
+            Ok(early_start)
+        };
+    }
     start_from_finish(early_finish, full_days, calendar)
 }
 
@@ -978,7 +993,9 @@ fn edge_constraints(
             // A started task's recorded start, not its remaining window (#4523).
             pred.link_start(),
             pred.early_finish.unwrap(),
-            instants[p].map(|i| i.0),
+            instants[p]
+                .filter(|_| pred.reads_instant(dep.dep_type))
+                .map(|i| i.0),
             cals.for_node(p),
             dep.lag_days(),
         )?;

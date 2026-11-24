@@ -1,0 +1,243 @@
+{
+  "project_id": "p-zero-remaining",
+  "project_start": "2027-03-08",
+  "project_finish": "2027-03-17",
+  "tasks": [
+    {
+      "id": "P1",
+      "early_start": "2027-03-08",
+      "early_finish": "2027-03-12",
+      "late_start": "2027-03-08",
+      "late_finish": "2027-03-12",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2027-03-08"
+    },
+    {
+      "id": "M1",
+      "early_start": "2027-03-12",
+      "early_finish": "2027-03-12",
+      "late_start": "2027-03-12",
+      "late_finish": "2027-03-12",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2027-03-05",
+      "milestone_at_day_end": true
+    },
+    {
+      "id": "SS1",
+      "early_start": "2027-03-08",
+      "early_finish": "2027-03-10",
+      "late_start": "2027-03-15",
+      "late_finish": "2027-03-17",
+      "total_float": 432000.0,
+      "free_float": 432000.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-08"
+    },
+    {
+      "id": "SF1",
+      "early_start": "2027-03-08",
+      "early_finish": "2027-03-10",
+      "late_start": "2027-03-15",
+      "late_finish": "2027-03-17",
+      "total_float": 432000.0,
+      "free_float": 432000.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-08"
+    },
+    {
+      "id": "FS1",
+      "early_start": "2027-03-15",
+      "early_finish": "2027-03-17",
+      "late_start": "2027-03-15",
+      "late_finish": "2027-03-17",
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2027-03-15"
+    },
+    {
+      "id": "FF1",
+      "early_start": "2027-03-11",
+      "early_finish": "2027-03-15",
+      "late_start": "2027-03-15",
+      "late_finish": "2027-03-17",
+      "total_float": 172800.0,
+      "free_float": 172800.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-11"
+    },
+    {
+      "id": "G1",
+      "early_start": "2027-03-08",
+      "early_finish": "2027-03-08",
+      "late_start": "2027-03-17",
+      "late_finish": "2027-03-17",
+      "total_float": 604800.0,
+      "free_float": 604800.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-08"
+    },
+    {
+      "id": "P2",
+      "early_start": "2027-03-08",
+      "early_finish": "2027-03-12",
+      "late_start": "2027-03-09",
+      "late_finish": "2027-03-15",
+      "total_float": 86400.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-08"
+    },
+    {
+      "id": "M2",
+      "early_start": "2027-03-12",
+      "early_finish": "2027-03-12",
+      "late_start": "2027-03-15",
+      "late_finish": "2027-03-15",
+      "total_float": 86400.0,
+      "free_float": 0.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-11",
+      "milestone_at_day_end": true
+    },
+    {
+      "id": "SS2",
+      "early_start": "2027-03-12",
+      "early_finish": "2027-03-16",
+      "late_start": "2027-03-15",
+      "late_finish": "2027-03-17",
+      "total_float": 86400.0,
+      "free_float": 86400.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-12"
+    },
+    {
+      "id": "SF2",
+      "early_start": "2027-03-08",
+      "early_finish": "2027-03-10",
+      "late_start": "2027-03-15",
+      "late_finish": "2027-03-17",
+      "total_float": 432000.0,
+      "free_float": 432000.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-08"
+    },
+    {
+      "id": "G2",
+      "early_start": "2027-03-11",
+      "early_finish": "2027-03-11",
+      "late_start": "2027-03-17",
+      "late_finish": "2027-03-17",
+      "total_float": 345600.0,
+      "free_float": 345600.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-11",
+      "milestone_at_day_end": true
+    },
+    {
+      "id": "M3",
+      "early_start": "2027-03-08",
+      "early_finish": "2027-03-08",
+      "late_start": "2027-03-17",
+      "late_finish": "2027-03-17",
+      "total_float": 604800.0,
+      "free_float": 259200.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-03"
+    },
+    {
+      "id": "SS3",
+      "early_start": "2027-03-08",
+      "early_finish": "2027-03-09",
+      "late_start": "2027-03-16",
+      "late_finish": "2027-03-17",
+      "total_float": 518400.0,
+      "free_float": 518400.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-08"
+    },
+    {
+      "id": "M4",
+      "early_start": "2027-03-08",
+      "early_finish": "2027-03-08",
+      "late_start": "2027-03-17",
+      "late_finish": "2027-03-17",
+      "total_float": 604800.0,
+      "free_float": 604800.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-08"
+    },
+    {
+      "id": "SS4",
+      "early_start": "2027-03-09",
+      "early_finish": "2027-03-09",
+      "late_start": "2027-03-17",
+      "late_finish": "2027-03-17",
+      "total_float": 518400.0,
+      "free_float": 518400.0,
+      "is_critical": false,
+      "scheduled_start": "2027-03-09"
+    }
+  ],
+  "critical_path": [
+    "P1",
+    "M1",
+    "FS1"
+  ],
+  "driving_edges": [
+    {
+      "predecessor_id": "M1",
+      "successor_id": "FF1",
+      "dep_type": "FF"
+    },
+    {
+      "predecessor_id": "M1",
+      "successor_id": "FS1",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "M1",
+      "successor_id": "SS1",
+      "dep_type": "SS"
+    },
+    {
+      "predecessor_id": "M2",
+      "successor_id": "G2",
+      "dep_type": "SF"
+    },
+    {
+      "predecessor_id": "M2",
+      "successor_id": "SF2",
+      "dep_type": "SF"
+    },
+    {
+      "predecessor_id": "M2",
+      "successor_id": "SS2",
+      "dep_type": "SS"
+    },
+    {
+      "predecessor_id": "M4",
+      "successor_id": "SS4",
+      "dep_type": "SS"
+    },
+    {
+      "predecessor_id": "P1",
+      "successor_id": "M1",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "P2",
+      "successor_id": "M2",
+      "dep_type": "FS"
+    },
+    {
+      "predecessor_id": "P2",
+      "successor_id": "M3",
+      "dep_type": "SS"
+    }
+  ]
+}

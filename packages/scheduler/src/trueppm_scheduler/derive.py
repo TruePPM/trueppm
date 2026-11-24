@@ -40,6 +40,8 @@ from trueppm_scheduler.engine import (
     InvalidScheduleInput,
     SchedulerError,
     ScheduleResult,
+    _compute_scheduled_start,
+    _detached_link_start,
     _edge_anchor,
     _effective_duration_days,
     _finish_from_start,
@@ -63,6 +65,7 @@ from trueppm_scheduler.engine import (
     _milestone_replay,
     _next_working_day,
     _prev_working_day,
+    _reads_instant,
     _require_project,
     _resolve_task_calendars,
     _retreat_calendar_days,
@@ -75,6 +78,7 @@ from trueppm_scheduler.engine import (
     _working_days_between,
     schedule,
 )
+from trueppm_scheduler.engine.calendar_math import _elapsed_working_days
 from trueppm_scheduler.models import (
     Calendar,
     Dependency,
@@ -425,7 +429,9 @@ def _derive_scheduled_start(
       progress — remaining work still ends when the task ends), so the
       contribution carries the ``early_finish`` it was computed from and the
       full duration (in ``slack_days``, following ``_forward_duration_binding``'s
-      precedent of citing a duration count there).
+      precedent of citing a duration count there). With no remaining work
+      (``zero_remaining``, ADR-1474) the span is the elapsed days alone, backed off
+      from the instant the task is placed on, so the count cited is those days.
     """
     assert task.early_start is not None and task.early_finish is not None
     if _is_complete(task) or (task.percent_complete or 0.0) <= 0:
@@ -446,6 +452,9 @@ def _derive_scheduled_start(
 
     full_days = task.duration.days
     scheduled_start = _start_from_finish(task.early_finish, full_days, cal)
+    if task.zero_remaining and full_days > 0:
+        full_days = _elapsed_working_days(full_days, task.percent_complete or 0.0)
+        scheduled_start = _compute_scheduled_start(task, cal)
     contribs = [
         DerivationContribution(
             kind="early_finish", imposed_date=task.early_finish, is_binding=False
@@ -824,9 +833,10 @@ def _derive_backward(
         value = task.late_start if want_start else task.late_finish
         return (value.isoformat() if value else None, contribs)
 
-    if milestone_day is None and _start_is_recorded(task):
+    if _start_is_recorded(task) and (milestone_day is None or _detached_link_start(task)):
         # An SS/SF link out of a started task measures from its recorded start and
-        # bounds nothing its remaining work can do (engine._start_fixed_link, #4523).
+        # bounds nothing its remaining work can do (engine._start_fixed_link, #4523),
+        # also once no work remains (ADR-1474).
         succs = [s for s in succs if s[1] not in (DependencyType.SS, DependencyType.SF)]
     bounds: dict[int, date] = {}
     lf_terms, ls_terms = _backward_successor_terms(
@@ -838,7 +848,7 @@ def _derive_backward(
         finish_instant=finish_instant,
         bounds_out=bounds,
         milestone_ids=milestone_ids,
-        owner=task if milestone_day is None else None,
+        owner=task if milestone_day is None or _detached_link_start(task) else None,
     )
     contribs = [*lf_terms, *ls_terms]
 
@@ -1011,10 +1021,15 @@ def _backward_successor_terms(
             imposed = _window_start_bound(imposed, owner, cal)
         if milestone_day is not None:
             # This task is a milestone (#4079): the bound is on its instant, and
-            # every bound lands in the one LF list.
+            # every bound lands in the one LF list. An SS/SF link from the start of
+            # work with nothing left (ADR-1474) is the work bound just moved onto
+            # the instant.
             terms = lf_terms
             raw = _safe_offset(succ_start if dep_type in _START_ANCHORED else succ_finish, -lag)
-            bound = _milestone_latest(dep_type, lag, succ_start, succ_finish, cal)
+            if owner is not None and dep_type in (DependencyType.SS, DependencyType.SF):
+                bound = imposed
+            else:
+                bound = _milestone_latest(dep_type, lag, succ_start, succ_finish, cal)
             imposed = milestone_day(bound)
         contribution = DerivationContribution(
             kind=kind,
@@ -1290,7 +1305,12 @@ def _derive_free_float(
         # successors complete, binding stays None and free float falls back to total.
         if _is_complete(succ):
             continue
-        if milestone is None and dep_type in _START_FIXED and _start_is_recorded(task):
+        detached = dep_type in _START_FIXED and not _reads_instant(task, dep_type)
+        if (
+            (milestone is None or detached)
+            and dep_type in _START_FIXED
+            and _start_is_recorded(task)
+        ):
             # Measured from a recorded start (#4523): it limits no slip of this
             # task's remaining work, matching engine._free_float_days.
             continue
@@ -1309,7 +1329,8 @@ def _derive_free_float(
             lag,
             cal,
             early_refs(succ, seen, lag) if early_refs is not None else None,
-            milestone,
+            # A derived span start slips with the instant, measured as from work.
+            None if detached else milestone,
         )
         slack = max(0, slack)
         c = DerivationContribution(
@@ -1363,8 +1384,8 @@ def _milestone_context(
     other milestones, so they come from the pass state :func:`schedule` kept on the
     result (``engine._milestone_replay``), or — for a result :func:`schedule` did
     not produce for this project object — from a full pass replay (#4524). Only a
-    project with a zero-duration task needs them; otherwise every accessor
-    degrades to plain dates.
+    project with a zero-duration task, or one with no remaining work (ADR-1474),
+    needs them; otherwise every accessor degrades to plain dates.
 
     The replay is keyed on the whole project, not on the tasks this derivation
     touches: every late date is seeded from the project's finish *instant*
@@ -1378,7 +1399,8 @@ def _milestone_context(
     # Free float compares a milestone successor at its free-float instant (#4180).
     instants, late_instants, finish_instant, link_instants, free_instants = (
         _milestone_replay(project, result)
-        if any(t.duration.days == 0 for t in project.tasks)
+        # Open work with no remaining work is an instant too (ADR-1474).
+        if any(t.duration.days == 0 or t.zero_remaining for t in project.tasks)
         else ({}, {}, _safe_offset(result.project_finish, timedelta(days=1)), {}, {})
     )
 
@@ -1389,8 +1411,12 @@ def _milestone_context(
     # pass caps it (engine._inheriting_paths, #4526). Only milestones have them.
     inherited_memo: dict[str, _Inheritors] = {}
     milestone_succs: dict[str, list[tuple[str, Dependency]]] = {}
+    by_id = {t.id: t for t in project.tasks}
     if late_instants:
         for dep in project.dependencies:
+            pred_task = by_id.get(dep.predecessor_id)
+            if pred_task is not None and not _reads_instant(pred_task, dep.dep_type):
+                continue  # measured from a start, not the instant (ADR-1474)
             if dep.successor_id in late_instants:
                 milestone_succs.setdefault(dep.predecessor_id, []).append((dep.successor_id, dep))
 
@@ -1420,7 +1446,7 @@ def _milestone_context(
         succ_cal = cal_of(succ.id)
         start_ref = _milestone_refs(late)[0]
         pf = result.project_finish
-        is_milestone = own is not None
+        is_milestone = own is not None and _reads_instant(task, dep_type)
         capped = (
             _link_start_ref(
                 start_ref, dep_type, lag, is_milestone, succ_cal, pf, inherited(succ.id)
@@ -1452,7 +1478,13 @@ def _milestone_context(
         _, finish_ref = _milestone_refs(early)
         raw = instants.get(succ.id)
         assert raw is not None  # free_instants is derived from instants (#4180)
-        start_ref = _free_start_ref((early, raw[1]), dep_type, lag, own_link, succ_cal)
+        start_ref = _free_start_ref(
+            (early, raw[1]),
+            dep_type,
+            lag,
+            own_link if _reads_instant(task, dep_type) else None,
+            succ_cal,
+        )
         return start_ref, finish_ref
 
     milestone: tuple[date, _DayFn] | None = None
@@ -1482,8 +1514,12 @@ def _milestone_context(
             ),
         )
     links = [
-        _LinkContext(link_instants.get(p.id, instants.get(p.id)), cal_of(p.id), own is not None)
-        for p, _, _ in preds
+        _LinkContext(
+            link_instants.get(p.id, instants.get(p.id)) if _reads_instant(p, dep_type) else None,
+            cal_of(p.id),
+            own is not None,
+        )
+        for p, dep_type, _ in preds
     ]
     return _MilestoneContext(
         late_refs,
