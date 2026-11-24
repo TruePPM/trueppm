@@ -272,13 +272,16 @@ role-route-matrix-check: ## Run the RBAC role-route-matrix oracle + route-table 
 	@# installs, which resolve to the main checkout (a worktree would test main's routes).
 	@# Narrowed to route-surface files (urls.py, *views*.py, permissions*.py, *viewsets*, the
 	@# access tests, packages/api/pyproject.toml). Fail open: when the base ref cannot be
-	@# resolved the changed files are unknowable, so the oracle runs rather than skips.
+	@# resolved the changed files are unknowable, so the oracle runs rather than skips; likewise when the
+	@# diff itself fails (resolvable ref, no merge-base): a failed diff means "run", #5101.
 	@# BASE_REF overrides origin/main (used to test the gate).
 	@BASE_REF="$${BASE_REF:-origin/main}"; \
 	RUN=1; \
 	if ! git rev-parse --verify -q "$$BASE_REF" >/dev/null 2>&1; then \
 	  echo "→ role-route-matrix: cannot resolve $$BASE_REF, changed files unknown — running the oracle (fail open)"; \
-	elif ! git diff --name-only "$$BASE_REF"...HEAD 2>/dev/null | grep -qE '^packages/api/(.*/)?(urls\.py|[^/]*views[^/]*\.py|permissions[^/]*\.py|[^/]*viewsets[^/]*|pyproject\.toml)$$|^packages/api/tests/apps/access/'; then \
+	elif ! CHANGED="$$(git diff --name-only "$$BASE_REF"...HEAD 2>/dev/null)"; then \
+	  echo "→ role-route-matrix: git diff against $$BASE_REF failed (no merge-base?), changed files unknown — running the oracle (fail open)"; \
+	elif ! printf '%s\n' "$$CHANGED" | grep -qE '^packages/api/(.*/)?(urls\.py|[^/]*views[^/]*\.py|permissions[^/]*\.py|[^/]*viewsets[^/]*|pyproject\.toml)$$|^packages/api/tests/apps/access/'; then \
 	  RUN=0; \
 	  echo "→ role-route-matrix: no route-surface changes (urls/views/permissions/viewsets, access tests, api pyproject) — skipped"; \
 	fi; \
