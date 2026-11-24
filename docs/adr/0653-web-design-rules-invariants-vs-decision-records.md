@@ -82,6 +82,37 @@ checked are promoted out of prose:
 | Dead TS initializers | `no-useless-assignment` (eslint) |
 | Unawaited Playwright promises | `no-floating-promises` on `e2e/**` |
 
+#### Registry of `check-design-system-v2.sh` checks (maintained here)
+
+This table is **the** maintained registry of what the design-system gate enforces
+(#3543). ADR-0126 §5 records the original four-check decision as history and points
+here; the script header points here too. A PR that adds, removes, or changes the mode
+of a check updates this table in the same commit. The mode is read from the script:
+a **ratchet** may not exceed a committed baseline (new offenders fail, debt only
+trends down); **zero tolerance** fails on any occurrence.
+
+| Check (script id) | What it blocks | Mode | Rule |
+|---|---|---|---|
+| `arbitrary-color` (1) | `bg-[#…]`, `text-[#…]` Tailwind color-value classes | ratchet | 8 |
+| `hex` (2) | raw hex literals in a color context in component source | ratchet | 8 |
+| `shadow` (3) | named `shadow-{sm,md,…}` and arbitrary `shadow-[…]` | ratchet | 1 |
+| `black-rgba` (3b) | inline `rgba(0,0,0,α)` ("black on blue") | ratchet | — |
+| `tiny-text` (4b) | `text-[Npx]` below the 12px floor outside the carve-outs | ratchet (closed to zero since #3475) | 50 |
+| `bare-suspense` (4c) | a bare text node as a `<Suspense fallback>` | zero tolerance | 248 |
+| `semantic-tint` (4d) | resting `bg-semantic-{state}/N` opacity tint | zero tolerance | 8b |
+| `query-error-unhandled` (4e) | a query destructure taking `isLoading` but never `error`/`isError` | **ratchet** | 246 |
+| `skeleton-stall` (4f) | a `data`-only query value gating a loading skeleton | zero tolerance (the tree holds none) | 246 |
+| `dark-chrome` (4) | a raw dark chrome surface not `dark:`-gated | zero tolerance | — |
+| `style-color` (3c, #4395) | constant color literals in an inline `style` color property | ratchet | 8 |
+| `raw-switch` (#4621) | a hand-rolled `role="switch"` instead of the shared `Toggle` | ratchet | — |
+| `status-glyph` (#3864) | a literal ⚠ glyph in rendered source instead of `WarningIcon` | zero tolerance | 242 |
+
+`query-error-unhandled` is the ratcheted one of the 4e/4f pair: an MR cannot add a new
+site, but pre-existing ones stay until the baseline is lowered. `skeleton-stall` has no
+baseline. The script's one-line count summary (`design-system-v2: hex=… · … ·
+status-glyph=…`) lists every check with its `≤baseline` or `=0` bound and is the final
+authority if this table and it ever disagree.
+
 The icon-uniqueness check is deliberately a **test**, not a lint rule: it runs the
 real nav builders (`buildProjectSettingsNav`, `buildProgramSettingsNav`,
 `buildWorkspaceNavGroups`) and compares actual component identities. A regex over
