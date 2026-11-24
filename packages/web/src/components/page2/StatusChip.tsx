@@ -64,7 +64,7 @@ export function StatusChip({ tone, label, 'data-testid': testId }: StatusChipPro
   );
 }
 
-const BAND_TONE: Record<HealthBand, StatusTone> = {
+export const BAND_TONE: Record<HealthBand, StatusTone> = {
   critical: 'critical',
   at_risk: 'risk',
   on_track: 'ok',

@@ -1121,3 +1121,86 @@ export interface PeopleLoadResponse {
   reason: PeopleLoadReason | null;
   definitions: { load_pct: string; over_allocated_count: string };
 }
+
+// ---------------------------------------------------------------------------
+// Project status updates (#4803/#4804): GET/POST /projects/{id}/status-updates/
+// ---------------------------------------------------------------------------
+
+/** The #4760 provenance shape for one frozen figure. `reason` only when `value` is null. */
+export interface StatusUpdateMetric<T = string | number | null> {
+  value: T
+  as_of: string | null
+  definition: string
+  reason?: string | null
+}
+
+export interface StatusUpdateMilestone {
+  task_id: string
+  short_id: string | null
+  name: string
+  cpm_finish: string | null
+  cpm_finish_at_day_start: boolean | null
+  baseline_finish: string | null
+  baseline_finish_at_day_start: boolean | null
+  variance_days: number | null
+}
+
+export interface StatusUpdateRisk {
+  risk_id: string
+  short_id: string | null
+  title: string
+  probability: number
+  impact: number
+  severity: number
+  status: string
+  owner: string | null
+}
+
+/** The server-frozen snapshot (`status_update_services.build_snapshot`). Never recomputed. */
+export interface StatusUpdateSnapshot {
+  schema_version: number
+  as_of: string
+  previous_seq: number | null
+  forecast: {
+    p50: StatusUpdateMetric<string | null>
+    p80: StatusUpdateMetric<string | null>
+    cpm_finish: StatusUpdateMetric<string | null>
+    cpm_finish_at_day_start: boolean | null
+    baseline_finish: string | null
+    baseline_finish_variance_days: StatusUpdateMetric<number | null>
+  }
+  milestones: StatusUpdateMilestone[]
+  milestones_truncated: boolean
+  counts: {
+    completed_since_previous: StatusUpdateMetric<number | null>
+    slipped_since_previous: StatusUpdateMetric<number | null>
+  }
+  risks: StatusUpdateRisk[]
+  decisions: unknown[]
+}
+
+/**
+ * One live-diff entry: the current value of a dotted snapshot key that has moved
+ * since posting. `reason: "removed"` when a milestone left the plan.
+ */
+export interface StatusUpdateLiveDiffEntry {
+  value: string | number | null
+  as_of?: string | null
+  reason?: string
+}
+
+export interface StatusUpdate {
+  id: string
+  project: string
+  seq: number
+  rag: 'green' | 'amber' | 'red'
+  narrative: string
+  author: number | null
+  author_name: string | null
+  posted_at: string
+  computed_health: string
+  snapshot: StatusUpdateSnapshot
+  snapshot_sha256: string
+  snapshot_verified: boolean
+  live_diff: Record<string, StatusUpdateLiveDiffEntry>
+}

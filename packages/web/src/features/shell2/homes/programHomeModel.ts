@@ -38,7 +38,8 @@ export interface RollupQuery {
 export function forecastHeroState(q: RollupQuery): ForecastHeroState {
   if (q.error) return { kind: 'error' };
   if (q.isLoading || !q.data) return { kind: 'loading' };
-  const kpi = q.data.kpis?.p80_completion;
+  // `forecast` is served whether or not the KPI is enabled; the program overview reads it too.
+  const kpi = q.data.forecast ?? q.data.kpis?.p80_completion;
   if (!kpi) return { kind: 'none', reason: 'No forecast yet' };
   if (!kpi.available)
     return { kind: 'none', reason: noValueReason('no_forecast') ?? 'No forecast yet' };

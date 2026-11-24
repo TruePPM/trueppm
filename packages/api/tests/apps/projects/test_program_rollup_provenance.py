@@ -145,6 +145,8 @@ def test_carries_as_of_and_a_definition_per_figure(member: Any, program: Program
         "program_health": METRIC_DEFINITIONS["program_health"],
         "critical_tasks": METRIC_DEFINITIONS["rollup.critical_tasks"],
         "p80_completion": METRIC_DEFINITIONS["rollup.p80_completion"],
+        # The overview's rows are always served, so their definition always is.
+        "projects": METRIC_DEFINITIONS["rollup.project_row"],
     }
 
 
@@ -152,7 +154,7 @@ def test_carries_as_of_and_a_definition_per_figure(member: Any, program: Program
 def test_every_kpi_has_a_definition(member: Any, program: Program) -> None:
     _configure(program, ALL_KPIS)
     defs = _get(member, program)["definitions"]
-    assert set(defs) == {"program_health", *ALL_KPIS}
+    assert set(defs) == {"program_health", "projects", *ALL_KPIS}
     assert all(defs[k] == METRIC_DEFINITIONS[ROLLUP_DEFINITION_KEY[k]] for k in ALL_KPIS)
 
 

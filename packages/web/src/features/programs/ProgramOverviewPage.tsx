@@ -10,6 +10,9 @@ import { ROLE_ADMIN, ROLE_OWNER } from '@/lib/roles';
 import { HEALTH_BAND_LABEL, type HealthBand as SharedHealthBand } from '@/lib/healthBand';
 import { useProgramId } from '@/hooks/useProgramId';
 import { fmtUtcLong } from '@/lib/formatUtcDate';
+import { useFeatureFlag } from '@/lib/featureFlags';
+import { SHELL_V2_FLAG } from '@/features/shell2/ShellGate';
+import { ProgramOverview2 } from './ProgramOverview2';
 
 // ---------------------------------------------------------------------------
 // API response types (GET /programs/{id}/rollup/ — ADR-0088, #713)
@@ -43,6 +46,8 @@ interface AvailableKpi {
   as_of?: string | null;
   driver_project_id?: string | null;
   projects_without_forecast?: number;
+  /** Which projects `projects_without_forecast` counts (#4799). */
+  projects_without_forecast_ids?: string[];
 }
 
 /**
@@ -67,6 +72,36 @@ interface UnavailableKpi {
 
 type RollupKpiEntry = AvailableKpi | UnavailableKpi;
 
+/** A project's latest posted status update as a program row shows it (#4799). */
+export interface ProgramRollupLatestUpdate {
+  id: string;
+  seq: number;
+  rag: 'green' | 'amber' | 'red';
+  computed_health: string;
+  first_line: string;
+  author_name: string | null;
+  posted_at: string;
+}
+
+/**
+ * One row of the rollup's `projects` (#4799). A project the caller is not a member
+ * of has `accessible: false` and nulls everywhere but its id and name.
+ */
+export interface ProgramRollupRow {
+  id: string;
+  name: string;
+  accessible: boolean;
+  schedule_health: HealthBand | null;
+  p50: string | null;
+  p80: string | null;
+  forecast_as_of: string | null;
+  commitment_date: string | null;
+  p80_delta_vs_commitment_days: number | null;
+  p80_delta_vs_commitment_reason: 'no_commitment' | 'no_forecast' | null;
+  lead_name: string | null;
+  latest_update: ProgramRollupLatestUpdate | null;
+}
+
 export interface ProgramRollup {
   aggregation_policy: AggregationPolicy;
   policy_available: boolean;
@@ -85,6 +120,10 @@ export interface ProgramRollup {
   as_of?: string;
   /** One server sentence per figure, keyed by `program_health` and KPI name. */
   definitions?: Record<string, string>;
+  /** One row per contributing project, sorted by slip (#4799). */
+  projects?: ProgramRollupRow[];
+  /** The p80_completion figure, served whether or not that KPI is enabled (#4799). */
+  forecast?: AvailableKpi;
 }
 
 // ---------------------------------------------------------------------------
@@ -538,6 +577,12 @@ function HealthHero({ rollup }: { rollup: ProgramRollup }) {
  */
 export function ProgramOverviewPage() {
   const programId = useProgramId();
+  const v2 = useFeatureFlag(SHELL_V2_FLAG);
+  if (v2 && programId) return <ProgramOverview2 programId={programId} />;
+  return <ProgramOverviewV1 programId={programId} />;
+}
+
+function ProgramOverviewV1({ programId }: { programId: string | undefined }) {
   const { data: rollup, isLoading, error, refetch } = useProgramRollup(programId);
   const { data: program } = useProgram(programId);
 

@@ -81,6 +81,27 @@ METRIC_DEFINITIONS: dict[str, str] = {
     ),
     # ── projects/{id}/overview ────────────────────────────────────────────
     "open_risk_count": "Risks in the register whose status is open or mitigating.",
+    # ── projects/{id}/overview (#5103) ────────────────────────────────────
+    "critical_task_count": (
+        "Committed leaf tasks the last schedule calculation placed on the critical "
+        "path, complete or not. Phase rows are left out."
+    ),
+    "complete_tasks": (
+        "Committed leaf tasks whose status is Complete, counted against all committed "
+        "leaf tasks. A count of tasks, not earned hours or a percent of effort."
+    ),
+    "tasks_with_duration_count": (
+        "Committed leaf tasks with a planned duration above zero days, counted against "
+        "all committed leaf tasks. A forecast needs durations to sample."
+    ),
+    "next_milestone_baseline_date": (
+        "The next milestone's finish in the active baseline, or null when no active "
+        "baseline with dates holds it."
+    ),
+    "next_milestone_total_float": (
+        "Working days the next milestone can slip before it moves the project finish, "
+        "from the last schedule calculation."
+    ),
     "team_utilization_pct": (
         "Booked hours across the project roster this week divided by the roster's "
         "working-time capacity this week, as a percentage."
@@ -229,6 +250,12 @@ METRIC_DEFINITIONS: dict[str, str] = {
         "available hours in it, computed as the sprint capacity panel does. One sprint "
         "on one project; not your load across projects."
     ),
+    "rollup.project_row": (
+        "One contributing project: its own latest forecast (P50 and P80) and the P80's "
+        "working-day delta against its commitment, its schedule band, and its project "
+        "manager's latest posted status update. Projects the caller is not a member of "
+        "carry only their name."
+    ),
 }
 
 #: The figures each owning endpoint defines in its ``definitions`` map (ADR-1314).
@@ -238,7 +265,16 @@ STATUS_SUMMARY_DEFINED: list[str] = [
     "critical_count",
     "blocked_count",
 ]
-OVERVIEW_DEFINED: list[str] = ["schedule_health", "open_risk_count", "team_utilization_pct"]
+OVERVIEW_DEFINED: list[str] = [
+    "schedule_health",
+    "open_risk_count",
+    "team_utilization_pct",
+    "critical_task_count",
+    "complete_tasks",
+    "tasks_with_duration_count",
+    "next_milestone_baseline_date",
+    "next_milestone_total_float",
+]
 UTILIZATION_DEFINED: list[str] = ["load_pct"]
 PEOPLE_LOAD_DEFINED: dict[str, str] = {
     "load_pct": "people_load.load_pct",
@@ -345,22 +381,22 @@ def latest_forecast_result(
     return None, qs.filter(project_id=project_id).order_by("-taken_at").first()
 
 
-def latest_forecast_p80_by_project(project_ids: Iterable[Any]) -> dict[str, tuple[date, str]]:
-    """Each project's P80 and ``last_run_at`` from the forecast owner's latest result.
+def latest_forecast_by_project(project_ids: Iterable[Any]) -> dict[str, dict[str, Any]]:
+    """Each project's P50, P80 and ``last_run_at`` from the forecast owner's latest result.
 
     The batched form of :func:`latest_forecast_result`, for the My Work signal
-    (#4778): the same order (cache entry first, then the newest persisted run)
-    over many projects in one cache round trip and one DISTINCT ON query. My Work
-    used to read the persisted row alone, the disagreement #4760 fixed in
-    status-summary.
+    (#4778) and the program overview rows (#4799): the same order (cache entry
+    first, then the newest persisted run) over many projects in one cache round trip
+    and one DISTINCT ON query. My Work used to read the persisted row alone, the
+    disagreement #4760 fixed in status-summary.
 
     The persisted fallback takes each project's NEWEST run, whatever its P80, as the
     owner does. A newest run with no P80 means the owner has no P80 to show, so the
     project is left out; an older run's date is not substituted for it.
 
-    Returns ``{str(project_id): (p80, last_run_at_iso)}`` for the projects that have
-    a P80. One cache round trip, plus at most one query (DISTINCT ON) for the
-    projects with no cache entry.
+    Returns ``{str(project_id): {"p50": date|None, "p80": date, "last_run_at": iso,
+    "p80_at_day_start": bool|None}}``
+    for the projects that have a P80.
     """
     from django.core.cache import cache
 
@@ -369,12 +405,15 @@ def latest_forecast_p80_by_project(project_ids: Iterable[Any]) -> dict[str, tupl
     # Lazy: scheduling.views imports this module at load time.
     from trueppm_api.apps.scheduling.views import mc_latest_cache_key
 
+    def _day(value: Any) -> date | None:
+        return date.fromisoformat(value) if isinstance(value, str) else value
+
     ids = [str(pid) for pid in project_ids]
     if not ids:
         return {}
     keys = {mc_latest_cache_key(pid): pid for pid in ids}
     cached = cache.get_many(list(keys))
-    out: dict[str, tuple[date, str]] = {}
+    out: dict[str, dict[str, Any]] = {}
     uncached: list[str] = []
     for key, pid in keys.items():
         entry = cached.get(key)
@@ -383,21 +422,40 @@ def latest_forecast_p80_by_project(project_ids: Iterable[Any]) -> dict[str, tupl
             continue
         p80 = entry.get("p80")
         if p80 is not None and entry.get("last_run_at"):
-            out[pid] = (
-                date.fromisoformat(p80) if isinstance(p80, str) else p80,
-                entry["last_run_at"],
-            )
+            out[pid] = {
+                "p50": _day(entry.get("p50")),
+                "p80": _day(p80),
+                "last_run_at": entry["last_run_at"],
+                "p80_at_day_start": entry.get("p80_at_day_start"),
+            }
     if uncached:
         newest = (
             MonteCarloRun.objects.filter(project_id__in=uncached)
             .order_by("project_id", "-taken_at")
             .distinct("project_id")
-            .values_list("project_id", "p80", "taken_at")
+            .values_list("project_id", "p50", "p80", "taken_at", "p80_at_day_start")
         )
-        for run_project_id, run_p80, taken_at in newest:
+        for run_project_id, run_p50, run_p80, taken_at, run_at_day_start in newest:
             if run_p80 is not None:
-                out[str(run_project_id)] = (run_p80, taken_at.isoformat())
+                out[str(run_project_id)] = {
+                    "p50": run_p50,
+                    "p80": run_p80,
+                    "last_run_at": taken_at.isoformat(),
+                    "p80_at_day_start": run_at_day_start,
+                }
     return out
+
+
+def latest_forecast_p80_by_project(project_ids: Iterable[Any]) -> dict[str, tuple[date, str]]:
+    """``{str(project_id): (p80, last_run_at_iso)}``: :func:`latest_forecast_by_project`'s P80.
+
+    One cache round trip, plus at most one query (DISTINCT ON) for the projects with
+    no cache entry.
+    """
+    return {
+        pid: (row["p80"], row["last_run_at"])
+        for pid, row in latest_forecast_by_project(project_ids).items()
+    }
 
 
 def task_slip_definitions() -> dict[str, str]:

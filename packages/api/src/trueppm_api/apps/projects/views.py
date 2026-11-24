@@ -14198,6 +14198,9 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
                 total=Count("id"),
                 complete=Count("id", filter=db_models.Q(status=TaskStatus.COMPLETE)),
                 critical=Count("id", filter=db_models.Q(is_critical=True)),
+                # #5103: "0 of 12 tasks have durations" is the Overview's answer when
+                # there is no forecast yet; a forecast needs durations to sample.
+                with_duration=Count("id", filter=db_models.Q(duration__gt=0)),
                 # Late: CPM says it should be done but status is not complete. Leaf
                 # rows only — a phase's stored status is never maintained (ADR-0293),
                 # so a phase whose children are all done still reads NOT_STARTED and
@@ -14216,6 +14219,7 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
         complete: int = counts["complete"] or 0
         critical_count: int = counts["critical"] or 0
         tasks_late: int = counts["late"] or 0
+        with_duration: int = counts["with_duration"] or 0
 
         # ── Schedule health: SPI proxy ─────────────────────────────────────
         spi, health = _project_spi_and_health(project, today)
@@ -14229,17 +14233,33 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
                 early_finish__gte=today,
             )
             .order_by("early_finish")
-            .values("id", "name", "early_finish", "percent_complete")
+            .values("id", "name", "early_finish", "percent_complete", "total_float")
             .first()
         )
         next_milestone = None
         if next_milestone_qs:
             early_finish: datetime.date | None = next_milestone_qs["early_finish"]
+            # #5103: the milestone's own row in the ACTIVE baseline (has_cpm_dates
+            # only, as everywhere a baseline finish is read), so the milestones
+            # table can print "baseline <date>" beside the forecast. One query.
+            baseline_finish = (
+                BaselineTask.objects.filter(
+                    baseline__project=project,
+                    baseline__is_active=True,
+                    baseline__is_deleted=False,
+                    baseline__has_cpm_dates=True,
+                    task_id=next_milestone_qs["id"],
+                )
+                .values_list("finish", flat=True)
+                .first()
+            )
             next_milestone = {
                 "id": str(next_milestone_qs["id"]),
                 "name": next_milestone_qs["name"],
                 "date": early_finish.isoformat() if early_finish else None,
                 "percent_complete": next_milestone_qs["percent_complete"],
+                "baseline_date": baseline_finish.isoformat() if baseline_finish else None,
+                "total_float": next_milestone_qs["total_float"],
             }
 
         # ── Risk counts (open + high-severity band) ───────────────────────
@@ -14381,6 +14401,7 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
                 "critical_task_count": critical_count,
                 "total_tasks": total,
                 "complete_tasks": complete,
+                "tasks_with_duration_count": with_duration,
                 "next_milestone": next_milestone,
                 "team_utilization_pct": team_utilization["pct"],
                 # Machine-readable cause when the ratio is undefined (rule 119); the

@@ -5,9 +5,10 @@ documentedFor: "0.5"
 ---
 
 :::note[Ships in 0.5]
-Status updates ship in 0.5, as an API first. The composer in the web app and the
-PDF and share page arrive later in 0.5. In 0.4 a project has a computed health
-band and no posted status a stakeholder can read.
+Status updates ship in 0.5: the API, and the composer and history on the
+Project Overview of the new interface (turned on with `?ff=shell_v2`). The PDF
+export and the share page in the web app arrive later in 0.5. In 0.4 a project
+has a computed health band and no posted status a stakeholder can read.
 :::
 
 A **status update** is the project manager's report on a project at a point in
@@ -35,6 +36,37 @@ needs the person signed in.
 
 Posting is rate limited per account and per project: every project manager on a
 project shares the project's limit.
+
+## Posting from the Project Overview
+
+In the new interface the **Status updates** section sits at the bottom of the
+Project Overview.
+
+- **Post update** opens the composer: **Your call** (On track ✓, At risk ◆ or
+  Critical ▲, the same words the health band uses), a plain-text narrative with
+  a 600-character counter, and the snapshot that will freeze. When the plan's
+  computed band is available, it is shown beside your call, so the call reads as
+  your opinion next to the plan's, never a hidden override. A project that
+  reports its health by hand has no computed band to show before its first
+  update; the server still freezes the computed band when you post. There is no
+  generated draft.
+- An archived project is read-only: the section says so and offers no **Post update**.
+- The narrative's **first line** is the summary: it is what the history and the
+  program overview's project row show.
+- Your draft is saved on this device as you type, one per project per person, so
+  a reload keeps it. **Save draft** closes the composer and keeps it; **Cancel**
+  discards it. When a draft exists the button reads **Resume draft**.
+- **Offline**, the draft keeps saving and **Post update** is disabled: the update
+  becomes available again when you reconnect. Nothing posts on its own: you post
+  it, and the snapshot freezes then, not when you typed it.
+- If a post fails, the composer stays open with your call and narrative kept as a
+  draft, and says which update number did not post.
+- The history lists updates newest first: the call, the first line, the author
+  and the date. Select a row to see that update's frozen snapshot. A figure that
+  has moved since carries a **now …** tag with today's value from the server; the
+  posted value is never rewritten.
+
+On a phone the call options are larger and the snapshot is a row you open.
 
 ## What the snapshot holds
 

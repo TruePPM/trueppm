@@ -201,6 +201,36 @@ program (or "All programs"). In the all-programs scope, projects are grouped
 under collapsible program headers, with a "No program" group for standalone
 projects.
 
+### Program overview in the new interface
+
+:::note[Ships in 0.5]
+This overview ships in 0.5 in the new interface (turned on with `?ff=shell_v2`).
+In 0.4 the program overview is the KPI tiles described above.
+:::
+
+The new overview leads with one figure: the **program finish (P80)**, the latest
+P80 among the projects' own forecasts, with the project that sets it named under
+it. Below it, each project is one row, sorted by slip (the latest past its
+commitment first):
+
+- the project manager's call from the latest [status update](/features/status-updates/),
+  with the band the plan computed then, the update's first line, its author and
+  age; or **No status update posted yet.** with the project's schedule band;
+- a bar from P50 to P80 with a tick at P80 and a dashed line at the commitment.
+  Every row uses **one shared axis**, so rows compare at a glance; a date past
+  the axis is drawn at the edge with an arrow rather than cut off;
+- the P80 date, the working-day delta against the commitment, and the project lead.
+
+If a project has no forecast, the overview names it: "1 of 3 projects didn't
+report (Identity Consolidation); the program P80 excludes it until it reports."
+A project you are not a member of shows only its name: program roles do not
+grant access to a project's figures or its status updates.
+
+The rows come from `GET /programs/{id}/rollup/`, which now carries `projects`
+(one row per project) and `forecast` (the program P80, served whether or not the
+P80 KPI is enabled), and names the projects without a forecast in
+`projects_without_forecast_ids`.
+
 ## Program settings
 
 Deeper program configuration lives under **/programs/:id/settings**:

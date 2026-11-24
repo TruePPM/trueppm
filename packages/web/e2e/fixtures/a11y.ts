@@ -111,3 +111,20 @@ export async function expectNoA11yViolations(
     `Found ${gated.length} ${floorLabel} WCAG 2.1 A/AA accessibility violation(s):\n${summary}`,
   ).toEqual([]);
 }
+
+/**
+ * Scan the page in the light theme, then again in the dark theme (the design
+ * tokens flip on the `dark` class of `<html>`, the same switch the theme store
+ * flips), so a contrast failure that exists in only one theme still fails.
+ */
+export async function expectNoA11yViolationsBothThemes(
+  page: Page,
+  testInfo: TestInfo,
+  options?: A11yScanOptions,
+): Promise<void> {
+  await expectNoA11yViolations(page, testInfo, options);
+  await page.evaluate(() => document.documentElement.classList.add('dark'));
+  await expect(page.locator('html')).toHaveClass(/dark/);
+  await expectNoA11yViolations(page, testInfo, options);
+  await page.evaluate(() => document.documentElement.classList.remove('dark'));
+}

@@ -3308,24 +3308,63 @@ class ProgramViewSet(
         ``{"available": False, "reason": "cost_restricted"}``. A token caller is
         judged by its user's role, so an MCP agent sees what its human would.
         """
+        from trueppm_api.apps.access.models import ProjectMembership
         from trueppm_api.apps.access.permissions import effective_program_role
         from trueppm_api.apps.projects.mcp_settings import mcp_excluded_project_ids
-        from trueppm_api.apps.projects.program_rollup import compute_program_rollup
+        from trueppm_api.apps.projects.metric_provenance import METRIC_DEFINITIONS
+        from trueppm_api.apps.projects.program_rollup import (
+            compute_program_rollup,
+            p80_completion_entry,
+            program_project_rows,
+        )
 
         program = self.get_object()
         role = effective_program_role(request, program.pk)
-        return Response(
-            compute_program_rollup(
-                program,
-                # ADR-0678 T1 (#2482): this is a program-scoped read that aggregates
-                # CHILD PROJECT data, so the mixin's row filter (which sees only the
-                # Program row) does not reach it. Opted-out projects are dropped here.
-                exclude_project_ids=mcp_excluded_project_ids(request),
-                # Program Admin+ here; project Admin+ on every contributing project
-                # is checked inside (ADR-1324 §4 — program roles do not cascade).
-                cost_viewer=request.user if role is not None and role >= Role.ADMIN else None,
-            )
+        excluded = mcp_excluded_project_ids(request)
+        schedule_bands: dict[Any, str] = {}
+        payload = compute_program_rollup(
+            program,
+            schedule_bands_out=schedule_bands,
+            # ADR-0678 T1 (#2482): this is a program-scoped read that aggregates
+            # CHILD PROJECT data, so the mixin's row filter (which sees only the
+            # Program row) does not reach it. Opted-out projects are dropped here.
+            exclude_project_ids=excluded,
+            # Program Admin+ here; project Admin+ on every contributing project
+            # is checked inside (ADR-1324 §4 — program roles do not cascade).
+            cost_viewer=request.user if role is not None and role >= Role.ADMIN else None,
         )
+        # The overview's rows and lead figure (#4799). Built here rather than in
+        # compute_program_rollup so the weekly digest, which has no viewer, never
+        # pays for them. Per-project detail only for projects the caller belongs to.
+        # One membership query for the whole page, with the same floors as
+        # ``_membership_role`` (live membership on a live project), instead of one
+        # lookup per project.
+        accessible = set(
+            ProjectMembership.objects.filter(
+                user=cast(Any, request.user),
+                project__program=program,
+                is_deleted=False,
+                project__is_deleted=False,
+            ).values_list("project_id", flat=True)
+        )
+        payload["projects"] = program_project_rows(
+            program,
+            accessible_project_ids=accessible,
+            exclude_project_ids=excluded,
+            schedule_bands=schedule_bands,
+        )
+        # The lead figure is served whether or not the KPI is enabled; reuse the KPI's
+        # entry when it is (same project set) rather than reading the forecasts twice.
+        kpi_entry = payload["kpis"].get("p80_completion")
+        payload["forecast"] = (
+            kpi_entry
+            if kpi_entry is not None and kpi_entry.get("available")
+            else p80_completion_entry([row["id"] for row in payload["projects"]])
+        )
+        # The lead P80 and the rows are defined whether or not the KPI is enabled.
+        payload["definitions"]["p80_completion"] = METRIC_DEFINITIONS["rollup.p80_completion"]
+        payload["definitions"]["projects"] = METRIC_DEFINITIONS["rollup.project_row"]
+        return Response(payload)
 
     @extend_schema(
         summary="Compute the program-true cross-project schedule",

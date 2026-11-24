@@ -125,6 +125,7 @@ def compute_program_rollup(
     *,
     exclude_project_ids: Collection[Any] | None = None,
     cost_viewer: Any = None,
+    schedule_bands_out: dict[Any, str] | None = None,
 ) -> dict[str, Any]:
     """Compute the rolled-up KPI block for a program's overview (ADR-0088).
 
@@ -149,6 +150,11 @@ def compute_program_rollup(
     caller below it gets the average with ``policy_unavailable_reason:
     "cost_restricted"`` (see :func:`_policy_weights`). The weekly digest passes no
     ``cost_viewer``, so its health dot for a budget-weighted program is the average.
+
+    ``schedule_bands_out``, when given, is filled with the per-project SPI bands this
+    call already computed, so a caller that also renders per-project rows
+    (:func:`program_project_rows`) does not pay for a second SPI query. The digest
+    passes nothing and behaves as before.
 
     Pure read: deterministic for a given DB state (and Monte Carlo cache), no
     writes, safe to call on every GET.
@@ -188,6 +194,8 @@ def compute_program_rollup(
     # source of the headline program health dot (ADR-0088). Also drives the weekly
     # program-health digest.
     schedule_health_by_project = _schedule_health_by_project(project_ids, today)
+    if schedule_bands_out is not None:
+        schedule_bands_out.update(schedule_health_by_project)
     program_health = _reduce_health(
         list(schedule_health_by_project.values()), effective_policy, task_weights, project_ids
     )
@@ -357,6 +365,7 @@ def p80_completion_entry(project_ids: list[Any]) -> dict[str, Any]:
         "as_of": None,
         "driver_project_id": None,
         "projects_without_forecast": len(project_ids),
+        "projects_without_forecast_ids": sorted(str(pid) for pid in project_ids),
     }
     if not project_ids:
         entry["reason"] = REASON_NO_PROJECTS
@@ -371,6 +380,11 @@ def p80_completion_entry(project_ids: list[Any]) -> dict[str, Any]:
         (p80, datetime.datetime.fromisoformat(run_at), pid) for pid, (p80, run_at) in latest.items()
     ]
     entry["projects_without_forecast"] = len(project_ids) - len(dated)
+    # #4799: the ids, not just the count, so the partial-rollup line can name the
+    # project the program P80 leaves out. Sorted for a stable payload.
+    entry["projects_without_forecast_ids"] = sorted(
+        str(pid) for pid in project_ids if str(pid) not in latest
+    )
     if not dated:
         entry["reason"] = REASON_NO_FORECAST
         return entry
@@ -380,6 +394,141 @@ def p80_completion_entry(project_ids: list[Any]) -> dict[str, Any]:
     entry["driver_project_id"] = driver
     entry["as_of"] = min(run_at for _, run_at, _ in dated).isoformat()
     return entry
+
+
+def program_project_rows(
+    program: Program,
+    *,
+    accessible_project_ids: Collection[Any],
+    exclude_project_ids: Collection[Any] | None = None,
+    schedule_bands: dict[Any, str] | None = None,
+) -> list[dict[str, Any]]:
+    """One row per contributing project for the program overview (#4799).
+
+    The same project set :func:`compute_program_rollup` reduces (``visible_projects``
+    minus ``exclude_project_ids``), so the rows and the program figures speak about
+    the same projects. Every figure is read from its owner (ADR-1314): the forecast
+    through :func:`metric_provenance.latest_forecast_by_project` (the reader
+    ``p80_completion`` uses, so a row cannot disagree with the program P80 it feeds),
+    the commitment and its delta through :func:`forecast_commitment_facts`, the
+    schedule band through :func:`_schedule_health_by_project`, and the PM's call from
+    the latest posted :class:`StatusUpdate`.
+
+    ``accessible_project_ids`` is the set of projects the caller holds a live
+    membership on. Program roles do not cascade to projects (ADR-1324 §4), so a
+    project the caller is not a member of keeps only its id and name (``accessible: False``): the
+    status update narrative in particular is readable only by project members.
+
+    Sorted by slip: the largest ``p80_delta_vs_commitment_days`` first, then the rows
+    with no delta, then by name. Cost: one forecast cache round trip and at most one
+    DISTINCT ON run query, one SPI query, one DISTINCT ON status-update query, plus
+    the commitment read per accessible project (its active baseline, and its calendar
+    only when a delta is measured).
+    """
+    from trueppm_api.apps.projects.lifecycle import visible_projects
+    from trueppm_api.apps.projects.metric_provenance import (
+        forecast_commitment_facts,
+        latest_forecast_by_project,
+    )
+    from trueppm_api.apps.projects.models import StatusUpdate
+    from trueppm_api.apps.projects.status_update_services import _calendar_for
+    from trueppm_api.apps.workspace.serializers import display_name_for
+
+    qs = visible_projects(Project.objects.filter(program=program, is_deleted=False))
+    if exclude_project_ids is not None:
+        qs = qs.exclude(pk__in=exclude_project_ids)
+    projects = list(qs.select_related("program", "lead").order_by("name", "id"))
+    readable_ids = [p.id for p in projects if p.id in accessible_project_ids]
+    readable_set = set(readable_ids)
+
+    forecasts = latest_forecast_by_project(readable_ids)
+    # Reuse the rollup's own bands when the caller has them (same project set).
+    bands = (
+        schedule_bands
+        if schedule_bands is not None and readable_set <= schedule_bands.keys()
+        else _schedule_health_by_project(readable_ids, timezone.localdate())
+    )
+    latest_updates = {
+        u.project_id: u
+        for u in StatusUpdate.objects.filter(project_id__in=readable_ids)
+        .select_related("author")
+        .order_by("project_id", "-seq")
+        .distinct("project_id")
+    }
+
+    rows: list[dict[str, Any]] = []
+    for project in projects:
+        row: dict[str, Any] = {
+            "id": str(project.id),
+            "name": project.name,
+            "accessible": False,
+            "schedule_health": None,
+            "p50": None,
+            "p80": None,
+            "forecast_as_of": None,
+            "commitment_date": None,
+            "p80_delta_vs_commitment_days": None,
+            "p80_delta_vs_commitment_reason": None,
+            "lead_name": None,
+            "latest_update": None,
+        }
+        if project.id in readable_set:
+            forecast = forecasts.get(str(project.id))
+            p80 = forecast["p80"] if forecast else None
+            facts = forecast_commitment_facts(
+                project,
+                p80=p80,
+                p80_at_day_start=forecast["p80_at_day_start"] if forecast else None,
+                calendar_for=_calendar_for(project),
+            )
+            lead = project.lead
+            update = latest_updates.get(project.id)
+            row.update(
+                {
+                    "accessible": True,
+                    "schedule_health": bands.get(project.id, "unknown"),
+                    "p50": forecast["p50"].isoformat() if forecast and forecast["p50"] else None,
+                    "p80": p80.isoformat() if p80 else None,
+                    "forecast_as_of": forecast["last_run_at"] if forecast else None,
+                    "commitment_date": facts["commitment_date"],
+                    "p80_delta_vs_commitment_days": facts["p80_delta_vs_commitment_days"],
+                    "p80_delta_vs_commitment_reason": facts["p80_delta_vs_commitment_reason"],
+                    "lead_name": (
+                        display_name_for(lead.first_name, lead.last_name, lead.username)
+                        if lead is not None
+                        else None
+                    ),
+                    "latest_update": (
+                        {
+                            "id": str(update.id),
+                            "seq": update.seq,
+                            "rag": update.rag,
+                            "computed_health": update.computed_health,
+                            "first_line": update.narrative.split("\n", 1)[0].strip(),
+                            "author_name": (
+                                display_name_for(
+                                    update.author.first_name,
+                                    update.author.last_name,
+                                    update.author.username,
+                                )
+                                if update.author is not None
+                                else None
+                            ),
+                            "posted_at": update.posted_at.isoformat(),
+                        }
+                        if update is not None
+                        else None
+                    ),
+                }
+            )
+        rows.append(row)
+
+    def slip_key(row: dict[str, Any]) -> tuple[int, int, str]:
+        delta = row["p80_delta_vs_commitment_days"]
+        return (0 if delta is not None else 1, -(delta or 0), row["name"].lower())
+
+    rows.sort(key=slip_key)
+    return rows
 
 
 def _policy_weights(
