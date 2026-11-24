@@ -9150,7 +9150,15 @@ class BaselineActivateView(IdempotencyMixin, APIView):
     @extend_schema(
         summary="Activate a baseline",
         request=None,
-        responses={200: BaselineSerializer},
+        responses={
+            200: BaselineSerializer,
+            409: OpenApiResponse(
+                description=(
+                    "`use_baseline_decision`: the project is committed; its baseline moves "
+                    "only through `baseline-decisions/` (ADR-1477)."
+                )
+            ),
+        },
     )
     def post(self, request: Request, project_pk: str, baseline_pk: str) -> Response:
         from trueppm_api.apps.sync.broadcast import broadcast_board_event

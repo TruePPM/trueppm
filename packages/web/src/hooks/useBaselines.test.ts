@@ -93,10 +93,9 @@ describe('useBaselineDetail', () => {
   it('fetches a single baseline with task snapshot', async () => {
     getMock.mockResolvedValueOnce({ data: BASELINE_DETAIL });
 
-    const { result } = renderHook(
-      () => useBaselineDetail('proj-1', 'bl-1'),
-      { wrapper: makeWrapper(qc) },
-    );
+    const { result } = renderHook(() => useBaselineDetail('proj-1', 'bl-1'), {
+      wrapper: makeWrapper(qc),
+    });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
@@ -105,10 +104,9 @@ describe('useBaselineDetail', () => {
   });
 
   it('is disabled when baselineId is null', () => {
-    const { result } = renderHook(
-      () => useBaselineDetail('proj-1', null),
-      { wrapper: makeWrapper(qc) },
-    );
+    const { result } = renderHook(() => useBaselineDetail('proj-1', null), {
+      wrapper: makeWrapper(qc),
+    });
     expect(result.current.fetchStatus).toBe('idle');
   });
 });
@@ -241,10 +239,9 @@ describe('useActivateBaseline', () => {
   it('POSTs to the activate action endpoint', async () => {
     postMock.mockResolvedValueOnce({ data: { ...BASELINE, is_active: true } });
 
-    const { result } = renderHook(
-      () => useActivateBaseline('proj-1'),
-      { wrapper: makeWrapper(qc) },
-    );
+    const { result } = renderHook(() => useActivateBaseline('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
 
     result.current.mutate('bl-1');
 
@@ -257,10 +254,9 @@ describe('useActivateBaseline', () => {
     postMock.mockResolvedValueOnce({ data: { ...BASELINE, is_active: true } });
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
 
-    const { result } = renderHook(
-      () => useActivateBaseline('proj-1'),
-      { wrapper: makeWrapper(qc) },
-    );
+    const { result } = renderHook(() => useActivateBaseline('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
 
     result.current.mutate('bl-1');
 
@@ -286,10 +282,7 @@ describe('useDeleteBaseline', () => {
   it('DELETEs the baseline endpoint', async () => {
     deleteMock.mockResolvedValueOnce({});
 
-    const { result } = renderHook(
-      () => useDeleteBaseline('proj-1'),
-      { wrapper: makeWrapper(qc) },
-    );
+    const { result } = renderHook(() => useDeleteBaseline('proj-1'), { wrapper: makeWrapper(qc) });
 
     result.current.mutate('bl-1');
 
@@ -302,10 +295,7 @@ describe('useDeleteBaseline', () => {
     deleteMock.mockResolvedValueOnce({});
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
 
-    const { result } = renderHook(
-      () => useDeleteBaseline('proj-1'),
-      { wrapper: makeWrapper(qc) },
-    );
+    const { result } = renderHook(() => useDeleteBaseline('proj-1'), { wrapper: makeWrapper(qc) });
 
     result.current.mutate('bl-1');
 
@@ -345,5 +335,19 @@ describe('useActiveBaselineDates — loading gate (#3821)', () => {
     });
     await waitFor(() => expect(result.current.dates).not.toBeNull());
     expect(result.current.dates?.get('t1')).toEqual({ start: '2026-05-01', finish: '2026-05-05' });
+  });
+});
+
+describe('isUseBaselineDecision', () => {
+  it('recognizes only the committed-plan activate refusal', async () => {
+    const { isUseBaselineDecision } = await import('./useBaselines');
+    expect(
+      isUseBaselineDecision({ response: { status: 409, data: { code: 'use_baseline_decision' } } }),
+    ).toBe(true);
+    expect(isUseBaselineDecision({ response: { status: 409, data: { code: 'other' } } })).toBe(
+      false,
+    );
+    expect(isUseBaselineDecision({ response: { status: 400 } })).toBe(false);
+    expect(isUseBaselineDecision(null)).toBe(false);
   });
 });

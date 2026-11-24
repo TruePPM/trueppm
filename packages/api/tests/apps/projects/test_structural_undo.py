@@ -1012,8 +1012,8 @@ def test_undo_broadcasts_tasks_restructured_and_recalculates(
     mock_recalc.assert_called_once_with(str(project.pk))
     # The fixture project is committed (ACTIVE), so the undo also retracts the
     # indent from its changeset entry and sends the counts-only
-    # `changeset.updated` (ADR-1477 §3). The structural broadcast is still sent once.
-    structural = [c for c in mock_broadcast.call_args_list if c.args[1] != "changeset.updated"]
+    # `changeset_updated` (ADR-1477 §3). The structural broadcast is still sent once.
+    structural = [c for c in mock_broadcast.call_args_list if c.args[1] != "changeset_updated"]
     assert structural == [call(str(project.pk), "tasks_restructured", {})]
 
 

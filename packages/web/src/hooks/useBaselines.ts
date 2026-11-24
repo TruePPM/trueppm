@@ -131,14 +131,19 @@ export function useCreateBaseline(projectId: string | null | undefined) {
       const list = await apiClient.get<PaginatedResponse<ApiBaseline>>(
         `/projects/${projectId}/baselines/`,
       );
-      const hasActiveBaseline = list.data.results.some(
-        (b) => b.is_active && b.id !== created.id,
-      );
+      const hasActiveBaseline = list.data.results.some((b) => b.is_active && b.id !== created.id);
       if (hasActiveBaseline) return created;
-      const activated = await apiClient.post<ApiBaseline>(
-        `/projects/${projectId}/baselines/${created.id}/activate/`,
-      );
-      return activated.data;
+      try {
+        const activated = await apiClient.post<ApiBaseline>(
+          `/projects/${projectId}/baselines/${created.id}/activate/`,
+        );
+        return activated.data;
+      } catch (err) {
+        // A committed plan refuses activate (ADR-1477, `use_baseline_decision`):
+        // the capture still stands as a named comparison baseline.
+        if (isUseBaselineDecision(err)) return created;
+        throw err;
+      }
     },
     onSuccess: (baseline) => {
       void queryClient.invalidateQueries({ queryKey: ['baselines', projectId] });
@@ -150,6 +155,19 @@ export function useCreateBaseline(projectId: string | null | undefined) {
       }
     },
   });
+}
+
+/** True when the server refused an activate because the plan is committed (ADR-1477). */
+export function isUseBaselineDecision(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const response = (err as { response?: { status?: number; data?: unknown } }).response;
+  const data = response?.data;
+  return (
+    response?.status === 409 &&
+    typeof data === 'object' &&
+    data !== null &&
+    (data as { code?: unknown }).code === 'use_baseline_decision'
+  );
 }
 
 /** Activate an existing baseline. */

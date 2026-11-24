@@ -21,7 +21,7 @@ from typing import Any
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema, inline_serializer
+from drf_spectacular.utils import OpenApiResponse, extend_schema, inline_serializer
 from rest_framework import serializers, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -53,6 +53,10 @@ class ChangesetEntrySerializer(serializers.ModelSerializer[ChangesetEntry]):
     """One entry. ``reason_state`` is derived, never stored (ADR-1477 §1)."""
 
     reason_state = serializers.CharField(read_only=True)
+    #: The BaselineDecision that resolved this entry (a UUID, not a user).
+    resolved_decision = serializers.UUIDField(
+        source="resolved_by_id", read_only=True, allow_null=True
+    )
     author_name = serializers.SerializerMethodField()
     reason_by_name = serializers.SerializerMethodField()
 
@@ -77,7 +81,7 @@ class ChangesetEntrySerializer(serializers.ModelSerializer[ChangesetEntry]):
             "opened_at",
             "last_act_at",
             "closed_at",
-            "resolved_by",
+            "resolved_decision",
         )
         read_only_fields = fields
 
@@ -264,7 +268,10 @@ class ChangesetEntryReasonView(IdempotencyMixin, APIView):
     @extend_schema(
         summary="Answer a changeset entry's reason",
         request=ChangesetReasonSerializer,
-        responses={200: ChangesetEntrySerializer},
+        responses={
+            200: ChangesetEntrySerializer,
+            409: OpenApiResponse(description="`reason_already_set`: a reason is set once."),
+        },
     )
     def patch(self, request: Request, project_pk: str, entry_pk: str) -> Response:
         project = _project(request, self, project_pk)
@@ -324,7 +331,15 @@ class BaselineDecisionView(IdempotencyMixin, APIView):
     @extend_schema(
         summary="Take a new baseline or keep the current one",
         request=BaselineDecisionWriteSerializer,
-        responses={201: BaselineDecisionSerializer},
+        responses={
+            201: BaselineDecisionSerializer,
+            409: OpenApiResponse(
+                description=(
+                    "`changeset_changed` (with `open_count`), `changeset_unreasoned` (with "
+                    "`entries`), or `project_not_committed`."
+                )
+            ),
+        },
     )
     def post(self, request: Request, project_pk: str) -> Response:
         from .models import ProjectLifecycle

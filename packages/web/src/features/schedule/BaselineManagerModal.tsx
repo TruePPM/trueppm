@@ -8,6 +8,7 @@ import { toast } from '@/components/Toast';
 import { CaptureBaselineConfirmDialog } from './CaptureBaselineConfirmDialog';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { useProjectMembers } from '@/hooks/useProjectMembers';
+import { useProject } from '@/hooks/useProject';
 import {
   useActivateBaseline,
   useBaselines,
@@ -51,7 +52,13 @@ export function BaselineManagerModal({
   onClose,
 }: BaselineManagerModalProps) {
   const canCapture = currentRole != null && currentRole >= ROLE_ADMIN;
-  const canActivate = canCapture;
+  const roleCanActivate = canCapture;
+  // A committed plan's baseline moves only through the changeset decision
+  // (ADR-1477): the server refuses activate with 409 use_baseline_decision, so the
+  // row offers no "Set active" there. Unknown lifecycle keeps today's behavior.
+  const { data: project } = useProject(projectId);
+  const committed = project?.lifecycle === 'active';
+  const canActivate = roleCanActivate && !committed;
   const canDelete = currentRole != null && currentRole >= ROLE_OWNER;
 
   const { data: baselines = [], isLoading, isError, refetch } = useBaselines(projectId);
@@ -209,7 +216,9 @@ export function BaselineManagerModal({
                   <BaselineRow
                     key={b.id}
                     baseline={b}
-                    capturedBy={b.created_by != null ? nameById.get(String(b.created_by)) : undefined}
+                    capturedBy={
+                      b.created_by != null ? nameById.get(String(b.created_by)) : undefined
+                    }
                     canActivate={canActivate}
                     canDelete={canDelete}
                     activating={activateBaseline.isPending}
@@ -381,8 +390,8 @@ function BaselineDeleteConfirm({
         </h2>
         <p id="baseline-delete-body" className="mb-4 text-xs text-neutral-text-secondary">
           &ldquo;{baseline.name}&rdquo; and its {baseline.task_count}-task snapshot will be
-          permanently removed. Task comparisons that use it will no longer have a baseline.
-          This can&apos;t be undone.
+          permanently removed. Task comparisons that use it will no longer have a baseline. This
+          can&apos;t be undone.
         </p>
         {isError && (
           <p role="alert" className="mb-3 text-xs text-semantic-critical">

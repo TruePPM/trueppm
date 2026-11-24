@@ -25,6 +25,7 @@
  *                     (also the 0.4 alias dependencies_bulk_created, removed in 0.6, #5096)
  *                     → invalidate dependencies + tasks
  *   baseline_created / baseline_activated / baseline_deleted → invalidate baselines + tasks
+ *   changeset_updated → invalidate changeset + baseline decisions (counts only, ADR-1477)
  *   risk_created / risk_updated / risk_deleted → invalidate risks
  *   project_created / project_updated / project_deleted / project_hard_deleted /
  *     project_archived / project_unarchived / project_transferred
@@ -703,6 +704,11 @@ function registerTaskMutationHandlers(on: OnFn, deps: WsHandlerDeps): void {
     if (event_type === 'baseline_activated' || event_type === 'baseline_deleted') {
       scheduleInvalidate('tasks');
     }
+  });
+  // ADR-1477: the payload carries counts only, never reason text; refetch the read.
+  on('changeset_updated', () => {
+    void queryClient.invalidateQueries({ queryKey: ['changeset', projectIdRef.current] });
+    void queryClient.invalidateQueries({ queryKey: ['baselineDecisions', projectIdRef.current] });
   });
 }
 

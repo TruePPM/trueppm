@@ -282,7 +282,7 @@ def _notify_entry(entry: Any, task_ids: list[str], *, actor: Any) -> None:
 
 
 def broadcast_changeset(project_id: Any) -> None:
-    """Counts-only ``changeset.updated`` board event, after commit (ADR-1477 §5).
+    """Counts-only ``changeset_updated`` board event, after commit (ADR-1477 §5).
 
     Never carries reason text: the board channel reaches every subscriber, and
     reasons may name people or vendors (threat model, Information disclosure).
@@ -297,8 +297,10 @@ def broadcast_changeset(project_id: Any) -> None:
         open_qs = ChangesetEntry.objects.filter(project_id=pid, resolved_by__isnull=True)
         broadcast_board_event(
             pid,
-            "changeset.updated",
+            "changeset_updated",
             {
+                # The subject is the project's changeset, so `id` is the project id.
+                "id": pid,
                 "project_id": pid,
                 "open_count": open_qs.count(),
                 "unreasoned_count": open_qs.filter(reason__isnull=True).count(),

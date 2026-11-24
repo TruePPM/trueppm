@@ -29819,6 +29819,9 @@
                             }
                         }
                     },
+                    "409": {
+                        "description": "`changeset_changed` (with `open_count`), `changeset_unreasoned` (with `entries`), or `project_not_committed`."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -30248,6 +30251,9 @@
                                 }
                             }
                         }
+                    },
+                    "409": {
+                        "description": "`use_baseline_decision`: the project is committed; its baseline moves only through `baseline-decisions/` (ADR-1477)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -30790,6 +30796,9 @@
                                 }
                             }
                         }
+                    },
+                    "409": {
+                        "description": "`reason_already_set`: a reason is set once."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -62379,7 +62388,7 @@
                     "kind": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/Kind29dEnum"
+                                "$ref": "#/components/schemas/BaselineDecisionKindEnum"
                             }
                         ],
                         "readOnly": true
@@ -62470,6 +62479,15 @@
                     "to_baseline_name"
                 ]
             },
+            "BaselineDecisionKindEnum": {
+                "enum": [
+                    "taken",
+                    "kept"
+                ],
+                "type": "string",
+                "description": "* `taken` - Took a new baseline\n* `kept` - Kept the baseline, let variance stand",
+                "x-trueppm-enum": "open"
+            },
             "BaselineDecisionPreview": {
                 "type": "object",
                 "properties": {
@@ -62523,7 +62541,7 @@
                 "type": "object",
                 "properties": {
                     "kind": {
-                        "$ref": "#/components/schemas/Kind29dEnum"
+                        "$ref": "#/components/schemas/BaselineDecisionKindEnum"
                     },
                     "expected_open_count": {
                         "type": "integer",
@@ -63814,7 +63832,7 @@
                     "surface": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/SurfaceEnum"
+                                "$ref": "#/components/schemas/ChangesetSurfaceNameEnum"
                             }
                         ],
                         "readOnly": true
@@ -63894,7 +63912,7 @@
                         "readOnly": true,
                         "nullable": true
                     },
-                    "resolved_by": {
+                    "resolved_decision": {
                         "type": "string",
                         "format": "uuid",
                         "readOnly": true,
@@ -63917,7 +63935,7 @@
                     "reason_by",
                     "reason_by_name",
                     "reason_state",
-                    "resolved_by",
+                    "resolved_decision",
                     "surface",
                     "task_ids",
                     "task_names"
@@ -64007,6 +64025,20 @@
                     "reasoned_count",
                     "unreasoned_count"
                 ]
+            },
+            "ChangesetSurfaceNameEnum": {
+                "enum": [
+                    "grid",
+                    "gantt",
+                    "board",
+                    "outline",
+                    "api",
+                    "sync",
+                    "import"
+                ],
+                "type": "string",
+                "description": "* `grid` - Grid\n* `gantt` - Gantt\n* `board` - Board\n* `outline` - Outline\n* `api` - API\n* `sync` - Sync\n* `import` - Import",
+                "x-trueppm-enum": "open"
             },
             "ChoiceEnum": {
                 "enum": [
@@ -67571,15 +67603,6 @@
                 ],
                 "type": "string",
                 "description": "* `taken` - taken\n* `reserved` - reserved\n* `invalid` - invalid",
-                "x-trueppm-enum": "open"
-            },
-            "Kind29dEnum": {
-                "enum": [
-                    "taken",
-                    "kept"
-                ],
-                "type": "string",
-                "description": "* `taken` - Took a new baseline\n* `kept` - Kept the baseline, let variance stand",
                 "x-trueppm-enum": "open"
             },
             "KindEnum": {
@@ -88804,20 +88827,6 @@
                 ],
                 "type": "string",
                 "description": "* `suggested` - suggested\n* `owned` - owned",
-                "x-trueppm-enum": "open"
-            },
-            "SurfaceEnum": {
-                "enum": [
-                    "grid",
-                    "gantt",
-                    "board",
-                    "outline",
-                    "api",
-                    "sync",
-                    "import"
-                ],
-                "type": "string",
-                "description": "* `grid` - Grid\n* `gantt` - Gantt\n* `board` - Board\n* `outline` - Outline\n* `api` - API\n* `sync` - Sync\n* `import` - Import",
                 "x-trueppm-enum": "open"
             },
             "SyncPullResponse": {
