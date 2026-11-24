@@ -281,7 +281,7 @@ class ChangesetEntryReasonView(IdempotencyMixin, APIView):
                 )
             now = timezone.now()
             entry.reason = body.validated_data["reason"]
-            entry.reason_by = request.user
+            entry.reason_by = request.user  # type: ignore[assignment]  # IsAuthenticated above
             entry.reason_at = now
             entry.closed_at = entry.closed_at or now
             entry.save(update_fields=["reason", "reason_by", "reason_at", "closed_at"])
