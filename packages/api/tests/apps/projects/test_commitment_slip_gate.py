@@ -204,6 +204,66 @@ def test_admin_slip_with_reason_applies_and_records_accepted(
     assert row.decided_by == admin
 
 
+def _in_progress(project: Project, sprint: Sprint) -> Task:
+    """10 days, started Jan 5, 80% done: the engine leaves 2 remaining days, Jan 13-14."""
+    task = _committed(project, sprint, "Started")
+    Task.objects.filter(pk=task.pk).update(
+        duration=10,
+        actual_start=SPRINT_START,
+        percent_complete=80,
+        early_start=date(2026, 1, 13),
+        early_finish=date(2026, 1, 14),
+    )
+    task.refresh_from_db()
+    return task
+
+
+def test_reestimate_of_in_progress_work_inside_the_sprint_is_not_a_slip(
+    project: Project, sprint: Sprint, member: Any
+) -> None:
+    # 11 days at 80% leaves 3 remaining from Jan 13: Jan 15, inside the sprint.
+    # Adding the full duration to the remaining-work start would say Jan 27.
+    task = _in_progress(project, sprint)
+    res = _patch(_client(member), task, {"duration": 11})
+    assert res.status_code == 200, res.data
+    assert not SprintScopeChange.objects.filter(kind=ScopeChangeKind.SLIP).exists()
+
+
+def test_reestimate_of_in_progress_work_past_the_end_is_a_slip(
+    project: Project, sprint: Sprint, member: Any
+) -> None:
+    # 25 days at 80% leaves 5 remaining from Jan 13: Jan 19, past the Jan 16 end.
+    task = _in_progress(project, sprint)
+    res = _patch(_client(member), task, {"duration": 25})
+    assert res.status_code == 409, res.data
+    row = SprintScopeChange.objects.get(pk=res.data["scope_change_id"])
+    assert row.proposed_finish == date(2026, 1, 19)
+
+
+def test_planned_start_edit_on_a_started_task_is_not_a_slip(
+    project: Project, sprint: Sprint, member: Any
+) -> None:
+    # The actual start pins when the work began; planned_start cannot move it.
+    task = _in_progress(project, sprint)
+    res = _patch(_client(member), task, {"planned_start": "2026-01-15"})
+    assert res.status_code == 200, res.data
+    assert not SprintScopeChange.objects.filter(kind=ScopeChangeKind.SLIP).exists()
+
+
+def test_not_started_task_still_counts_the_full_duration(
+    project: Project, sprint: Sprint, member: Any
+) -> None:
+    task = _committed(project, sprint)
+    Task.objects.filter(pk=task.pk).update(
+        early_start=date(2026, 1, 13), early_finish=date(2026, 1, 15)
+    )
+    task.refresh_from_db()
+    # 4 days from Jan 13 ends Jan 16 (inside); 5 days ends Jan 19 (past).
+    assert _patch(_client(member), task, {"duration": 4}).status_code == 200
+    task.refresh_from_db()
+    assert _patch(_client(member), task, {"duration": 5}).status_code == 409
+
+
 # --------------------------------------------------------------------------- #
 # Bulk edit and sync push
 # --------------------------------------------------------------------------- #
@@ -706,12 +766,13 @@ def test_accept_runs_the_serializer_side_effects(
 
     task = _committed(project, sprint)
     Task.objects.filter(pk=task.pk).update(percent_complete=50)
-    res = _patch(_client(member), task, {"duration": 15})
+    # 30 days at 50% leaves 15 remaining: past the sprint end.
+    res = _patch(_client(member), task, {"duration": 30})
     row = SprintScopeChange.objects.get(pk=res.data["scope_change_id"])
     accept_scope_change(row, admin)
     task.refresh_from_db()
-    assert task.duration == 15
-    assert TaskDurationChangeEvent.objects.filter(task=task, new_duration=15).exists()
+    assert task.duration == 30
+    assert TaskDurationChangeEvent.objects.filter(task=task, new_duration=30).exists()
 
 
 # --------------------------------------------------------------------------- #

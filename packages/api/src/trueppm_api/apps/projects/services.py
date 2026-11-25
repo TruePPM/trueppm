@@ -3657,6 +3657,45 @@ def _finish_on_calendar(cal: Any, start: date, duration: int) -> date:
     return day
 
 
+def _slip_finish(
+    task: Any, cal: Any, *, new_start: date | None, new_duration: int | None
+) -> date | None:
+    """The finish the engine would give ``task`` after this write, or ``None``.
+
+    Mirrors how CPM places progress (ADR-0132, ADR-0752) rather than adding the
+    full ``duration`` to ``early_start``: for an in-progress task ``early_start``
+    is the start of the *remaining* work, so the finish is that anchor plus the
+    remaining days (``duration`` less the engine's own elapsed-day count at the
+    current ``percent_complete``). Adding the full duration there would flag a
+    routine re-estimate of a half-done task as a slip.
+
+    A recorded ``actual_start`` pins when the work began, so a ``planned_start``
+    edit on a started task cannot move its finish and is ignored. A finished task
+    (``actual_finish`` or 100%) cannot slip.
+    """
+    from trueppm_scheduler.engine.calendar_math import _elapsed_working_days
+
+    pct = float(task.percent_complete or 0.0)
+    if task.actual_finish is not None or pct >= 100:
+        return None
+    duration = int(new_duration if new_duration is not None else (task.duration or 0))
+    if pct > 0:
+        elapsed = _elapsed_working_days(duration, pct)
+        anchor = task.early_start or task.actual_start or task.planned_start
+        if task.actual_start is None and new_start is not None and anchor is not None:
+            # The start-no-earlier-than floor can push the remaining window later.
+            anchor = max(anchor, new_start)
+        if anchor is None:
+            return None
+        return _finish_on_calendar(cal, anchor, duration - elapsed)
+    if task.actual_start is not None:
+        return _finish_on_calendar(cal, task.actual_start, duration)
+    anchor = new_start if new_start is not None else (task.early_start or task.planned_start)
+    if anchor is None:
+        return None
+    return _finish_on_calendar(cal, anchor, duration)
+
+
 def detect_commitment_slip(
     task: Any,
     *,
@@ -3682,24 +3721,20 @@ def detect_commitment_slip(
     sprint = task.sprint
     if sprint is None or sprint.state != SprintState.ACTIVE:
         return None
-    old_anchor = task.early_start or task.planned_start
-    start = new_start if new_start is not None else old_anchor
-    duration = new_duration if new_duration is not None else (task.duration or 0)
-    if start is None:
-        return None
     cal = calendar_factory() if calendar_factory is not None else None
     if cal is None:
         from trueppm_api.apps.scheduling.calendars import compose_project_calendar
 
         cal = compose_project_calendar(task.project)
-    proposed_finish = _finish_on_calendar(cal, start, int(duration))
-    if proposed_finish <= sprint.finish_date:
+    proposed_finish = _slip_finish(task, cal, new_start=new_start, new_duration=new_duration)
+    if proposed_finish is None or proposed_finish <= sprint.finish_date:
         return None
     old_finish = task.early_finish
-    if old_finish is None and old_anchor is not None:
-        old_finish = _finish_on_calendar(cal, old_anchor, int(task.duration or 0))
+    if old_finish is None:
+        old_finish = _slip_finish(task, cal, new_start=None, new_duration=None)
     if old_finish is not None and proposed_finish <= old_finish:
         return None
+    duration = new_duration if new_duration is not None else (task.duration or 0)
     return {
         "task": task,
         "sprint": sprint,
