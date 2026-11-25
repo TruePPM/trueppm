@@ -207,7 +207,8 @@ computed the same way the engine computed it, not re-derived heuristically.
 
 From 0.5, the vocabulary will be published as enums instead of open strings:
 `ContributionKind` (`DerivationContribution.kind`), `Quantity` (`quantity`), `DerivationPass`
-(`pass_`) and `DependencyType` (`dep_type`, here and on `DrivingEdge`). All are
+(`pass_`) and `DependencyType` (`dep_type`, here, on `DrivingEdge` and on `to_graph`'s
+`GraphEdge`). All are
 `StrEnum`s, so existing comparisons such as `binding.kind == "predecessor_fs"`
 keep working, and `to_dict()` emits the same plain strings. A later release may
 add a `ContributionKind`, so keep a default branch when you switch on it.

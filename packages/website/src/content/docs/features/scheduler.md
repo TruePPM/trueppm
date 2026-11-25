@@ -617,7 +617,7 @@ The matrices cost `runs × tasks × 4 bytes × 2` of memory on top of the run (8
 In 0.4 these values are plain strings with no published list.
 :::
 
-From 0.5, `derive_value()` will type its vocabulary: `binding.kind` as `ContributionKind`, `quantity` as `Quantity`, `pass_` as `DerivationPass` and `dep_type` (also on `DrivingEdge`) as `DependencyType`. All are `StrEnum`s, so comparing with a string keeps working and `to_dict()` emits the same strings. A later release may add a `ContributionKind`, so keep a default branch. One change to check for: `str(DependencyType.FS)` will return `"FS"` rather than `"DependencyType.FS"`.
+From 0.5, `derive_value()` will type its vocabulary: `binding.kind` as `ContributionKind`, `quantity` as `Quantity`, `pass_` as `DerivationPass` and `dep_type` (also on `DrivingEdge`, and on the `GraphEdge` that `to_graph` returns) as `DependencyType`. All are `StrEnum`s, so comparing with a string keeps working and `to_dict()` emits the same strings. A later release may add a `ContributionKind`, so keep a default branch. One change to check for: `str(DependencyType.FS)` will return `"FS"` rather than `"DependencyType.FS"`.
 
 ### CLI
 

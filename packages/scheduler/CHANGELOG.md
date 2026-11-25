@@ -22,7 +22,8 @@ change between releases. Pin an exact version (e.g.
   ([#4291](https://gitlab.com/trueppm/trueppm/-/issues/4291)).**
   `DerivationContribution.kind` is a `ContributionKind`, `Derivation.quantity` a
   `Quantity`, `Derivation.pass_` a `DerivationPass`, and
-  `DerivationContribution.dep_type` / `DrivingEdge.dep_type` a `DependencyType`.
+  `DerivationContribution.dep_type` / `DrivingEdge.dep_type` / `GraphEdge.dep_type`
+  a `DependencyType`.
   `Quantity` and `DependencyType` are now `StrEnum`s: a member compares equal to
   its value and `to_dict()` output is unchanged, but `str(DependencyType.FS)` and
   `str(Quantity.EARLY_START)` return the value (`"FS"`, `"early_start"`) rather

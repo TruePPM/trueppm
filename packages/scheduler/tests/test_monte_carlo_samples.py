@@ -119,6 +119,27 @@ def test_velocity_task_reports_its_realized_days() -> None:
     assert samples.durations.min() > 1
 
 
+def test_durations_are_total_not_remaining_for_in_progress_work() -> None:
+    # The documented rule: elapsed work is not subtracted from the returned durations.
+    project = Project(
+        id="p",
+        name="P",
+        start_date=date(2026, 1, 5),
+        tasks=[
+            Task(
+                id="T",
+                name="T",
+                duration=_days(10),
+                percent_complete=50,
+                actual_start=date(2026, 1, 5),
+            )
+        ],
+    )
+    samples = monte_carlo(project, runs=20, seed=1, return_samples=True).samples
+    assert samples is not None
+    np.testing.assert_array_equal(samples.durations[:, 0], np.full(20, 10.0))
+
+
 def _assert_matches_cpm(project: Project) -> None:
     """Every task's sampled early finish is the one ``schedule()`` computes."""
     expected = {t.id: t.early_finish for t in schedule(project).tasks}
