@@ -408,7 +408,9 @@ class _PyReads(ast.NodeVisitor):
 
     def __init__(self) -> None:
         self.reads: set[str] = set()
-        self._skip_strings: set[int] = set()
+        # Holds the NODES, not ``id(node)``: one visitor reads every file, and a freed
+        # tree's ids are reused, which silently skipped unrelated strings (#2563).
+        self._skip_strings: set[ast.AST] = set()
         # In a serializer module only attribute loads count (``obj.x`` in a
         # ``get_*`` method): its strings are ``Meta.fields`` and input-dict keys.
         self.strings = True
@@ -455,22 +457,20 @@ class _PyReads(ast.NodeVisitor):
             if kw.arg in _WRITE_NAME_KWARGS:
                 for sub in ast.walk(kw.value):
                     if isinstance(sub, ast.Dict):
-                        self._skip_strings.update(
-                            id(k) for k in sub.keys if k is not None
-                        )
+                        self._skip_strings.update(k for k in sub.keys if k is not None)
                     elif isinstance(sub, (ast.List, ast.Tuple, ast.Set)):
-                        self._skip_strings.update(id(e) for e in sub.elts)
+                        self._skip_strings.update(sub.elts)
             elif not is_write and self.kwargs:
                 self._add(kw.arg)
         if fname == "setattr" and len(node.args) > 1:
-            self._skip_strings.add(id(node.args[1]))
+            self._skip_strings.add(node.args[1])
         self.generic_visit(node)
 
     def visit_Constant(self, node: ast.Constant) -> None:
         if (
             self.strings
             and isinstance(node.value, str)
-            and id(node) not in self._skip_strings
+            and node not in self._skip_strings
             and re.fullmatch(r"-?[a-z_][a-z0-9_]*", node.value)
         ):
             self._add(node.value.lstrip("-"))
