@@ -63,7 +63,15 @@ describe('useColumnWidths — initial load', () => {
     // discarded every user's persisted widths to add one column.
     localStorage.setItem(
       WIDTHS_KEY,
-      JSON.stringify({ wbs: 60, task: 300, dur: 52, start: 74, finish: 74, progress: 60, owner: 90 }),
+      JSON.stringify({
+        wbs: 60,
+        task: 300,
+        dur: 52,
+        start: 74,
+        finish: 74,
+        progress: 60,
+        owner: 90,
+      }),
     );
     const { result } = renderHook(() => useColumnWidths());
     expect(result.current.widths.links).toBe(DEFAULT_WIDTHS.links);
@@ -270,5 +278,28 @@ describe('useColumnWidths — methodology-dependent float defaults (#3344)', () 
     const { result } = renderHook(() => useColumnWidths('WATERFALL'));
     act(() => result.current.toggleColumn('totalFloat'));
     expect(result.current.visible.totalFloat).toBe(false);
+  });
+});
+
+describe('useColumnWidths — shell v2 opening profile (#5106)', () => {
+  it('defaults to ID, Task, Owner, Finish and Total float only', () => {
+    const { result } = renderHook(() => useColumnWidths('WATERFALL', { shellV2: true }));
+    const on = (Object.keys(result.current.visible) as ColumnKey[]).filter(
+      (k) => result.current.visible[k],
+    );
+    expect(on.sort()).toEqual(['finish', 'owner', 'task', 'totalFloat', 'wbs']);
+  });
+
+  it('an explicit toggle still wins over the v2 default', () => {
+    const { result } = renderHook(() => useColumnWidths('WATERFALL', { shellV2: true }));
+    act(() => result.current.toggleColumn('dur'));
+    expect(result.current.visible.dur).toBe(true);
+  });
+
+  it('reports hasCustomWidths only after a resize', () => {
+    const { result } = renderHook(() => useColumnWidths('WATERFALL', { shellV2: true }));
+    expect(result.current.hasCustomWidths).toBe(false);
+    act(() => result.current.setWidth('task', 300));
+    expect(result.current.hasCustomWidths).toBe(true);
   });
 });

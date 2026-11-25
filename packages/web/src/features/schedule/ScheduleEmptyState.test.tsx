@@ -19,4 +19,20 @@ describe('ScheduleEmptyState (#2044)', () => {
     expect(screen.getByText(/^Add items to lay out your schedule/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /add item/i })).toBeNull();
   });
+
+  it('shell v2 offers Import plan and Add phase beside the primary action (#5106)', () => {
+    const onImport = vi.fn();
+    const onAddPhase = vi.fn();
+    render(<ScheduleEmptyState onAddTask={vi.fn()} onImport={onImport} onAddPhase={onAddPhase} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Import plan' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add phase' }));
+    expect(onImport).toHaveBeenCalledTimes(1);
+    expect(onAddPhase).toHaveBeenCalledTimes(1);
+  });
+
+  it('v1 shows neither extra button', () => {
+    render(<ScheduleEmptyState onAddTask={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: 'Import plan' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Add phase' })).toBeNull();
+  });
 });

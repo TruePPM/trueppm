@@ -180,6 +180,12 @@ The **Float** column will print the same two marks beside the same bands: **▲ 
 
 The forecast strip under the chart will go away in the redesigned page. The P80 date in the project header will be the one forecast shown at rest.
 
+### How the redesigned page will open
+
+A project will open on a fixed 448-pixel item list showing ID, task, owner, finish and float, and a 12-week window that starts two and a half weeks before today, so today sits in the left fifth of the chart. Only the phase that contains today will be expanded; the others stay folded one caret away. A phase shows its first ten children and a **N more** button that reveals the rest. Resizing a column or turning a column on in the Display menu overrides these defaults.
+
+The amber "no committed start" chip will no longer repeat on every row. The item list's footer will say how many tasks there are and how many are blocked, and one **N no committed start** button will filter the list to those tasks (select it again to show everything). An empty project will offer **Import plan** and **Add phase** next to **Add item**.
+
 ### Not in the redesigned Schedule page yet
 
 The redesigned page is a first pass, and so far it covers the toolbar, the legend and the critical-path outlines. These are not part of it yet, and no release is promised for any of them. Until they are, turn the preview flag off to use them:
@@ -195,8 +201,7 @@ The redesigned page is a first pass, and so far it covers the toolbar, the legen
 - Grouping recurring tasks under one row. Each occurrence is stored per task already; the plan is to group them for display in the browser from what the server sends, but nothing is built.
 - A phone layout for the toolbar. Below 768 pixels wide the redesigned toolbar is not shown at all; the phone's schedule list has no toolbar controls, as in the current release.
 - The page's states are partly redrawn: the loading skeleton lays down the rows and the today line first, and the blank project offers **Add phase** beside **Import a file**. Naming the dependency loop in a failed load needs the server to report it, and does not yet.
-- The opening state of a project: a 448-pixel item list, a 12-week zoom, today's phase expanded, and a "N more" count for what is off screen.
-- The "one warning" items: a blocked-only pill, a footer summary, and a roll-up for phases with no committed start.
+- A pill on a row for a blocked task. The footer counts blocked tasks, but no row pill for them is drawn yet.
 - The **Commit** marker and the **P80** tick on the chart, with their definitions.
 - An as-of date beside the commitment and the P50 / P80 forecast dates, which depends on the server reporting when each was computed ([#4760](https://gitlab.com/trueppm/trueppm/-/issues/4760)).
 

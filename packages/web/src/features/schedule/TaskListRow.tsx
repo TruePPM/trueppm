@@ -12,6 +12,7 @@ import { useEffectiveDurationPolicy, useProject, useProjectHoursPerDay } from '@
 import { useFeatureFlag } from '@/lib/featureFlags';
 import { isNearCriticalByFloat } from './nearCritical';
 import { SCHEDULE_SHELL_V2_FLAG } from './v2/scheduleV2Columns';
+import { useScheduleV2OpeningStore } from './v2/scheduleV2OpeningStore';
 import { RecalcPercentChip } from './RecalcPercentChip';
 import { buildRecalcPrompt, type RecalcPromptState } from './recalcPercentPrompt';
 import {
@@ -3846,6 +3847,9 @@ function TaskNameBadges(props: TaskNameContentProps) {
     childCount,
     isExpanded,
   } = props;
+  const shellV2Row = useFeatureFlag(SCHEDULE_SHELL_V2_FLAG);
+  const capHidden = useScheduleV2OpeningStore((s) => s.hiddenByParent.get(task.id) ?? 0);
+  const revealAllChildren = useScheduleV2OpeningStore((s) => s.revealAll);
   return (
     <>
       {/* Delivery-mode chip (#2737) — first badge, because it classifies the
@@ -3882,7 +3886,23 @@ function TaskNameBadges(props: TaskNameContentProps) {
           {plannedBadge.count} planned
         </button>
       )}
-      {hasMissingDatesWarning && (
+      {capHidden > 0 && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            revealAllChildren(task.id);
+          }}
+          data-testid={`row-more-${task.id}`}
+          aria-label={`Show ${capHidden} more under ${task.name}`}
+          className="inline-flex shrink-0 items-center rounded-chip border border-neutral-border px-1.5 py-0.5 text-xs font-normal text-neutral-text-secondary hover:border-brand-primary hover:text-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+        >
+          {capHidden} more
+        </button>
+      )}
+      {/* Shell v2 (#5106): the per-row amber chip rolls up into the grid footer's one
+          count; a row only wears a pill for being blocked. */}
+      {hasMissingDatesWarning && !shellV2Row && (
         <MissingCommittedStartChip task={task} projectId={projectId} canEdit={canEdit} />
       )}
       {recalcPrompt?.taskId === task.id && (
