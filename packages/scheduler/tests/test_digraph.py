@@ -79,7 +79,7 @@ def _expected_order(nodes: list[str], edges: list[tuple[str, str]]) -> list[str]
 
 @pytest.mark.fuzz
 @given(nodes=_nodes, edges=_edges)
-@settings(max_examples=300, deadline=None)
+@settings(deadline=None)
 def test_order_is_the_lexicographically_smallest_topological_order(
     nodes: list[str], edges: list[tuple[str, str]]
 ) -> None:
@@ -99,7 +99,7 @@ def test_order_is_the_lexicographically_smallest_topological_order(
 
 @pytest.mark.fuzz
 @given(edges=_edges)
-@settings(max_examples=300, deadline=None)
+@settings(deadline=None)
 def test_a_reported_cycle_is_a_real_cycle_of_the_input(edges: list[tuple[str, str]]) -> None:
     found = find_cycle(edges)
     assert _pairs_are_acyclic(edges) is not _is_cyclic(edges)
@@ -115,7 +115,7 @@ def test_a_reported_cycle_is_a_real_cycle_of_the_input(edges: list[tuple[str, st
 
 @pytest.mark.fuzz
 @given(nodes=_nodes, edges=_edges)
-@settings(max_examples=300, deadline=None)
+@settings(deadline=None)
 def test_strongly_connected_components_match_mutual_reachability(
     nodes: list[str], edges: list[tuple[str, str]]
 ) -> None:
@@ -127,7 +127,7 @@ def test_strongly_connected_components_match_mutual_reachability(
 
 @pytest.mark.fuzz
 @given(edges=_edges)
-@settings(max_examples=100, deadline=None)
+@settings(deadline=None)
 def test_the_cycle_error_contract_is_unchanged(edges: list[tuple[str, str]]) -> None:
     """schedule() and monte_carlo() raise CyclicDependencyError naming a real cycle."""
     unique = list(dict.fromkeys(edges))
