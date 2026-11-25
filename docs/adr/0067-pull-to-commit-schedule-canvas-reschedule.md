@@ -3,6 +3,8 @@
 ## Status
 Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: useScheduleCommit)
 
+> **Amended by ADR-1485 D9 (2026-11-24, #5125):** Confirm is no longer the only commit path. A *clean* drop (no critical-path change, no over-allocation, no commitment slip, and the people-load check returned) commits on release with Undo. Every other drop keeps this ADR's Confirm. Not built yet: as of 2026-11-24, `useScheduleCommit` still routes every drop through Confirm.
+
 ## Context
 
 The Schedule canvas (`packages/web/src/features/schedule/engine/`) accepts a

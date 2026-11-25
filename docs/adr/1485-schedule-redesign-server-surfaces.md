@@ -1,7 +1,7 @@
 # ADR-1485: Schedule redesign — server surfaces (what-if verdict, variance, commitment-slip gate, headline forecast kind)
 
 ## Status
-Proposed
+Accepted (2026-11-24)
 
 > **Implementation status (2026-11-24, #5125):** design only. **No endpoint, model, field, or webhook event described here exists yet**: verified 2026-11-24 against `packages/api/src/trueppm_api/apps/scheduling/views.py` (only the Monte Carlo what-if exists), `apps/projects/models.py` (`SprintScopeChange` covers injection only, and `Sprint` has no owner field), and `apps/projects/people_load_views.py`. One D1 decision **reverses current behavior**: today an `api:full` token *can* accept and reject scope changes. `scope-changes/<pk>/accept|reject/` and `sprints/<pk>/scope-changes/accept|reject/` are on the pinned token write surface (`packages/api/tests/apps/access/token_write_surface.txt` lines 276–277, 294–295), and `SprintScopeChangeViewSet` has no token refusal.
 
@@ -181,6 +181,7 @@ ADR-0067's status gains an "Amended by ADR-1485 (hybrid commit)" note when this 
 8. **Dead-letter / failure handling:** the existing webhook retry chain and circuit breaker; permanent failures go to the dead-letter list, replayable by `webhooks:manage`. Notification failures follow the existing notification retry policy.
 
 ### On Acceptance
-- [ ] Open issues naming this ADR re-read against the settled decision:
-      `python3 scripts/adr-accepted-issue-sweep.py --adr 1485`
-- [ ] Any issue carrying pre-ADR scope rewritten (title and body), led by a dated correction note. Record the count, including zero. #5125's body was already corrected on 2026-11-24 (dated note; D1's rejected "sprint owner + deputy" scope removed). Re-read it on acceptance anyway, together with any child issue filed before acceptance.
+- [x] Open issues naming this ADR re-read against the settled decision:
+      `python3 scripts/adr-accepted-issue-sweep.py --adr 1485` → **0** flagged (1104 open issues scanned, 2026-11-24).
+- [x] Any issue carrying pre-ADR scope rewritten (title and body), led by a dated correction note: **1**. #5125 was re-read by hand because the sweep ranks by date and the issue was filed the same day. It had already been rewritten on 2026-11-24: the title went from "sprint-owner guard" to "commitment-slip gate", and the body got a dated correction note removing D1's rejected owner and deputy scope.
+- [x] Amendment notes added under the Status of ADR-0067 (hybrid commit, D9) and ADR-0102 (token refusal on accept/reject, D1). #5125's body was already corrected on 2026-11-24 (dated note; D1's rejected "sprint owner + deputy" scope removed). Re-read it on acceptance anyway, together with any child issue filed before acceptance.
