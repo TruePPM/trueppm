@@ -186,7 +186,21 @@ A **commitment slip** is a date change that moves committed work in the active s
 - **If you can accept scope changes** (project Admin or above, or the team's Product Owner or Scrum Master), the change applies. You must give a reason, and the sprint records the slip as accepted.
 - **If you can't**, the change will not apply yet. The schedule shows "Waiting for a Sprint N decision", and the sprint gets a pending slip that holds your proposed dates. When someone accepts it, your dates apply. When someone rejects it, the task keeps its dates.
 
+A change to work that is already in progress is measured from the work that remains. If a task is 80% done, adding a day to its duration only adds to the remaining part, so the change is a slip only when that remaining work now ends after the sprint. Changing the planned start of a task that has an actual start is never a slip, because the actual start sets when the work began.
+
+An offline sync can't ask you for a reason. So when someone who can accept scope changes syncs a slip without a reason, the slip waits for a decision like anyone else's, and the rest of the sync still applies. In a bulk edit, that row alone is refused and asks for a reason.
+
 Every slip from one change, such as a bulk edit or one offline sync, shares a batch. People who can accept scope changes can decide the whole batch or one row at a time. API tokens and agents can cause pending slips, but only a signed-in person can decide them.
+
+### Deciding a pending slip
+
+When the active sprint has a pending slip, the sprint panel's badge reads "N date changes waiting", even if no tasks were added mid-sprint. Select it to open the scope-change drawer. If you can accept scope changes, each pending slip there shows:
+
+- **Accept**, which applies the proposed dates, and **Reject**, which keeps the task's dates.
+- An optional **Reason** box. Whatever you type is saved as the reason for your decision.
+- **Accept all N** and **Reject all N**, on the first slip of a batch with more than one pending slip. These decide the whole batch.
+
+If a slip no longer fits (see below), accepting it tells you it was closed without applying. If the server can't apply a slip, you'll see a message and the slip stays pending. The board and the schedule refresh after each decision.
 
 A slip that comes from a schedule recalculation, after an earlier task moves, is not blocked. Flagging those as at risk is separate work planned for a later 0.5 change (#5127); until it ships, nothing marks them.
 
