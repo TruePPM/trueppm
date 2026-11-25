@@ -175,7 +175,12 @@ def baseline_variance(baseline: Baseline, calendar: Any, *, min_days: int) -> Va
     removed = sum(1 for task_id in snapshot if task_id not in live_ids)
     summary = {
         **_rollup(rows, summary_ids, min_days),
-        "project_finish": _project_finish(snapshot.values(), live, calendar, count),
+        "project_finish": _project_finish(
+            ((row["finish"], row["finish_at_day_start"]) for row in snapshot.values()),
+            live,
+            calendar,
+            count,
+        ),
     }
     return Variance(rows=rows, added=added, removed=removed, summary=summary)
 
@@ -250,7 +255,7 @@ def _latest(
 
 
 def _project_finish(
-    snapshot: Iterable[dict[str, Any]],
+    snapshot_finishes: Iterable[tuple[date | None, bool | None]],
     live: list[Task],
     calendar: Any,
     count: Callable[[date, date], int],
@@ -261,7 +266,7 @@ def _project_finish(
     baseline's finish is what was committed; every live task counts, including
     one added since. The shift is read like a task's finish delta.
     """
-    base = _latest((row["finish"], row["finish_at_day_start"]) for row in snapshot)
+    base = _latest(snapshot_finishes)
     current = _latest((task.early_finish, task_finish_at_day_start(task)) for task in live)
     delta = (
         _finish_delta(base, (current[0], bool(current[1])), calendar, count)
