@@ -13,6 +13,7 @@ import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
+import { formatChord } from '@/lib/platform';
 import { ChangesetSheet, shortBaselineName } from './ChangesetSheet';
 
 /**
@@ -229,7 +230,7 @@ export function ChangesetReasonLine({
         className="h-8 w-56 min-w-0 rounded border border-neutral-border bg-neutral-surface px-2 text-xs"
       />
       <kbd className="text-neutral-text-secondary" aria-hidden="true">
-        ⌥W
+        {formatChord('alt+w')}
       </kbd>
       <button
         type="button"
