@@ -119,6 +119,21 @@ ADR-0067 made Confirm the only commit path for a canvas reschedule or resize. Th
 
 ADR-0067's status gains an "Amended by ADR-1485 (hybrid commit)" note when this ADR is accepted. The web change ships in child 10.
 
+### D10. AI-readiness additions (ai-review, 2026-11-24, after acceptance)
+
+These come from the `ai-review` gate run on #5125 after acceptance. There is no new endpoint shape, so architect was not re-invoked. `enterprise-check` on the same day classified all 18 child issues OSS. Both results are recorded on #5125.
+
+1. **The commit classification is a server field.** The what-if response (D2) carries `commit_mode: "apply" | "review"` and `review_reasons: ["critical_path_change" | "over_allocation" | "commitment_slip" | "people_load_unchecked"]`. The canvas chip and D9's routing read it, with no client threshold logic, so an agent learns the same answer from the same call. Child: #5128.
+2. **Provenance on rows.** Variance rows (D3) and commitment-status at-risk rows carry `cause` (the server's one-line derivation summary, the same text the steering export prints) and `derivation_ref` (task id plus baseline id, for `get_schedule_derivation`). Children: #5129, #5127.
+3. **Agent writes are audited.** Token-originated activity lands in the hash-chained `AgentAction` audit (ADR-0112 §1.3):
+   - a token-caused slip records `requires_approval`;
+   - a token calling accept or reject records `refused` with reason `identity`;
+   - a token placement (D5) records one entry per batch, with per-task outcomes.
+
+   Children: #2563, #5132.
+4. **Decision memory.** Slip accept and reject reasons, direct-with-reason slips, and PM re-estimate notes feed the project Decisions view (ADR-0167), and the structured store (#1059) when it lands. Visibility follows `can_read_decisions`. Child: #2563.
+5. **AI boundary.** Single-approver gate, ephemeral what-if and single-project webhooks are all OSS. The Enterprise counterpart is **multi-approver chains or delegated authority for commitment slips**. It is not built here, and nothing in OSS anticipates it beyond the existing notify-only `sprint_scope_changed` signal.
+
 ## Alternatives Considered
 
 | Option | Pros | Cons |
@@ -144,7 +159,25 @@ ADR-0067's status gains an "Amended by ADR-1485 (hybrid commit)" note when this 
   - the people who should decide sprint scope (PO, delivery lead) not holding Admin on their projects.
 - **Canvas copy amended (2026-11-24):** "sprint owner" became "people who can accept scope changes (Admin+)", and deputy delegation was removed. The design otherwise stands.
 
-## Child-issue split (proposed; filed after acceptance)
+## Child-issue split (filed 2026-11-24, all 0.5)
+
+Filed issues by row:
+- 1 → #2563 (rewritten)
+- 2 → #5127
+- 3 → #5128
+- 4 → #5129
+- 5 → #5130
+- 6 → #5131
+- 7 → #5132, plus #2991 for the phone path
+- 8 → #5133
+- 9 → #5134, plus #5065 for summary and milestone marks
+- 10 → #5135, plus #4314 for the Confirm content and #481 for tap-to-pin
+- 11 → #2417 (rewritten)
+- 12 → #5136
+- 13 → #5137
+- 14 → #5138
+
+The six pre-existing issues carry dated fidelity notes. The epic #5125 holds the same map.
 
 | # | Child | Package | Depends on |
 |---|---|---|---|
