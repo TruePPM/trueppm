@@ -618,6 +618,22 @@ describe('useProjectWebSocket — dependency event handlers (#314)', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
   });
 
+  it("invalidates the sprint's scope-change list on sprint_scope_changed (ADR-1485 D1)", () => {
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    act(() => {
+      MockWebSocket.instances[0].dispatch('message', {
+        data: JSON.stringify({
+          event_type: 'sprint_scope_changed',
+          payload: { sprint_id: 's1', task_id: 't1' },
+        }),
+      });
+    });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['sprint', 's1', 'scope-changes'] });
+  });
+
   it('invalidates all burndown queries on sprint_scope_changed when sprint_id is absent', () => {
     const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });

@@ -7,6 +7,8 @@ import { ScopeChangeDrawer } from './ScopeChangeDrawer';
 interface Props {
   /** The ACTIVE sprint whose mid-sprint additions to surface. */
   sprintId: string;
+  /** The sprint's project, so the drawer can offer slip decisions (ADR-1485 D1). */
+  projectId?: string;
 }
 
 /**
@@ -16,27 +18,53 @@ interface Props {
  * that opens the scope-change audit drawer (who/when/what/points). Self-contained
  * so the SprintPanel only mounts one element.
  */
-export function SprintScopeBadge({ sprintId }: Props) {
+export function SprintScopeBadge({ sprintId, projectId }: Props) {
   const { data } = useSprintScopeChanges(sprintId);
   const itl = useIterationLabel();
   const [open, setOpen] = useState(false);
   const count = data?.summary.added_mid_sprint_count ?? 0;
-  if (count === 0) return null;
+  // ADR-1485 D1: a pending commitment slip adds no scope, but it is waiting on a
+  // decision only the drawer offers, so it must open the drawer too.
+  const pendingSlips = data?.summary.pending_slip_count ?? 0;
+  const hasSignal = count > 0 || pendingSlips > 0;
+  // Keep an open drawer mounted when its last pending row is decided: the badge
+  // has nothing left to say, but the user is still reading the drawer.
+  if (!hasSignal && !open) return null;
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        aria-haspopup="dialog"
-        className="mt-0.5 inline-flex items-center gap-1 self-start rounded-full border border-semantic-at-risk/40
+      {hasSignal && (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-haspopup="dialog"
+          className="mt-0.5 inline-flex items-center gap-1 self-start rounded-full border border-semantic-at-risk/40
           bg-semantic-at-risk-bg px-2 py-0.5 text-xs font-medium text-semantic-at-risk
           hover:border-semantic-at-risk focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
-      >
-        <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
-        <span className="tppm-mono">{count}</span> task{count === 1 ? '' : 's'} added mid-{itl.lower}
-      </button>
-      {open && <ScopeChangeDrawer sprintId={sprintId} onClose={() => setOpen(false)} />}
+        >
+          <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
+          {count > 0 && (
+            <span>
+              <span className="tppm-mono">{count}</span> task{count === 1 ? '' : 's'} added mid-
+              {itl.lower}
+            </span>
+          )}
+          {count > 0 && pendingSlips > 0 && <span aria-hidden="true">·</span>}
+          {pendingSlips > 0 && (
+            <span>
+              <span className="tppm-mono">{pendingSlips}</span> date change
+              {pendingSlips === 1 ? '' : 's'} waiting
+            </span>
+          )}
+        </button>
+      )}
+      {open && (
+        <ScopeChangeDrawer
+          sprintId={sprintId}
+          projectId={projectId}
+          onClose={() => setOpen(false)}
+        />
+      )}
     </>
   );
 }

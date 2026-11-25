@@ -260,6 +260,8 @@ def _attach_scope_change_status(events: list[dict[str, Any]]) -> None:
         SprintScopeChange.objects.filter(
             task_id__in={k[0] for k in keys},
             sprint_id__in={k[1] for k in keys},
+            # A slip row (ADR-1485 D1) is a date decision, not a membership state.
+            kind="injection",
         )
         .order_by("added_at")
         .values("task_id", "sprint_id", "status")

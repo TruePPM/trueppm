@@ -698,6 +698,22 @@ export interface ScopeChangeEvent {
   added_at: string;
   goal_impact: boolean;
   status: 'pending' | 'accepted' | 'rejected';
+  /** ADR-1485 D1: `slip` rows are proposed date moves on committed work. They are
+   *  listed so they stay visible, but the server never counts them in `summary`. */
+  kind?: 'injection' | 'slip';
+  proposed_start?: string | null;
+  proposed_finish?: string | null;
+  batch_id?: string | null;
+  decision_reason?: string;
+  task_id?: string;
+  /** Slips only: the sprint end date, and the task's start / finish as they are now. */
+  sprint_finish_date?: string | null;
+  current_start?: string | null;
+  current_finish?: string | null;
+  /** The requester's reason; empty when none was given. */
+  reason?: string;
+  decided_by_name?: string | null;
+  decided_at?: string | null;
 }
 
 export interface SprintScopeChanges {
@@ -708,6 +724,8 @@ export interface SprintScopeChanges {
     points_removed: number;
     /** Count of injected tasks still in the sprint — the SprintPanel badge number. */
     added_mid_sprint_count: number;
+    /** Commitment slips waiting for a decision (ADR-1485 D1). */
+    pending_slip_count: number;
     /** Total scope-change rows (added + removed). */
     total: number;
   };

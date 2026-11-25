@@ -68,7 +68,9 @@ from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.access.permissions import (
+    CommitmentSlipAuditMixin,
     IsNotTokenAuthenticated,
+    IsNotTokenForScopeDecision,
     IsProgramAdmin,
     IsProgramMember,
     IsProgramNotClosed,
@@ -219,6 +221,7 @@ from trueppm_api.apps.projects.serializers import (
     CalendarSerializer,
     CommentAcknowledgementSerializer,
     CommentReactionSerializer,
+    CommitmentSlipStaleSerializer,
     CommitProjectResultSerializer,
     CrossProjectSlipConflictSerializer,
     CycleDetectedError,
@@ -276,6 +279,7 @@ from trueppm_api.apps.projects.serializers import (
     RiskImportResultSerializer,
     RiskSerializer,
     ScopeChangeBulkSerializer,
+    ScopeChangeDecisionSerializer,
     SignedDownloadUrlSerializer,
     SprintBlockedRollupSerializer,
     SprintBurndownSerializer,
@@ -878,10 +882,25 @@ class TaskBulkProblemEntrySerializer(serializers.Serializer[Any]):
             "`invalid`; it may succeed later for `unresolved_endpoint`, `conflict` and "
             "`forbidden`; and `tombstoned` / `milestone_gate` are documented no-ops "
             "rather than failures. `id_unavailable` is deliberately non-asserting — it "
-            "does not reveal whether the id exists in a project the caller cannot see."
+            "does not reveal whether the id exists in a project the caller cannot see. "
+            "`commitment_slip_requires_acceptance` means the row was recorded as a "
+            "PENDING commitment slip (ADR-1485 D1) instead of applied; the four slip "
+            "fields below are set only on that code."
         ),
     )
     message = serializers.CharField()
+    scope_change_id = serializers.UUIDField(
+        required=False, help_text="The PENDING slip row recorded for this op (slip code only)."
+    )
+    batch_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Shared by every slip this request recorded; decide them together.",
+    )
+    sprint_id = serializers.UUIDField(
+        required=False, help_text="The ACTIVE sprint the slip would move work past."
+    )
+    sprint_name = serializers.CharField(required=False)
 
 
 class TaskBulkDependencyAppliedSerializer(serializers.Serializer[Any]):
@@ -6814,7 +6833,20 @@ class _NumericWbsOrderingFilter(filters.OrderingFilter):
             409: OpenApiResponse(
                 response=StructureRoleConflictSerializer,
                 description=(
-                    "The declared `structure_role` contradicts the tree (#2950, "
+                    "One of two bodies, told apart by `code`; both carry `detail` and "
+                    "`structure_role`. "
+                    "`commitment_slip_requires_acceptance` (ADR-1485 D1; also "
+                    "`scope_change_id`, `batch_id`, `sprint_id`, `sprint_name`, "
+                    "`proposed_start`, `proposed_finish`, `sprint_finish_date`, "
+                    "`current_start`, `current_finish`): the date "
+                    "write would move sprint-committed work past the ACTIVE sprint's "
+                    "end and the caller is not the accept authority (Admin+ or the "
+                    "team's SM/PO facet; every API token). The write was NOT applied; "
+                    "it is recorded as a PENDING slip (`scope_change_id`) for that "
+                    "authority to accept or reject.\n\n"
+                    "`structure_role_contradicted`: the "
+                    "declared `structure_role` "
+                    "contradicts the tree (#2950, "
                     "ADR-0844). Returned when a client declares `work` on a row that "
                     "has structural children: the derived fact wins for every "
                     "computation, so storing the declaration would leave the row "
@@ -6833,7 +6865,11 @@ class _NumericWbsOrderingFilter(filters.OrderingFilter):
             409: OpenApiResponse(
                 response=StructureRoleConflictSerializer,
                 description=(
-                    "The declared `structure_role` contradicts the tree — see the note "
+                    "A commitment slip held for acceptance (`scope_change_id`, "
+                    "`batch_id`, `sprint_id`, `sprint_name`, `proposed_start`, "
+                    "`proposed_finish`, `sprint_finish_date`, `current_start`, "
+                    "`current_finish`), or the declared `structure_role` contradicts "
+                    "the tree (`structure_role`) — told apart by `code`; see the note "
                     "on `PUT`. This is the path the outline actually uses."
                 ),
             ),
@@ -7457,10 +7493,30 @@ class TaskViewSet(
         A *block*-level guardrail raised ``GuardrailBlockedError`` instead, and
         is returned here as a 400 with the offending rule.
         """
+        from trueppm_api.apps.projects.services import (
+            CommitmentSlipDeferred,
+            commitment_slip_conflict_body,
+            record_deferred_slip,
+        )
+
+        # The savepoint exists for CommitmentSlipDeferred (ADR-1485 D1). It also means
+        # a TaskWriteRefusal now rolls back anything written before it in this
+        # request. No refusal relies on that: every TaskWriteRefusal subclass is
+        # raised from TaskSerializer.validate()/its helpers, before perform_update
+        # writes anything (checked when this savepoint was added).
         try:
-            response: Response = super_method(request, *args, **kwargs)
+            with transaction.atomic():
+                response: Response = super_method(request, *args, **kwargs)
         except TaskWriteRefusal as exc:
             return _task_write_refusal_response(exc)
+        except CommitmentSlipDeferred as exc:
+            # ADR-1485 D1: the write was NOT applied (the savepoint above unwound
+            # before any task column moved). Record the PENDING slip here, outside
+            # that savepoint, and answer with a Response rather than an
+            # APIException so ATOMIC_REQUESTS commits the row instead of rolling
+            # it back.
+            row = record_deferred_slip(exc, request)
+            return Response(commitment_slip_conflict_body(row), status=status.HTTP_409_CONFLICT)
 
         # Surface warn-level guardrails the serializer recorded during validate().
         # The serializer instance is the one bound to this request; read the rules
@@ -11517,7 +11573,7 @@ def _register_bulk_commit_hooks(
         responses={207: TaskBulkResponseSerializer},
     )
 )
-class TaskBulkView(IdempotencyMixin, APIView):
+class TaskBulkView(CommitmentSlipAuditMixin, IdempotencyMixin, APIView):
     """Create, update, and delete tasks per row in a single request (ADR-0772, #2723).
 
     POST /api/v1/projects/{pk}/tasks/bulk/
@@ -16971,11 +17027,17 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
     # (start_date, name) carries no uniqueness constraint: two sprints may share both.
     ordering = ["start_date", "name", "id"]
 
+    # ADR-1485 D1: deciding sprint scope is human-only; no ApiToken of any scope.
+    token_refused_actions = frozenset({"scope_changes_accept", "scope_changes_reject"})
+
     def get_permissions(self) -> list[BasePermission]:
         # ADR-0186 §E: append the read-only MCP token guards around the
         # action-specific RBAC list so a mcp:read token is confined to safe
         # methods on every action (no write-branch leak); human auth passes both.
-        return [*self._rbac_permissions(), *self.mcp_token_guards()]
+        refused: list[BasePermission] = (
+            [IsNotTokenForScopeDecision()] if self.action in self.token_refused_actions else []
+        )
+        return [*refused, *self._rbac_permissions(), *self.mcp_token_guards()]
 
     def _rbac_permissions(self) -> list[BasePermission]:
         if self.action in (
@@ -17922,10 +17984,10 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             SprintScopeChangeSerializer,
         )
         from trueppm_api.apps.projects.services import (
+            SLIP_STALE_ATTR,
             ScopeAcceptForbidden,
-            accept_scope_change,
             assert_scope_gate_for_project,
-            reject_scope_change,
+            decide_scope_change_batch,
             sprint_pending_count,
         )
 
@@ -17935,65 +17997,51 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         body.is_valid(raise_exception=True)
         ids = body.validated_data["ids"]
 
-        # Collect the candidate PENDING ids first, then lock + process each row in
-        # its own atomic savepoint. select_for_update() requires an open transaction,
-        # and a per-row lock that re-checks PENDING is what actually prevents two
-        # concurrent accept/reject calls from double-processing the same row (P26),
-        # while keeping the per-row partial-failure tolerance below.
+        batch_id = body.validated_data.get("batch_id")
+        reason = body.validated_data.get("reason", "")
         pending_qs = SprintScopeChange.objects.filter(
             sprint_id=sprint.pk, status=ScopeChangeStatus.PENDING
         )
         if ids:
             pending_qs = pending_qs.filter(pk__in=ids)
-        pending_ids = list(pending_qs.values_list("pk", flat=True))
-
-        service = accept_scope_change if accept else reject_scope_change
+        if batch_id:
+            pending_qs = pending_qs.filter(batch_id=batch_id)
         # Resolve the team-owned gate ONCE for this actor and the sprint's project
-        # (#3412): every row in the sprint belongs to the same project, and the
-        # per-row check cost two queries each. Skipped when nothing is pending, so
-        # an empty bulk call still answers 200 as before. A refusal fails the whole
-        # call closed, exactly as the per-row refusal did.
-        if pending_ids:
-            try:
+        # (#3412). Skipped when nothing is pending, so an empty bulk call still
+        # answers 200. A refusal fails the whole call closed.
+        try:
+            if pending_qs.exists():
                 assert_scope_gate_for_project(sprint.project_id, request.user)
-            except ScopeAcceptForbidden:
-                return Response(
-                    {"code": ScopeAcceptForbidden.code, "detail": ScopeAcceptForbidden.detail},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-        done: list[Any] = []
-        for sc_id in pending_ids:
-            try:
-                with transaction.atomic():
-                    sc = (
-                        SprintScopeChange.objects.select_for_update()
-                        .select_related("task")
-                        .get(pk=sc_id, status=ScopeChangeStatus.PENDING)
-                    )
-                    result = service(sc, request.user, gate_verified_for_project=sprint.project_id)
-            except SprintScopeChange.DoesNotExist:
-                # Decided by a concurrent call between the id scan and the row lock — skip.
-                continue
-            except ScopeAcceptForbidden:
-                # Defensive only: the gate now runs ONCE per request (#3412), so a
-                # revocation landing mid-request is deliberately NOT detected per row
-                # (the trade-off for dropping two queries per row). Reaching here
-                # means a service refused despite the hoisted check — fail closed.
-                return Response(
-                    {"code": ScopeAcceptForbidden.code, "detail": ScopeAcceptForbidden.detail},
-                    status=status.HTTP_403_FORBIDDEN,
-                )
-            except Exception:
-                # Tolerate partial failure per row — one row that errors (e.g.
-                # decided concurrently) is skipped; the rest still apply.
-                logger.exception("bulk scope-change failed for %s", sc_id)
-                continue
-            done.append(result)
+            # Per-row lock + PENDING re-check lives in the service (P26, ADR-1485 D1),
+            # so a double accept is a no-op and a concurrently decided row is skipped.
+            failed: list[dict[str, str]] = []
+            done = decide_scope_change_batch(
+                sprint=sprint,
+                by=request.user,
+                accept=accept,
+                ids=ids,
+                batch_id=batch_id,
+                reason=reason,
+                failed=failed,
+            )
+        except ScopeAcceptForbidden:
+            return Response(
+                {"code": ScopeAcceptForbidden.code, "detail": ScopeAcceptForbidden.detail},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         key = "accepted" if accept else "rejected"
+        # ADR-1485 D1: a batch accept applies every fresh row and refuses each stale
+        # slip on its own (closed REJECTED, dates untouched); the refused rows are
+        # listed under ``stale`` so one stale row never blocks the rest of the batch.
+        decided = [row for row in done if not getattr(row, SLIP_STALE_ATTR, None)]
+        stale = [row for row in done if getattr(row, SLIP_STALE_ATTR, None)]
         return Response(
             {
-                key: [SprintScopeChangeSerializer(row).data for row in done],
+                key: [SprintScopeChangeSerializer(row).data for row in decided],
+                "stale": [SprintScopeChangeSerializer(row).data for row in stale],
+                # Rows whose decision raised and stayed PENDING (never a silent 200).
+                "failed": failed,
                 "pending_count": sprint_pending_count(sprint.pk),
             },
             status=status.HTTP_200_OK,
@@ -18964,7 +19012,10 @@ class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
     # reaches the structured 403 is a member below the bar — who can already see
     # the project exists. This mirrors the DependencyViewSet decision (ADR-0120 D2)
     # and is recorded in ADR-0184.
-    permission_classes = [IsAuthenticated]
+    #
+    # ADR-1485 D1: deciding scope is human-only, so ``IsNotTokenForScopeDecision``
+    # refuses every ApiToken (any scope) before the service gate runs.
+    permission_classes = [IsAuthenticated, IsNotTokenForScopeDecision]
 
     # Class-level ``queryset`` exists only so the route-table archived invariant can
     # see, through ``SprintScopeChange.task -> Project``, that these flat routes touch a
@@ -18994,8 +19045,13 @@ class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
         )
 
     def _act(self, request: Request, pk: str | None, *, accept: bool) -> Response:
-        from trueppm_api.apps.projects.serializers import SprintScopeChangeSerializer
+        from trueppm_api.apps.projects.serializers import (
+            ScopeChangeDecisionSerializer,
+            SprintScopeChangeSerializer,
+        )
         from trueppm_api.apps.projects.services import (
+            COMMITMENT_SLIP_STALE_CODE,
+            SLIP_STALE_ATTR,
             ScopeAcceptForbidden,
             accept_scope_change,
             reject_scope_change,
@@ -19009,13 +19065,28 @@ class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
         # sibling bulk routes under ``sprints/{id}/scope-changes/`` get it from
         # ``IsProjectNotArchived``.
         assert_project_not_archived(scope_change.task.project_id)
+        body = ScopeChangeDecisionSerializer(data=request.data or {})
+        body.is_valid(raise_exception=True)
         service = accept_scope_change if accept else reject_scope_change
         try:
-            result = service(scope_change, request.user)
+            result = service(scope_change, request.user, reason=body.validated_data["reason"])
         except ScopeAcceptForbidden:
             return Response(
                 {"code": ScopeAcceptForbidden.code, "detail": ScopeAcceptForbidden.detail},
                 status=status.HTTP_403_FORBIDDEN,
+            )
+        stale = getattr(result, SLIP_STALE_ATTR, None)
+        if stale:
+            # ADR-1485 D1: the slip no longer applies (dates moved, task gone or out
+            # of the sprint, sprint not ACTIVE). A Response, not an APIException, so
+            # the row's REJECTED close commits instead of being rolled back.
+            return Response(
+                {
+                    "code": COMMITMENT_SLIP_STALE_CODE,
+                    "detail": f"This proposed change can no longer be applied. {stale}",
+                    "scope_change_id": str(result.pk),
+                },
+                status=status.HTTP_409_CONFLICT,
             )
         data = SprintScopeChangeSerializer(result).data
         # The sprint may be null after a reject only on the task; the scope-change
@@ -19025,7 +19096,7 @@ class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
 
     @extend_schema(
         summary="Accept a single pending scope change",
-        request=None,
+        request=ScopeChangeDecisionSerializer,
         responses={
             200: OpenApiResponse(
                 response=SprintScopeChangeSingleActionResultSerializer,
@@ -19033,6 +19104,16 @@ class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
             ),
             403: OpenApiResponse(
                 description="Accepting scope changes is team-owned (Admin or SM/PO facet)."
+            ),
+            409: OpenApiResponse(
+                response=CommitmentSlipStaleSerializer,
+                description=(
+                    "`commitment_slip_stale` (ADR-1485 D1): the slip no longer applies "
+                    "— the task's dates changed after it was proposed, the task was "
+                    "deleted or left the sprint, or the sprint is no longer active. The "
+                    "dates were left alone and the row is closed as rejected with the "
+                    "why in `decision_reason`."
+                ),
             ),
         },
     )
@@ -19043,7 +19124,7 @@ class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
 
     @extend_schema(
         summary="Reject a single pending scope change",
-        request=None,
+        request=ScopeChangeDecisionSerializer,
         responses={
             200: OpenApiResponse(
                 response=SprintScopeChangeSingleActionResultSerializer,

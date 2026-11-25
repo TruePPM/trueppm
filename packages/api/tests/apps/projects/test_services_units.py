@@ -1606,6 +1606,7 @@ class TestSprintChangeLogPayloads:
             "points_added": 5,
             "points_removed": 3,
             "added_mid_sprint_count": 1,
+            "pending_slip_count": 0,
             "total": 2,
         }
         assert {e["item_name"] for e in payload["events"]} == {"Added", "Rejected"}
@@ -1616,6 +1617,7 @@ class TestSprintChangeLogPayloads:
                 "points_added": 0,
                 "points_removed": 0,
                 "added_mid_sprint_count": 0,
+                "pending_slip_count": 0,
                 "total": 0,
             },
             "events": [],

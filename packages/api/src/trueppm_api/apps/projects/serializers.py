@@ -204,7 +204,19 @@ class CommitProjectResultSerializer(serializers.Serializer[dict[str, Any]]):
 
 
 class StructureRoleConflictSerializer(serializers.Serializer[dict[str, Any]]):
-    """The body of the ``409`` a contradicted ``structure_role`` returns (#2976).
+    """The ``409`` body of a task ``PUT``/``PATCH``: two shapes, told apart by ``code``.
+
+    Both ``structure_role_contradicted`` (#2976) and
+    ``commitment_slip_requires_acceptance`` (ADR-1485 D1, the body
+    ``commitment_slip_conflict_body`` builds) carry ``detail``, ``code`` and
+    ``structure_role``, so those are required; the slip fields are present only on
+    the second. The same slip body is a ``conflicts.tasks[]`` entry on the sync
+    upload (plus the row ``id``); the bulk route carries its id fields on the
+    ``rejected[]`` entry.
+
+    One flat serializer rather than a ``oneOf``: the schema-breaking differ cannot
+    see inside ``oneOf``, so splitting it reports the published fields as removed.
+    The component keeps its published name for the same reason.
 
     Declared as a real serializer rather than ``OpenApiTypes.OBJECT`` so the shape
     is visible in ``openapi.json``. #2942 records what OBJECT costs: the whole
@@ -219,17 +231,63 @@ class StructureRoleConflictSerializer(serializers.Serializer[dict[str, Any]]):
     """
 
     detail = serializers.CharField(
-        help_text="Human-readable explanation naming the contradiction.",
+        help_text="Human-readable explanation of the conflict.",
     )
     code = serializers.CharField(
-        help_text="Always `structure_role_contradicted`.",
+        help_text=("`structure_role_contradicted` or `commitment_slip_requires_acceptance`."),
     )
     structure_role = serializers.CharField(
         help_text=(
-            "The role the tree actually implies — `container`. Sent so the caller "
-            "can correct the declaration without a second round trip."
+            "The role the tree actually implies for this task: `container` or `work`. "
+            "Always `container` on `structure_role_contradicted`, so the caller can "
+            "correct the declaration without a second round trip."
         ),
     )
+    scope_change_id = serializers.UUIDField(
+        required=False, help_text="Commitment slip only: the PENDING slip row."
+    )
+    batch_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Commitment slip only: shared by every slip this request recorded.",
+    )
+    sprint_id = serializers.UUIDField(
+        required=False, help_text="Commitment slip only: the ACTIVE sprint."
+    )
+    sprint_name = serializers.CharField(
+        required=False, help_text="Commitment slip only: that sprint's name."
+    )
+    proposed_start = serializers.DateField(
+        required=False,
+        allow_null=True,
+        help_text="Commitment slip only: the start date held, not applied.",
+    )
+    proposed_finish = serializers.DateField(
+        required=False,
+        allow_null=True,
+        help_text="Commitment slip only: the finish date held, not applied.",
+    )
+    sprint_finish_date = serializers.DateField(
+        required=False, help_text="Commitment slip only: the sprint's end date."
+    )
+    current_start = serializers.DateField(
+        required=False,
+        allow_null=True,
+        help_text="Commitment slip only: the task's planned start, unchanged by this request.",
+    )
+    current_finish = serializers.DateField(
+        required=False,
+        allow_null=True,
+        help_text="Commitment slip only: the task's finish, unchanged by this request.",
+    )
+
+
+class CommitmentSlipStaleSerializer(serializers.Serializer[dict[str, Any]]):
+    """The ``409`` body of a slip accept refused because the slip no longer applies."""
+
+    code = serializers.CharField(help_text="Always `commitment_slip_stale`.")
+    detail = serializers.CharField()
+    scope_change_id = serializers.UUIDField()
 
 
 class StructureRoleConflict(APIException):
@@ -4306,6 +4364,17 @@ class _OverallocStateField(serializers.BooleanField):
         return int(value) >= self.threshold
 
 
+class PendingCommitmentSlipSerializer(serializers.Serializer[dict[str, Any]]):
+    """The task read's ``pending_commitment_slip`` object (ADR-1485 D1)."""
+
+    scope_change_id = serializers.UUIDField(read_only=True)
+    sprint_id = serializers.UUIDField(read_only=True)
+    proposed_start = serializers.DateField(read_only=True, allow_null=True)
+    proposed_finish = serializers.DateField(read_only=True, allow_null=True)
+    batch_id = serializers.UUIDField(read_only=True, allow_null=True)
+    reason = serializers.CharField(read_only=True, help_text="The requester's reason, or empty.")
+
+
 class TaskSerializer(serializers.ModelSerializer[Task]):
     # The three PERT estimate fields, shared by the phase-rollup lock and the
     # three-point ordering guard in ``validate()``. A frozenset so ``& set(attrs)``
@@ -4461,6 +4530,18 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "a draft — authoring a plan nobody has agreed to yet carries no reason."
         ),
     )
+    slip_reason = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        max_length=500,
+        help_text=(
+            "Why this date change moves committed work past the end of its active "
+            "sprint (ADR-1485 D1). Required when a caller who can accept scope "
+            "changes makes that change directly; recorded on the commitment-slip "
+            "row. A caller without that authority gets a 409 instead."
+        ),
+    )
     is_summary = serializers.BooleanField(read_only=True, default=False)
     # is_phase — computed: a non-subtask task with >=1 structural (non-subtask)
     # child. A phase is a pure rollup (ADR-0293): status, estimate, assignee,
@@ -4480,6 +4561,15 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # in TaskViewSet.get_queryset(); defaults to empty list when called outside
     # the viewset so the field is always safe to read.
     sprint_scope_changes = serializers.SerializerMethodField()
+    # ADR-1485 D1: the date change on this task that is waiting for a decision, read
+    # from the same prefetched rows, so it costs a list read no extra query.
+    pending_commitment_slip = serializers.SerializerMethodField(
+        help_text=(
+            "A date change held for acceptance in the sprint the task is in now, or null. "
+            "When more than one requester has one pending, the newest; "
+            "`GET sprints/{id}/scope-changes/` lists all."
+        )
+    )
 
     # Nested resource assignments — read-only, used for Gantt assignee chips.
     assignments = TaskAssignmentSerializer(many=True, read_only=True)
@@ -4738,6 +4828,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "duration",
             "duration_unit",
             "amend_reason",
+            "slip_reason",
             "structure_role",
             "own_status",
             "own_estimate",
@@ -4815,6 +4906,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "remaining_points",
             "is_subtask",
             "sprint_scope_changes",
+            "pending_commitment_slip",
             "milestone_rollup",
             # ADR-0105 product backlog
             "type",
@@ -4968,6 +5060,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "estimate_status",
             "estimate_authority",
             "sprint_scope_changes",
+            "pending_commitment_slip",
             "milestone_rollup",
             # Computed product-backlog reads (the writable backing fields type /
             # parent_epic / dor / sprint_rank / scoring inputs stay editable; acceptance
@@ -6892,12 +6985,12 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     )
     def get_sprint_scope_changes(self, obj: Task) -> list[dict[str, Any]]:
         """Return scope-change audit rows for the sprint-scope indicator chip."""
-        rows = getattr(obj, "_prefetched_sprint_scope_changes", None)
-        if rows is None:
-            # Fallback for callers that bypass the viewset (e.g. tests).
-            from trueppm_api.apps.projects.models import SprintScopeChange
-
-            rows = SprintScopeChange.objects.filter(task_id=obj.pk).select_related("added_by")
+        rows = self._scope_change_rows(obj)
+        # A slip row (ADR-1485 D1) is a date decision on committed work, not a
+        # mid-sprint addition: the chip (and the board's pending-review target
+        # derived from it) lists injections only. Slips are read and decided from
+        # ``sprints/{id}/scope-changes/``, where each event carries its ``kind``.
+        rows = [r for r in rows if r.kind != "slip"]
         return [
             {
                 # ADR-0102: the row id lets the client target the single
@@ -6918,6 +7011,43 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             }
             for r in rows
         ]
+
+    def _scope_change_rows(self, obj: Task) -> list[Any]:
+        """The task's ``SprintScopeChange`` rows: prefetched, else read once."""
+        rows = getattr(obj, "_prefetched_sprint_scope_changes", None)
+        if rows is not None:
+            return list(rows)
+        # Fallback for instances that bypass the annotated queryset (a create
+        # response). Memoized so the two fields reading it share one query.
+        memo: dict[Any, list[Any]] = self.__dict__.setdefault("_scope_rows_memo", {})
+        if obj.pk not in memo:
+            from trueppm_api.apps.projects.models import SprintScopeChange
+
+            memo[obj.pk] = list(
+                SprintScopeChange.objects.filter(task_id=obj.pk).select_related("added_by")
+            )
+        return memo[obj.pk]
+
+    @extend_schema_field(PendingCommitmentSlipSerializer(allow_null=True))
+    def get_pending_commitment_slip(self, obj: Task) -> dict[str, Any] | None:
+        """The newest PENDING commitment slip for the task's sprint, or ``None``."""
+        pending = [
+            r
+            for r in self._scope_change_rows(obj)
+            # A row left behind by a move to another sprint can only be refused.
+            if r.kind == "slip" and r.status == "pending" and r.sprint_id == obj.sprint_id
+        ]
+        if not pending:
+            return None
+        row = max(pending, key=lambda r: r.added_at)
+        return {
+            "scope_change_id": str(row.pk),
+            "sprint_id": str(row.sprint_id),
+            "proposed_start": row.proposed_start.isoformat() if row.proposed_start else None,
+            "proposed_finish": row.proposed_finish.isoformat() if row.proposed_finish else None,
+            "batch_id": str(row.batch_id) if row.batch_id else None,
+            "reason": row.reason,
+        }
 
     def get_milestone_rollup(self, obj: Task) -> dict[str, Any] | None:
         """Sprint-driven rollup payload for milestone tasks (ADR-0074).
@@ -7009,6 +7139,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         ``_owners_broadcast_enabled``.
         """
         owners = validated_data.pop("owners", None)
+        # A new task is never committed work, so no commitment slip can apply.
+        validated_data.pop("slip_reason", None)
         project = validated_data.get("project")
         candidate = validated_data.get("planned_start")
         # #2646: a task created with an estimate is an estimate write too. Without
@@ -7074,6 +7206,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         # not reach ``super().update()``. Applied after the save so the assignment rides
         # the task write's transaction, CPM re-trigger, and board broadcast (ADR-0774).
         owners = validated_data.pop("owners", None)
+        self._guard_commitment_slip(instance, validated_data)
 
         self._apply_project_start_shift(instance, validated_data)
         self._sync_early_start_to_planned(instance, validated_data)
@@ -7126,6 +7259,39 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         context differs.
         """
         return not self.context.get("suppress_owner_broadcast", False)
+
+    def _guard_commitment_slip(self, instance: Task, validated_data: dict[str, Any]) -> None:
+        """Run the ADR-1485 D1 commitment-slip guard before any part of this write.
+
+        Every task date write that goes through this serializer (REST PATCH/PUT,
+        the bulk edit, the sync push, token and agent writes on those routes) meets
+        the guard here, after ``planned_finish`` has been resolved into
+        ``duration``. Runs before any helper mutates ``instance`` so a deferred slip
+        (``CommitmentSlipDeferred``) leaves the task untouched.
+        """
+        from trueppm_api.apps.projects.services import guard_commitment_slip
+
+        reason = validated_data.pop("slip_reason", "") or ""
+        if self.context.get("commitment_slip_accepted"):
+            # ``_apply_accepted_slip`` replaying a decided slip: this IS the acceptance.
+            return
+        new_start = validated_data.get("planned_start")
+        new_duration = validated_data.get("duration")
+        if "planned_start" in validated_data and new_start == instance.planned_start:
+            new_start = None
+        if "duration" in validated_data and new_duration == instance.duration:
+            new_duration = None
+        if new_start is None and new_duration is None:
+            return
+        guard_commitment_slip(
+            instance,
+            new_start=new_start,
+            new_duration=new_duration,
+            request=self.context.get("request"),
+            reason=reason,
+            calendar_factory=lambda: self._composed_calendar_for(validated_data),
+            defer_without_reason=bool(self.context.get("commitment_slip_defer_without_reason")),
+        )
 
     def _apply_project_start_shift(self, instance: Task, validated_data: dict[str, Any]) -> None:
         """#867 auto-shift: pull the project start back to an earlier planned_start.
@@ -10906,6 +11072,35 @@ class SprintScopeChangeEventSerializer(serializers.Serializer[dict[str, Any]]):
     added_at = serializers.DateTimeField(read_only=True)
     goal_impact = serializers.BooleanField(read_only=True)
     status = serializers.CharField(read_only=True)
+    # ADR-1485 D1: ``injection`` (counted in the summary) or ``slip`` (a proposed
+    # date move on committed work; listed so it stays visible and decidable, never
+    # counted as scope). ``proposed_*`` and ``decision_reason`` are set on slips.
+    kind = serializers.CharField(read_only=True)
+    task_id = serializers.UUIDField(read_only=True)
+    proposed_start = serializers.DateField(read_only=True, allow_null=True)
+    proposed_finish = serializers.DateField(read_only=True, allow_null=True)
+    sprint_finish_date = serializers.DateField(
+        read_only=True, allow_null=True, help_text="Slips only: the sprint's end date."
+    )
+    current_start = serializers.DateField(
+        read_only=True,
+        allow_null=True,
+        help_text="Slips only: the task's planned start now (not when it was proposed).",
+    )
+    current_finish = serializers.DateField(
+        read_only=True,
+        allow_null=True,
+        help_text="Slips only: the task's finish now; null once the task is finished.",
+    )
+    batch_id = serializers.UUIDField(read_only=True, allow_null=True)
+    reason = serializers.CharField(read_only=True, help_text="The requester's reason, or empty.")
+    decided_by_name = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Who decided; null while pending or when the system closed the row.",
+    )
+    decided_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    decision_reason = serializers.CharField(read_only=True)
 
 
 class SprintScopeChangeSummarySerializer(serializers.Serializer[dict[str, Any]]):
@@ -10914,6 +11109,9 @@ class SprintScopeChangeSummarySerializer(serializers.Serializer[dict[str, Any]])
     points_added = serializers.IntegerField(read_only=True)
     points_removed = serializers.IntegerField(read_only=True)
     added_mid_sprint_count = serializers.IntegerField(read_only=True)
+    pending_slip_count = serializers.IntegerField(
+        read_only=True, help_text="Commitment slips waiting for a decision."
+    )
     total = serializers.IntegerField(read_only=True)
 
 
@@ -11225,6 +11423,13 @@ class SprintScopeChangeSerializer(serializers.Serializer[dict[str, Any]]):
     status = serializers.CharField(read_only=True)
     goal_impact = serializers.BooleanField(read_only=True)
     added_at = serializers.DateTimeField(read_only=True)
+    # ADR-1485 D1: ``slip`` rows carry the proposed dates and the batch they share.
+    kind = serializers.CharField(read_only=True)
+    proposed_start = serializers.DateField(read_only=True, allow_null=True)
+    proposed_finish = serializers.DateField(read_only=True, allow_null=True)
+    batch_id = serializers.UUIDField(read_only=True, allow_null=True)
+    reason = serializers.CharField(read_only=True)
+    decision_reason = serializers.CharField(read_only=True)
 
 
 class SprintScopeChangeSingleActionResultSerializer(SprintScopeChangeSerializer):
@@ -11240,6 +11445,16 @@ class SprintScopeChangeSingleActionResultSerializer(SprintScopeChangeSerializer)
     pending_count = serializers.IntegerField(read_only=True)
 
 
+class ScopeChangeDecisionSerializer(serializers.Serializer[dict[str, Any]]):
+    """Optional body for the single-row accept/reject actions (ADR-1485 D1, D10).
+
+    ``reason`` is the decider's reason, stored on the row as ``decision_reason``
+    and returned to the requester on a rejected commitment slip.
+    """
+
+    reason = serializers.CharField(required=False, allow_blank=True, max_length=500, default="")
+
+
 class ScopeChangeBulkSerializer(serializers.Serializer[dict[str, Any]]):
     """Validate the body for the bulk accept/reject endpoints (ADR-0102 §5).
 
@@ -11250,6 +11465,16 @@ class ScopeChangeBulkSerializer(serializers.Serializer[dict[str, Any]]):
     ids = serializers.ListField(
         child=serializers.UUIDField(), required=False, default=list, allow_empty=True
     )
+    # ADR-1485 D1: act on one commitment-slip batch (every slip one request made).
+    batch_id = serializers.UUIDField(required=False, allow_null=True, default=None)
+    reason = serializers.CharField(required=False, allow_blank=True, max_length=500, default="")
+
+
+class ScopeChangeBulkFailureSerializer(serializers.Serializer[dict[str, Any]]):
+    """One row a bulk scope-change decision could not apply; it stays PENDING."""
+
+    id = serializers.UUIDField(read_only=True)
+    detail = serializers.CharField(read_only=True)
 
 
 class SprintScopeChangeBulkResultSerializer(serializers.Serializer[dict[str, Any]]):
@@ -11265,6 +11490,12 @@ class SprintScopeChangeBulkResultSerializer(serializers.Serializer[dict[str, Any
 
     accepted = SprintScopeChangeSerializer(many=True, read_only=True, required=False)
     rejected = SprintScopeChangeSerializer(many=True, read_only=True, required=False)
+    # ADR-1485 D1: slips closed without applying (REJECTED, dates kept): refused as
+    # stale, or superseded by another row for the same task accepted in this call.
+    stale = SprintScopeChangeSerializer(many=True, read_only=True, required=False)
+    # Rows whose decision raised (e.g. an accepted slip's replay failed validation);
+    # they were left PENDING.
+    failed = ScopeChangeBulkFailureSerializer(many=True, read_only=True, required=False)
     pending_count = serializers.IntegerField(read_only=True)
 
 

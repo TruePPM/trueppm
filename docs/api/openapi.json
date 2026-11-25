@@ -45970,10 +45970,26 @@
                 "tags": [
                     "sprints"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ScopeChangeDecisionRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ScopeChangeDecisionRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ScopeChangeDecisionRequest"
+                            }
+                        }
+                    }
+                },
                 "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
                     {
                         "jwtAuth": []
                     },
@@ -46004,6 +46020,16 @@
                     "403": {
                         "description": "Accepting scope changes is team-owned (Admin or SM/PO facet)."
                     },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CommitmentSlipStale"
+                                }
+                            }
+                        },
+                        "description": "`commitment_slip_stale` (ADR-1485 D1): the slip no longer applies — the task's dates changed after it was proposed, the task was deleted or left the sprint, or the sprint is no longer active. The dates were left alone and the row is closed as rejected with the why in `decision_reason`."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -46015,6 +46041,39 @@
                                             "type": "string",
                                             "example": "Request was throttled. Expected available in 42 seconds."
                                         }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
+                                            "example": "Request body must be a JSON object."
+                                        },
+                                        "code": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
+                                            "example": "invalid_body"
+                                        }
+                                    },
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -46056,10 +46115,26 @@
                 "tags": [
                     "sprints"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ScopeChangeDecisionRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ScopeChangeDecisionRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ScopeChangeDecisionRequest"
+                            }
+                        }
+                    }
+                },
                 "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
                     {
                         "jwtAuth": []
                     },
@@ -46101,6 +46176,39 @@
                                             "type": "string",
                                             "example": "Request was throttled. Expected available in 42 seconds."
                                         }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
+                                            "example": "Request body must be a JSON object."
+                                        },
+                                        "code": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
+                                            "example": "invalid_body"
+                                        }
+                                    },
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -50638,9 +50746,6 @@
                 },
                 "security": [
                     {
-                        "personalApiTokenAuth": []
-                    },
-                    {
                         "jwtAuth": []
                     },
                     {
@@ -50778,9 +50883,6 @@
                     }
                 },
                 "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
                     {
                         "jwtAuth": []
                     },
@@ -53942,7 +54044,7 @@
                                 }
                             }
                         },
-                        "description": "The declared `structure_role` contradicts the tree (#2950, ADR-0844). Returned when a client declares `work` on a row that has structural children: the derived fact wins for every computation, so storing the declaration would leave the row rendering as a task while every rollup treats it as a phase.\n\n`409` rather than `400` because the payload is valid — it is the current state of the tree that forbids it, and that state can change without the client doing anything wrong. The body carries the derived role so the refusal is recoverable in one round trip."
+                        "description": "One of two bodies, told apart by `code`; both carry `detail` and `structure_role`. `commitment_slip_requires_acceptance` (ADR-1485 D1; also `scope_change_id`, `batch_id`, `sprint_id`, `sprint_name`, `proposed_start`, `proposed_finish`, `sprint_finish_date`, `current_start`, `current_finish`): the date write would move sprint-committed work past the ACTIVE sprint's end and the caller is not the accept authority (Admin+ or the team's SM/PO facet; every API token). The write was NOT applied; it is recorded as a PENDING slip (`scope_change_id`) for that authority to accept or reject.\n\n`structure_role_contradicted`: the declared `structure_role` contradicts the tree (#2950, ADR-0844). Returned when a client declares `work` on a row that has structural children: the derived fact wins for every computation, so storing the declaration would leave the row rendering as a task while every rollup treats it as a phase.\n\n`409` rather than `400` because the payload is valid — it is the current state of the tree that forbids it, and that state can change without the client doing anything wrong. The body carries the derived role so the refusal is recoverable in one round trip."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -54085,7 +54187,7 @@
                                 }
                             }
                         },
-                        "description": "The declared `structure_role` contradicts the tree — see the note on `PUT`. This is the path the outline actually uses."
+                        "description": "A commitment slip held for acceptance (`scope_change_id`, `batch_id`, `sprint_id`, `sprint_name`, `proposed_start`, `proposed_finish`, `sprint_finish_date`, `current_start`, `current_finish`), or the declared `structure_role` contradicts the tree (`structure_role`) — told apart by `code`; see the note on `PUT`. This is the path the outline actually uses."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -64450,6 +64552,28 @@
                     "task_count"
                 ]
             },
+            "CommitmentSlipStale": {
+                "type": "object",
+                "description": "The ``409`` body of a slip accept refused because the slip no longer applies.",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "Always `commitment_slip_stale`."
+                    },
+                    "detail": {
+                        "type": "string"
+                    },
+                    "scope_change_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                },
+                "required": [
+                    "code",
+                    "detail",
+                    "scope_change_id"
+                ]
+            },
             "CommitmentSourceEnum": {
                 "enum": [
                     "baseline",
@@ -74428,6 +74552,12 @@
                         "description": "Why this change was made. Recorded in plan history and sent to the people assigned to the task when the project is committed. Ignored on a draft — authoring a plan nobody has agreed to yet carries no reason.",
                         "maxLength": 500
                     },
+                    "slip_reason": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "description": "Why this date change moves committed work past the end of its active sprint (ADR-1485 D1). Required when a caller who can accept scope changes makes that change directly; recorded on the commitment-slip row. A caller without that authority gets a 409 instead.",
+                        "maxLength": 500
+                    },
                     "structure_role": {
                         "allOf": [
                             {
@@ -75086,6 +75216,53 @@
                         "maxLength": 3
                     }
                 }
+            },
+            "PendingCommitmentSlip": {
+                "type": "object",
+                "description": "The task read's ``pending_commitment_slip`` object (ADR-1485 D1).",
+                "properties": {
+                    "scope_change_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "sprint_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "proposed_start": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "proposed_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "batch_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "reason": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "The requester's reason, or empty."
+                    }
+                },
+                "required": [
+                    "batch_id",
+                    "proposed_finish",
+                    "proposed_start",
+                    "reason",
+                    "scope_change_id",
+                    "sprint_id"
+                ]
             },
             "PendingDispositionEnum": {
                 "enum": [
@@ -85585,6 +85762,25 @@
                     "start"
                 ]
             },
+            "ScopeChangeBulkFailure": {
+                "type": "object",
+                "description": "One row a bulk scope-change decision could not apply; it stays PENDING.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "detail": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "detail",
+                    "id"
+                ]
+            },
             "ScopeChangeBulkRequest": {
                 "type": "object",
                 "description": "Validate the body for the bulk accept/reject endpoints (ADR-0102 §5).\n\n``ids`` is the list of SprintScopeChange UUIDs to act on; omit or pass an\nempty list to act on *all* PENDING scope changes in the sprint.",
@@ -85595,6 +85791,27 @@
                             "type": "string",
                             "format": "uuid"
                         }
+                    },
+                    "batch_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "reason": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 500
+                    }
+                }
+            },
+            "ScopeChangeDecisionRequest": {
+                "type": "object",
+                "description": "Optional body for the single-row accept/reject actions (ADR-1485 D1, D10).\n\n``reason`` is the decider's reason, stored on the row as ``decision_reason``\nand returned to the requester on a rejected commitment slip.",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 500
                     }
                 }
             },
@@ -88070,13 +88287,49 @@
                         "type": "string",
                         "format": "date-time",
                         "readOnly": true
+                    },
+                    "kind": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "proposed_start": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "proposed_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "batch_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "decision_reason": {
+                        "type": "string",
+                        "readOnly": true
                     }
                 },
                 "required": [
                     "added_at",
+                    "batch_id",
+                    "decision_reason",
                     "goal_impact",
                     "id",
                     "item_name",
+                    "kind",
+                    "proposed_finish",
+                    "proposed_start",
+                    "reason",
                     "sprint",
                     "status",
                     "task"
@@ -88100,6 +88353,20 @@
                         },
                         "readOnly": true
                     },
+                    "stale": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SprintScopeChange"
+                        },
+                        "readOnly": true
+                    },
+                    "failed": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ScopeChangeBulkFailure"
+                        },
+                        "readOnly": true
+                    },
                     "pending_count": {
                         "type": "integer",
                         "readOnly": true
@@ -88107,8 +88374,10 @@
                 },
                 "required": [
                     "accepted",
+                    "failed",
                     "pending_count",
-                    "rejected"
+                    "rejected",
+                    "stale"
                 ]
             },
             "SprintScopeChangeEvent": {
@@ -88146,16 +88415,97 @@
                     "status": {
                         "type": "string",
                         "readOnly": true
+                    },
+                    "kind": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "task_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "proposed_start": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "proposed_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "sprint_finish_date": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Slips only: the sprint's end date."
+                    },
+                    "current_start": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Slips only: the task's planned start now (not when it was proposed)."
+                    },
+                    "current_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Slips only: the task's finish now; null once the task is finished."
+                    },
+                    "batch_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "reason": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "The requester's reason, or empty."
+                    },
+                    "decided_by_name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Who decided; null while pending or when the system closed the row."
+                    },
+                    "decided_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "decision_reason": {
+                        "type": "string",
+                        "readOnly": true
                     }
                 },
                 "required": [
                     "added_at",
                     "added_by_name",
+                    "batch_id",
+                    "current_finish",
+                    "current_start",
+                    "decided_at",
+                    "decided_by_name",
+                    "decision_reason",
                     "goal_impact",
                     "id",
                     "item_name",
+                    "kind",
+                    "proposed_finish",
+                    "proposed_start",
+                    "reason",
+                    "sprint_finish_date",
                     "status",
-                    "story_points"
+                    "story_points",
+                    "task_id"
                 ]
             },
             "SprintScopeChangePayload": {
@@ -88219,6 +88569,36 @@
                         "format": "date-time",
                         "readOnly": true
                     },
+                    "kind": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "proposed_start": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "proposed_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "batch_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "decision_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "pending_count": {
                         "type": "integer",
                         "readOnly": true
@@ -88226,10 +88606,16 @@
                 },
                 "required": [
                     "added_at",
+                    "batch_id",
+                    "decision_reason",
                     "goal_impact",
                     "id",
                     "item_name",
+                    "kind",
                     "pending_count",
+                    "proposed_finish",
+                    "proposed_start",
+                    "reason",
                     "sprint",
                     "status",
                     "task"
@@ -88251,6 +88637,11 @@
                         "type": "integer",
                         "readOnly": true
                     },
+                    "pending_slip_count": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "description": "Commitment slips waiting for a decision."
+                    },
                     "total": {
                         "type": "integer",
                         "readOnly": true
@@ -88258,6 +88649,7 @@
                 },
                 "required": [
                     "added_mid_sprint_count",
+                    "pending_slip_count",
                     "points_added",
                     "points_removed",
                     "total"
@@ -89137,19 +89529,68 @@
             },
             "StructureRoleConflict": {
                 "type": "object",
-                "description": "The body of the ``409`` a contradicted ``structure_role`` returns (#2976).\n\nDeclared as a real serializer rather than ``OpenApiTypes.OBJECT`` so the shape\nis visible in ``openapi.json``. #2942 records what OBJECT costs: the whole\nresponse becomes invisible to anyone diffing the schema, which is the only\nearly-warning mechanism an integrator has.\n\n**Every field is a string, and that is a contract, not an accident.** DRF\nwraps every value in an exception detail as an ``ErrorDetail`` (a ``str``\nsubclass), so a boolean here would reach a client as ``\"True\"``. Declaring\nthe types explicitly is what stops the next person adding a boolean field to\nthis body and shipping that trap.",
+                "description": "The ``409`` body of a task ``PUT``/``PATCH``: two shapes, told apart by ``code``.\n\nBoth ``structure_role_contradicted`` (#2976) and\n``commitment_slip_requires_acceptance`` (ADR-1485 D1, the body\n``commitment_slip_conflict_body`` builds) carry ``detail``, ``code`` and\n``structure_role``, so those are required; the slip fields are present only on\nthe second. The same slip body is a ``conflicts.tasks[]`` entry on the sync\nupload (plus the row ``id``); the bulk route carries its id fields on the\n``rejected[]`` entry.\n\nOne flat serializer rather than a ``oneOf``: the schema-breaking differ cannot\nsee inside ``oneOf``, so splitting it reports the published fields as removed.\nThe component keeps its published name for the same reason.\n\nDeclared as a real serializer rather than ``OpenApiTypes.OBJECT`` so the shape\nis visible in ``openapi.json``. #2942 records what OBJECT costs: the whole\nresponse becomes invisible to anyone diffing the schema, which is the only\nearly-warning mechanism an integrator has.\n\n**Every field is a string, and that is a contract, not an accident.** DRF\nwraps every value in an exception detail as an ``ErrorDetail`` (a ``str``\nsubclass), so a boolean here would reach a client as ``\"True\"``. Declaring\nthe types explicitly is what stops the next person adding a boolean field to\nthis body and shipping that trap.",
                 "properties": {
                     "detail": {
                         "type": "string",
-                        "description": "Human-readable explanation naming the contradiction."
+                        "description": "Human-readable explanation of the conflict."
                     },
                     "code": {
                         "type": "string",
-                        "description": "Always `structure_role_contradicted`."
+                        "description": "`structure_role_contradicted` or `commitment_slip_requires_acceptance`."
                     },
                     "structure_role": {
                         "type": "string",
-                        "description": "The role the tree actually implies — `container`. Sent so the caller can correct the declaration without a second round trip."
+                        "description": "The role the tree actually implies for this task: `container` or `work`. Always `container` on `structure_role_contradicted`, so the caller can correct the declaration without a second round trip."
+                    },
+                    "scope_change_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Commitment slip only: the PENDING slip row."
+                    },
+                    "batch_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true,
+                        "description": "Commitment slip only: shared by every slip this request recorded."
+                    },
+                    "sprint_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Commitment slip only: the ACTIVE sprint."
+                    },
+                    "sprint_name": {
+                        "type": "string",
+                        "description": "Commitment slip only: that sprint's name."
+                    },
+                    "proposed_start": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true,
+                        "description": "Commitment slip only: the start date held, not applied."
+                    },
+                    "proposed_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true,
+                        "description": "Commitment slip only: the finish date held, not applied."
+                    },
+                    "sprint_finish_date": {
+                        "type": "string",
+                        "format": "date",
+                        "description": "Commitment slip only: the sprint's end date."
+                    },
+                    "current_start": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true,
+                        "description": "Commitment slip only: the task's planned start, unchanged by this request."
+                    },
+                    "current_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true,
+                        "description": "Commitment slip only: the task's finish, unchanged by this request."
                     }
                 },
                 "required": [
@@ -89303,7 +89744,7 @@
             },
             "SyncUploadConflicts": {
                 "type": "object",
-                "description": "The ``conflicts`` envelope of an upload response, keyed by collection name.\n\nEach entry is the REST-parity 409 body (``conflict_fields`` / ``server_value``\n/ ``client_value`` / ``server_version``) plus the row ``id`` — free-form here\nfor the same reason as the applied-row buckets above.",
+                "description": "The ``conflicts`` envelope of an upload response, keyed by collection name.\n\nEach entry is the REST-parity 409 body plus the row ``id`` — free-form here\nfor the same reason as the applied-row buckets above. Two shapes occur: a\nlost-update conflict (``conflict_fields`` / ``server_value`` / ``client_value``\n/ ``server_version``), and a commitment slip held for acceptance (ADR-1485 D1:\n``code: commitment_slip_requires_acceptance`` with the slip fields of\n``StructureRoleConflict``, ``scope_change_id`` / ``batch_id`` / ``sprint_id`` /\n``sprint_name`` / ``proposed_start`` / ``proposed_finish`` /\n``sprint_finish_date`` / ``current_start`` / ``current_finish``).",
                 "properties": {
                     "tasks": {
                         "type": "array",
@@ -89311,7 +89752,8 @@
                             "type": "object",
                             "additionalProperties": {}
                         },
-                        "readOnly": true
+                        "readOnly": true,
+                        "description": "Rows not applied. A lost-update entry carries `conflict_fields`, `server_value`, `client_value` and `server_version`; a commitment-slip entry carries `code: commitment_slip_requires_acceptance`, `structure_role`, `scope_change_id`, `batch_id`, `sprint_id`, `sprint_name`, `proposed_start`, `proposed_finish`, `sprint_finish_date`, `current_start` and `current_finish` (the slip fields of the `StructureRoleConflict` schema). Both carry the row `id`."
                     }
                 },
                 "required": [
@@ -89963,6 +90405,16 @@
                         },
                         "readOnly": true
                     },
+                    "pending_commitment_slip": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/PendingCommitmentSlip"
+                            }
+                        ],
+                        "nullable": true,
+                        "readOnly": true,
+                        "description": "A date change held for acceptance in the sprint the task is in now, or null. When more than one requester has one pending, the newest; `GET sprints/{id}/scope-changes/` lists all."
+                    },
                     "milestone_rollup": {
                         "type": "object",
                         "additionalProperties": {},
@@ -90202,6 +90654,7 @@
                     "own_status",
                     "parent_governance_inherited",
                     "parent_id",
+                    "pending_commitment_slip",
                     "predecessor_count",
                     "prioritization_score",
                     "project",
@@ -90727,9 +91180,28 @@
                                 "$ref": "#/components/schemas/TaskBulkRefusalCodeEnum"
                             }
                         ],
-                        "description": "Stable machine code, from a closed set (#3037). Retrying the identical row is futile for `malformed_id`, `self_reference`, `cyclic_dependency` and `invalid`; it may succeed later for `unresolved_endpoint`, `conflict` and `forbidden`; and `tombstoned` / `milestone_gate` are documented no-ops rather than failures. `id_unavailable` is deliberately non-asserting — it does not reveal whether the id exists in a project the caller cannot see.\n\n* `malformed_id` - Malformed id\n* `id_unavailable` - Id unavailable\n* `not_found` - Not found\n* `forbidden` - Forbidden\n* `invalid` - Invalid\n* `conflict` - Conflict\n* `cyclic_dependency` - Cyclic dependency\n* `self_reference` - Self reference\n* `unresolved_endpoint` - Unresolved endpoint\n* `tombstoned` - Tombstoned\n* `milestone_gate` - Milestone gate"
+                        "description": "Stable machine code, from a closed set (#3037). Retrying the identical row is futile for `malformed_id`, `self_reference`, `cyclic_dependency` and `invalid`; it may succeed later for `unresolved_endpoint`, `conflict` and `forbidden`; and `tombstoned` / `milestone_gate` are documented no-ops rather than failures. `id_unavailable` is deliberately non-asserting — it does not reveal whether the id exists in a project the caller cannot see. `commitment_slip_requires_acceptance` means the row was recorded as a PENDING commitment slip (ADR-1485 D1) instead of applied; the four slip fields below are set only on that code.\n\n* `malformed_id` - Malformed id\n* `id_unavailable` - Id unavailable\n* `not_found` - Not found\n* `forbidden` - Forbidden\n* `invalid` - Invalid\n* `conflict` - Conflict\n* `cyclic_dependency` - Cyclic dependency\n* `self_reference` - Self reference\n* `unresolved_endpoint` - Unresolved endpoint\n* `tombstoned` - Tombstoned\n* `milestone_gate` - Milestone gate\n* `commitment_slip_requires_acceptance` - Commitment slip requires acceptance"
                     },
                     "message": {
+                        "type": "string"
+                    },
+                    "scope_change_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "The PENDING slip row recorded for this op (slip code only)."
+                    },
+                    "batch_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true,
+                        "description": "Shared by every slip this request recorded; decide them together."
+                    },
+                    "sprint_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "The ACTIVE sprint the slip would move work past."
+                    },
+                    "sprint_name": {
                         "type": "string"
                     }
                 },
@@ -90752,10 +91224,11 @@
                     "self_reference",
                     "unresolved_endpoint",
                     "tombstoned",
-                    "milestone_gate"
+                    "milestone_gate",
+                    "commitment_slip_requires_acceptance"
                 ],
                 "type": "string",
-                "description": "* `malformed_id` - Malformed id\n* `id_unavailable` - Id unavailable\n* `not_found` - Not found\n* `forbidden` - Forbidden\n* `invalid` - Invalid\n* `conflict` - Conflict\n* `cyclic_dependency` - Cyclic dependency\n* `self_reference` - Self reference\n* `unresolved_endpoint` - Unresolved endpoint\n* `tombstoned` - Tombstoned\n* `milestone_gate` - Milestone gate",
+                "description": "* `malformed_id` - Malformed id\n* `id_unavailable` - Id unavailable\n* `not_found` - Not found\n* `forbidden` - Forbidden\n* `invalid` - Invalid\n* `conflict` - Conflict\n* `cyclic_dependency` - Cyclic dependency\n* `self_reference` - Self reference\n* `unresolved_endpoint` - Unresolved endpoint\n* `tombstoned` - Tombstoned\n* `milestone_gate` - Milestone gate\n* `commitment_slip_requires_acceptance` - Commitment slip requires acceptance",
                 "x-trueppm-enum": "open"
             },
             "TaskBulkRequest": {
@@ -91104,6 +91577,12 @@
                         "type": "string",
                         "writeOnly": true,
                         "description": "Why this change was made. Recorded in plan history and sent to the people assigned to the task when the project is committed. Ignored on a draft — authoring a plan nobody has agreed to yet carries no reason.",
+                        "maxLength": 500
+                    },
+                    "slip_reason": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "description": "Why this date change moves committed work past the end of its active sprint (ADR-1485 D1). Required when a caller who can accept scope changes makes that change directly; recorded on the commitment-slip row. A caller without that authority gets a 409 instead.",
                         "maxLength": 500
                     },
                     "structure_role": {
@@ -92412,6 +92891,12 @@
                         "description": "Why this change was made. Recorded in plan history and sent to the people assigned to the task when the project is committed. Ignored on a draft — authoring a plan nobody has agreed to yet carries no reason.",
                         "maxLength": 500
                     },
+                    "slip_reason": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "description": "Why this date change moves committed work past the end of its active sprint (ADR-1485 D1). Required when a caller who can accept scope changes makes that change directly; recorded on the commitment-slip row. A caller without that authority gets a 409 instead.",
+                        "maxLength": 500
+                    },
                     "structure_role": {
                         "allOf": [
                             {
@@ -93636,6 +94121,16 @@
                         },
                         "readOnly": true
                     },
+                    "pending_commitment_slip": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/PendingCommitmentSlip"
+                            }
+                        ],
+                        "nullable": true,
+                        "readOnly": true,
+                        "description": "A date change held for acceptance in the sprint the task is in now, or null. When more than one requester has one pending, the newest; `GET sprints/{id}/scope-changes/` lists all."
+                    },
                     "milestone_rollup": {
                         "type": "object",
                         "additionalProperties": {},
@@ -93882,6 +94377,7 @@
                     "own_status",
                     "parent_governance_inherited",
                     "parent_id",
+                    "pending_commitment_slip",
                     "predecessor_count",
                     "prioritization_score",
                     "project",

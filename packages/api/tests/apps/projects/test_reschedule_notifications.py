@@ -163,8 +163,14 @@ def test_active_sprint_notifies_team_excluding_assignee_and_actor(
     Task.objects.create(
         project=project, name="Carol task", duration=1, assignee=carol, sprint=sprint
     )
+    # 6/17 is past the sprint end, so the Admin's move is a commitment slip and
+    # needs a reason (ADR-1485 D1); the team notice must still go out.
     with django_capture_on_commit_callbacks(execute=True):
-        resp = client.patch(_task_url(moved), {"planned_start": "2026-06-17"}, format="json")
+        resp = client.patch(
+            _task_url(moved),
+            {"planned_start": "2026-06-17", "slip_reason": "Vendor delay"},
+            format="json",
+        )
     assert resp.status_code == 200, resp.data
 
     # Assignee gets exactly one targeted notice; never the team event too.

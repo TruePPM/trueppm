@@ -7,7 +7,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { createElement } from 'react';
-import { useScopeChangeActions, useScopeDecisionFeedback } from './useScopeChangeActions';
+import {
+  useScopeChangeActions,
+  useScopeDecisionFeedback,
+  useSlipDecision,
+} from './useScopeChangeActions';
 
 const { postMock, toastMock, updateTaskMutate } = vi.hoisted(() => ({
   postMock: vi.fn().mockResolvedValue({ data: { pending_count: 0 } }),
@@ -99,25 +103,40 @@ describe('useScopeChangeActions — failure feedback (#2149)', () => {
   });
 
   const cases: Array<[string, (r: ReturnType<typeof useScopeChangeActions>) => void, string]> = [
-    ['acceptOne', (r) => r.acceptOne.mutate('sc-1'), "Couldn't accept the scope change — try again."],
-    ['rejectOne', (r) => r.rejectOne.mutate('sc-1'), "Couldn't reject the scope change — try again."],
-    ['acceptBulk', (r) => r.acceptBulk.mutate(undefined), "Couldn't accept the pending items — try again."],
-    ['rejectBulk', (r) => r.rejectBulk.mutate(undefined), "Couldn't reject the pending items — try again."],
+    [
+      'acceptOne',
+      (r) => r.acceptOne.mutate('sc-1'),
+      "Couldn't accept the scope change — try again.",
+    ],
+    [
+      'rejectOne',
+      (r) => r.rejectOne.mutate('sc-1'),
+      "Couldn't reject the scope change — try again.",
+    ],
+    [
+      'acceptBulk',
+      (r) => r.acceptBulk.mutate(undefined),
+      "Couldn't accept the pending items — try again.",
+    ],
+    [
+      'rejectBulk',
+      (r) => r.rejectBulk.mutate(undefined),
+      "Couldn't reject the pending items — try again.",
+    ],
   ];
 
-  it.each(cases)('%s toasts the failure (incl. the authoritative 403)', async (
-    _name,
-    fire,
-    message,
-  ) => {
-    postMock.mockRejectedValue({ response: { status: 403 } });
-    const qc = makeErrorQC();
-    const { result } = renderHook(() => useScopeChangeActions('p1', 's1'), {
-      wrapper: makeWrapper(qc),
-    });
-    fire(result.current);
-    await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith(message));
-  });
+  it.each(cases)(
+    '%s toasts the failure (incl. the authoritative 403)',
+    async (_name, fire, message) => {
+      postMock.mockRejectedValue({ response: { status: 403 } });
+      const qc = makeErrorQC();
+      const { result } = renderHook(() => useScopeChangeActions('p1', 's1'), {
+        wrapper: makeWrapper(qc),
+      });
+      fire(result.current);
+      await waitFor(() => expect(toastMock.error).toHaveBeenCalledWith(message));
+    },
+  );
 });
 
 describe('useScopeDecisionFeedback — success/undo contract (#2149)', () => {
@@ -166,5 +185,48 @@ describe('useScopeDecisionFeedback — success/undo contract (#2149)', () => {
     result.current.confirmRejectedWithUndo('t9', 'Login flow');
     expect(toastMock.success).toHaveBeenCalledWith('Login flow removed from the sprint.');
     expect(toastMock.action).not.toHaveBeenCalled();
+  });
+});
+
+describe('useSlipDecision (ADR-1485 D1)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('toasts a single-row 409 commitment_slip_stale as out of date, not an error', async () => {
+    const { AxiosError, AxiosHeaders } = await import('axios');
+    const headers = new AxiosHeaders();
+    postMock.mockRejectedValueOnce(
+      new AxiosError('stale', 'ERR', { headers }, null, {
+        status: 409,
+        statusText: '',
+        headers: {},
+        config: { headers },
+        data: { code: 'commitment_slip_stale', detail: 'x', scope_change_id: 's1' },
+      }),
+    );
+    const toastInfo = vi.fn();
+    Object.assign(toastMock, { info: toastInfo });
+    const qc = makeErrorQC();
+    const { result } = renderHook(() => useSlipDecision('p1', 'sp1'), {
+      wrapper: makeWrapper(qc),
+    });
+    result.current.mutate({ accept: true, id: 's1' });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(toastInfo).toHaveBeenCalledWith(expect.stringMatching(/out of date/));
+    expect(toastMock.error).not.toHaveBeenCalled();
+  });
+
+  it('reports rows the batch accept could not apply', async () => {
+    postMock.mockResolvedValueOnce({
+      data: { accepted: [], stale: [], failed: [{ id: 's1', detail: 'x' }], pending_count: 1 },
+    });
+    const qc = makeErrorQC();
+    const { result } = renderHook(() => useSlipDecision('p1', 'sp1'), {
+      wrapper: makeWrapper(qc),
+    });
+    result.current.mutate({ accept: true, batchId: 'b1' });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(postMock).toHaveBeenCalledWith('/sprints/sp1/scope-changes/accept/', { batch_id: 'b1' });
+    expect(toastMock.error).toHaveBeenCalledWith(expect.stringMatching(/could not be applied/));
+    expect(toastMock.success).not.toHaveBeenCalled();
   });
 });

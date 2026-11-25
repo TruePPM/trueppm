@@ -76,3 +76,4 @@ phase_status_rollup_locked	Field-keyed ValidationError (ErrorDetail on `status`)
 subtask_on_phase	Field-keyed ValidationError (a list of one ErrorDetail on `parent_id`) — named in errors.md's #2550 section, #4376 audit confirmed the shape.
 summary_rollup_locked	Field-keyed ValidationError (ErrorDetail on `percent_complete`) — named in errors.md's #2550 section, #4376 audit confirmed the shape.
 time_log_on_phase	ValidationError raised with a bare ErrorDetail (no field key) — named in errors.md's #2550 section, #4376 audit confirmed the shape.
+commitment_slip_reason_required	Field-keyed ValidationError (ErrorDetail on `slip_reason`) — #2550 shape (ADR-1485 D1).

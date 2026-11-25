@@ -813,6 +813,13 @@ def apply_task_operations(
     after the view has returned. :func:`_settle_wbs_path_constraint` closes that gap
     for the one deferred constraint task rows can violate (#3070).
     """
+    from trueppm_api.apps.projects.services import (
+        COMMITMENT_SLIP_CODE,
+        CommitmentSlipDeferred,
+        commitment_slip_conflict_body,
+        record_deferred_slip,
+    )
+
     for index, op in enumerate(operations):
         handler = _OP_HANDLERS.get(op.get("op", ""))
         if handler is None:
@@ -832,6 +839,18 @@ def apply_task_operations(
                     # those two cases keeps the two extra statements off the rows that
                     # cannot need them, which matters on a large batch.
                     _settle_wbs_path_constraint()
+        except CommitmentSlipDeferred as exc:
+            # ADR-1485 D1: this row's date write would slip committed work and the
+            # caller cannot accept it. The row's savepoint has unwound, so the
+            # write is not applied; the PENDING slip row is recorded in the outer
+            # batch transaction, sharing the request's one batch_id.
+            _rollback_bookkeeping(out, before)
+            row = record_deferred_slip(exc, ctx.request)
+            body = commitment_slip_conflict_body(row)
+            out.reject(index, op.get("id"), COMMITMENT_SLIP_CODE, body["detail"])
+            out.rejected[-1].update(
+                {k: body[k] for k in ("scope_change_id", "batch_id", "sprint_id", "sprint_name")}
+            )
         except PermissionDenied as exc:
             _rollback_bookkeeping(out, before)
             out.reject(index, op.get("id"), CODE_FORBIDDEN, str(exc.detail))

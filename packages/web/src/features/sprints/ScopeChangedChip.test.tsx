@@ -31,7 +31,13 @@ describe('ScopeChangedChip', () => {
 
   it('opens the audit drawer on click', () => {
     const empty: SprintScopeChanges = {
-      summary: { points_added: 0, points_removed: 0, added_mid_sprint_count: 0, total: 0 },
+      summary: {
+        points_added: 0,
+        points_removed: 0,
+        added_mid_sprint_count: 0,
+        pending_slip_count: 0,
+        total: 0,
+      },
       events: [],
     };
     mockHook.mockReturnValue({ data: empty, isLoading: false } as ReturnType<

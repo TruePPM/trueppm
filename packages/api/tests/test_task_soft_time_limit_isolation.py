@@ -57,7 +57,7 @@ _EXEMPT: dict[tuple[str, str], tuple[int, str]] = {
     ("apps/integrations/me_work.py", "_maybe_enqueue_on_open_refresh"): (1, "request path"),
     ("apps/notifications/email_health.py", "_txt_records"): (2, "admin request path (DNS)"),
     ("apps/observability/otel/instrumentation.py", "reset_for_testing"): (1, "test helper"),
-    ("apps/projects/views.py", "_bulk_scope_change"): (1, "request path"),
+    ("apps/projects/services.py", "decide_scope_change_batch"): (1, "request path"),
     ("apps/sync/conflict.py", "_payload_changed_fields"): (2, "request path, no I/O"),
     ("apps/sync/consumers.py", "_presence_keepalive"): (1, "ASGI consumer, not a worker"),
     ("core/idempotent.py", "_run"): (1, "lock-extender thread; signal fires on main thread"),

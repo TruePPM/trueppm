@@ -243,7 +243,9 @@ def _shift_specs() -> tuple[DateShift, ...]:
         ),
         DateShift(
             "projects.SprintScopeChange",
-            ("added_at",),
+            # base_start is the planned_start a pending slip was proposed against: it
+            # must move with Task.planned_start or accepting would read it as stale.
+            ("added_at", "decided_at", "proposed_start", "proposed_finish", "base_start"),
             lambda p: SprintScopeChange.objects.filter(sprint__project__program=p),
         ),
         DateShift(

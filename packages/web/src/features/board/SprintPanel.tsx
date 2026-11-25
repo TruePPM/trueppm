@@ -138,6 +138,7 @@ export function SprintPanel({ projectId, methodology, boardCadence }: Props) {
       data-testid="sprint-panel"
     >
       <Header
+        projectId={projectId}
         sprint={sprint}
         isOpen={isOpen}
         onToggle={handleToggle}
@@ -270,6 +271,7 @@ function BurndownDisclosure({ sprintId, storageKey }: { sprintId: string; storag
 }
 
 interface HeaderProps {
+  projectId: string;
   sprint: ApiSprint;
   isOpen: boolean;
   onToggle: () => void;
@@ -284,6 +286,7 @@ interface HeaderProps {
 }
 
 function Header({
+  projectId,
   sprint,
   isOpen,
   onToggle,
@@ -373,7 +376,7 @@ function Header({
         )}
         {/* #543: visible audit badge when tasks were injected after activation —
             opens the team-readable scope-change drawer (who/when/what/points). */}
-        <SprintScopeBadge sprintId={sprint.id} />
+        <SprintScopeBadge sprintId={sprint.id} projectId={projectId} />
       </div>
       {canLinkMilestone && (
         <button

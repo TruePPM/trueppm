@@ -277,8 +277,6 @@ api/v1/projects/<uuid:project_pk>/mention-groups/<uuid:pk>/unmute/
 api/v1/projects/import/msproject/
 api/v1/retro-items/<pk>/
 api/v1/retro-items/<pk>/convert-to-action/
-api/v1/scope-changes/<pk>/accept/
-api/v1/scope-changes/<pk>/reject/
 api/v1/sprint-task-outcomes/<pk>/flag-for-backlog/
 api/v1/sprint-task-outcomes/<pk>/set-note/
 api/v1/sprint-task-outcomes/<pk>/set-presenter/
@@ -295,8 +293,6 @@ api/v1/sprints/<pk>/retro-board/
 api/v1/sprints/<pk>/retro/
 api/v1/sprints/<pk>/retrospective/action-items/<uuid:item_pk>/promote/
 api/v1/sprints/<pk>/retrospective/action-items/<uuid:item_pk>/pull-to-sprint/
-api/v1/sprints/<pk>/scope-changes/accept/
-api/v1/sprints/<pk>/scope-changes/reject/
 api/v1/sprints/<pk>/unbind-milestone/
 api/v1/sprints/<sprint_pk>/poker/
 api/v1/tasks/<pk>/suggestions/<uuid:suggestion_pk>/accept/

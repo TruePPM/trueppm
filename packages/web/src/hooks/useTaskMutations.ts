@@ -1,7 +1,15 @@
 import { useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import { handleSyncConflict, isSyncConflict } from '@/api/conflict';
+import {
+  asCommitmentSlip,
+  commitmentSlipMessage,
+  handleSyncConflict,
+  isSlipReasonRequired,
+  isSyncConflict,
+} from '@/api/conflict';
+import { requestSlipReason } from '@/stores/slipReasonPromptStore';
+import { toast } from '@/components/Toast';
 import {
   extractRejectReason,
   recordSchedulePreview,
@@ -127,6 +135,8 @@ export function useCreateTask(projectId: string | null) {
 export interface UpdateTaskPayload {
   id: string;
   projectId: string;
+  /** Required when an accept-authority caller slips committed work (ADR-1485 D1). */
+  slip_reason?: string;
   name?: string;
   duration?: number;
   percent_complete?: number;
@@ -340,6 +350,23 @@ export function useUpdateTask() {
       if (captureDemoOverlay(err, variables.id, scheduleDatesFromUpdatePayload(variables))) {
         return;
       }
+      // ADR-1485 D1: the caller may apply this slip but owes a reason. The rollback
+      // above already restored the dates, so Cancel leaves them unchanged. Both slip
+      // branches run BEFORE the rejection strip (as in `useRescheduleTask`): neither
+      // is a refusal, and the strip's Retry would file a second pending row.
+      if (isSlipReasonRequired(err)) {
+        void requestSlipReason().then((reason) => {
+          if (reason) mutateRef.current?.({ ...variables, slip_reason: reason });
+        });
+        return;
+      }
+      // ADR-1485 D1: the server deferred a commitment slip (a PENDING scope change),
+      // so the edit is waiting on an Admin+ decision. Say so; never the error toast.
+      const slip = asCommitmentSlip(err);
+      if (slip) {
+        toast.info(commitmentSlipMessage(slip));
+        return;
+      }
       // ADR-0784: surface the refusal instead of reverting the row in silence.
       rejectSchedulePreview(
         variables.id,
@@ -389,6 +416,8 @@ export function useUpdateTask() {
 export interface RescheduleTaskPayload {
   id: string;
   projectId: string;
+  /** Required when an accept-authority caller slips committed work (ADR-1485 D1). */
+  slip_reason?: string;
   planned_start?: string | null;
   duration?: number;
   /** Target finish date (#951) — the server derives the working-day `duration`
@@ -522,6 +551,20 @@ export function useRescheduleTask() {
           duration: payload.optimistic.duration,
         })
       ) {
+        return;
+      }
+      // ADR-1485 D1: reason owed for an applicable slip (see useUpdateTask).
+      if (isSlipReasonRequired(err)) {
+        void requestSlipReason().then((reason) => {
+          if (reason) mutateRef.current?.({ ...payload, slip_reason: reason });
+        });
+        return;
+      }
+      // ADR-1485 D1: a deferred commitment slip is a PENDING scope change, not a
+      // refusal. No rejection strip: its Retry would file a second pending row.
+      const slip = asCommitmentSlip(err);
+      if (slip) {
+        toast.info(commitmentSlipMessage(slip));
         return;
       }
       // ADR-0784: a silent revert is the defect. Surface the server's reason on

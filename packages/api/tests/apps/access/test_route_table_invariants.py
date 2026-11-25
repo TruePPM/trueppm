@@ -702,7 +702,13 @@ def _effective_permission_names(cls: type, action: str | None, method: str) -> s
     override = getattr(handler, "kwargs", {}).get("permission_classes")
     if override is not None:
         view.permission_classes = override
-    return {type(permission).__name__ for permission in view.get_permissions()}
+    names = {type(permission).__name__ for permission in view.get_permissions()}
+    # ADR-1485 D1: ``IsNotTokenForScopeDecision`` refuses every token exactly as
+    # ``IsNotTokenAuthenticated`` does (it only changes the audit mark), so it
+    # reads as that class here. ``IsNotFullTokenAuthenticated`` deliberately does not.
+    if "IsNotTokenForScopeDecision" in names:
+        names.add("IsNotTokenAuthenticated")
+    return names
 
 
 def _unsafe_pairs(entry: URLPattern, cls: type) -> list[tuple[str, str | None]]:

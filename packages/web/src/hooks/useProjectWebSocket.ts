@@ -1041,9 +1041,15 @@ function registerSprintHandlers(on: OnFn, deps: WsHandlerDeps): void {
       void queryClient.invalidateQueries({
         queryKey: ['sprint', scopeSprintId, 'burndown'],
       });
+      // The badge and the drawer: a peer's proposal or decision changes them.
+      void queryClient.invalidateQueries({
+        queryKey: ['sprint', scopeSprintId, 'scope-changes'],
+      });
     } else {
       void queryClient.invalidateQueries({
-        predicate: (q) => q.queryKey[0] === 'sprint' && q.queryKey[2] === 'burndown',
+        predicate: (q) =>
+          q.queryKey[0] === 'sprint' &&
+          (q.queryKey[2] === 'burndown' || q.queryKey[2] === 'scope-changes'),
       });
     }
   });

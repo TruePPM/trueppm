@@ -60,3 +60,51 @@ export function handleSyncConflict(error: unknown, onReload: () => void): boolea
   );
   return true;
 }
+
+/**
+ * Structured 409 body for a commitment slip the caller cannot apply (ADR-1485 D1).
+ *
+ * The date write moved committed sprint work past the end of its ACTIVE sprint.
+ * The server did NOT apply it: it recorded a PENDING scope change that someone
+ * who can accept scope changes (Admin+) decides. The edit is waiting, not lost.
+ */
+export interface CommitmentSlipConflict {
+  code: 'commitment_slip_requires_acceptance';
+  detail: string;
+  /** The role the tree implies for the task. */
+  structure_role: 'work' | 'container';
+  scope_change_id: string;
+  batch_id: string | null;
+  sprint_id: string;
+  sprint_name: string;
+  proposed_start: string | null;
+  proposed_finish: string | null;
+  /** The end date of the sprint the move would pass. */
+  sprint_finish_date?: string;
+  /** The task's planned start and finish, which this request left unchanged. */
+  current_start?: string | null;
+  current_finish?: string | null;
+}
+
+/** Narrow an unknown mutation error to a {@link CommitmentSlipConflict} 409, or null. */
+export function asCommitmentSlip(error: unknown): CommitmentSlipConflict | null {
+  if (!axios.isAxiosError(error) || error.response?.status !== 409) return null;
+  const data = error.response.data as Partial<CommitmentSlipConflict> | undefined;
+  if (data?.code === 'commitment_slip_requires_acceptance') return data as CommitmentSlipConflict;
+  return null;
+}
+
+/** The copy for a deferred slip: "Waiting for a Sprint 4 decision". */
+export function commitmentSlipMessage(slip: Pick<CommitmentSlipConflict, 'sprint_name'>): string {
+  return `Waiting for a ${slip.sprint_name} decision`;
+}
+
+/**
+ * True when the server needs a reason for a commitment slip the caller may apply
+ * (a 400 carrying a `slip_reason` field error, ADR-1485 D1).
+ */
+export function isSlipReasonRequired(error: unknown): boolean {
+  if (!axios.isAxiosError(error) || error.response?.status !== 400) return false;
+  const data = error.response.data as { slip_reason?: unknown } | undefined;
+  return Array.isArray(data?.slip_reason);
+}
