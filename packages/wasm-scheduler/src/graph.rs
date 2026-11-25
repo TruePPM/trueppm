@@ -454,7 +454,7 @@ mod tests {
             sprint_length_days: None,
         };
         // The cycle must be reported as the full path (e.g. A → B → A), matching
-        // Python's networkx.find_cycle form, not a doubled single node (#1862).
+        // the Python engine's cycle form, not a doubled single node (#1862).
         match build_graph(&project) {
             Err(GraphBuildError::Cyclic(err)) => {
                 assert_eq!(
