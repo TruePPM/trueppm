@@ -137,6 +137,10 @@ def recalculate_schedule(
         from trueppm_api.apps.scheduling.forecast_recompute import notify_if_forecast_stale
 
         notify_if_forecast_stale(project_id)
+
+        from trueppm_api.apps.scheduling.headline_forecast import note_headline_forecast_kind
+
+        note_headline_forecast_kind(project_id)
     except TaskRunProjectGone:
         # The project was deleted while this message was queued (or held in the
         # lock-retry loop). Return normally: raising would dead-letter a task
@@ -2874,8 +2878,11 @@ def _run_program_schedule(program_id: str, task: object | None = None) -> None:
     )
 
     # schedule.recalculated webhook per member project, after commit.
+    from trueppm_api.apps.scheduling.headline_forecast import note_headline_forecast_kind
+
     for p in graph.member_projects:
         pid = str(p.id)
+        note_headline_forecast_kind(pid)
         project_tasks = by_project.get(p.id, [])
         project_finish = max(
             (t.early_finish for t in project_tasks if t.early_finish is not None),

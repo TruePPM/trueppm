@@ -20618,11 +20618,16 @@ class ProjectForecastView(McpReadableViewMixin, APIView):
             can_read_signal,
             suppress_velocity_summary,
         )
+        from trueppm_api.apps.scheduling.headline_forecast import caller_headline_forecast
 
         project = get_object_or_404(Project, pk=pk, is_deleted=False)
         self.check_object_permissions(request, project)
         # velocity-unfiltered-ok: suppressed below when can_read_signal is False (#981).
         data = project_forecast(project.pk)
+        velocity_visible = can_read_signal(request, project.pk, "velocity")
+        headline_kind, headline_reason = caller_headline_forecast(
+            project.pk, velocity_visible=velocity_visible
+        )
         velocity = data["velocity"]
         remaining = data["remaining_committed_points"]
         stc_low = data["sprints_to_complete_low"]
@@ -20634,7 +20639,7 @@ class ProjectForecastView(McpReadableViewMixin, APIView):
         # remaining-points basis) from it, so a below-audience reader suppressed on
         # /velocity/ must be suppressed here too — otherwise /forecast/ is a
         # side-channel back to the same band (#981).
-        if not can_read_signal(request, project.pk, "velocity"):
+        if not velocity_visible:
             velocity = suppress_velocity_summary(velocity)
             remaining = None
             stc_low = None
@@ -20661,6 +20666,8 @@ class ProjectForecastView(McpReadableViewMixin, APIView):
                 "sprints_to_complete_low": stc_low,
                 "sprints_to_complete_high": stc_high,
                 "milestones": milestones,
+                "headline_forecast_kind": headline_kind,
+                "headline_forecast_reason": headline_reason,
             },
             status=status.HTTP_200_OK,
         )

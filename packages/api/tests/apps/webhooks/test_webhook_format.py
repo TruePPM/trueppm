@@ -84,10 +84,11 @@ def test_event_type_cap() -> None:
     the number: the cap is the gate against per-customer event proliferation
     (the Enterprise upsell). Adding an event is a deliberate ADR-0083 decision.
     The agile trio (sprint.*) was added under ADR-0147, raising the cap 11→14; the
-    risk/baseline/comment domain events were added under ADR-0206, raising it 14→19.
+    risk/baseline/comment domain events were added under ADR-0206, raising it 14→19;
+    ADR-1485 added schedule.finish_changed, 19→20.
     """
     assert len(ALL_WEBHOOK_EVENTS) == OSS_WEBHOOK_EVENT_CAP
-    assert OSS_WEBHOOK_EVENT_CAP == 19
+    assert OSS_WEBHOOK_EVENT_CAP == 20
     assert set(ALL_WEBHOOK_EVENTS) == {
         "task.created",
         "task.updated",
@@ -108,6 +109,7 @@ def test_event_type_cap() -> None:
         "risk.closed",
         "baseline.captured",
         "comment.created",
+        "schedule.finish_changed",
     }
 
 

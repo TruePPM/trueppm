@@ -113,7 +113,7 @@ Point a `slack`-format webhook at a Slack/Discord/Mattermost incoming-webhook UR
 
 ## Event types
 
-OSS fires **19 event types** (a deliberate hard cap):
+OSS fires **19 event types** (a deliberate hard cap), and 0.5 adds a twentieth, `schedule.finish_changed`:
 
 | Event | When fired |
 |-------|-----------|
@@ -127,6 +127,7 @@ OSS fires **19 event types** (a deliberate hard cap):
 | `dependency.created` | A task link (FS/SS/FF/SF) is created |
 | `dependency.deleted` | A task link is deleted |
 | `schedule.recalculated` | The CPM scheduler completes a recalculation |
+| `schedule.finish_changed` | The forecast the project [headlines](/features/monte-carlo/#which-forecast-a-project-headlines) switches kind (ships in 0.5, see note) |
 | `project.created` | A new project is created in the organization |
 | `sprint.activated` | A sprint transitions PLANNED → ACTIVE |
 | `sprint.closed` | A sprint is closed (carries the completion snapshot — see note) |
@@ -137,7 +138,11 @@ OSS fires **19 event types** (a deliberate hard cap):
 | `baseline.captured` | A baseline snapshot is captured — manually, or automatically by [committing the plan](/features/baselines/#committing-the-plan). Its `source` field distinguishes the two: `"commit"` for the automatic `Baseline v1`, `"api"` for a later manual capture |
 | `comment.created` | A comment is added to a task (every comment; no body in the payload) |
 
-All 19 are selectable from the **Integrations** settings page as well as the API. A single PATCH that both reassigns a task and moves its date fires `task.updated` **plus** the specific events — subscribe to whichever you want.
+::::note[Ships in 0.5: `schedule.finish_changed`]
+0.4 and earlier do not have this event. From 0.5 it fires when the project's headline forecast switches between `cpm_monte_carlo` and `team_velocity`, checked after a schedule recalculation and after a sprint close. The first check of a project records the kind and sends nothing. The payload is `project`, `headline_forecast_kind`, `headline_forecast_reason`, and `previous_headline_forecast_kind`; it carries no velocity figure.
+::::
+
+All of them are selectable from the **Integrations** settings page as well as the API. A single PATCH that both reassigns a task and moves its date fires `task.updated` **plus** the specific events — subscribe to whichever you want.
 
 The last four task events were added in 0.2 (available since the `0.2.0-alpha.1` pre-release).
 

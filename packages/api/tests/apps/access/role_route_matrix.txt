@@ -272,6 +272,7 @@
 --+++++  GET api/v1/projects/<project_pk>/baseline-decisions/::get
 -----++  GET api/v1/projects/<project_pk>/baseline-decisions/preview/::get
 --+++++  GET api/v1/projects/<project_pk>/baselines/::list
+--+++++  GET api/v1/projects/<project_pk>/baselines/<baseline_pk>/variance/::get
 --+++++  GET api/v1/projects/<project_pk>/baselines/<pk>/::retrieve
 --+++++  GET api/v1/projects/<project_pk>/board/activity/::get
 --+++++  GET api/v1/projects/<project_pk>/changelog/::get

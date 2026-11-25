@@ -577,6 +577,7 @@ configured webhook endpoints:
 | Webhook event | Notes |
 |---------------|-------|
 | `schedule.recalculated` | Loosely relates to the `cpm_*` WS events (see above). |
+| `schedule.finish_changed` | No WS broadcast. The project's headline forecast switched kind (ADR-1485). Ships in 0.5. |
 | `task.assigned` | No WS broadcast. |
 | `task.assignee_changed` | No WS broadcast. |
 | `task.mentioned` | No WS broadcast. |
@@ -598,5 +599,6 @@ The OSS webhook event set is capped at 19 events: `task.created`,
 `risk.escalated`, `risk.closed`, `baseline.captured`, and `comment.created`. The
 agile trio (`sprint.*`) was added in ADR-0147, raising the cap from 11 to 14; the
 risk/baseline/comment domain events were added in ADR-0206, raising it from 14 to
-19. Adding a 20th event requires its own ADR — the cap is the gate against
-per-customer event proliferation.
+19. In 0.5, ADR-1485 will add `schedule.finish_changed`, raising it to 20. Adding
+a 21st event requires its own ADR — the cap is the gate against per-customer
+event proliferation.

@@ -29,6 +29,7 @@ from trueppm_mcp.tools import (
     _UNTRUSTED_CLOSE,
     _UNTRUSTED_OPEN,
     _compact_mapping,
+    _get_baseline_variance,
     _get_board_state,
     _get_changeset,
     _get_monte_carlo_forecast,
@@ -1585,3 +1586,31 @@ async def test_changeset_and_decision_trail_pass_through(settings: Settings) -> 
         trail = await _list_baseline_decisions(client, "p-1")
     assert got == changeset
     assert trail == {"items": [{"id": "d-1", "kind": "kept"}], "total_count": 1}
+
+
+async def test_get_baseline_variance_keeps_counts_and_nulls(settings: Settings) -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "count": 51,
+                "next": "http://example.test/api/v1/next",
+                "previous": None,
+                "added": 2,
+                "removed": 0,
+                "results": [{"task_id": "t-1", "finish_delta_working_days": 3, "cause": None}],
+            },
+        )
+
+    async with TruePPMClient(settings, transport=httpx.MockTransport(handler)) as client:
+        result = await _get_baseline_variance(client, "p-1", "b-1", min_days=2)
+
+    assert seen[0].url.path.endswith("/projects/p-1/baselines/b-1/variance/")
+    assert dict(seen[0].url.params) == {"min_days": "2", "page": "1"}
+    assert result["truncated"] is True
+    assert (result["added"], result["removed"], result["page"]) == (2, 0, 1)
+    assert "next" not in result
+    assert result["results"][0]["cause"] is None

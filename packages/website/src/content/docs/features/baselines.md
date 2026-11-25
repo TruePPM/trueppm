@@ -281,6 +281,28 @@ moved away from the plan, so you can see which work moved across the whole sched
   outline yet; use the task detail's comparison table for those.
 - A task added after the baseline was captured has no outline.
 
+## Comparing the whole project against a baseline
+
+::::note[Ships in 0.5]
+0.4 and earlier compare one task at a time (below). The project-wide read is in 0.5, and it is **experimental**: see [experimental endpoints](/api/stability/#experimental-endpoints).
+::::
+
+```bash
+curl -H "Authorization: Bearer $JWT" \
+  "https://trueppm.example.com/api/v1/projects/$PROJECT_ID/baselines/$BASELINE_ID/variance/?min_days=1"
+```
+
+Any project member can read it. It works against any baseline of the project, not only the active one.
+
+- Each row has `start_delta_working_days` and `finish_delta_working_days`. **Positive means later than the baseline.** They count working days on the project's calendar, so a Friday finish that moves to Monday is `1`. This differs from the per-task comparison below, which counts calendar days.
+- `min_days` (default `1`) lists a task when its start or finish moved by at least that many working days. `0` lists every task that is in both the baseline and the project.
+- `added` and `removed` count tasks with no counterpart. They are not listed as rows.
+- Rows are ordered by finish slip, latest first, 50 per page (`page=`).
+- `cause` is the server's one-line explanation of the task's **current** finish, and `derivation_ref` holds the `task_id` and `quantity` to pass to `GET /api/v1/projects/{id}/schedule/derivation/` for the full chain. A summary task reads "Rolled up from its subtasks." with no ref. `cause` is `null` when the server has none, for example while a recalculation is pending.
+- A delta is `null` when either side has no date. `has_cpm_dates: false` means the baseline was captured before the schedule had computed dates.
+
+The MCP server exposes the same read as `get_baseline_variance`.
+
 ## Comparing against the plan
 
 Once a baseline is **active**, opening a task in the Schedule view shows a **Baseline**

@@ -452,6 +452,13 @@ def close_sprint(self: object, request_id: str) -> None:
                 attempts,
                 req.sprint_id,
             )
+    else:
+        # ADR-1485 D4 (#5130): a close adds velocity history, which can switch the
+        # forecast the project headlines. In `else`, after the close committed, so
+        # nothing here can mark a completed close as failed.
+        from trueppm_api.apps.scheduling.headline_forecast import note_headline_forecast_kind
+
+        note_headline_forecast_kind(req.sprint.project_id)
 
 
 def _finalize_close_failure(

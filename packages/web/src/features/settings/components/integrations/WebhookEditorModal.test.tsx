@@ -312,6 +312,7 @@ describe('WebhookEditorModal — event selection', () => {
       'risk.closed',
       'baseline.captured',
       'comment.created',
+      'schedule.finish_changed',
     ]) {
       expect(screen.getByText(id)).toBeInTheDocument();
     }

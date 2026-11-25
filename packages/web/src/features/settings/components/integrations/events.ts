@@ -53,7 +53,10 @@ export const WEBHOOK_EVENT_CATALOG: WebhookEventGroup[] = [
   },
   {
     category: 'Schedule',
-    events: [{ id: 'schedule.recalculated', label: 'Schedule recalculated' }],
+    events: [
+      { id: 'schedule.recalculated', label: 'Schedule recalculated' },
+      { id: 'schedule.finish_changed', label: 'Headline forecast changed', isNew: true },
+    ],
   },
   {
     category: 'Project',

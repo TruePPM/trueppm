@@ -44,6 +44,11 @@ _SANCTIONED_ENVELOPES: frozenset[frozenset[str]] = frozenset(
 # Adding an entry here is a deliberate act that shows up in review; the point of the
 # map is that the set cannot grow silently.
 _GRANDFATHERED_ENVELOPES: dict[str, str] = {
+    # ADR-1485 D3: the page envelope plus the whole-comparison facts (`added`,
+    # `removed`, which baseline, `min_days`) that no row can carry.
+    "/api/v1/projects/{project_pk}/baselines/{baseline_pk}/variance/": (
+        "baseline variance (page envelope plus whole-comparison counts)"
+    ),
     # The offline-sync delta. `changes` is a per-collection bucket MAP, not a list,
     # so calling it `results` would be actively misleading against the two DRF
     # envelopes where `results` is always an array. `has_more` is redundant with

@@ -796,6 +796,29 @@ async def _list_baselines(client: TruePPMClient, project_id: str) -> dict[str, A
     return _list_result(rows, total, truncated)
 
 
+async def _get_baseline_variance(
+    client: TruePPMClient,
+    project_id: str,
+    baseline_id: str,
+    min_days: int = 1,
+    page: int = 1,
+) -> dict[str, Any]:
+    """One page of per-task variance against a baseline (ADR-1485 D3).
+
+    Returned as the server sends it, so a null delta or cause stays visible; the
+    server's page links are replaced by ``page`` and ``truncated``.
+    """
+    payload = await client.get(
+        f"projects/{project_id}/baselines/{baseline_id}/variance/",
+        params={"min_days": min_days, "page": page},
+    )
+    result = dict(payload) if isinstance(payload, Mapping) else {}
+    result.pop("previous", None)
+    result["page"] = page
+    result["truncated"] = result.pop("next", None) is not None
+    return result
+
+
 async def _get_changeset(client: TruePPMClient, project_id: str) -> dict[str, Any]:
     """What changed since the active baseline, and why (ADR-1477).
 
@@ -1001,6 +1024,12 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         Includes a compact ``why`` — the CPM finish and how many critical-path tasks
         drive it — so the summary is explained by default. Call
         ``get_schedule_derivation`` for the binding predecessor of any single value.
+
+        ``headline_forecast_kind`` (``cpm_monte_carlo`` | ``team_velocity``) is the
+        forecast the server headlines for this project and caller, with
+        ``headline_forecast_reason``. Lead with that kind and name it; do not
+        choose one yourself. ``velocity_withheld`` means you are below the velocity
+        audience and says nothing about whether a velocity forecast exists.
 
         Args:
             project_id: The project's UUID.
@@ -1257,6 +1286,31 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         """
         _require_uuid("project_id", project_id)
         return await _list_baselines(client, project_id)
+
+    @server.tool()
+    async def get_baseline_variance(
+        project_id: str, baseline_id: str, min_days: int = 1, page: int = 1
+    ) -> dict[str, Any]:
+        """Per-task schedule variance against one baseline. Experimental.
+
+        Each row has signed start and finish deltas in WORKING days (positive is
+        later than the baseline), the server's one-line ``cause`` of the task's
+        current finish, and ``derivation_ref`` (the ``task_id`` and ``quantity``
+        to pass to ``get_schedule_derivation``). ``added`` and ``removed`` count
+        tasks with no counterpart. Quote ``cause`` as sent; a null ``cause`` means
+        the server has none. Rows are latest finish slip first, 50 per page;
+        ``truncated: true`` means there is a next ``page``. Read-only.
+
+        Args:
+            project_id: The project's UUID.
+            baseline_id: The baseline's UUID, from ``list_baselines``.
+            min_days: List a task when its start or finish moved by at least this
+                many working days. 0 lists every task on both sides.
+            page: 1-based page number.
+        """
+        _require_uuid("project_id", project_id)
+        _require_uuid("baseline_id", baseline_id)
+        return await _get_baseline_variance(client, project_id, baseline_id, min_days, page)
 
     @server.tool()
     async def get_changeset(project_id: str) -> dict[str, Any]:
