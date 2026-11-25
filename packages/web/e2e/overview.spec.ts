@@ -843,7 +843,7 @@ test.describe('Project overview — baseline drift summary', () => {
     await expect(panel.getByText('vs Approved plan')).toBeVisible();
     await expect(panel.getByText(/5 working days later than the baseline/)).toBeVisible();
     await expect(
-      panel.getByText('4 tasks moved: 3 finishing later, 1 finishing earlier.'),
+      panel.getByText('4 tasks moved (3 finish later, 1 finish earlier).'),
     ).toBeVisible();
     await expect(panel.getByText('9 working days of finish slip in total.')).toBeVisible();
     await expect(panel.getByRole('link', { name: 'Foundation work', exact: true })).toHaveAttribute(

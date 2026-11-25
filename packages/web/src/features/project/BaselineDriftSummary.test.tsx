@@ -80,7 +80,7 @@ describe('BaselineDriftSummary', () => {
     expect(screen.getByText('vs Approved plan')).toBeInTheDocument();
     expect(screen.getByText(/5 working days later than the baseline/)).toBeInTheDocument();
     expect(
-      screen.getByText('3 tasks moved: 2 finishing later, 1 finishing earlier.'),
+      screen.getByText('3 tasks moved (2 finish later, 1 finish earlier).'),
     ).toBeInTheDocument();
     expect(screen.getByText('7 working days of finish slip in total.')).toBeInTheDocument();
     const top = screen.getByRole('link', { name: 'Pour foundation' });
@@ -130,6 +130,57 @@ describe('BaselineDriftSummary', () => {
 
     expect(screen.getByText(/No task has moved since the baseline\./)).toBeInTheDocument();
     expect(screen.queryByText(/Largest slip/)).not.toBeInTheDocument();
+  });
+
+  it('says the baseline cannot be compared when no delta is comparable, not that nothing moved', () => {
+    setState(
+      { data: [ACTIVE] },
+      {
+        data: variance({
+          tasks_moved: 0,
+          tasks_finishing_later: 0,
+          tasks_finishing_earlier: 0,
+          finish_slip_working_days_total: 0,
+          top_slip: null,
+          project_finish: {
+            baseline_finish: null,
+            current_finish: '2026-03-06',
+            delta_working_days: null,
+          },
+        }),
+      },
+    );
+    render(<BaselineDriftSummary projectId="p-1" />);
+
+    expect(screen.getByText(/can't be compared with the current plan yet/)).toBeInTheDocument();
+    expect(screen.queryByText(/No task has moved/)).not.toBeInTheDocument();
+  });
+
+  it('says a pre-CPM baseline cannot be compared', () => {
+    setState(
+      { data: [{ ...ACTIVE, has_cpm_dates: false }] },
+      {
+        data: {
+          ...variance({
+            project_finish: {
+              baseline_finish: null,
+              current_finish: '2026-03-13',
+              delta_working_days: null,
+            },
+          }),
+          has_cpm_dates: false,
+        },
+      },
+    );
+    render(<BaselineDriftSummary projectId="p-1" />);
+
+    expect(
+      screen.getByText(
+        /captured before the schedule was first calculated, so it can't be compared/,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/tasks moved/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No task has moved/)).not.toBeInTheDocument();
   });
 
   it('explains the empty state when there is no active baseline, without reading variance', () => {

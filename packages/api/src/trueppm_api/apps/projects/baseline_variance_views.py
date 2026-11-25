@@ -74,14 +74,21 @@ class ProjectFinishVarianceSerializer(serializers.Serializer[dict[str, Any]]):
     """The project finish (latest task finish) in the baseline and now."""
 
     baseline_finish = serializers.DateField(
-        allow_null=True, help_text="Latest finish in the snapshot, deleted tasks included."
+        allow_null=True,
+        help_text=(
+            "Latest finish in the snapshot, deleted tasks included; null when the "
+            "baseline predates CPM (has_cpm_dates=false)."
+        ),
     )
     current_finish = serializers.DateField(
         allow_null=True, help_text="Latest finish of the live tasks, added tasks included."
     )
     delta_working_days = serializers.IntegerField(
         allow_null=True,
-        help_text="Signed working days the project finish moved; positive is later.",
+        help_text=(
+            "Signed working days the project finish moved; positive is later. Null when "
+            "either side has no finish, or the baseline predates CPM (has_cpm_dates=false)."
+        ),
     )
 
 

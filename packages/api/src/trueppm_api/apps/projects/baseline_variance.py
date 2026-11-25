@@ -9,13 +9,14 @@ schedule (ADR-0599).
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
 from trueppm_api.apps.scheduling.finish_reading import (
     Finish,
+    latest_finish,
     task_finish_at_day_start,
     working_time_end_day,
 )
@@ -107,7 +108,8 @@ def baseline_variance(baseline: Baseline, calendar: Any, *, min_days: int) -> Va
 
     A task is listed when the absolute start **or** finish delta is at least
     ``min_days``; ``min_days=0`` lists every task present on both sides,
-    including those with no dates to compare. Two queries, whatever the size.
+    including those with no dates to compare. Two queries, whatever the size, plus
+    one when a task finishing on the baseline's last day has been deleted since.
     """
     snapshot = {
         row["task_id"]: row
@@ -175,12 +177,7 @@ def baseline_variance(baseline: Baseline, calendar: Any, *, min_days: int) -> Va
     removed = sum(1 for task_id in snapshot if task_id not in live_ids)
     summary = {
         **_rollup(rows, summary_ids, min_days),
-        "project_finish": _project_finish(
-            ((row["finish"], row["finish_at_day_start"]) for row in snapshot.values()),
-            live,
-            calendar,
-            count,
-        ),
+        "project_finish": _project_finish(baseline, list(snapshot.values()), live, calendar, count),
     }
     return Variance(rows=rows, added=added, removed=removed, summary=summary)
 
@@ -241,33 +238,61 @@ def _rollup(rows: list[dict[str, Any]], summary_ids: set[str], min_days: int) ->
     }
 
 
-def _latest(
-    finishes: Iterable[tuple[date | None, bool | None]],
+def _baseline_finish(
+    snapshot: list[Any], live_paths: dict[Any, Any]
 ) -> tuple[date, bool | None] | None:
-    """The latest finish reading; the end of a day is later than its start."""
-    best: tuple[date, bool | None] | None = None
-    for day, at_start in finishes:
-        if day is None:
-            continue
-        if best is None or (day, not at_start) > (best[0], not best[1]):
-            best = (day, at_start)
-    return best
+    """The snapshot's project finish, read like the program KPI reads it.
+
+    ``latest_finish`` needs each row's WBS path to drop a summary that shares its
+    leaf's end day; a snapshot row carries none, so it is the task's, live or
+    soft-deleted (one query, only for a deleted task on that day). A reading
+    captured before ``finish_at_day_start`` existed (``None``) makes the day's
+    reading unknown, as ``program_rollup._baseline_variance_by_project`` does.
+    """
+    day = max((row["finish"] for row in snapshot if row["finish"] is not None), default=None)
+    if day is None:
+        return None
+    on_day = [row for row in snapshot if row["finish"] == day]
+    paths = dict(live_paths)
+    gone = {row["task_id"] for row in on_day if row["task_id"] not in paths}
+    if gone:
+        paths.update(Task.objects.filter(id__in=gone).values_list("id", "wbs_path"))
+    reading = latest_finish(
+        (row["finish"], bool(row["finish_at_day_start"]), paths.get(row["task_id"]))
+        for row in on_day
+    )
+    if reading is None:
+        return None
+    if any(row["finish_at_day_start"] is None for row in on_day):
+        return reading[0], None
+    return reading
 
 
 def _project_finish(
-    snapshot_finishes: Iterable[tuple[date | None, bool | None]],
+    baseline: Baseline,
+    snapshot: list[Any],
     live: list[Task],
     calendar: Any,
     count: Callable[[date, date], int],
 ) -> dict[str, Any]:
     """The project finish (latest task finish) in the baseline and now, and the shift.
 
-    Every snapshot row counts, including a task deleted since, because the
-    baseline's finish is what was committed; every live task counts, including
-    one added since. The shift is read like a task's finish delta.
+    Both sides are read with ``latest_finish``, the reading the program KPI and the
+    status update use, so a phase ending on a start-of-day milestone reads at the
+    start of that day here too. Every snapshot row counts, including a task deleted
+    since, because the baseline's finish is what was committed; every live task
+    counts, including one added since. A baseline captured before CPM first ran
+    (``has_cpm_dates=False``) has no real projected end, so it is not compared, as
+    the program KPI excludes it (#4242).
     """
-    base = _latest(snapshot_finishes)
-    current = _latest((task.early_finish, task_finish_at_day_start(task)) for task in live)
+    current = latest_finish(
+        (task.early_finish, task_finish_at_day_start(task), task.wbs_path) for task in live
+    )
+    base = (
+        _baseline_finish(snapshot, {task.pk: task.wbs_path for task in live})
+        if baseline.has_cpm_dates
+        else None
+    )
     delta = (
         _finish_delta(base, (current[0], bool(current[1])), calendar, count)
         if base is not None and current is not None

@@ -193,7 +193,10 @@ def test_paginates_with_the_latest_slip_first(project: Project, baseline: Baseli
     for i in range(52):
         task = _task(project, f"T{i:02d}", _d(7), _d(7), duration=1)
         _snap(baseline, task, _d(4), _d(4))
+    # Worst is driven by a task added since the baseline, so its finish has a cause.
+    feeder = _task(project, "Feeder", _d(0), _d(11), duration=10)
     worst = _task(project, "Worst", _d(14), _d(14), duration=1)
+    Dependency.objects.create(predecessor=feeder, successor=worst, dep_type="FS", lag=0)
     _snap(baseline, worst, _d(4), _d(4))
     client = _client(project)
 
@@ -357,7 +360,10 @@ def test_summary_covers_every_row_not_just_the_page(project: Project, baseline: 
     for i in range(52):
         task = _task(project, f"T{i:02d}", _d(7), _d(7), duration=1)
         _snap(baseline, task, _d(4), _d(4))
+    # Worst is driven by a task added since the baseline, so its finish has a cause.
+    feeder = _task(project, "Feeder", _d(0), _d(11), duration=10)
     worst = _task(project, "Worst", _d(14), _d(14), duration=1)
+    Dependency.objects.create(predecessor=feeder, successor=worst, dep_type="FS", lag=0)
     _snap(baseline, worst, _d(4), _d(4))
     client = _client(project)
 
@@ -369,13 +375,21 @@ def test_summary_covers_every_row_not_just_the_page(project: Project, baseline: 
     assert first["finish_slip_working_days_total"] == 52 * 1 + 6
     # The top slip carries its provenance on every page, not only where its row is.
     assert second["top_slip"]["task_name"] == "Worst"
-    assert "cause" in second["top_slip"] and "derivation_ref" in second["top_slip"]
+    assert second["top_slip"]["cause"] == (
+        "Driven by 'Feeder' (FS link): 2026-03-16. Then 1 working day(s) of work from its start."
+    )
+    assert second["top_slip"]["derivation_ref"] == {
+        "task_id": str(worst.pk),
+        "quantity": "early_finish",
+    }
 
 
 def test_summary_counts_a_slip_once_not_on_its_summary_task_too(
     project: Project, baseline: Baseline
 ) -> None:
-    phase = _task(project, "Phase", _d(0), _d(8), wbs_path="1", duration=7)
+    # The phase's stored rollup has slipped further than its leaf (it awaits a
+    # recalculation), so counting it would make it the top slip and add its days.
+    phase = _task(project, "Phase", _d(0), _d(9), wbs_path="1", duration=8)
     leaf = _task(project, "Leaf", _d(7), _d(8), wbs_path="1.1", duration=2)
     _snap(baseline, phase, _d(0), _d(4))
     _snap(baseline, leaf, _d(3), _d(4))
@@ -383,10 +397,40 @@ def test_summary_counts_a_slip_once_not_on_its_summary_task_too(
     response = _client(project).get(_url(project, baseline))
 
     assert set(_rows(response)) == {"Phase", "Leaf"}  # both rows are still listed
+    assert _rows(response)["Phase"]["finish_delta_working_days"] == 3
     summary = response.data["summary"]
     assert summary["tasks_moved"] == 1
+    assert summary["tasks_finishing_later"] == 1
     assert summary["finish_slip_working_days_total"] == 2
     assert summary["top_slip"]["task_name"] == "Leaf"
+
+
+def test_an_orphan_wbs_path_is_a_leaf_and_counted(project: Project, baseline: Baseline) -> None:
+    # "9.1" names a parent "9" that does not exist: it is nobody's summary, and no
+    # row is a summary of it, so it is counted like any leaf.
+    orphan = _task(project, "Orphan", _d(7), _d(8), wbs_path="9.1", duration=2)
+    _snap(baseline, orphan, _d(3), _d(4))
+
+    summary = _client(project).get(_url(project, baseline)).data["summary"]
+
+    assert summary["tasks_moved"] == 1
+    assert summary["top_slip"]["task_name"] == "Orphan"
+
+
+def test_a_start_only_move_is_moved_but_neither_later_nor_earlier(
+    project: Project, baseline: Baseline
+) -> None:
+    task = _task(project, "Stretched", _d(1), _d(4), duration=4)
+    _snap(baseline, task, _d(0), _d(4))  # starts a day later, finishes the same day
+
+    summary = _client(project).get(_url(project, baseline)).data["summary"]
+
+    assert summary["tasks_moved"] == 1
+    assert summary["tasks_finishing_later"] == 0
+    assert summary["tasks_finishing_earlier"] == 0
+    assert summary["finish_slip_working_days_total"] == 0
+    assert summary["top_slip"] is None
+    assert summary["project_finish"]["delta_working_days"] == 0
 
 
 def test_min_days_zero_never_counts_an_unmoved_task(
@@ -430,5 +474,141 @@ def test_empty_project_has_no_project_finish(project: Project, baseline: Baselin
     assert summary["project_finish"] == {
         "baseline_finish": None,
         "current_finish": None,
+        "delta_working_days": None,
+    }
+
+
+def test_an_added_task_moves_the_project_finish(project: Project, baseline: Baseline) -> None:
+    kept = _task(project, "Kept", _d(0), _d(4))
+    _snap(baseline, kept, _d(0), _d(4))
+    _task(project, "New", _d(7), _d(8), duration=2)  # no snapshot row
+
+    data = _client(project).get(_url(project, baseline)).data
+
+    assert data["added"] == 1
+    assert data["summary"]["tasks_moved"] == 0  # an added task has no delta
+    assert data["summary"]["project_finish"] == {
+        "baseline_finish": str(_d(4)),
+        "current_finish": str(_d(8)),
+        "delta_working_days": 2,
+    }
+
+
+def test_a_snapshot_whose_tasks_are_all_deleted_has_no_current_finish(
+    project: Project, baseline: Baseline
+) -> None:
+    for name in ("One", "Two"):
+        task = _task(project, name, _d(0), _d(4))
+        _snap(baseline, task, _d(0), _d(4))
+        task.soft_delete()
+
+    data = _client(project).get(_url(project, baseline)).data
+
+    assert data["removed"] == 2
+    assert data["summary"]["tasks_moved"] == 0
+    assert data["summary"]["project_finish"] == {
+        "baseline_finish": str(_d(4)),
+        "current_finish": None,
+        "delta_working_days": None,
+    }
+
+
+def test_an_empty_snapshot_with_live_tasks_has_no_baseline_finish(
+    project: Project, baseline: Baseline
+) -> None:
+    _task(project, "Later", _d(0), _d(4))
+
+    data = _client(project).get(_url(project, baseline)).data
+
+    assert data["added"] == 1
+    assert data["summary"]["project_finish"] == {
+        "baseline_finish": None,
+        "current_finish": str(_d(4)),
+        "delta_working_days": None,
+    }
+
+
+def test_project_finish_reads_a_phase_ending_on_a_start_of_day_milestone(
+    project: Project, baseline: Baseline
+) -> None:
+    """The phase's rolled-up finish carries no reading, so the milestone's decides.
+
+    Baseline: both end Fri 3/6. Now: the milestone sits at the start of Mon 3/9 and
+    the phase's finish rolls up to that Monday. In working time nothing moved, as
+    the program KPI and the status update read it (``latest_finish``).
+    """
+    phase = _task(project, "Phase", _d(0), _d(7), wbs_path="1", duration=5)
+    gate = _task(
+        project,
+        "Gate",
+        _d(7),
+        _d(7),
+        wbs_path="1.1",
+        duration=0,
+        is_milestone=True,
+        milestone_at_day_end=False,
+    )
+    _snap(baseline, phase, _d(0), _d(4))
+    _snap(baseline, gate, _d(4), _d(4))
+
+    finish = _client(project).get(_url(project, baseline)).data["summary"]["project_finish"]
+
+    assert finish == {
+        "baseline_finish": str(_d(4)),
+        "current_finish": str(_d(7)),
+        "delta_working_days": 0,
+    }
+
+
+def test_project_finish_reads_a_deleted_summary_on_the_baselines_last_day(
+    project: Project, baseline: Baseline
+) -> None:
+    """A deleted phase's WBS path still drops it beside its own leaf in the snapshot."""
+    phase = _task(project, "Phase", _d(0), _d(7), wbs_path="1", duration=5)
+    gate = _task(
+        project,
+        "Gate",
+        _d(7),
+        _d(7),
+        wbs_path="1.1",
+        duration=0,
+        is_milestone=True,
+        milestone_at_day_end=False,
+    )
+    _snap(baseline, phase, _d(0), _d(7))
+    BaselineTask.objects.create(
+        baseline=baseline,
+        task_id=gate.pk,
+        task_name=gate.name,
+        start=_d(7),
+        finish=_d(7),
+        finish_at_day_start=True,
+        duration=0,
+    )
+    later = _task(project, "Later", _d(7), _d(7), duration=1)  # now ends Mon 3/9
+    phase.soft_delete()
+    gate.soft_delete()
+
+    finish = _client(project).get(_url(project, baseline)).data["summary"]["project_finish"]
+
+    # Start of Mon 3/9 -> end of Mon 3/9 is one working day; with the deleted phase
+    # read as a leaf the baseline would end at the end of Monday and report 0.
+    assert later.early_finish == _d(7)
+    assert finish["delta_working_days"] == 1
+
+
+def test_a_pre_cpm_baseline_does_not_compare_the_project_finish(
+    project: Project, calendar: Calendar
+) -> None:
+    baseline = Baseline.objects.create(project=project, name="pre-cpm", has_cpm_dates=False)
+    task = _task(project, "Only", _d(7), _d(8), duration=2)
+    _snap(baseline, task, _d(0), _d(4))
+
+    data = _client(project).get(_url(project, baseline)).data
+
+    assert data["has_cpm_dates"] is False
+    assert data["summary"]["project_finish"] == {
+        "baseline_finish": None,
+        "current_finish": str(_d(8)),
         "delta_working_days": None,
     }

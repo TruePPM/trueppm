@@ -56,6 +56,7 @@ export function BaselineDriftSummary({ projectId }: { projectId: string }) {
         varianceLoading={variance.isLoading}
         varianceError={variance.isError}
         summary={variance.data?.summary}
+        hasCpmDates={variance.data?.has_cpm_dates ?? true}
         retry={() => {
           void (baselines.isError ? baselines.refetch() : variance.refetch());
         }}
@@ -72,8 +73,14 @@ interface DriftBodyProps {
   varianceLoading: boolean;
   varianceError: boolean;
   summary: ApiBaselineVarianceSummary | undefined;
+  hasCpmDates: boolean;
   retry: () => void;
 }
+
+const PRE_CPM_COPY =
+  "This baseline was captured before the schedule was first calculated, so it can't be compared with the current plan.";
+const NOT_COMPARABLE_COPY =
+  "The baseline can't be compared with the current plan yet: no task has dates on both sides.";
 
 function DriftBody(props: DriftBodyProps) {
   const { projectId, summary } = props;
@@ -108,6 +115,14 @@ function DriftBody(props: DriftBodyProps) {
       </p>
     );
   }
+  // A pre-CPM snapshot has no real dates, and a rollup with nothing comparable is
+  // not "nothing moved": both say so rather than reporting a reassuring zero.
+  if (!props.hasCpmDates) {
+    return <p className="text-sm text-neutral-text-primary">{PRE_CPM_COPY}</p>;
+  }
+  if (summary.tasks_moved === 0 && summary.project_finish.delta_working_days === null) {
+    return <p className="text-sm text-neutral-text-primary">{NOT_COMPARABLE_COPY}</p>;
+  }
   if (summary.tasks_moved === 0) {
     return (
       <p className="text-sm text-neutral-text-primary">
@@ -119,9 +134,10 @@ function DriftBody(props: DriftBodyProps) {
   return (
     <ul className="flex flex-col gap-1.5 text-sm text-neutral-text-primary">
       <li className="font-medium">{finishSentence(summary)}</li>
+      {/* Not a partition: a task whose start alone moved is in the moved count only. */}
       <li>
-        {plural(summary.tasks_moved, 'task')} moved: {summary.tasks_finishing_later} finishing
-        later, {summary.tasks_finishing_earlier} finishing earlier.
+        {plural(summary.tasks_moved, 'task')} moved ({summary.tasks_finishing_later} finish later,{' '}
+        {summary.tasks_finishing_earlier} finish earlier).
       </li>
       {summary.finish_slip_working_days_total > 0 && (
         <li>{days(summary.finish_slip_working_days_total)} of finish slip in total.</li>

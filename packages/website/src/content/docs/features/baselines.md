@@ -305,17 +305,17 @@ Any project member can read it. It works against any baseline of the project, no
 - `cause` is the server's one-line explanation of the task's **current** finish, and `derivation_ref` holds the `task_id` and `quantity` to pass to `GET /api/v1/projects/{id}/schedule/derivation/` for the full chain. A summary task reads "Rolled up from its subtasks." with no ref. `cause` is `null` when the server has none, for example while a recalculation is pending.
 - A delta is `null` when either side has no date. `has_cpm_dates: false` means the baseline was captured before the schedule had computed dates.
 - `summary` is the "what moved" rollup over **every** row, so it is the same on every page:
-  - `tasks_moved`, `tasks_finishing_later` and `tasks_finishing_earlier` count tasks whose start or finish moved by at least `min_days` working days (at least 1, so `min_days=0` never counts an unmoved task).
+  - `tasks_moved` counts tasks whose start or finish moved by at least `min_days` working days (at least 1, so `min_days=0` never counts an unmoved task). `tasks_finishing_later` and `tasks_finishing_earlier` count those whose **finish** moved by that much. They do not add up to `tasks_moved`: a task whose start alone moved is counted as moved but neither later nor earlier.
   - `finish_slip_working_days_total` adds up the finish slips of the tasks finishing later.
   - `top_slip` is the task whose finish slipped most, with its `cause` and `derivation_ref`. It is `null` when nothing finishes later.
-  - `project_finish` holds the latest finish in the baseline (deleted tasks included, because that is the finish that was committed), the latest finish now (added tasks included) and `delta_working_days` between them.
+  - `project_finish` holds the latest finish in the baseline (deleted tasks included, because that is the finish that was committed), the latest finish now (added tasks included) and `delta_working_days` between them. It is read the way the program dashboard reads the project finish: a phase ending on a milestone at the start of a Monday ends at the start of that Monday. `delta_working_days` is `null` when either side has no finish, and when `has_cpm_dates` is `false` (then `baseline_finish` is `null` too).
   - Summary tasks are not counted, so one slip is not counted twice on the task and on its parent. The rows still list them, so add up `summary`, not the rows.
 
 The MCP server exposes the same read as `get_baseline_variance`.
 
 ### Baseline drift on the project Overview
 
-The project Overview shows a **Baseline drift** panel for the active baseline: how far the project finish moved, how many tasks moved and in which direction, the total finish slip, and the task that slipped most, with the server's explanation of its current finish. Every figure is the variance `summary` above. With no active baseline, the panel says so and links to the Schedule, where you can set one. The panel is hidden on Agile projects, along with the critical path.
+The project Overview shows a **Baseline drift** panel for the active baseline: how far the project finish moved, how many tasks moved and in which direction, the total finish slip, and the task that slipped most, with the server's explanation of its current finish. Every figure is the variance `summary` above. With no active baseline, the panel says so and links to the Schedule, where you can set one. When the active baseline was captured before the schedule had computed dates, or no task has dates on both sides, the panel says the baseline can't be compared rather than reporting that nothing moved. The panel is hidden on Agile projects, along with the critical path.
 
 ## Comparing against the plan
 

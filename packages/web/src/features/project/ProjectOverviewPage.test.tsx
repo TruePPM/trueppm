@@ -1108,6 +1108,8 @@ describe('methodology-adaptive widget gating (#1765)', () => {
       ).not.toBeInTheDocument(),
     );
     expect(screen.queryByRole('region', { name: /critical path/i })).not.toBeInTheDocument();
+    // A baseline is a schedule artifact: its drift panel goes with the critical path.
+    expect(screen.queryByRole('region', { name: /baseline drift/i })).not.toBeInTheDocument();
     expect(screen.getByRole('region', { name: /backlog forecast/i })).toBeInTheDocument();
   });
 
@@ -1124,6 +1126,7 @@ describe('methodology-adaptive widget gating (#1765)', () => {
     );
     expect(screen.getByRole('region', { name: /monte carlo forecast/i })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: /critical path/i })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: /baseline drift/i })).toBeInTheDocument();
   });
 
   it('HYBRID shows all three cross-methodology widgets', async () => {
