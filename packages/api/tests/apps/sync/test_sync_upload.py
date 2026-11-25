@@ -889,8 +889,12 @@ def test_bulk_upload_coalesces_into_single_broadcast(
             )
         assert resp.status_code == 200
 
-    assert mock_bcast.call_count == 1
-    _project_id, event_type, payload = mock_bcast.call_args.args
+    # The project is committed (lifecycle ACTIVE), so the adds also form one
+    # changeset entry and its counts-only `changeset_updated` (ADR-1477 §2/§5);
+    # the task rows themselves still coalesce into one event.
+    calls = [c.args for c in mock_bcast.call_args_list if c.args[1] != "changeset_updated"]
+    assert len(calls) == 1
+    _project_id, event_type, payload = calls[0]
     assert event_type == "tasks_bulk_mutated"
     assert sorted(payload["task_ids"]) == sorted(ids)
 

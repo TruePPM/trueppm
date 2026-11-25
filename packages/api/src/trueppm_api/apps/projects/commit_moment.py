@@ -37,10 +37,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from django.db import transaction
-from django.db.models import DateField
-from django.db.models.functions import Coalesce
-
-from trueppm_api.apps.scheduling.finish_reading import values_finish_at_day_start
 
 if TYPE_CHECKING:
     # Unquoted in the signature below on purpose: `from __future__ import
@@ -49,12 +45,11 @@ if TYPE_CHECKING:
     # which it did once already.
     from django.contrib.auth.models import User
 
+from . import baselines
 from .models import (
     Baseline,
-    BaselineTask,
     Project,
     ProjectLifecycle,
-    Task,
 )
 
 
@@ -77,23 +72,6 @@ class CommitResult:
     assigned_resource_ids: list[str]
 
 
-def _calendar_snapshot(project: Project) -> dict[str, object]:
-    """The working-calendar fields that affect date arithmetic (ADR-0845).
-
-    Snapshotted by value, never by reference. Calendars are editable, so storing
-    an id would let a later edit reshape a baseline that is supposed to be the
-    fixed side of every variance subtraction.
-    """
-    calendar = project.calendar
-    if calendar is None:
-        return {}
-    return {
-        "calendar_id_at_capture": calendar.id,
-        "calendar_working_days": calendar.working_days,
-        "calendar_hours_per_day": calendar.hours_per_day,
-    }
-
-
 @transaction.atomic
 def commit_project(project: Project, *, user: User | None) -> CommitResult:
     """Take the project from draft to active, capturing baseline v1.
@@ -109,25 +87,8 @@ def commit_project(project: Project, *, user: User | None) -> CommitResult:
     if locked.lifecycle != ProjectLifecycle.DRAFT:
         raise AlreadyCommitted(str(locked.pk))
 
-    live_tasks = list(
-        Task.objects.filter(project_id=locked.pk, is_deleted=False)
-        .annotate(_span_start=Coalesce("scheduled_start", "early_start", output_field=DateField()))
-        .values(
-            "id",
-            "name",
-            "early_start",
-            "early_finish",
-            "duration",
-            "actual_start",
-            "actual_finish",
-            "story_points",
-            "_span_start",
-            # FINISH_READING_FIELDS: what values_finish_at_day_start reads (#4197).
-            "is_milestone",
-            "milestone_at_day_end",
-        )
-    )
-    has_cpm_dates = bool(live_tasks) and all(t["early_start"] is not None for t in live_tasks)
+    live_tasks = baselines.live_task_rows(locked.pk)
+    has_cpm_dates = baselines.has_cpm_dates_for(live_tasks)
 
     # Stand down any incumbent active baseline before laying down v1 (#3129).
     #
@@ -151,27 +112,10 @@ def commit_project(project: Project, *, user: User | None) -> CommitResult:
         created_by=user if user is not None and user.is_authenticated else None,
         is_active=True,
         has_cpm_dates=has_cpm_dates,
-        **_calendar_snapshot(locked),
+        **baselines.calendar_snapshot(locked),
     )
-    BaselineTask.objects.bulk_create(
-        [
-            BaselineTask(
-                baseline=baseline,
-                task_id=t["id"],
-                task_name=t["name"],
-                start=t["_span_start"],
-                finish=t["early_finish"],
-                # Which edge of that day the finish sits on (#4197), so drift is
-                # compared in working time rather than by the shown day.
-                finish_at_day_start=values_finish_at_day_start(t),
-                duration=t["duration"],
-                actual_start=t["actual_start"],
-                actual_finish=t["actual_finish"],
-                story_points=t["story_points"],
-            )
-            for t in live_tasks
-        ]
-    )
+    # One capture (ADR-1477): the same snapshot a taken v(n+1) writes.
+    baselines.snapshot_tasks(baseline, live_tasks)
 
     locked.lifecycle = ProjectLifecycle.ACTIVE
     locked.save(update_fields=["lifecycle", "server_version"])

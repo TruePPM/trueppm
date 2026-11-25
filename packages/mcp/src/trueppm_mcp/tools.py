@@ -790,6 +790,23 @@ async def _list_baselines(client: TruePPMClient, project_id: str) -> dict[str, A
     return _list_result(rows, total, truncated)
 
 
+async def _get_changeset(client: TruePPMClient, project_id: str) -> dict[str, Any]:
+    """What changed since the active baseline, and why (ADR-1477).
+
+    Returned as the server sends it: open entries with ``reason_state``, counts,
+    the net finish effect and ``_provenance``. Nothing is re-derived here.
+    """
+    result: dict[str, Any] = await client.get(f"projects/{project_id}/changeset/")
+    return result
+
+
+async def _list_baseline_decisions(client: TruePPMClient, project_id: str) -> dict[str, Any]:
+    """The baseline change-control trail: every ``taken`` and ``kept``, newest first."""
+    rows = await client.get(f"projects/{project_id}/baseline-decisions/")
+    items = list(rows) if isinstance(rows, list) else []
+    return _list_result(items, len(items), False)
+
+
 async def _list_phases(client: TruePPMClient, project_id: str) -> dict[str, Any]:
     """The project's phases (root-level WBS tasks) with their task counts."""
     rows, total, truncated = await client.get_paginated(f"projects/{project_id}/phases/")
@@ -1233,6 +1250,34 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         """
         _require_uuid("project_id", project_id)
         return await _list_baselines(client, project_id)
+
+    @server.tool()
+    async def get_changeset(project_id: str) -> dict[str, Any]:
+        """The open baseline changeset: structural changes since the baseline, and why.
+
+        Each entry carries ``kind`` (add/move/delete), ``reason_state``
+        (``unreasoned`` blocks taking a new baseline), its author, and the finish
+        before and after. Finish figures carry ``_provenance``; read them and do not
+        re-derive them. Read-only.
+
+        Args:
+            project_id: The project's UUID.
+        """
+        _require_uuid("project_id", project_id)
+        return await _get_changeset(client, project_id)
+
+    @server.tool()
+    async def list_baseline_decisions(project_id: str) -> dict[str, Any]:
+        """The baseline decision trail: each new baseline taken, or baseline kept.
+
+        ``taken`` rows carry a reason code and reason; ``kept`` rows an optional
+        note. Append-only. ``{items, total_count}`` envelope. Read-only.
+
+        Args:
+            project_id: The project's UUID.
+        """
+        _require_uuid("project_id", project_id)
+        return await _list_baseline_decisions(client, project_id)
 
     @server.tool()
     async def list_phases(project_id: str) -> dict[str, Any]:

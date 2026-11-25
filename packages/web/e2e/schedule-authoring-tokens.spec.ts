@@ -177,7 +177,7 @@ test.describe('Inline authoring tokens', () => {
     expect(patch.predecessors).toBeUndefined();
 
     await expect.poll(() => reparents.length).toBeGreaterThan(0);
-    expect(reparents[0]).toEqual({ new_parent_id: 'tk1' });
+    expect(reparents[0]).toMatchObject({ new_parent_id: 'tk1' });
 
     await expect.poll(() => deps.length).toBeGreaterThan(0);
     expect(deps[0]).toMatchObject({

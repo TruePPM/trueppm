@@ -102,6 +102,9 @@ def import_project(
         wipe_existing=wipe_existing,
     )
     task_uid_to_pk = {td.uid: str(task_objects[i].pk) for i, td in enumerate(data.tasks)}
+    # Read by the import task to record the ADR-1477 changeset entry, then popped
+    # before the summary becomes the tracker's result.
+    summary["_created_task_ids"] = list(task_uid_to_pk.values())
     # ADR-0810 (#2756, CSV path only): every row this import wrote, so the caller
     # can record the ⌘Z undo ledger. Harmless for the MS Project path, which has
     # no undo affordance today and simply ignores the key.

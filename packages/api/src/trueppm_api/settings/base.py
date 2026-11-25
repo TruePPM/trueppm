@@ -2668,6 +2668,11 @@ SPECTACULAR_SETTINGS = {
         # ADR-1478: the views endpoints reuse the lens choices; keep one RoleContextEnum
         # rather than letting the first field to claim it rename the component.
         "RoleContextEnum": "trueppm_api.apps.profiles.models.RoleContext.choices",
+        # ADR-1477 (#3150): two `kind` choice sets and a `surface` set would
+        # otherwise be named by a hash of their choices.
+        "ChangesetEntryKindEnum": "trueppm_api.apps.projects.models.ChangesetEntryKind",
+        "BaselineDecisionKindEnum": "trueppm_api.apps.projects.models.BaselineDecisionKind",
+        "ChangesetSurfaceNameEnum": "trueppm_api.apps.projects.models.ChangesetSurface",
         # #4091: the three components drf-spectacular named by a hash postfix because
         # no override claimed them. The hash changes whenever an unrelated `status` /
         # `role` choice set is added, which silently renames the type a generated

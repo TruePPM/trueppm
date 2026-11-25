@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import date
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -158,7 +158,10 @@ def test_moved_rows_bump_server_version_appear_in_updated_and_broadcast_once(
     assert updated[str(c1.pk)] == "2.1"
     for t in (a, a1, b, c, c1):
         assert Task.objects.get(pk=t.pk).server_version > before[t.pk]
-    response.broadcast.assert_called_once_with(str(project.pk), "tasks_reordered", {})
+    # A committed fixture project also gets the counts-only `changeset_updated`
+    # (ADR-1477 §5); the reorder broadcast itself still fires exactly once.
+    reorder = [c for c in response.broadcast.call_args_list if c.args[1] != "changeset_updated"]
+    assert reorder == [call(str(project.pk), "tasks_reordered", {})]
 
 
 def test_unchanged_order_touches_nothing(project: Project, client: APIClient) -> None:

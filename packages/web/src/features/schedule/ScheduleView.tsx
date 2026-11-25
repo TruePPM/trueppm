@@ -63,6 +63,7 @@ import {
   surfaceToggleableColumns,
 } from './scheduleSurface';
 import { useBuildMode } from './buildMode/BuildModeContext';
+import { setChangesetSurface } from '@/lib/changesetHints';
 import { BuildModeRowMenu, type RowMenuItem } from './buildMode';
 import { ZoomControl } from './ZoomControl';
 import { QuarterModeControl } from './QuarterModeControl';
@@ -104,6 +105,7 @@ import {
   progressCompleteAutoStatus,
 } from '@/lib/roles';
 import { BaselineManagerModal } from './BaselineManagerModal';
+import { ChangesetStrip } from './ChangesetIndicator';
 import { TaskTrashDialog } from '@/features/project/TaskTrashDialog';
 import { BaselinedAuthorConfirmDialog } from './BaselinedAuthorConfirmDialog';
 import { CaptureBaselineConfirmDialog } from './CaptureBaselineConfirmDialog';
@@ -1382,6 +1384,11 @@ export function ScheduleView() {
   const scrollToTask = useScheduleStore((s) => s.scrollToTask);
   const viewMode = useScheduleStore((s) => s.viewMode);
   const setViewMode = useScheduleStore((s) => s.setViewMode);
+  // The changeset's grouping key (ADR-1477 §3): Grid and Timeline are separate
+  // surfaces, so switching between them closes the open group.
+  useEffect(() => {
+    setChangesetSurface(viewMode === 'timeline' ? 'gantt' : 'grid', viewMode);
+  }, [viewMode]);
 
   // Adjacency + per-task dep-chip data — only depends on `allLinks`, so the
   // identity stays stable across hover transitions. This matters for
@@ -4800,6 +4807,13 @@ export function ScheduleView() {
           setBaselineManagerOpen={setBaselineManagerOpen}
           setTaskTrashOpen={setTaskTrashOpen}
         />
+      )}
+
+      {/* The committed plan's open changeset (ADR-1477, Pass 5 3B): the reason
+          line for the newest unreasoned change and the Review action. Both render
+          nothing while the changeset is empty or the role can't answer. */}
+      {projectDetail?.lifecycle === 'active' && projectId && (
+        <ChangesetStrip projectId={projectId} currentRole={currentRole} />
       )}
 
       {/* Downstream consent banner (ADR-0120 D2, #1480): shows only when another

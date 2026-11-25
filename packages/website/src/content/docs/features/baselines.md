@@ -56,9 +56,8 @@ a committed plan is **amending** it: the edit is recorded in the project's
 [change history](/features/change-history/) and the people who hold an assignment on the
 changed work are notified.
 
-TruePPM does not yet ask you *why* a committed plan changed — the amendment is recorded
-without a reason. The prompt that collects one, and the changeset view that reads those
-reasons back, ship in **0.5**.
+The plan's **changeset**, which ships in 0.5, collects structural amendments so each can be
+given a reason afterwards; see [Changing a committed plan](#changing-a-committed-plan-the-changeset).
 
 **You cannot un-commit.** A plan is committed once, so that the anchor every variance
 number is measured from cannot move — trying to commit an already-active plan again
@@ -108,7 +107,7 @@ From the **Schedule** view, open the toolbar's **Actions** menu:
   section of a task's detail drawer when no baseline exists yet.
 - **Baselines…** opens the baseline manager, where any project member can see every
   baseline (name, capture date, and task count) and which one is active. A Project
-  Manager can **Set active** to switch the comparison baseline, and a Project Owner can
+  Manager can **Set active** to switch the comparison baseline on a draft plan (a committed plan hides it: its baseline moves only through **Take v2** in the changeset review), and a Project Owner can
   **Delete** one.
 
 The same operations are available through the [REST API](#capturing-and-managing-baselines-via-the-api)
@@ -133,6 +132,97 @@ can flag a snapshot that was taken before the schedule was fully calculated.
 A project can hold **many baselines** — for example one per phase gate — but **one is
 active** at a time. The active baseline is the one used for comparison. Activating a
 different baseline automatically deactivates the previous one.
+
+## Changing a committed plan: the changeset
+
+:::note[Ships in 0.5]
+The changeset, its reason line, the review sheet and the two exits below ship in 0.5. In
+the current release a committed plan's amendments are recorded in change history without a
+reason, and a Project Manager switches the comparison baseline with **Set active**.
+:::
+
+Committing is not a lock. After baseline v1 you keep editing the plan with the same
+gestures, and nothing waits for you to explain yourself first. What changes is that every
+**structural** edit (adding, moving or deleting a task) joins an open **changeset**: the
+set of changes made since the active baseline, each with room for one line of *why*.
+
+- **What counts.** Adding a task or phase, moving one (indent, outdent, reparent, reorder,
+  group, ungroup), and deleting one. Date, duration, owner and status edits never join, and
+  neither does moving a card between sprints or from the backlog into a sprint.
+- **The edit applies first.** An entry is created the moment the edit lands, with no
+  reason. A Scheduler, Project Manager (`ADMIN`) or Owner answers it afterwards, or gives
+  the reason with the edit itself. A Member's structural edit joins the changeset too, always
+  without a reason (a reason sent with a Member's edit is not stored), and someone at
+  Scheduler or above answers it.
+- **Related acts group.** Acts of the same kind, on the same surface, by the same person,
+  within two minutes of each other share one entry and one reason. One multi-select action
+  is one entry. Answering an entry closes it, so a later act opens a new one. In the app,
+  the Grid, Outline, Timeline and Board are separate surfaces, so a Board drag never joins
+  a Grid restructure. Switching view or mode, opening the review, or leaving or reloading
+  the page also closes the open entry, so the next act starts a new one.
+- **A reason is set once.** It cannot be rewritten afterwards.
+- **Undo retracts the act it undoes, and only that act.** Restoring a deleted task takes
+  back the delete, undoing a paste or a CSV import takes back the add, and undoing an outline
+  restructure takes back the move. An earlier add or a later move of the same task stays
+  listed, because it still happened. Undoing the last act in an entry deletes the entry.
+- **Not yet in the changeset.** Tasks added by an inbound task push, by promoting a sprint to
+  a milestone, by applying a template, or by a recurring task's next occurrence do not open
+  an entry yet. That is tracked in
+  [#5126](https://gitlab.com/trueppm/trueppm/-/issues/5126). <!-- TODO(#5126) -->
+
+### The two exits
+
+When you review the changeset, there are two equal ways out, and both are recorded on the
+project's decision trail:
+
+- **Take a new baseline (v2).** Needs a reason code (approved scope change, sponsor moved
+  the commitment, external delay, estimate correction, team change, calendar change) and a
+  written reason. It is refused while any change still needs a reason. The changes it
+  covers are resolved.
+- **Keep the current baseline and let variance stand.** Always available, with an optional
+  note. The changes stay listed, and the next structural edit brings the review back.
+
+Re-baselining is for a plan that was re-agreed, not for turning a red number green. Only a
+Project Manager (`ADMIN`) or Owner takes either exit, and only from a signed-in session: an
+API token cannot re-baseline a plan.
+
+### Reviewing the changeset in the app
+
+Only Schedulers, Admins and Owners see any of this. Members' edits still join the
+changeset, and the plan owner answers them.
+
+- **The header.** Once a committed plan has open changes, the project header and the
+  Schedule view show **◷ N changes open · M need a reason** with a **⚑ Review N changes**
+  button. After you keep the baseline, the button steps down to **◷ N changes · v1 kept**
+  until the next structural edit lands.
+- **The reason line.** Right after a structural edit, a line under the Schedule toolbar
+  says what happened in the system's words, such as *Structural repairs moved · finish
+  Nov 14 → Nov 19*, with a **Why?** field. It never takes focus by itself; press
+  **⌥W** (Alt+W) to reach the field, type the reason and press Enter. **Esc** or **✕**
+  dismisses the line without answering, and the change stays marked.
+- **The review sheet.** **Review** opens a sheet that lists changes that need a reason
+  first, each with its author, time and finish impact. A change with no reason has a field
+  to answer it in place. Below the list are the net effect on the finish and the two exits
+  as equal cards. Neither is the default: Enter chooses nothing, and **Esc** or **✕**
+  closes the sheet without deciding.
+- **On a phone.** Instead of the header, a card at the top of the Schedule shows
+  **◷ N changes open since v1** with the date of the first open change, the finish against
+  v1 (*Finish Nov 14 → Nov 19 · +3 wd vs v1 · as of 15:22*), and **Review N changes**.
+  Under it, a note says that adding, moving and deleting tasks is on desktop and what the
+  phone can still do (update status, % complete and dates, review the changeset, and give
+  a missing reason). **Copy link** copies the page's address, and **Email it to me** opens
+  a draft in your mail app addressed to your own account's email only. The sheet fills the
+  screen, and the two exits sit in a sticky footer as equal buttons. **Take v2…** opens a
+  step for the reason code and the reason. **Keep v1** takes one tap and shows an **Undo**
+  for 10 seconds before the decision is recorded.
+- **Offline.** Both exits are disabled with **Reconnect to decide**, and the reason you
+  typed is kept on the device.
+- **If the changes moved.** If someone else changed the plan after you opened the sheet,
+  the decision is refused and the sheet reloads the current list.
+
+On a committed plan, the active baseline moves only through this decision. Activating a
+different baseline directly is refused, though you can still capture a named baseline to
+compare against.
 
 ## Capturing and managing baselines via the API
 
@@ -164,7 +254,12 @@ curl -X DELETE -H "Authorization: Bearer $JWT" \
 | `GET /api/v1/projects/{id}/baselines/` | List baselines | Project member |
 | `POST /api/v1/projects/{id}/baselines/` | Capture a baseline (auto-named if blank) | Project Manager (`ADMIN`) |
 | `GET /api/v1/projects/{id}/baselines/{baselineId}/` | Retrieve (with task count) | Project member |
-| `POST /api/v1/projects/{id}/baselines/{baselineId}/activate/` | Make active, deactivate others | Project Manager (`ADMIN`) |
+| `POST /api/v1/projects/{id}/baselines/{baselineId}/activate/` | Make active, deactivate others. On a committed project, refused with `409 use_baseline_decision` | Project Manager (`ADMIN`) |
+| `GET /api/v1/projects/{id}/changeset/` | Open changes since the active baseline, unanswered first, with counts, the finish against the baseline and `_provenance` | Any project member |
+| `PATCH /api/v1/projects/{id}/changeset/entries/{entryId}/` | Answer an entry's reason once (`{"reason": "..."}`). A second answer is `409 reason_already_set` | Scheduler (`SCHEDULER`) |
+| `GET /api/v1/projects/{id}/baseline-decisions/` | The decision trail, newest first | Any project member |
+| `GET /api/v1/projects/{id}/baseline-decisions/preview/` | What taking a new baseline would do: finish before and after, milestones that move, tasks with new dates | Project Manager (`ADMIN`) |
+| `POST /api/v1/projects/{id}/baseline-decisions/` | Take a new baseline (`kind: "taken"`) or keep this one (`kind: "kept"`). Send `expected_open_count`; a stale count is `409 changeset_changed`, and an unanswered change blocks `taken` with `409 changeset_unreasoned` naming the entries | Project Manager (`ADMIN`), signed-in session only |
 | `DELETE /api/v1/projects/{id}/baselines/{baselineId}/` | Delete a baseline | Project Admin (`OWNER`) |
 
 ## Baseline bars on the Gantt

@@ -55,8 +55,17 @@ vi.mock('@/hooks/useBaselines', () => ({
   useActivateBaseline: () => activateMut,
   useDeleteBaseline: () => deleteMut,
 }));
+const projectLifecycle = vi.hoisted(() => ({ value: undefined as 'draft' | 'active' | undefined }));
+vi.mock('@/hooks/useProject', () => ({
+  useProject: () => ({ data: { lifecycle: projectLifecycle.value } }),
+}));
+vi.mock('./ChangesetIndicator', () => ({ ChangesetIndicator: () => null }));
 vi.mock('@/hooks/useProjectMembers', () => ({
-  useProjectMembers: () => ({ members: [{ id: '7', username: 'kelly', role: ROLE_OWNER }], isLoading: false, error: null }),
+  useProjectMembers: () => ({
+    members: [{ id: '7', username: 'kelly', role: ROLE_OWNER }],
+    isLoading: false,
+    error: null,
+  }),
 }));
 vi.mock('@/components/Toast', () => ({ toast: toastSpies }));
 // Stub only the hook — spread the real module through, so the selector helpers
@@ -123,7 +132,10 @@ afterEach(() => {
 
 describe('BaselineManagerModal — role gates', () => {
   it('member (read-only): no capture, no set-active/delete, shows admin note', () => {
-    setList([baseline({ is_active: true }), baseline({ id: 'b2', name: 'Baseline 2', is_active: false })]);
+    setList([
+      baseline({ is_active: true }),
+      baseline({ id: 'b2', name: 'Baseline 2', is_active: false }),
+    ]);
     render(ROLE_MEMBER);
     expect(screen.queryByRole('button', { name: /capture baseline/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /set active/i })).toBeNull();
@@ -132,7 +144,10 @@ describe('BaselineManagerModal — role gates', () => {
   });
 
   it('admin: capture + set-active on inactive rows, but no delete (owner-only)', () => {
-    setList([baseline({ is_active: true }), baseline({ id: 'b2', name: 'Baseline 2', is_active: false })]);
+    setList([
+      baseline({ is_active: true }),
+      baseline({ id: 'b2', name: 'Baseline 2', is_active: false }),
+    ]);
     render(ROLE_ADMIN);
     expect(screen.getByRole('button', { name: /capture baseline/i })).toBeInTheDocument();
     // One inactive row → exactly one "Set active"; the active row omits it.
@@ -141,7 +156,10 @@ describe('BaselineManagerModal — role gates', () => {
   });
 
   it('owner: delete available on every row', () => {
-    setList([baseline({ is_active: true }), baseline({ id: 'b2', name: 'Baseline 2', is_active: false })]);
+    setList([
+      baseline({ is_active: true }),
+      baseline({ id: 'b2', name: 'Baseline 2', is_active: false }),
+    ]);
     render(ROLE_OWNER);
     expect(screen.getAllByRole('button', { name: /^delete$/i })).toHaveLength(2);
   });
@@ -173,7 +191,10 @@ describe('BaselineManagerModal — actions', () => {
   });
 
   it('set active calls activateBaseline with the row id', () => {
-    setList([baseline({ is_active: true }), baseline({ id: 'b2', name: 'Baseline 2', is_active: false })]);
+    setList([
+      baseline({ is_active: true }),
+      baseline({ id: 'b2', name: 'Baseline 2', is_active: false }),
+    ]);
     render(ROLE_ADMIN);
     fireEvent.click(screen.getByRole('button', { name: /set active/i }));
     expect(activateMut.mutate).toHaveBeenCalledWith('b2', expect.any(Object));
@@ -220,6 +241,21 @@ describe('BaselineManagerModal — states', () => {
     setList([baseline({ has_cpm_dates: false })]);
     render(ROLE_ADMIN);
     expect(screen.getByText(/before the schedule was fully calculated/i)).toBeInTheDocument();
+  });
+
+  it('committed plan: no Set active, because the baseline moves only through a decision (ADR-1477)', () => {
+    projectLifecycle.value = 'active';
+    try {
+      setList([
+        baseline({ is_active: true }),
+        baseline({ id: 'b2', name: 'Baseline 2', is_active: false }),
+      ]);
+      render(ROLE_OWNER);
+      expect(screen.queryByRole('button', { name: /set active/i })).toBeNull();
+      expect(screen.getByRole('button', { name: /capture baseline/i })).toBeInTheDocument();
+    } finally {
+      projectLifecycle.value = undefined;
+    }
   });
 
   it('active row shows the Active badge and omits Set active', () => {
@@ -298,7 +334,10 @@ describe('BaselineManagerModal — row metadata', () => {
   });
 
   it('pluralizes the task count, and stays singular at one task', () => {
-    setList([baseline({ task_count: 1 }), baseline({ id: 'b2', name: 'B2', task_count: 2, is_active: false })]);
+    setList([
+      baseline({ task_count: 1 }),
+      baseline({ id: 'b2', name: 'B2', task_count: 2, is_active: false }),
+    ]);
     render(ROLE_ADMIN);
     expect(screen.getByText(/1 task$/)).toBeInTheDocument();
     expect(screen.getByText(/2 tasks$/)).toBeInTheDocument();
@@ -417,7 +456,10 @@ describe('BaselineManagerModal — capture outcomes', () => {
 
 describe('BaselineManagerModal — activate outcomes', () => {
   beforeEach(() => {
-    setList([baseline({ is_active: true }), baseline({ id: 'b2', name: 'Baseline 2', is_active: false })]);
+    setList([
+      baseline({ is_active: true }),
+      baseline({ id: 'b2', name: 'Baseline 2', is_active: false }),
+    ]);
   });
 
   it('refuses to activate while offline and says why', () => {

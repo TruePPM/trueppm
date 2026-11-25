@@ -16,6 +16,7 @@ from trueppm_api.apps.projects.models import (
     Calendar,
     ImmutableModelError,
     Project,
+    ProjectLifecycle,
     Task,
     TaskStatus,
 )
@@ -71,7 +72,15 @@ def calendar(db: object) -> Calendar:
 
 @pytest.fixture
 def project(calendar: Calendar) -> Project:
-    return Project.objects.create(name="Alpha", start_date=date(2026, 3, 2), calendar=calendar)
+    # A draft: on a committed (ACTIVE) plan the activate route is refused with
+    # `use_baseline_decision` and the baseline moves only through
+    # `baseline-decisions/` (ADR-1477 §5), pinned in test_baseline_changeset.py.
+    return Project.objects.create(
+        name="Alpha",
+        start_date=date(2026, 3, 2),
+        calendar=calendar,
+        lifecycle=ProjectLifecycle.DRAFT,
+    )
 
 
 @pytest.fixture

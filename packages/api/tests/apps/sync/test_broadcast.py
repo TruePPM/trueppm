@@ -612,6 +612,7 @@ FROZEN_WS_EVENT_TYPES = frozenset(
         "assignment_updated",
         "backlog_reranked",
         "baseline_activated",
+        "changeset_updated",
         "baseline_created",
         "baseline_deleted",
         "board_config_updated",

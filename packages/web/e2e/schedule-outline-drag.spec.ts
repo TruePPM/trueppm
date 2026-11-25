@@ -158,7 +158,7 @@ test.describe('Schedule outline — drag to reorder or reparent (#2954)', () => 
     await expect
       .poll(() => captured.reparents.length, { message: 'expected one reparent' })
       .toBe(1);
-    expect(captured.reparents[0].body).toEqual({ new_parent_id: 'dtail' });
+    expect(captured.reparents[0].body).toMatchObject({ new_parent_id: 'dtail' });
     expect(captured.reparents[0].url).toContain('/tasks/dsurvey/reparent/');
   });
 
@@ -242,6 +242,6 @@ test.describe('Schedule outline — drag to reorder or reparent (#2954)', () => 
     await dialog.getByRole('button', { name: 'Move' }).click();
 
     await expect.poll(() => captured.reparents.length).toBe(1);
-    expect(captured.reparents[0].body).toEqual({ new_parent_id: 'dtail' });
+    expect(captured.reparents[0].body).toMatchObject({ new_parent_id: 'dtail' });
   });
 });

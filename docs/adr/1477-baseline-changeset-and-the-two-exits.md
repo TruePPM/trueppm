@@ -170,6 +170,12 @@ and `structural_operation_services.undo_structural_operation` (group, ungroup, r
 Task writes keep `amend_reason` as an optional field. When it's present on a structural write,
 it becomes the new entry's reason.
 
+> **Clarification (2026-11-24, decided by the maintainer during the #3150 fix round):** the
+> inline `amend_reason` holds the same floor as the reason PATCH, Scheduler and above. Below
+> Scheduler it is dropped: the write still applies and its entry stays `reason: null`, for a
+> Scheduler or above to answer in Review. Without this a Member's write body could close an
+> entry the PATCH refuses them, and so unblock a `taken` (`amend._may_answer_reason`).
+
 **The bypass is closed.**
 - On a project whose `lifecycle` is ACTIVE, `BaselineActivateView` returns
   `409 {"code":"use_baseline_decision"}`.

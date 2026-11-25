@@ -269,6 +269,7 @@ These rules are enforced at review time. Violations block merge.
 309. **The Schedule row's far-left edge is spoken for twice — a third row-level meaning goes at the indent origin, not there.** → [rule](../../docs/design/invariants/309-the-schedule-row-s-far-left-edge-is-spoken-for-twice-a.md)
 279. **An effect that needs a DOM node takes the node from `useElementRef` and lists it as a dependency — never `someRef.current` read inside an effect that cannot re-run when the node mounts (#2365).** → [rule](../../docs/design/invariants/279-an-effect-that-needs-a-dom-node-takes-the-node-from.md)
 411. **`disabled` on a form control removes it from the tab order and takes its `aria-describedby` explanation with it — so the state that most needs explaining becomes the one a keyboard or screen-reader user cannot reach. Use `readOnly` + an `onChange` guard for "inert right now", and reserve `disabled` for controls with no explanation to offer.** → [rule](../../docs/design/invariants/411-disabled-on-a-form-control-removes-it-from-the-tab-order.md)
+469. **A write that outlives the surface that started it (a closed sheet, an Undo-window post) reports its outcome through `mutateAsync(...).then`, never through per-call `mutate` callbacks, which TanStack drops on unmount.** → [rule](../../docs/design/invariants/469-a-write-that-outlives-its-surface-uses-mutateasync.md)
 
 ## Canvas
 
@@ -317,6 +318,7 @@ These rules are enforced at review time. Violations block merge.
 462. **On shell v2 the settings save bar appears only when dirty, names the dirty sections, saves on Cmd/Ctrl+S and guards exits with `ConfirmDiscardDialog`; archiving a project is confirmed by typing its code.** → [rule](../../docs/design/invariants/462-shell-v2-settings-save-bar-and-archive-confirmation.md)
 467. **On shell v2 the critical and near-critical bands are also glyphs: `▲ 0d` / `◆ Nd` in the Total float cell, a `◆` on near-critical bars, and solid red critical-to-critical arrows; all from `isNearCriticalByFloat`.** → [rule](../../docs/design/invariants/467-shell-v2-band-glyphs-in-the-float-column-and-on-canvas-bars.md)
 468. **On the shell v2 phone Board a card moves by a per-card 44px `Move to…` disclosure through the page's one `move`; a board that says moves are queued must mount `useBoardOffline`.** → [rule](../../docs/design/invariants/468-shell-v2-phone-board-moves-by-a-per-card-move-to-and-mounts-the-offline-driver.md)
+470. **A phone surface that withholds a desktop capability renders a named `role="note"` saying what is desktop-only and what the phone can still do, with a 44px Copy link and an Email it to me addressed to the signed-in user only.** → [rule](../../docs/design/invariants/470-a-phone-surface-that-withholds-a-desktop-capability-says-so-and-hands-off.md)
 
 ---
 

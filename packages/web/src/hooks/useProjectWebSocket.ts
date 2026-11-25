@@ -25,6 +25,8 @@
  *                     (also the 0.4 alias dependencies_bulk_created, removed in 0.6, #5096)
  *                     → invalidate dependencies + tasks
  *   baseline_created / baseline_activated / baseline_deleted → invalidate baselines + tasks
+ *   changeset_updated → invalidate changeset + baseline decisions + baselines + tasks
+ *                  (counts only, ADR-1477; a peer's Take v2 moves the active baseline)
  *   risk_created / risk_updated / risk_deleted → invalidate risks
  *   project_created / project_updated / project_deleted / project_hard_deleted /
  *     project_archived / project_unarchived / project_transferred
@@ -703,6 +705,17 @@ function registerTaskMutationHandlers(on: OnFn, deps: WsHandlerDeps): void {
     if (event_type === 'baseline_activated' || event_type === 'baseline_deleted') {
       scheduleInvalidate('tasks');
     }
+  });
+  // ADR-1477: the payload carries counts only, never reason text; refetch the read.
+  on('changeset_updated', () => {
+    void queryClient.invalidateQueries({ queryKey: ['changeset', projectIdRef.current] });
+    void queryClient.invalidateQueries({ queryKey: ['baselineDecisions', projectIdRef.current] });
+    // A peer's "Take v2" moves the active baseline, and the counts-only payload
+    // cannot say so. Refetch the baseline list and the task overlay too, or every
+    // other client keeps drawing v1 until a reload (ADR-1477 §5). `tasks` goes
+    // through the burst debounce: a structural write already invalidates it.
+    void queryClient.invalidateQueries({ queryKey: ['baselines', projectIdRef.current] });
+    scheduleInvalidate('tasks');
   });
 }
 

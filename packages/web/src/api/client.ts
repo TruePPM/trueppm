@@ -11,6 +11,7 @@ import { isSameUser } from '@/lib/userId';
 import type { CurrentUser } from '@/hooks/useCurrentUser';
 import { DEMO_REFUSAL_TOAST, isDemoReadOnlyRefusal } from '@/lib/demoReadOnly';
 import { isDemoReadOnlySync } from '@/hooks/useDemoMode';
+import { withChangesetHints } from '@/lib/changesetHints';
 
 declare module 'axios' {
   interface AxiosRequestConfig {
@@ -85,7 +86,8 @@ apiClient.interceptors.request.use((config) => {
   if (accessToken) {
     config.headers.Authorization = `Bearer ${accessToken}`;
   }
-  return config;
+  // Changeset grouping hints on structural writes (ADR-1477 §3).
+  return withChangesetHints(config);
 });
 
 // Track whether a token refresh is already in-flight to prevent concurrent retries.

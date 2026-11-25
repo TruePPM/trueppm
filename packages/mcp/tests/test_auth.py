@@ -166,6 +166,8 @@ async def test_server_registers_read_tool_surface(settings: Settings) -> None:
         "get_project_views",
         "list_dependencies",
         "list_baselines",
+        "get_changeset",
+        "list_baseline_decisions",
         "list_phases",
         "list_calendars",
         "list_sprints",

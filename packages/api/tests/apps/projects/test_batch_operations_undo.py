@@ -1243,11 +1243,14 @@ def test_paste_many_undo_broadcasts_and_recalculates(
         )
     assert resp.status_code == 200
     mock_recalc.assert_called_once_with(str(project.pk))
-    mock_broadcast.assert_called_once()
-    args = mock_broadcast.call_args[0]
+    # The project is active, so the paste opened a changeset `add` entry and the
+    # undo retracts it (ADR-1477 §3): one task broadcast, one changeset broadcast.
+    by_event = {c.args[1]: c.args for c in mock_broadcast.call_args_list}
+    assert sorted(by_event) == ["changeset_updated", "tasks_bulk_mutated"]
+    args = by_event["tasks_bulk_mutated"]
     assert args[0] == str(project.pk)
-    assert args[1] == "tasks_bulk_mutated"
     assert len(args[2]["task_ids"]) == 2
+    assert by_event["changeset_updated"][2]["open_count"] == 0
 
 
 @pytest.mark.django_db

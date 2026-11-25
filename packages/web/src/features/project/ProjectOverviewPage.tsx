@@ -14,6 +14,7 @@ import { ROLE_ADMIN, ROLE_SCHEDULER, canCommitPlan } from '@/lib/roles';
 import { useCommitProject } from '@/hooks/useProjectMutations';
 import { commitRefusalMessage } from '@/hooks/commitRefusal';
 import { CommitPlanConfirmDialog } from '@/features/project/CommitPlanConfirmDialog';
+import { ChangesetIndicator } from '@/features/schedule/ChangesetIndicator';
 import { DRAFT_EXCLUSION_SENTENCE } from '@/features/project/draftExclusion';
 import { toast } from '@/components/Toast/toast';
 import { apiClient } from '@/api/client';
@@ -428,6 +429,11 @@ function ProjectHeader({ overview, projectId }: ProjectHeaderProps) {
             >
               Commit plan
             </button>
+          )}
+          {/* After commit, the same slot carries the open changeset and its Review
+              action (Pass 5 3B pin 1). Renders nothing while the changeset is empty. */}
+          {project?.lifecycle === 'active' && projectId && (
+            <ChangesetIndicator projectId={projectId} currentRole={role} />
           )}
         </div>
       </div>
@@ -1446,7 +1452,6 @@ export function ProjectOverviewPage() {
 }
 
 function ProjectOverviewV1({ projectId }: { projectId: string | undefined }) {
-
   const {
     data: overview,
     isLoading: overviewLoading,

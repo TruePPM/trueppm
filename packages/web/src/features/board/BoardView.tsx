@@ -51,6 +51,7 @@ import {
   type RefObject,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
+import { setChangesetSurface } from '@/lib/changesetHints';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProjectCustomFields, type ProjectCustomField } from '@/hooks/useProjectCustomFields';
@@ -1693,6 +1694,11 @@ export function BoardView() {
     canConfigureBoard,
   } = useBoardIdentity(useProjectId());
   const [shareOpen, setShareOpen] = useState(false);
+  // The changeset's grouping key (ADR-1477 §3, D10): Board drags never group
+  // with Grid restructures, and arriving here closes the open group.
+  useEffect(() => {
+    setChangesetSurface('board');
+  }, []);
   const { columns: rawColumns, save: saveBoardConfig } = useBoardConfig(projectIdOrNull);
   const { tasks, isLoading, error } = useScheduleTasks();
   // Board-local transient notices (web rule 183). Two writers, both ephemeral and

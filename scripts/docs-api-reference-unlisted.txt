@@ -165,7 +165,6 @@ DELETE /api/v1/projects/{project_pk}/api-tokens/{id}/
 GET /api/v1/projects/{project_pk}/api-tokens/{id}/
 GET /api/v1/projects/{project_pk}/baselines/
 POST /api/v1/projects/{project_pk}/baselines/
-POST /api/v1/projects/{project_pk}/baselines/{baseline_pk}/activate/
 DELETE /api/v1/projects/{project_pk}/baselines/{id}/
 GET /api/v1/projects/{project_pk}/baselines/{id}/
 GET /api/v1/projects/{project_pk}/board/activity/

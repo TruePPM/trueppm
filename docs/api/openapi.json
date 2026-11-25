@@ -29681,6 +29681,295 @@
                 }
             }
         },
+        "/api/v1/projects/{project_pk}/baseline-decisions/": {
+            "get": {
+                "operationId": "v1_projects_baseline_decisions_list",
+                "description": "GET/POST /projects/{project_pk}/baseline-decisions/ — the trail, and the two exits.\n\nPOST takes v(n+1) or keeps v(n) in one transaction (``baselines.decide``). The\ntwo exits share one role floor and one endpoint on purpose: a product that\nonly offers re-baseline teaches people to launder slip (UX-REVIEW §4).",
+                "summary": "List baseline decisions (taken / kept), newest first",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/BaselineDecision"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "operationId": "v1_projects_baseline_decisions_create",
+                "description": "GET/POST /projects/{project_pk}/baseline-decisions/ — the trail, and the two exits.\n\nPOST takes v(n+1) or keeps v(n) in one transaction (``baselines.decide``). The\ntwo exits share one role floor and one endpoint on purpose: a product that\nonly offers re-baseline teaches people to launder slip (UX-REVIEW §4).",
+                "summary": "Take a new baseline or keep the current one",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "header",
+                        "name": "Idempotency-Key",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "maxLength": 255
+                        },
+                        "description": "Optional client-generated key (a UUIDv4 is recommended) that makes a retry of this request safe: a retry with the same key and a byte-identical request replays the stored response instead of repeating the write. Scoped per authenticated user. Reusing a key for a different request is refused with ``422``. See the Idempotency guide."
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BaselineDecisionWriteRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BaselineDecisionWriteRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BaselineDecisionWriteRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BaselineDecision"
+                                }
+                            }
+                        },
+                        "description": "",
+                        "headers": {
+                            "Idempotent-Replay": {
+                                "description": "``true`` when this response is a replay of the stored response for the request's ``Idempotency-Key``; absent on a first execution.",
+                                "schema": {
+                                    "type": "string",
+                                    "example": "true"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "`changeset_changed` (with `open_count`), `changeset_unreasoned` (with `entries`), or `project_not_committed`."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
+                                            "example": "Request body must be a JSON object."
+                                        },
+                                        "code": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
+                                            "example": "invalid_body"
+                                        }
+                                    },
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage credentials, sign-in configuration, memberships or workspace exports. Sign in to perform this action."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/baseline-decisions/preview/": {
+            "get": {
+                "operationId": "v1_projects_baseline_decisions_preview_retrieve",
+                "description": "GET /projects/{project_pk}/baseline-decisions/preview/ — what taking v(n+1) would do.\n\nComputed by the same ``baselines.decide`` the POST runs, with ``dry_run``. It\nreads persisted CPM output and recomputes nothing.",
+                "summary": "Preview taking a new baseline",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BaselineDecisionPreview"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{project_pk}/baselines/": {
             "get": {
                 "operationId": "v1_projects_baselines_list",
@@ -29963,6 +30252,9 @@
                             }
                         }
                     },
+                    "409": {
+                        "description": "`use_baseline_decision`: the project is committed; its baseline moves only through `baseline-decisions/` (ADR-1477)."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -30059,7 +30351,7 @@
             },
             "delete": {
                 "operationId": "v1_projects_baselines_destroy",
-                "description": "CRUD for schedule baselines within a project.\n\nA baseline is a frozen snapshot of all task dates at a point in time, used\nfor plan-vs-actual tracking via the baseline comparison table and the\nper-task variance in the detail drawer. ADR-0376 defers the Gantt ghost-bar\noverlay to 0.5 — these dates are not drawn on the canvas.\n\nPermission matrix:\n  list / retrieve — any project member (Viewer+)\n  create          — Project Manager+ (IsProjectAdmin, role ≥ 3)\n  destroy         — Project Owner only (IsProjectOwner, role == Role.OWNER)",
+                "description": "Delete a baseline; never the active one of a committed plan (ADR-1477 §5).\n\nDeleting the active baseline of an ACTIVE project would leave variance\nmeasured against nothing, with no decision row and no reasons: the same\nbypass as the old activate route. Inactive comparison baselines, and\nevery baseline of a draft, stay deletable.",
                 "parameters": [
                     {
                         "in": "path",
@@ -30117,6 +30409,9 @@
                                 }
                             }
                         }
+                    },
+                    "409": {
+                        "description": "`use_baseline_decision`: the active baseline of a committed plan moves only through `baseline-decisions/` (ADR-1477)."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -30353,6 +30648,212 @@
                                 }
                             }
                         }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/changeset/": {
+            "get": {
+                "operationId": "v1_projects_changeset_retrieve",
+                "description": "GET /projects/{project_pk}/changeset/ — what changed since the active baseline, and why.\n\n``last_kept_at`` / ``entries_since_kept``: after a Keep v1 the client demotes\nReview until one new entry arrives (Pass 5 Q3.1). Finish figures carry\n``_provenance`` (ADR-0112 §2); they are persisted CPM output, never guessed —\na null ``finish_after`` means \"impact not computed yet\".",
+                "summary": "Read the open baseline changeset",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ChangesetResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{project_pk}/changeset/entries/{entry_pk}/": {
+            "patch": {
+                "operationId": "v1_projects_changeset_entries_partial_update",
+                "description": "PATCH /projects/{project_pk}/changeset/entries/{entry_pk}/ ``{reason}`` — answer once.\n\nSet-once: a second write is ``409 reason_already_set``. A given reason cannot\nbe edited, only noted (Q3.6) — the trail is evidence. Answering closes the\ngroup, so a later act opens a new entry rather than reopening a reasoned one.\nSends no notification (D11: notified once, on the change).",
+                "summary": "Answer a changeset entry's reason",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "entry_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "header",
+                        "name": "Idempotency-Key",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "maxLength": 255
+                        },
+                        "description": "Optional client-generated key (a UUIDv4 is recommended) that makes a retry of this request safe: a retry with the same key and a byte-identical request replays the stored response instead of repeating the write. Scoped per authenticated user. Reusing a key for a different request is refused with ``422``. See the Idempotency guide."
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedChangesetReasonRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedChangesetReasonRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedChangesetReasonRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ChangesetEntry"
+                                }
+                            }
+                        },
+                        "description": "",
+                        "headers": {
+                            "Idempotent-Replay": {
+                                "description": "``true`` when this response is a replay of the stored response for the request's ``Idempotency-Key``; absent on a first execution.",
+                                "schema": {
+                                    "type": "string",
+                                    "example": "true"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "`reason_already_set`: a reason is set once."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
+                                            "example": "Request body must be a JSON object."
+                                        },
+                                        "code": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
+                                            "example": "invalid_body"
+                                        }
+                                    },
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/IdempotencyKeyConflict"
                     }
                 }
             }
@@ -61879,6 +62380,212 @@
                     "task_count"
                 ]
             },
+            "BaselineDecision": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "kind": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/BaselineDecisionKindEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "from_baseline": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "to_baseline": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "to_baseline_name": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "reason_code": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ReasonCodeEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "note": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "commitment_moved": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "decision": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "entry_ids": {
+                        "readOnly": true
+                    },
+                    "finish_at_decision": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "actor": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "actor_name": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "actor",
+                    "actor_name",
+                    "commitment_moved",
+                    "created_at",
+                    "decision",
+                    "entry_ids",
+                    "finish_at_decision",
+                    "from_baseline",
+                    "id",
+                    "kind",
+                    "note",
+                    "reason",
+                    "reason_code",
+                    "to_baseline",
+                    "to_baseline_name"
+                ]
+            },
+            "BaselineDecisionKindEnum": {
+                "enum": [
+                    "taken",
+                    "kept"
+                ],
+                "type": "string",
+                "description": "* `taken` - Took a new baseline\n* `kept` - Kept the baseline, let variance stand",
+                "x-trueppm-enum": "open"
+            },
+            "BaselineDecisionPreview": {
+                "type": "object",
+                "properties": {
+                    "finish_from": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "finish_to": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "delta_days": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "milestones_moved": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": {}
+                        }
+                    },
+                    "tasks_with_new_dates": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "integer"
+                        }
+                    },
+                    "commitment_moves": {
+                        "type": "boolean"
+                    },
+                    "_provenance": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "title": " provenance"
+                    }
+                },
+                "required": [
+                    "_provenance",
+                    "commitment_moves",
+                    "delta_days",
+                    "finish_from",
+                    "finish_to",
+                    "milestones_moved",
+                    "tasks_with_new_dates"
+                ]
+            },
+            "BaselineDecisionWriteRequest": {
+                "type": "object",
+                "properties": {
+                    "kind": {
+                        "$ref": "#/components/schemas/BaselineDecisionKindEnum"
+                    },
+                    "expected_open_count": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "reason_code": {
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/ReasonCodeEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "reason": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 500
+                    },
+                    "note": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 500
+                    },
+                    "commitment_moved": {
+                        "type": "boolean",
+                        "default": false
+                    },
+                    "decision": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "expected_open_count",
+                    "kind"
+                ]
+            },
             "BaselineDetail": {
                 "type": "object",
                 "description": "Retrieve response — includes the full task snapshot.",
@@ -63107,6 +63814,234 @@
                     "next_cursor",
                     "results"
                 ]
+            },
+            "ChangesetEntry": {
+                "type": "object",
+                "description": "One entry. ``reason_state`` is derived, never stored (ADR-1477 §1).",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "kind": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ChangesetEntryKindEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "surface": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ChangesetSurfaceNameEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "author": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "author_name": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "agent_actor_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "task_ids": {
+                        "readOnly": true
+                    },
+                    "task_names": {
+                        "readOnly": true
+                    },
+                    "reason": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "reason_state": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "reason_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "reason_by_name": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "reason_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "finish_before": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "finish_after": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "opened_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "last_act_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "closed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "resolved_decision": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "agent_actor_id",
+                    "author",
+                    "author_name",
+                    "closed_at",
+                    "finish_after",
+                    "finish_before",
+                    "id",
+                    "kind",
+                    "last_act_at",
+                    "opened_at",
+                    "reason",
+                    "reason_at",
+                    "reason_by",
+                    "reason_by_name",
+                    "reason_state",
+                    "resolved_decision",
+                    "surface",
+                    "task_ids",
+                    "task_names"
+                ]
+            },
+            "ChangesetEntryKindEnum": {
+                "enum": [
+                    "add",
+                    "move",
+                    "delete"
+                ],
+                "type": "string",
+                "description": "* `add` - Add\n* `move` - Move\n* `delete` - Delete",
+                "x-trueppm-enum": "open"
+            },
+            "ChangesetResponse": {
+                "type": "object",
+                "properties": {
+                    "project_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "open_count": {
+                        "type": "integer"
+                    },
+                    "unreasoned_count": {
+                        "type": "integer"
+                    },
+                    "reasoned_count": {
+                        "type": "integer"
+                    },
+                    "active_baseline": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "active_baseline_name": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "finish_baseline": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "finish_current": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "net_delta_days": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "last_kept_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "entries_since_kept": {
+                        "type": "integer"
+                    },
+                    "entries": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ChangesetEntry"
+                        }
+                    },
+                    "_provenance": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "title": " provenance"
+                    }
+                },
+                "required": [
+                    "_provenance",
+                    "active_baseline",
+                    "active_baseline_name",
+                    "entries",
+                    "entries_since_kept",
+                    "finish_baseline",
+                    "finish_current",
+                    "last_kept_at",
+                    "net_delta_days",
+                    "open_count",
+                    "project_id",
+                    "reasoned_count",
+                    "unreasoned_count"
+                ]
+            },
+            "ChangesetSurfaceNameEnum": {
+                "enum": [
+                    "grid",
+                    "gantt",
+                    "board",
+                    "outline",
+                    "api",
+                    "sync",
+                    "import"
+                ],
+                "type": "string",
+                "description": "* `grid` - Grid\n* `gantt` - Gantt\n* `board` - Board\n* `outline` - Outline\n* `api` - API\n* `sync` - Sync\n* `import` - Import",
+                "x-trueppm-enum": "open"
             },
             "ChoiceEnum": {
                 "enum": [
@@ -71758,6 +72693,16 @@
                     },
                     "enabled": {
                         "type": "boolean"
+                    }
+                }
+            },
+            "PatchedChangesetReasonRequest": {
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500
                     }
                 }
             },
@@ -82234,6 +83179,19 @@
                     "migration_state",
                     "status"
                 ]
+            },
+            "ReasonCodeEnum": {
+                "enum": [
+                    "approved_scope_change",
+                    "sponsor_moved_commitment",
+                    "external_delay",
+                    "estimate_correction",
+                    "team_change",
+                    "calendar_change"
+                ],
+                "type": "string",
+                "description": "* `approved_scope_change` - Approved scope change\n* `sponsor_moved_commitment` - Sponsor moved the commitment\n* `external_delay` - External delay\n* `estimate_correction` - Estimate correction\n* `team_change` - Team change\n* `calendar_change` - Calendar change",
+                "x-trueppm-enum": "open"
             },
             "ReasonEnum": {
                 "enum": [

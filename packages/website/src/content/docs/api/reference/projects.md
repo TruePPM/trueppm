@@ -147,6 +147,22 @@ Writing a MIME type that is permanently security-denied (`text/html`,
 [Task collaboration](/features/task-collaboration/) for how the resolved policy
 governs uploads.
 
+### Baseline changeset and decisions
+
+:::note[Ships in 0.5]
+These routes ship in 0.5. In the current release a committed plan's baseline is switched with `POST /api/v1/projects/{id}/baselines/{baseline_id}/activate/`.
+:::
+
+On a committed (`lifecycle: active`) plan, structural edits join an open changeset and the active baseline moves only through a recorded decision ([Baselines](/features/baselines/#changing-a-committed-plan-the-changeset), ADR-1477).
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/api/v1/projects/{project_pk}/changeset/` | Project member | Open entries (unreasoned first), counts by reason state, finish against the active baseline, `last_kept_at`, `entries_since_kept` and `_provenance`. |
+| PATCH | `/api/v1/projects/{project_pk}/changeset/entries/{entry_pk}/` | Scheduler+ | Set an entry's `reason` once. A second write is `409 reason_already_set`. |
+| GET | `/api/v1/projects/{project_pk}/baseline-decisions/` | Project member | The decision trail, newest first. Append-only. |
+| GET | `/api/v1/projects/{project_pk}/baseline-decisions/preview/` | Admin+ | What taking a new baseline would do: finish from and to, working-day delta, milestones moved, tasks with new dates. |
+| POST | `/api/v1/projects/{project_pk}/baseline-decisions/` | Admin+, signed-in session only | `kind: "taken"` (with `reason_code` and `reason`) or `kind: "kept"` (optional `note`), plus `expected_open_count`. Refused with `409 changeset_changed` when the open set moved, and `taken` with `409 changeset_unreasoned` while any entry lacks a reason. An API token is refused with 403. |
+
 ### Driving chain
 
 `GET /api/v1/projects/{id}/schedule/driving-chain/` (query: `task_id`, optional `depth`) returns the

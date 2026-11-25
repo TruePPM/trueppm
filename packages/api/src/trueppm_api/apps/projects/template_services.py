@@ -136,6 +136,10 @@ def undo_template_application(application: TemplateApplication) -> dict[str, int
     # swept along with them.
     bulk_soft_delete_tasks(to_delete)
     deleted = len(to_delete)
+    # ADR-1477 §3: undoing a template apply retracts an `add`.
+    from trueppm_api.apps.projects import amend
+
+    amend.retract(application.project_id, [t.pk for t in to_delete], kind="add")
 
     application.status = TemplateApplicationStatus.UNDONE
     application.undone_at = timezone.now()

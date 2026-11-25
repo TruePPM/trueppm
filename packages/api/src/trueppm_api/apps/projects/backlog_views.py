@@ -37,6 +37,7 @@ from trueppm_api.apps.access.permissions import (
     assert_project_not_archived,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
+from trueppm_api.apps.projects import amend
 from trueppm_api.apps.projects.backlog_services import (
     BacklogItemNotPullable,
     CrossProgramPullError,
@@ -269,6 +270,9 @@ class BacklogItemViewSet(
 
         try:
             task = pull_to_project_backlog(item_id=str(pk), project=project, actor=request.user)
+            amend.record_from_request(
+                request, project, "add", [task.pk]
+            )  # ADR-1477 §2: an add to a committed plan
         except BacklogItem.DoesNotExist:
             return Response(
                 {"detail": "Backlog item not found."},
