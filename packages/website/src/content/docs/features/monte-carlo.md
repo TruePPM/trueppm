@@ -198,6 +198,27 @@ The most recent result is also available without re-running the simulation:
 GET /api/v1/projects/<project_id>/monte-carlo/latest/
 ```
 
+## Which forecast a project headlines
+
+::::note[Ships in 0.5]
+0.4 and earlier return no headline field; each client chooses what to show.
+::::
+
+`GET /api/v1/projects/{id}/forecast/` returns `headline_forecast_kind` and `headline_forecast_reason`, so every client leads with the same forecast. The server chooses; there is no setting.
+
+The kind is `team_velocity` when all three hold: the project has sprints, the [sprint forecast](/features/sprints/) has velocity-based values, and fewer than half of the scheduled tasks touch a dependency. A task under a linked summary counts as linked. Otherwise it is `cpm_monte_carlo`.
+
+| `headline_forecast_kind` | `headline_forecast_reason` | Meaning |
+|---|---|---|
+| `team_velocity` | `sparse_dependency_network` | Fewer than half of scheduled tasks are linked |
+| `cpm_monte_carlo` | `no_sprints` | The project has no sprints |
+| `cpm_monte_carlo` | `no_scheduled_tasks` | No task has computed dates |
+| `cpm_monte_carlo` | `dependency_network` | At least half of scheduled tasks are linked |
+| `cpm_monte_carlo` | `no_velocity_forecast` | Not enough velocity history, or the team forecasts by throughput |
+| `cpm_monte_carlo` | `velocity_withheld` | You are below the project's velocity audience |
+
+The answer is per caller. Below the velocity audience you always get `velocity_withheld`, whether or not a velocity forecast exists. The server checks the project's kind for the [`schedule.finish_changed` webhook](/features/webhooks/#event-types) at two moments: after a schedule recalculation and after a sprint close. If the kind differs from the last check and the team shares velocity outward (`program_shared`), the event is sent; a switch that happens between those moments is sent at the next one. Under any other audience no event is sent. Both lists are part of the API contract; a new value is announced in the changelog.
+
 ## Forecast history
 
 A single percentile date answers "when?" once. The more useful planning question

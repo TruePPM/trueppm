@@ -555,3 +555,28 @@ class ProjectForecastSnapshot(models.Model):
 
     def __str__(self) -> str:
         return f"ProjectForecastSnapshot(project={self.project_id} @ {self.captured_at:%Y-%m-%d})"
+
+
+class HeadlineForecastState(models.Model):
+    """The headline forecast kind last observed for a project (ADR-1485 D4, #5130).
+
+    Bookkeeping for change detection only, so that a switch of kind emits
+    ``schedule.finish_changed`` at most once (and not at all unless velocity is
+    shared outward). It moves whether or not the event is sent. It is never
+    served: the read computes the kind per caller
+    (``headline_forecast.caller_headline_forecast``). A separate table, not a
+    ``Project`` column, so recording it cannot bump ``server_version`` or reach
+    the sync delta.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.OneToOneField(
+        "projects.Project",
+        on_delete=models.CASCADE,
+        related_name="headline_forecast_state",
+    )
+    kind = models.CharField(max_length=20)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"{self.project_id}: {self.kind}"

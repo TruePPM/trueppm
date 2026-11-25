@@ -45,6 +45,14 @@ at any time without notice:
 - Ordering of list results where no explicit ordering is documented.
 - Internal header names beyond the documented ones.
 
+## Experimental endpoints
+
+::::note[Ships in 0.5]
+No endpoint is marked experimental in 0.4 and earlier. The first one in 0.5 is the [baseline variance read](/features/baselines/#comparing-the-whole-project-against-a-baseline).
+::::
+
+An operation marked `x-experimental: true` in the OpenAPI schema is published for use, but its shape may still change. Its `x-stability-window` states the notice you get before a breaking change: at least two minor releases. When a removal or change is scheduled, responses carry `Deprecation` and `Sunset` headers, and every change has a changelog entry.
+
 ## Change classes
 
 Every change to the API falls into one of three classes.

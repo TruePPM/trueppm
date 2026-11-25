@@ -48,18 +48,22 @@ class WebhookEventType(models.TextChoices):
     RISK_CLOSED = "risk.closed", "Risk Closed"
     BASELINE_CAPTURED = "baseline.captured", "Baseline Captured"
     COMMENT_CREATED = "comment.created", "Comment Created"
+    # ADR-1485 D4/D6 (#5130): the project's headline forecast kind switched
+    # (CPM/Monte Carlo <-> team velocity). Ids and enums only, no velocity figures.
+    SCHEDULE_FINISH_CHANGED = "schedule.finish_changed", "Schedule Finish Changed"
 
 
 ALL_WEBHOOK_EVENTS = [e.value for e in WebhookEventType]
 
 # Hard cap on the number of OSS webhook event types (ADR-0083, raised 11→14 by
 # ADR-0147 for the agile trio, then 14→19 by ADR-0206 for the risk/baseline/comment
-# domain events). Adding a 20th event requires its own ADR — this is the gate
+# domain events), then 19→20 by ADR-1485 for schedule.finish_changed. Adding a
+# 21st event requires its own ADR — this is the gate
 # against the per-customer event proliferation that is the explicit Enterprise
 # upsell. These are all first-party domain events, not custom/user-defined events,
 # so the upsell line is unaffected. ``test_event_type_cap`` fails loudly if
 # WebhookEventType drifts from this number.
-OSS_WEBHOOK_EVENT_CAP = 19
+OSS_WEBHOOK_EVENT_CAP = 20
 
 # Reserved, non-domain event type used by the "Send test" action (#2884). It is
 # deliberately NOT a WebhookEventType member: no subscription can select it and

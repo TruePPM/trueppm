@@ -30286,6 +30286,101 @@
                 }
             }
         },
+        "/api/v1/projects/{project_pk}/baselines/{baseline_pk}/variance/": {
+            "get": {
+                "operationId": "project_baseline_variance",
+                "description": "Signed working-day variance per task against one baseline.\n\nSame audience as the baseline reads: any project member. Read-only.",
+                "summary": "Project-wide variance against a baseline",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "baseline_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "min_days",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "List a task when its start or finish moved by at least this many working days. Default 1; 0 lists every task on both sides."
+                    },
+                    {
+                        "in": "query",
+                        "name": "page",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "scheduling"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BaselineVariance"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "description": "`min_days` is not a whole number of 0 or more."
+                    },
+                    "404": {
+                        "description": "Unknown project or baseline."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "x-experimental": true,
+                "x-stability-window": "At least two minor releases of notice before a breaking change."
+            }
+        },
         "/api/v1/projects/{project_pk}/baselines/{id}/": {
             "get": {
                 "operationId": "v1_projects_baselines_retrieve",
@@ -62724,6 +62819,136 @@
                     "task_name"
                 ]
             },
+            "BaselineVariance": {
+                "type": "object",
+                "description": "The paginated variance envelope.",
+                "properties": {
+                    "count": {
+                        "type": "integer"
+                    },
+                    "next": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true
+                    },
+                    "previous": {
+                        "type": "string",
+                        "format": "uri",
+                        "nullable": true
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/BaselineVarianceRow"
+                        }
+                    },
+                    "baseline_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "baseline_name": {
+                        "type": "string"
+                    },
+                    "has_cpm_dates": {
+                        "type": "boolean"
+                    },
+                    "min_days": {
+                        "type": "integer"
+                    },
+                    "added": {
+                        "type": "integer"
+                    },
+                    "removed": {
+                        "type": "integer"
+                    },
+                    "as_of": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "required": [
+                    "added",
+                    "as_of",
+                    "baseline_id",
+                    "baseline_name",
+                    "count",
+                    "has_cpm_dates",
+                    "min_days",
+                    "next",
+                    "previous",
+                    "removed",
+                    "results"
+                ]
+            },
+            "BaselineVarianceRow": {
+                "type": "object",
+                "description": "One task's movement against the baseline. Positive deltas mean later.",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "task_name": {
+                        "type": "string"
+                    },
+                    "is_milestone": {
+                        "type": "boolean"
+                    },
+                    "baseline_start": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "baseline_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "current_start": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "current_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "start_delta_working_days": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "finish_delta_working_days": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "cause": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "derivation_ref": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/DerivationRef"
+                            }
+                        ],
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "baseline_finish",
+                    "baseline_start",
+                    "cause",
+                    "current_finish",
+                    "current_start",
+                    "derivation_ref",
+                    "finish_delta_working_days",
+                    "is_milestone",
+                    "start_delta_working_days",
+                    "task_id",
+                    "task_name"
+                ]
+            },
             "BeatHealthResponse": {
                 "type": "object",
                 "properties": {
@@ -65427,6 +65652,31 @@
                 "description": "* `cloud` - cloud\n* `server` - server",
                 "x-trueppm-enum": "open"
             },
+            "DerivationRef": {
+                "type": "object",
+                "description": "The arguments of ``get_schedule_derivation`` that explain a row's current finish.",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "quantity": {
+                        "$ref": "#/components/schemas/DerivationRefQuantityEnum"
+                    }
+                },
+                "required": [
+                    "quantity",
+                    "task_id"
+                ]
+            },
+            "DerivationRefQuantityEnum": {
+                "enum": [
+                    "early_finish"
+                ],
+                "type": "string",
+                "description": "* `early_finish` - early_finish",
+                "x-trueppm-enum": "open"
+            },
             "DidntShipItem": {
                 "type": "object",
                 "description": "One task that was in the sprint at close but didn't complete (#985).\n\n``story_points`` is nulled for readers below the velocity audience (ADR-0104\nside-channel guard). ``disposition`` is null for a provisional (not-yet-closed)\nsprint, where the carry/drop decision hasn't been made.",
@@ -65819,10 +66069,11 @@
                     "risk.closed",
                     "baseline.captured",
                     "comment.created",
+                    "schedule.finish_changed",
                     "ping"
                 ],
                 "type": "string",
-                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed\n* `risk.opened` - Risk Opened\n* `risk.escalated` - Risk Escalated\n* `risk.closed` - Risk Closed\n* `baseline.captured` - Baseline Captured\n* `comment.created` - Comment Created\n* `ping` - Test Ping",
+                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed\n* `risk.opened` - Risk Opened\n* `risk.escalated` - Risk Escalated\n* `risk.closed` - Risk Closed\n* `baseline.captured` - Baseline Captured\n* `comment.created` - Comment Created\n* `schedule.finish_changed` - Schedule Finish Changed\n* `ping` - Test Ping",
                 "x-trueppm-enum": "open"
             },
             "EventsEnum": {
@@ -65845,10 +66096,11 @@
                     "risk.escalated",
                     "risk.closed",
                     "baseline.captured",
-                    "comment.created"
+                    "comment.created",
+                    "schedule.finish_changed"
                 ],
                 "type": "string",
-                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed\n* `risk.opened` - Risk Opened\n* `risk.escalated` - Risk Escalated\n* `risk.closed` - Risk Closed\n* `baseline.captured` - Baseline Captured\n* `comment.created` - Comment Created",
+                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed\n* `risk.opened` - Risk Opened\n* `risk.escalated` - Risk Escalated\n* `risk.closed` - Risk Closed\n* `baseline.captured` - Baseline Captured\n* `comment.created` - Comment Created\n* `schedule.finish_changed` - Schedule Finish Changed",
                 "x-trueppm-enum": "open"
             },
             "ExternalConnectionError": {
@@ -67052,6 +67304,28 @@
                 "required": [
                     "name"
                 ]
+            },
+            "HeadlineForecastKindEnum": {
+                "enum": [
+                    "cpm_monte_carlo",
+                    "team_velocity"
+                ],
+                "type": "string",
+                "description": "* `cpm_monte_carlo` - CPM / Monte Carlo\n* `team_velocity` - Team velocity",
+                "x-trueppm-enum": "open"
+            },
+            "HeadlineForecastReasonEnum": {
+                "enum": [
+                    "sparse_dependency_network",
+                    "no_sprints",
+                    "no_scheduled_tasks",
+                    "dependency_network",
+                    "no_velocity_forecast",
+                    "velocity_withheld"
+                ],
+                "type": "string",
+                "description": "* `sparse_dependency_network` - Fewer than half of tasks are linked\n* `no_sprints` - The project has no sprints\n* `no_scheduled_tasks` - No task has scheduled dates\n* `dependency_network` - At least half of tasks are linked\n* `no_velocity_forecast` - Not enough velocity history\n* `velocity_withheld` - Velocity is not shared with this caller",
+                "x-trueppm-enum": "open"
             },
             "HealthBandEnum": {
                 "enum": [
@@ -79926,9 +80200,22 @@
                             "$ref": "#/components/schemas/ForecastSnapshot"
                         },
                         "readOnly": true
+                    },
+                    "headline_forecast_kind": {
+                        "$ref": "#/components/schemas/HeadlineForecastKindEnum"
+                    },
+                    "headline_forecast_reason": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/HeadlineForecastReasonEnum"
+                            }
+                        ],
+                        "description": "Why this kind. `velocity_withheld` means the caller is below the velocity audience, and says nothing about whether a velocity forecast exists.\n\n* `sparse_dependency_network` - Fewer than half of tasks are linked\n* `no_sprints` - The project has no sprints\n* `no_scheduled_tasks` - No task has scheduled dates\n* `dependency_network` - At least half of tasks are linked\n* `no_velocity_forecast` - Not enough velocity history\n* `velocity_withheld` - Velocity is not shared with this caller"
                     }
                 },
                 "required": [
+                    "headline_forecast_kind",
+                    "headline_forecast_reason",
                     "milestones",
                     "remaining_committed_points",
                     "sprints_to_complete_high",

@@ -23,6 +23,7 @@ from trueppm_api.apps.projects.baseline_decision_views import (
     ChangesetEntryReasonView,
     ChangesetView,
 )
+from trueppm_api.apps.projects.baseline_variance_views import BaselineVarianceView
 from trueppm_api.apps.projects.batch_operation_views import (
     CascadeClassificationOperationViewSet,
     PasteManyOperationViewSet,
@@ -267,6 +268,11 @@ urlpatterns = [
         "projects/<project_pk>/baselines/<baseline_pk>/activate/",
         BaselineActivateView.as_view(),
         name="project-baselines-activate",
+    ),
+    path(
+        "projects/<project_pk>/baselines/<baseline_pk>/variance/",
+        BaselineVarianceView.as_view(),
+        name="project-baselines-variance",
     ),
     path(
         "projects/<project_pk>/changeset/",

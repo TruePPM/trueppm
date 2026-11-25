@@ -56,6 +56,7 @@ _SLACK_EVENT_META: dict[str, tuple[str, str]] = {
     "risk.escalated": ("Risk escalated", _SLACK_COLOR_CRITICAL),
     "risk.closed": ("Risk closed", _SLACK_COLOR),
     "baseline.captured": ("Baseline captured", _SLACK_COLOR),
+    "schedule.finish_changed": ("Headline forecast changed", _SLACK_COLOR_NEUTRAL),
     "comment.created": ("New comment", _SLACK_COLOR_NEUTRAL),
     # Reserved, non-domain: the "Send test" ping now renders through this provider
     # like any other delivery (#2884), so it needs a title an admin recognizes in

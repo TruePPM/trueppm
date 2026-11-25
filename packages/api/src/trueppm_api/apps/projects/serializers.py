@@ -23,6 +23,10 @@ from trueppm_api.apps.scheduling.graph_guard import (
     TypedEdge,
     validate_expansion_with_edge,
 )
+from trueppm_api.apps.scheduling.headline_forecast import (
+    HeadlineForecastKind,
+    HeadlineForecastReason,
+)
 
 if TYPE_CHECKING:
     from rest_framework.views import APIView
@@ -11613,6 +11617,15 @@ class ProjectForecastSerializer(serializers.Serializer[dict[str, Any]]):
     sprints_to_complete_low = serializers.IntegerField(allow_null=True)
     sprints_to_complete_high = serializers.IntegerField(allow_null=True)
     milestones = ForecastSnapshotSerializer(many=True, read_only=True)
+    # ADR-1485 D4 (#5130): which forecast every client headlines, per caller.
+    headline_forecast_kind = serializers.ChoiceField(choices=HeadlineForecastKind.choices)
+    headline_forecast_reason = serializers.ChoiceField(
+        choices=HeadlineForecastReason.choices,
+        help_text=(
+            "Why this kind. `velocity_withheld` means the caller is below the velocity "
+            "audience, and says nothing about whether a velocity forecast exists."
+        ),
+    )
 
 
 class SprintForecastSerializer(serializers.Serializer[dict[str, Any]]):

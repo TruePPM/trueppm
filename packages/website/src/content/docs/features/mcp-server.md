@@ -126,7 +126,7 @@ the [MCP server administration guide](/administration/mcp-server/).
 
 Comments on tasks and risks are not readable by agents yet; they are user-authored text and mentions, and a later release (0.5 or after) will decide whether to open them.
 
-The server registers **19 read-only tools** (ten more are planned for 0.5: `get_project_cost`, `get_schedule_driving_chain`, `get_project_history`, `get_project_views`, `list_dependencies`, `list_baselines`, `get_changeset`, `list_baseline_decisions`, `list_phases`, and `list_calendars`), each mapping to one existing REST
+The server registers **19 read-only tools** (eleven more are planned for 0.5: `get_project_cost`, `get_schedule_driving_chain`, `get_project_history`, `get_project_views`, `list_dependencies`, `list_baselines`, `get_changeset`, `list_baseline_decisions`, `list_phases`, `list_calendars`, and `get_baseline_variance`), each mapping to one existing REST
 endpoint and returning only what your role permits. Results are compacted for an
 LLM context budget: empty and null fields are omitted, long free-text fields are
 truncated (with a `"truncated": true` marker), and project/program results carry
@@ -190,6 +190,7 @@ only ever reflects data your token can already read.
 | `get_project_views` | `project_id` | Which views your token's owner sees in the project, and why each hidden one is hidden. Every view carries `visible`, a `source` (`always`, `methodology`, `capability`, `seed`, `user` or `default`) and a `binding`: `advisory` means the view is only hidden from the tabs and still opens from More or by URL, and `enforced` means the workspace turned the area off. A `hidden` list repeats the hidden views with their reasons, which answers "why can't I see Sprints?". Before the owner first opens the project in the web app, the answer includes the role-lens suggestion that open will apply; the agent's read never applies it. Ships in 0.5. |
 | `list_dependencies` | `project_id` | The outgoing dependency edges of a project (those whose predecessor is in this project): predecessor, successor, type and lag (in calendar days). Incoming cross-project edges are not returned yet (#5051). `{items, total_count}` envelope. Ships in 0.5. |
 | `list_baselines` | `project_id` | The project's schedule baselines (name, capture date, task count). `{items, total_count}` envelope. Ships in 0.5. |
+| `get_baseline_variance` | `project_id`, `baseline_id`, optional `min_days`, `page` | Per-task start and finish variance against one baseline, in working days (positive is later), with `added` and `removed` counts and each row's `cause` and `derivation_ref`. Experimental. Ships in 0.5. |
 | `get_changeset` | `project_id` | The open baseline changeset: structural changes since the active baseline, each with `reason_state`, author and finish before and after, plus counts and `_provenance`. Ships in 0.5. |
 | `list_baseline_decisions` | `project_id` | The baseline decision trail: each new baseline taken or baseline kept, with its reason code, reason or note. `{items, total_count}` envelope. Ships in 0.5. |
 | `list_phases` | `project_id` | The project's phases (root-level WBS tasks) with task counts. `{items, total_count}` envelope. Ships in 0.5. |

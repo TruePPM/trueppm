@@ -46,6 +46,7 @@ _ID_TOOLS: list[tuple[str, dict[str, Any]]] = [
     ("get_project_views", {"project_id": _UUID}),
     ("list_dependencies", {"project_id": _UUID}),
     ("list_baselines", {"project_id": _UUID}),
+    ("get_baseline_variance", {"project_id": _UUID, "baseline_id": _UUID}),
     ("get_changeset", {"project_id": _UUID}),
     ("list_baseline_decisions", {"project_id": _UUID}),
     ("list_phases", {"project_id": _UUID}),

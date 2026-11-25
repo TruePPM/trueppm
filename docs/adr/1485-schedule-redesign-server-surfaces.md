@@ -76,7 +76,7 @@ Common rules:
 - `headline_forecast_kind`: `cpm_monte_carlo | team_velocity`, plus `headline_forecast_reason`.
 - **Rule:** `team_velocity` when the project has sprints, enough velocity history for `ProjectSprintForecastView` to return non-null values, **and** fewer than half of its scheduled tasks touch a dependency edge. Otherwise `cpm_monte_carlo`. The thresholds live in one server function and are covered by unit tests.
 - **Per caller:** a caller below the velocity audience gets `cpm_monte_carlo` with reason `velocity_withheld`, so the field never leaks velocity. "Every client headlines the same forecast" therefore holds per visibility class.
-- **Never silent:** a change of kind for the project emits `schedule.finish_changed` with `headline_forecast_kind` and the reason. The UI always labels the kind ("Schedule:" / "Team forecast:").
+- **Never silent:** a change of kind for the project emits `schedule.finish_changed` with `headline_forecast_kind` and the reason (only when velocity is shared outward, D6). The UI always labels the kind ("Schedule:" / "Team forecast:").
 
 ### D5. "Schedule selected…" placement
 
@@ -95,6 +95,7 @@ New events on the existing webhook model and delivery path: `schedule.finish_cha
 
 - **Payloads are ids plus deltas only**: task, sprint and scope-change ids, finish Δ in working days, `headline_forecast_kind`, actor and `on_behalf_of`. **No `people_load`, no names beyond the actor, and no velocity figures.** Consumers fetch details with their own token, which applies their own visibility.
 - `schedule.change_undone` references the `event_id` it reverses.
+- **`schedule.finish_changed` and the velocity audience (amended 2026-11-25, #5130):** webhook registrants are Admin+, which is below the default `team` velocity audience, and the kind discloses what `/forecast/` withholds from such a caller (D4). The event is **not sent at all** unless the team shares velocity outward (`program_shared`). Sending it with null fields was rejected: it fires only on a switch between two kinds and a new project starts as `cpm_monte_carlo`, so a registrant could count the events and learn the kind. The recorded kind updates either way, so sharing later announces only later switches. When sent, the payload carries `velocity_suppressed: false`, as `sprint.closed` does (ADR-0147).
 - **Delivery:** at-least-once, using the existing sequence number per subscription. A stable `delivery_id` is exposed for consumer idempotency.
 - **Dead-letter list and replay:** permanently failed deliveries remain listable. `POST /webhooks/{id}/deliveries/{delivery_id}/replay/` is allowed **only** for `webhooks:manage`, matching the reasoning in #4461. Retention is 14 days.
 
