@@ -460,6 +460,15 @@ export function _isoMsCacheSize(): number {
 const MS_PER_DAY = 86_400_000;
 
 /**
+ * Signed whole calendar days from `fromIso` to `toIso` (positive = `toIso` is
+ * later). Memoized through the same ISO→ms cache as {@link dateToLeft}, so a
+ * per-frame caller parses no date.
+ */
+export function isoDayDelta(fromIso: string, toIso: string): number {
+  return Math.round((isoToUtcMs(toIso) - isoToUtcMs(fromIso)) / MS_PER_DAY);
+}
+
+/**
  * Convert an INCLUSIVE finish date to the canvas x-coordinate of a bar's RIGHT
  * edge.
  *

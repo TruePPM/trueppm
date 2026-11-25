@@ -34,6 +34,7 @@ import {
   fiscalQuarterKey,
   fiscalYearKey,
   headerUnitsForPxPerDay,
+  isoDayDelta,
   milestoneX,
   parseUTCDate,
 } from './GanttScaleData';
@@ -2407,6 +2408,160 @@ export function drawBaselineGhostBar(
   ctx.fill();
   ctx.stroke();
   ctx.restore();
+}
+
+/**
+ * Baseline marks for summary rows and milestones draw only where the row moved at
+ * least this many calendar days (ADR-1485 "halo where changed", #5065). 1 matches
+ * the variance read's default `min_days=1`; a 1/3/5 d user setting is not wired
+ * yet, so every viewer sees the 1-day reading.
+ */
+export const BASELINE_MARK_MIN_DAYS = 1;
+
+/**
+ * Slip of a summary row against its baseline: finish Δ in calendar days (positive
+ * = later than planned), or null when it did not move by `minDays` or has no
+ * baseline. A milestone's slip is its (start) Δ the same way.
+ */
+export function baselineSlipDays(
+  task: Pick<Task, 'start' | 'finish' | 'isSummary' | 'isMilestone'>,
+  baseline: BaselineDates | undefined,
+  minDays: number = BASELINE_MARK_MIN_DAYS,
+): number | null {
+  if (!baseline) return null;
+  let delta: number;
+  if (task.isMilestone) {
+    if (!task.start) return null;
+    delta = isoDayDelta(baseline.start, task.start);
+  } else if (task.isSummary) {
+    if (!task.finish) return null;
+    delta = isoDayDelta(baseline.finish, task.finish);
+  } else {
+    return null;
+  }
+  return Math.abs(delta) >= minDays ? delta : null;
+}
+
+/**
+ * The one predicate for "this row draws a baseline slip mark", shared by the draw
+ * path and the legend gate so the legend can never name a mark the canvas skips.
+ * A milestone is additionally gated like drawMilestone: an uncommitted one draws
+ * nothing to anchor to.
+ */
+export function baselineMarkDrawable(
+  task: Pick<
+    Task,
+    'start' | 'finish' | 'isSummary' | 'isMilestone' | 'plannedStart' | 'sprintId'
+  >,
+  baseline: BaselineDates | undefined,
+  minDays: number = BASELINE_MARK_MIN_DAYS,
+): boolean {
+  if (task.isMilestone && !task.plannedStart && !task.sprintId) return false;
+  return baselineSlipDays(task, baseline, minDays) !== null;
+}
+
+/** "+5d" / "−3d" (a true minus sign, so the sign survives a monospace face). */
+export function formatSlipLabel(days: number): string {
+  return `${days > 0 ? '+' : '\u2212'}${Math.abs(days)}d`;
+}
+
+/**
+ * Summary row slip mark (#5065, ADR-1485): a whisker along the row centerline from
+ * the baseline finish edge to the live finish edge, an end tick at the baseline
+ * end, and a signed day label. Deliberately NOT a hollow outline of the summary
+ * bar: outlining every phase doubles the ink on on-plan phases. Call AFTER the
+ * summary bar: the bar's fill covers the row centerline, so drawn first it would
+ * swallow the whisker and leave only the end ticks and label. Callers must translate(0, -scrollTop) first. The label uses the
+ * secondary text token (>= 4.5:1), the line the ghost-border token (non-text
+ * 3:1); the sign and the length carry the meaning, never hue alone (WCAG 1.4.1).
+ */
+export function drawBaselineSummarySlip(
+  ctx: CanvasRenderingContext2D,
+  task: Task,
+  baseline: BaselineDates,
+  rowIndex: number,
+  scales: GanttScaleData,
+  scrollLeft: number,
+  minDays: number = BASELINE_MARK_MIN_DAYS,
+): void {
+  const days = baselineSlipDays(task, baseline, minDays);
+  if (days === null || !task.finish) return;
+  const baseX = dateToRight(baseline.finish, scales) - scrollLeft;
+  const liveX = dateToRight(task.finish, scales) - scrollLeft;
+  const y = rowIndex * ROW_HEIGHT + CHART_HEADER_HEIGHT + ROW_HEIGHT / 2;
+  const tick = MILESTONE_SIZE / 2;
+  ctx.save();
+  ctx.strokeStyle = _palette.ghostBorder;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(liveX, y);
+  ctx.lineTo(baseX, y);
+  ctx.moveTo(baseX, y - tick);
+  ctx.lineTo(baseX, y + tick);
+  ctx.stroke();
+
+  ctx.font = canvasFont();
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  const label = formatSlipLabel(days);
+  const x = Math.max(baseX, liveX) + MILESTONE_SIZE / 2 + 4;
+  strokeLabelHalo(ctx, label, x, y);
+  ctx.fillStyle = _palette.textSecondary;
+  ctx.fillText(label, x, y);
+  ctx.restore();
+}
+
+/**
+ * Milestone baseline mark (#5065): a HOLLOW diamond at the baseline date and a
+ * whisker to the live diamond's x. Call BEFORE drawMilestone so the filled
+ * current diamond sits on top; callers must translate(0, -scrollTop) first.
+ * Hollow vs filled carries the distinction, not hue (WCAG 1.4.1).
+ */
+export function drawBaselineMilestoneGhost(
+  ctx: CanvasRenderingContext2D,
+  task: Task,
+  baseline: BaselineDates,
+  rowIndex: number,
+  scales: GanttScaleData,
+  scrollLeft: number,
+  minDays: number = BASELINE_MARK_MIN_DAYS,
+): void {
+  if (!task.start || !baselineMarkDrawable(task, baseline, minDays)) return;
+  // BaselineDates carries no baseline-side flag, so the baseline diamond reuses the
+  // live milestone's milestoneAtDayEnd.
+  const baseX = milestoneX(baseline.start, task.milestoneAtDayEnd, scales) - scrollLeft;
+  const liveX = milestoneX(task.start, task.milestoneAtDayEnd, scales) - scrollLeft;
+  const y = rowIndex * ROW_HEIGHT + CHART_HEADER_HEIGHT + ROW_HEIGHT / 2;
+  const half = MILESTONE_SIZE / 2;
+  ctx.save();
+  ctx.strokeStyle = _palette.ghostBorder;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(baseX, y);
+  ctx.lineTo(liveX, y);
+  ctx.stroke();
+  ctx.translate(baseX, y);
+  ctx.rotate(Math.PI / 4);
+  ctx.beginPath();
+  ctx.rect(-half + 0.5, -half + 0.5, MILESTONE_SIZE - 1, MILESTONE_SIZE - 1);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * Whether any summary row or milestone has a baseline mark to draw. The legend's
+ * "Baseline slip" row is gated on this (rule 460: name a mark only while drawn).
+ */
+export function hasBaselineSlipMarks(
+  tasks: readonly Pick<
+    Task,
+    'id' | 'start' | 'finish' | 'isSummary' | 'isMilestone' | 'plannedStart' | 'sprintId'
+  >[],
+  dates: ReadonlyMap<string, BaselineDates> | null,
+  minDays: number = BASELINE_MARK_MIN_DAYS,
+): boolean {
+  if (!dates) return false;
+  return tasks.some((t) => baselineMarkDrawable(t, dates.get(t.id), minDays));
 }
 
 /**

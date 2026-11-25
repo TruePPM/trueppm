@@ -9,6 +9,9 @@ export interface ScheduleViewOnlyBadgeProps {
    * exactly one of the readers who sees it.
    */
   canLinkDependencies?: boolean;
+  /** The active baseline's name, shown plain beside the badge (#3757). Absent while
+   *  baselines are loading/failed or none is active: it then claims nothing. */
+  baselineName?: string;
 }
 
 /**
@@ -37,7 +40,10 @@ export interface ScheduleViewOnlyBadgeProps {
  * Deliberately no icon: a padlock reads as "blocked" and an eye-off reads as
  * "hidden", and neither is what this is. The words carry it.
  */
-export function ScheduleViewOnlyBadge({ canLinkDependencies = false }: ScheduleViewOnlyBadgeProps = {}) {
+export function ScheduleViewOnlyBadge({
+  canLinkDependencies = false,
+  baselineName,
+}: ScheduleViewOnlyBadgeProps = {}) {
   return (
     <div className="flex items-center gap-2 min-w-0" data-testid="schedule-view-only">
       <span
@@ -46,6 +52,15 @@ export function ScheduleViewOnlyBadge({ canLinkDependencies = false }: ScheduleV
       >
         {canLinkDependencies ? 'Links only' : 'View only'}
       </span>
+      {baselineName && (
+        <span
+          className="inline-flex items-center h-7 px-2 rounded-control border border-neutral-border text-xs text-neutral-text-secondary max-w-[10rem] flex-shrink-0"
+          data-testid="schedule-view-only-baseline"
+          title={baselineName}
+        >
+          <span className="truncate">Baseline: {baselineName}</span>
+        </span>
+      )}
       <span className="text-xs text-neutral-text-secondary truncate">
         {canLinkDependencies
           ? 'You can link tasks here. Ask the project owner for edit rights to change their content.'

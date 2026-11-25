@@ -64,6 +64,8 @@ import {
   drawLinkPreview,
   drawActualDateBar,
   drawBaselineGhostBar,
+  drawBaselineMilestoneGhost,
+  drawBaselineSummarySlip,
   drawScheduleVarianceBadge,
 } from './GanttRenderer';
 import type { BaselineDates, ChartRenderOptions, DependencyLayout } from './GanttRenderer';
@@ -1591,18 +1593,18 @@ export class GanttEngineImpl implements GanttEngine {
     if (!isInChain) ctx.globalAlpha = 0.25;
     if (filterDimmed) ctx.globalAlpha *= FILTER_DIM_ALPHA;
 
-    // Baseline ghost (#3821): behind the live bar. Summaries and milestones are
-    // not ghosted yet — a rollup's baseline span and a diamond's slip need their
-    // own marks, not a task-bar rectangle.
-    if (
-      this._chartOptions.showBaselineBars &&
-      this._baselineDates &&
-      !task.isSummary &&
-      !task.isMilestone
-    ) {
+    // Baseline marks: behind the live bar. A task gets the ghost outline (#3821);
+    // a summary row a slip whisker + signed label and a milestone a hollow
+    // baseline diamond (#5065, ADR-1485) — those two draw only where the row
+    // moved by at least BASELINE_MARK_MIN_DAYS.
+    if (this._chartOptions.showBaselineBars && this._baselineDates) {
       const baseline = this._baselineDates.get(task.id);
       if (baseline) {
-        drawBaselineGhostBar(ctx, baseline, rowIndex, this._scales, this._scrollLeft);
+        if (task.isMilestone) {
+          drawBaselineMilestoneGhost(ctx, task, baseline, rowIndex, this._scales, this._scrollLeft);
+        } else if (!task.isSummary) {
+          drawBaselineGhostBar(ctx, baseline, rowIndex, this._scales, this._scrollLeft);
+        }
       }
     }
 
@@ -1610,6 +1612,12 @@ export class GanttEngineImpl implements GanttEngine {
       drawMilestone(ctx, task, rowIndex, this._scales, this._scrollLeft, isSelected);
     } else if (task.isSummary) {
       drawSummaryBar(ctx, task, rowIndex, this._scales, this._scrollLeft, isSelected);
+      // After the bar: the fill would otherwise paint over the slip whisker (#5065).
+      const slipBaseline =
+        this._chartOptions.showBaselineBars && this._baselineDates?.get(task.id);
+      if (slipBaseline) {
+        drawBaselineSummarySlip(ctx, task, slipBaseline, rowIndex, this._scales, this._scrollLeft);
+      }
     } else {
       drawTaskBar(
         ctx,

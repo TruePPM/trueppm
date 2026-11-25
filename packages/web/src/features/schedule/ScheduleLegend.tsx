@@ -10,6 +10,9 @@ interface ScheduleLegendProps {
   /** The canvas is drawing the active baseline's ghost bars (#3821). Gates the
    *  "Baseline" row so the legend only names marks that are on screen. */
   baselineShown?: boolean;
+  /** At least one summary row or milestone is drawing a baseline slip mark
+   *  (#5065). Gates the "Baseline slip" row — named only while drawn (rule 460). */
+  baselineSlipShown?: boolean;
   /**
    * Width of the task list panel in pixels. Used to offset the legend horizontally
    * so it floats over the bottom-left of the *canvas* viewport rather than the
@@ -64,6 +67,7 @@ export function ScheduleLegend({
   canLink,
   closeFocusRef,
   baselineShown = false,
+  baselineSlipShown = false,
 }: ScheduleLegendProps) {
   const { collapsed, setCollapsed } = useScheduleLegendCollapsed();
   // This IS the "seen" signal (#3614) — see the hook's own doc comment for
@@ -131,6 +135,11 @@ export function ScheduleLegend({
           {baselineShown && (
             <LegendRow label="Baseline (planned)">
               <BaselineSwatch />
+            </LegendRow>
+          )}
+          {baselineShown && baselineSlipShown && (
+            <LegendRow label="Baseline slip">
+              <BaselineSlipSwatch />
             </LegendRow>
           )}
           <LegendRow label="Milestone">
@@ -301,6 +310,23 @@ function BaselineSwatch() {
         backgroundColor: 'rgb(var(--ghost-fill) / 0.14)',
       }}
     />
+  );
+}
+
+function BaselineSlipSwatch() {
+  // Mirrors drawBaselineMilestoneGhost / drawBaselineSummarySlip: a hollow diamond
+  // joined by a whisker to where the work now sits.
+  return (
+    <span className="relative flex w-full items-center h-3">
+      <span
+        className="block w-2 h-2 rotate-45 border"
+        style={{ borderColor: 'rgb(var(--ghost-border) / 0.85)' }}
+      />
+      <span
+        className="block h-px flex-1"
+        style={{ backgroundColor: 'rgb(var(--ghost-border) / 0.85)' }}
+      />
+    </span>
   );
 }
 

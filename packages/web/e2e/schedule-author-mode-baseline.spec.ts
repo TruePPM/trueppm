@@ -158,4 +158,32 @@ test.describe('Schedule mode chip and baselined Author (#3748)', () => {
     await pickAuthorMode(page);
     await expect(page.getByRole('dialog', { name: 'This plan may have a baseline' })).toBeVisible();
   });
+
+  test('Read names the active baseline at rest, plainly, with the hint kept (#3757)', async ({
+    page,
+  }) => {
+    await gotoSchedule(page, { status: 200, results: [BASELINE_V1] });
+    await pickAuthorMode(page);
+    await expect(modeChip(page)).toHaveText(
+      /Read only\s*·\s*Baseline v1\s*·\s*Switch to Author to edit/,
+    );
+    await expect(modeChip(page)).toHaveAccessibleName(
+      /^Read only · Baseline v1 · Switch to Author to edit/,
+    );
+    await expect(modeChip(page)).not.toContainText('vs Baseline v1');
+  });
+
+  test('Read claims no baseline when there is none or the read failed (#3757)', async ({
+    page,
+  }) => {
+    await gotoSchedule(page, { status: 200, results: [] });
+    await pickAuthorMode(page);
+    await expect(modeChip(page)).toHaveText(/^Read only\s*·\s*Switch to Author to edit$/);
+  });
+
+  test('Read claims no baseline while the baselines read has failed (#3757)', async ({ page }) => {
+    await gotoSchedule(page, { status: 500 });
+    await pickAuthorMode(page);
+    await expect(modeChip(page)).toHaveText(/^Read only\s*·\s*Switch to Author to edit$/);
+  });
 });
