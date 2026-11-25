@@ -6807,6 +6807,7 @@ scheduler:build:
       printf 'SCHEDULER_CORPUS_URL=%s\nSCHEDULER_CORPUS_SHA256_URL=%s\n' \
         "$CORPUS_BASE/$CORPUS_NAME" "$CORPUS_BASE/$CORPUS_NAME.sha256" >> "${CI_PROJECT_DIR}/scheduler-release.env"
     - sh "$CI_PROJECT_DIR/scripts/ci-assert-artifacts.sh" packages/scheduler/dist/
+    - sh "$CI_PROJECT_DIR/scripts/ci-assert-artifacts.sh" packages/scheduler/corpus-dist/
   artifacts:
     # Keep the built wheel + sdist + SBOM as a CI artifact for traceability.
     # The Generic Package Registry copy pushed above is now the SBOM's primary,
