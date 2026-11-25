@@ -186,7 +186,7 @@ A **commitment slip** is a date change that moves committed work in the active s
 - **If you can accept scope changes** (project Admin or above, or the team's Product Owner or Scrum Master), the change applies. You must give a reason, and the sprint records the slip as accepted.
 - **If you can't**, the change will not apply yet. The schedule shows "Waiting for a Sprint N decision", and the sprint gets a pending slip that holds your proposed dates. When someone accepts it, your dates apply. When someone rejects it, the task keeps its dates.
 
-A change to work that is already in progress is measured from the work that remains. If a task is 80% done, adding a day to its duration only adds to the remaining part, so the change is a slip only when that remaining work now ends after the sprint. Changing the planned start of a task that has an actual start is never a slip, because the actual start sets when the work began.
+A change to work that is already in progress is measured from the work that remains. If a task is 80% done, adding a day to its duration only adds to the remaining part, so the change is a slip only when that remaining work now ends after the sprint. A task that has an actual start is still held to its planned start: moving the planned start later pushes the remaining work out, and is a slip when that work now ends after the sprint. Moving it earlier does not pull started work in, so it is never a slip.
 
 An offline sync can't ask you for a reason. So when someone who can accept scope changes syncs a slip without a reason, the slip waits for a decision like anyone else's, and the rest of the sync still applies. In a bulk edit, that row alone is refused and asks for a reason.
 

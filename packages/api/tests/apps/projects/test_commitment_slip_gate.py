@@ -240,14 +240,47 @@ def test_reestimate_of_in_progress_work_past_the_end_is_a_slip(
     assert row.proposed_finish == date(2026, 1, 19)
 
 
-def test_planned_start_edit_on_a_started_task_is_not_a_slip(
+def test_planned_start_past_the_end_on_a_started_task_is_a_slip(
     project: Project, sprint: Sprint, member: Any
 ) -> None:
-    # The actual start pins when the work began; planned_start cannot move it.
+    # The engine floors a started task at its planned_start as well as its actual
+    # start, so moving it past the sprint pushes the 2 remaining days to Feb 2-3.
     task = _in_progress(project, sprint)
-    res = _patch(_client(member), task, {"planned_start": "2026-01-15"})
+    res = _patch(_client(member), task, {"planned_start": "2026-02-02"})
+    assert res.status_code == 409, res.data
+    row = SprintScopeChange.objects.get(pk=res.data["scope_change_id"])
+    assert row.proposed_finish == date(2026, 2, 3)
+    task.refresh_from_db()
+    assert task.planned_start == SPRINT_START
+
+
+def test_planned_start_edit_behind_the_remaining_work_is_not_a_slip(
+    project: Project, sprint: Sprint, member: Any
+) -> None:
+    # Jan 12 is before the remaining work's Jan 13 start, so nothing moves.
+    task = _in_progress(project, sprint)
+    res = _patch(_client(member), task, {"planned_start": "2026-01-12"})
     assert res.status_code == 200, res.data
     assert not SprintScopeChange.objects.filter(kind=ScopeChangeKind.SLIP).exists()
+
+
+def test_started_task_at_zero_percent_is_measured_from_where_the_engine_put_it(
+    project: Project, sprint: Sprint, member: Any
+) -> None:
+    # Started Jan 5 with no progress logged; the engine has laid the work forward
+    # from Jan 13. 5 days from there ends Jan 19, not the Jan 9 that five days
+    # from the actual start would give.
+    task = _committed(project, sprint, "Started, no progress")
+    Task.objects.filter(pk=task.pk).update(
+        actual_start=SPRINT_START,
+        early_start=date(2026, 1, 13),
+        early_finish=date(2026, 1, 15),
+    )
+    task.refresh_from_db()
+    res = _patch(_client(member), task, {"duration": 5})
+    assert res.status_code == 409, res.data
+    row = SprintScopeChange.objects.get(pk=res.data["scope_change_id"])
+    assert row.proposed_finish == date(2026, 1, 19)
 
 
 def test_not_started_task_still_counts_the_full_duration(

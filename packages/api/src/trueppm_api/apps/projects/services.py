@@ -3665,35 +3665,50 @@ def _slip_finish(
     Mirrors how CPM places progress (ADR-0132, ADR-0752) rather than adding the
     full ``duration`` to ``early_start``: for an in-progress task ``early_start``
     is the start of the *remaining* work, so the finish is that anchor plus the
-    remaining days (``duration`` less the engine's own elapsed-day count at the
-    current ``percent_complete``). Adding the full duration there would flag a
-    routine re-estimate of a half-done task as a slip.
+    remaining days. The remaining days are the installed scheduler's own
+    ``_effective_duration_days`` on an engine ``Task`` built from this row: it is
+    called, not restated, and exists in every supported scheduler release
+    (unlike the helpers it is built from). Adding the full duration there would
+    flag a routine re-estimate of a half-done task as a slip.
 
-    A recorded ``actual_start`` pins when the work began, so a ``planned_start``
-    edit on a started task cannot move its finish and is ignored. A finished task
+    Work that has started (an ``actual_start`` or any progress) is anchored where
+    the engine last placed it. The engine's start bound is the latest of the data
+    date, ``actual_start`` and the ``planned_start`` floor, so a recorded actual
+    start does not make a ``planned_start`` edit inert: a later one still pushes
+    the remaining work out, and is measured as ``max(anchor, new_start)``. An
+    earlier one cannot pull started work in, and so is never a slip. Only work
+    that has not started takes a new ``planned_start`` as its anchor outright,
+    which is what lets pulling it earlier pull its finish in. A finished task
     (``actual_finish`` or 100%) cannot slip.
     """
-    from trueppm_scheduler.engine.calendar_math import _elapsed_working_days
+    from trueppm_scheduler import Task as EngineTask
+    from trueppm_scheduler.engine import _effective_duration_days
 
     pct = float(task.percent_complete or 0.0)
     if task.actual_finish is not None or pct >= 100:
         return None
     duration = int(new_duration if new_duration is not None else (task.duration or 0))
-    if pct > 0:
-        elapsed = _elapsed_working_days(duration, pct)
-        anchor = task.early_start or task.actual_start or task.planned_start
-        if task.actual_start is None and new_start is not None and anchor is not None:
-            # The start-no-earlier-than floor can push the remaining window later.
-            anchor = max(anchor, new_start)
+    if pct <= 0 and task.actual_start is None:
+        anchor = new_start if new_start is not None else (task.early_start or task.planned_start)
         if anchor is None:
             return None
-        return _finish_on_calendar(cal, anchor, duration - elapsed)
-    if task.actual_start is not None:
-        return _finish_on_calendar(cal, task.actual_start, duration)
-    anchor = new_start if new_start is not None else (task.early_start or task.planned_start)
+        return _finish_on_calendar(cal, anchor, duration)
+    anchor = task.early_start or task.actual_start or task.planned_start
+    if new_start is not None:
+        anchor = new_start if anchor is None else max(anchor, new_start)
     if anchor is None:
         return None
-    return _finish_on_calendar(cal, anchor, duration)
+    # ``zero_remaining`` (ADR-1474) is left unset: it is an engine input that no
+    # API code path sets and no ``Task`` column stores, so it cannot apply here.
+    remaining = _effective_duration_days(
+        EngineTask(
+            id=str(task.pk),
+            name=task.name or "",
+            duration=timedelta(days=duration),
+            percent_complete=pct,
+        )
+    )
+    return _finish_on_calendar(cal, anchor, remaining)
 
 
 def detect_commitment_slip(
