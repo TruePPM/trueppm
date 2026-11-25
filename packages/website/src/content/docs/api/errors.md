@@ -203,6 +203,17 @@ the envelope uses; every other field key is unambiguous.
 | `commitment_not_available` | Ships in 0.5. `POST /projects/{id}/baseline-decisions/` set `commitment_moved`, but the project has no commitment field yet, so there is nothing to move. Nothing was written | — |
 | `decision_not_in_program` | Ships in 0.5. `POST /projects/{id}/baseline-decisions/` linked a program decision that does not exist or belongs to a different program than the project. Nothing was written | — |
 
+### Schedule computation refusals
+
+Ships in 0.5. `GET /api/v1/projects/{id}/schedule/derivation/`,
+`GET /api/v1/projects/{id}/schedule/driving-chain/` and
+`GET /api/v1/programs/{id}/schedule/` compute a critical path while you wait, and
+each API process bounds how many it computes at once.
+
+| Code | Status | Meaning | Extra keys |
+|------|--------|---------|-----------|
+| `schedule_busy` | 503 | Every CPM slot in the API process is taken (`CPM_ON_READ_MAX_CONCURRENT`). Retry after the `Retry-After` header | — |
+
 ### Monte Carlo refusals
 
 `POST /api/v1/projects/{id}/monte-carlo/` and `POST .../monte-carlo/whatif/` refuse
