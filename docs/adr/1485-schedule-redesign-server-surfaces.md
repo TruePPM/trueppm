@@ -3,7 +3,7 @@
 ## Status
 Proposed
 
-> **Implementation status (2026-11-24, #5125):** design only. **No endpoint, model, field, or webhook event described here exists yet**: verified 2026-11-24 against `packages/api/src/trueppm_api/apps/scheduling/views.py` (only the Monte Carlo what-if exists), `apps/projects/models.py` (`SprintScopeChange` covers injection only, and `Sprint` has no owner field), and `apps/projects/people_load_views.py`.
+> **Implementation status (2026-11-24, #5125):** design only. **No endpoint, model, field, or webhook event described here exists yet**: verified 2026-11-24 against `packages/api/src/trueppm_api/apps/scheduling/views.py` (only the Monte Carlo what-if exists), `apps/projects/models.py` (`SprintScopeChange` covers injection only, and `Sprint` has no owner field), and `apps/projects/people_load_views.py`. One D1 decision **reverses current behavior**: today an `api:full` token *can* accept and reject scope changes. `scope-changes/<pk>/accept|reject/` and `sprints/<pk>/scope-changes/accept|reject/` are on the pinned token write surface (`packages/api/tests/apps/access/token_write_surface.txt` lines 276–277, 294–295), and `SprintScopeChangeViewSet` has no token refusal.
 
 ## Context
 
@@ -17,7 +17,7 @@ Facts this ADR builds on (all verified in code, 2026-11-24):
 - **Nothing gates a date change that pushes committed work past the sprint end.** That is the event the redesign calls a "commitment slip". `task_bulk.py` and the task PATCH path write dates with no sprint check.
 - **`Sprint` has no owner field.** The design's "sprint owner" would be a new authorization principal.
 - **Per-person load is already privacy-gated.** `/me/people-load/` computes over the viewer's schedulable projects, filtered by `can_read_signal_for_projects(…, "capacity")` (ADR-0104), using `compute_people_load` (ADR-1314). A fully suppressed view returns `all_withheld`.
-- **The velocity audience is enforced server-side** (`can_read_signal(…, "velocity")`). The release forecast (`get_release_forecast`) returns a reason, not a number, below it.
+- **The velocity audience is enforced server-side** (`can_read_signal(…, "velocity")`). Below it, the sprint release forecast (`/projects/{id}/sprint-forecast/`, `ProjectSprintForecastView`, wrapped by the MCP tool `get_release_forecast`) returns `velocity_suppressed: true` with its values nulled.
 - **Webhooks** already Fernet-encrypt their signing secrets, allocate a per-subscription sequence number, run retry chains with a circuit breaker, and only `webhooks:manage` may create or update one (#4461).
 - **API tokens** are scoped to one project or program. `mcp:read` is safe-methods-only on the MCP read viewsets. A token caller is judged by its minting user's role.
 - **Client-side preview is legitimate** (ADR-0599): the WASM engine previews a drag locally, and the server has the last word on commit.
@@ -32,15 +32,15 @@ Inputs from the design stage:
 
 The design's "sprint owner" maps to **the existing ADR-0102 accept authority: project role ≥ Admin**. There is no `Sprint.owner` field and no deputy delegation. Any member holding the authority can decide, which covers time off without a delegation mechanism and removes the self-promotion path the threat model ranked third.
 
-A **commitment slip** is a write that moves the planned finish of a task that is *committed* in an ACTIVE sprint (`committed_in_sprint`, `sprint_pending=False`) past that sprint's end date. It becomes a new kind of `SprintScopeChange`:
+A **commitment slip** is a write that moves the finish of a task that is *committed* in an ACTIVE sprint (a member of `committed_sprint_tasks()`, so `sprint_pending=False`) past that sprint's end date. The finish moves through `planned_start` and `duration`, including the task serializer's write-only `planned_finish` input, which derives `duration`. `Task` has no stored `planned_finish` field. It becomes a new kind of `SprintScopeChange`:
 
 - `SprintScopeChange.kind`: `injection` (existing rows, default) | `slip` (new). A slip row stores the **proposed** start and finish and the requester.
 - **The caller holds the accept authority:** the write applies, and a `slip` row is recorded as ACCEPTED immediately with a required reason. Same transaction.
 - **The caller lacks it:** the write is **not applied**. The service records a PENDING `slip` row with the proposed dates and returns `409 {"code": "commitment_slip_requires_acceptance", "scope_change_id": …}`. Accepting applies the stored dates through the same write service. Rejecting discards them and returns the reason to the requester.
 - **Batching:** all slips produced by one request (a multi-select drag, a bulk placement) share one `batch_id`. Accept or reject can act on a batch or on single rows.
-- **Acceptance stays human-only (the ADR-0102 invariant).** The accept and reject endpoints refuse `ApiToken` authentication of any scope (session/JWT only). Tokens and agents may *cause* PENDING rows and may read them, never decide them.
+- **Acceptance becomes human-only. This is a new requirement that amends ADR-0102.** ADR-0102 forbids an *auto*-accept path but says nothing about tokens, and today an `api:full` token can accept and reject (see the status blockquote). This ADR changes that: the accept and reject endpoints, for both kinds, refuse `ApiToken` authentication of any scope (session/JWT only). Tokens and agents may *cause* PENDING rows and may read them, never decide them. This is a breaking change for any integration that auto-accepts scope through a token. It removes four routes from `token_write_surface.txt`, needs a role-route-matrix oracle update, and needs an upgrade note in that release.
 
-**Where it is enforced: the task date-write service, not the UI.** Every path that writes `planned_start`/`planned_finish`/duration on a task goes through one guard function, `projects/services.py::guard_commitment_slip(...)`. That covers the task PATCH, the Build-mode bulk edit (`task_bulk.py`), "Schedule selected…" placement (D5), the offline sync push (which returns a conflict carrying the same code so the client keeps the row pending), and agent writes. A role-route-matrix test asserts every date-writing route returns the 409 for a non-authority caller.
+**Where it is enforced: the task date-write service, not the UI.** Every path that writes `planned_start` or `duration` on a task (directly, or through the serializer's `planned_finish` input) goes through one guard function, `projects/services.py::guard_commitment_slip(...)`. That covers the task PATCH, the Build-mode bulk edit (`task_bulk.py`), "Schedule selected…" placement (D5), the offline sync push (which returns a conflict carrying the same code so the client keeps the row pending), and agent writes. A role-route-matrix test asserts every date-writing route returns the 409 for a non-authority caller.
 
 **Known limit, stated:** the guard is synchronous and covers **direct** writes to committed tasks. A slip caused *downstream* by CPM recalculation (an upstream task moves, and the recalculation pushes a committed task past the end) cannot block, because recalculation is asynchronous (`enqueue_recalculate`). Downstream slips are detected after recalculation and surface as *at risk* in `commitment-status` (D3) plus a `sprint.commitment_at_risk` notice, never silently. The drag verdict (D2) warns about them *before* release, which is where the design puts the decision.
 
@@ -48,7 +48,7 @@ A **commitment slip** is a write that moves the planned finish of a task that is
 
 The verdict a drag shows has two parts with very different costs. They are split rather than paying full server CPM every 400 ms.
 
-- **`mode: "evaluate"`** (default, what the canvas calls on pointer idle): the client sends the **proposed dates of the tasks its WASM preview moved** (≤ 500 tasks per call, per ADR-0599). The server runs **no CPM**. It returns only the server-authoritative facts the client can't compute:
+- **`mode: "evaluate"`** (default, what the canvas calls on pointer idle): the client sends the **proposed dates of the tasks its WASM preview moved** (≤ 500 tasks per call, a new cap set here; the local preview that produces them is the ADR-0599 carve-out). The server runs **no CPM**. It returns only the server-authoritative facts the client can't compute:
   - `people_load` for the resources assigned to the moved tasks, per affected week, via `compute_people_load` over the caller's schedulable projects gated by the `capacity` signal (the same scoping as `/me/people-load/`). It is limited to the moved tasks' resources, so the endpoint can't be used as a general load oracle.
   - `sprint_commitment`: which committed tasks would finish after their sprint's end, and whether the caller holds the accept authority (so the chip can say "Release to apply" or "Release to review").
   - `constraints_added`: the Start-no-earlier-than each moved task would receive.
@@ -74,7 +74,7 @@ Common rules:
 `GET /api/v1/projects/{id}/forecast/` (the endpoint `get_schedule_summary` already reads), and through it the export, gains:
 
 - `headline_forecast_kind`: `cpm_monte_carlo | team_velocity`, plus `headline_forecast_reason`.
-- **Rule:** `team_velocity` when the project has sprints, enough velocity history for the release forecast to return a number, **and** fewer than half of its scheduled tasks touch a dependency edge. Otherwise `cpm_monte_carlo`. The thresholds live in one server function and are covered by unit tests.
+- **Rule:** `team_velocity` when the project has sprints, enough velocity history for `ProjectSprintForecastView` to return non-null values, **and** fewer than half of its scheduled tasks touch a dependency edge. Otherwise `cpm_monte_carlo`. The thresholds live in one server function and are covered by unit tests.
 - **Per caller:** a caller below the velocity audience gets `cpm_monte_carlo` with reason `velocity_withheld`, so the field never leaks velocity. "Every client headlines the same forecast" therefore holds per visibility class.
 - **Never silent:** a change of kind for the project emits `schedule.finish_changed` with `headline_forecast_kind` and the reason. The UI always labels the kind ("Schedule:" / "Team forecast:").
 
@@ -84,7 +84,7 @@ A new action on the existing bulk endpoint (`task_bulk.py`): `place_by_dependenc
 
 - Sets a start floor on the selected tasks, applies the `unlinked` choice, and triggers **one** recalculation through `enqueue_recalculate`.
 - Every task goes through `guard_commitment_slip` (D1), so a placement can produce one batched PENDING slip request.
-- **Idempotency** reuses the foundation-layer `idempotency` app. The key is scoped to user + project + key, with a 24 h TTL. A reused key with a different body hash returns 422; a reused key with the same body returns the stored response.
+- **Idempotency** reuses the foundation-layer `idempotency` app. It uses the existing model unchanged: a key is unique per (user, key), the path and request hash are stored for conflict checks, and retention is `IDEMPOTENCY_RETENTION_HOURS` (24 h). A reused key with a different body hash returns 422; a reused key with the same body returns the stored response.
 - Batch size is capped at the existing bulk limit.
 - The response lists placed tasks, tasks left undated, and unplaceable tasks with a reason.
 - The last `unlinked` choice per project is a **client-side** per-user, per-project preference: no server field. Per rule 431, it is read and written only when the login is one person's (not the read-only demo or a shared credential). Verified 2026-11-24: there is no server-side Schedule view-preference store to reuse.
@@ -100,15 +100,24 @@ New events on the existing webhook model and delivery path: `schedule.finish_cha
 
 ### D7. Stability contract for the new reads
 
-What-if, variance and commitment-status ship in `openapi.json` with `x-experimental: true` and a `x-stability-window` stating at least two minor releases' notice before a breaking change. Responses carry `Deprecation`/`Sunset` headers when one is scheduled, and every change gets a changelog fragment. The public parity table marks each drawn mark as exists / experimental / not built. The UI depends on none of these until the schema is published.
+**This is a new convention. Neither extension key exists anywhere in the tree today,** so the schema generator needs a small hook to emit them, and the API docs need a page that defines them. What-if, variance and commitment-status ship in `openapi.json` with `x-experimental: true` and a `x-stability-window` stating at least two minor releases' notice before a breaking change. Responses carry `Deprecation`/`Sunset` headers when one is scheduled, and every change gets a changelog fragment. The public parity table marks each drawn mark as exists / experimental / not built. The UI depends on none of these until the schema is published.
 
 ### D8. Notifications
 
 `sprint.scope_change_requested` and `sprint.commitment_at_risk` notify every member holding the accept authority:
-- **In-app notice: unmutable**, so a commitment change cannot pass silently.
+- **In-app notice: unmutable**, so a commitment change cannot pass silently. **This needs a new mechanism.** The nearest existing one, `DND_BYPASS_EVENTS`, only bypasses do-not-disturb, not a user's mute, so child 8 adds a non-mutable flag for these two in-app event types.
 - Email and other channels follow each member's preferences.
 - Everyone else, including the requester when the decision lands, follows their preferences, with in-app as the default.
 - One batch produces one notice.
+
+### D9. Amends ADR-0067 (pull-to-commit)
+
+ADR-0067 made Confirm the only commit path for a canvas reschedule or resize. This ADR amends it to a **hybrid** model, because the drag verdict (D2) can now say when a drop is consequence-free:
+- **Clean drop:** no critical-path change, no over-allocation, no commitment slip, and the people-load check has returned. It commits on release, with Undo.
+- **Every other drop** keeps ADR-0067's Confirm.
+- An added Start-no-earlier-than constraint is shown on the chip but doesn't by itself force Confirm.
+
+ADR-0067's status gains an "Amended by ADR-1485 (hybrid commit)" note when this ADR is accepted. The web change ships in child 10.
 
 ## Alternatives Considered
 
@@ -139,14 +148,14 @@ What-if, variance and commitment-status ship in `openapi.json` with `x-experimen
 
 | # | Child | Package | Depends on |
 |---|---|---|---|
-| 1 | Commitment-slip gate: `SprintScopeChange.kind`, `guard_commitment_slip` on every date-write path, 409 contract, batch accept/reject, token refusal on decide | api | — |
+| 1 | Commitment-slip gate: `SprintScopeChange.kind`, `guard_commitment_slip` on every date-write path, 409 contract, batch accept/reject. Also token refusal on accept/reject (a behavior change: update `token_write_surface.txt`, the role-route-matrix oracle, and the release's upgrade note) | api | — |
 | 2 | `commitment-status` read + MCP tool + at-risk detection after recalculation | api | 1 |
 | 3 | Schedule what-if (`evaluate` + `recompute`), throttles, cache, ceiling, MCP tool | api, scheduler (call only) | — |
 | 4 | Baseline variance read + MCP tool | api | — |
 | 5 | `headline_forecast_kind` + reason; summary, export, MCP | api | — |
 | 6 | Webhook events, `delivery_id`, dead-letter replay under `webhooks:manage` | api | 1, 5 |
 | 7 | "Schedule selected…" `place_by_dependencies` with Idempotency-Key | api, web | 1 |
-| 8 | Notifications for scope requests and at-risk (unmutable in-app) | api, web | 1, 2 |
+| 8 | Notifications for scope requests and at-risk: a new non-mutable in-app flag (`DND_BYPASS_EVENTS` covers DND only) | api, web | 1, 2 |
 | 9 | Canvas layers, density, baseline halo-where-changed, whiskers, minimap, stubs | web | 4 |
 | 10 | Hybrid commit + touch drag (amends ADR-0067; closes #481) | web | 1, 3 |
 | 11 | Steering snapshot export preset with "why the dates moved" | web | 5 |
@@ -174,4 +183,4 @@ What-if, variance and commitment-status ship in `openapi.json` with `x-experimen
 ### On Acceptance
 - [ ] Open issues naming this ADR re-read against the settled decision:
       `python3 scripts/adr-accepted-issue-sweep.py --adr 1485`
-- [ ] Any issue carrying pre-ADR scope rewritten (title and body), led by a dated correction note. Record the count, including zero. **#5125's body still says "sprint owner (or a time-bounded deputy)", which this ADR rejects (D1): correct it on acceptance.**
+- [ ] Any issue carrying pre-ADR scope rewritten (title and body), led by a dated correction note. Record the count, including zero. #5125's body was already corrected on 2026-11-24 (dated note; D1's rejected "sprint owner + deputy" scope removed). Re-read it on acceptance anyway, together with any child issue filed before acceptance.
