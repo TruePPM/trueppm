@@ -141,3 +141,160 @@ test.describe('Commitment slip on reschedule (ADR-1485 D1)', () => {
     await expect(dialog).toBeHidden();
   });
 });
+
+// --------------------------------------------------------------------------- //
+// Deciding a pending slip from the sprint's scope-change drawer (board)
+// --------------------------------------------------------------------------- //
+
+const SPRINT = {
+  id: 'sp-slip',
+  server_version: 1,
+  short_id: 'D1D1',
+  short_id_display: 'SP-D1D1',
+  name: 'Sprint 4',
+  goal: '',
+  notes: '',
+  start_date: '2026-04-01',
+  finish_date: '2026-04-14',
+  state: 'ACTIVE',
+  target_milestone: null,
+  target_milestone_detail: null,
+  capacity_points: null,
+  committed_points: 5,
+  committed_task_count: 1,
+  pending_count: 0,
+  completed_points: 0,
+  completed_task_count: 0,
+  completion_ratio_points: 0,
+  completion_ratio_tasks: 0,
+  activated_at: '2026-04-01T00:00:00Z',
+  closed_at: null,
+  created_at: '2026-04-01T00:00:00Z',
+  updated_at: '2026-04-01T00:00:00Z',
+};
+
+const SLIP_ID = '7d1f2c3a-0000-4000-8000-000000002564';
+
+function slipEvent(status: 'pending' | 'accepted') {
+  return {
+    id: SLIP_ID,
+    item_name: 'Committed work',
+    story_points: null,
+    added_by_name: 'Sam',
+    added_at: '2026-04-08T09:00:00Z',
+    goal_impact: false,
+    status,
+    kind: 'slip',
+    proposed_start: '2026-04-06',
+    proposed_finish: '2026-04-17',
+    batch_id: null,
+    decision_reason: status === 'accepted' ? 'Vendor late' : '',
+  };
+}
+
+test.describe('Deciding a commitment slip from the drawer (ADR-1485 D1)', () => {
+  test('an Admin accepts the only pending slip from the sprint badge', async ({ page }) => {
+    await setupAuth(page);
+    await setupCatchAll(page);
+    const project = {
+      ...FIXTURE_PROJECTS[0],
+      agile_features: true,
+      methodology: 'AGILE' as const,
+    };
+    await setupApiMocks(page, {
+      projects: [project],
+      projectId: PROJECT_ID,
+      tasks: [{ ...TASKS[0], sprint: SPRINT.id, sprint_pending: false }],
+      members: [{ id: 'mem-1', role: 300 }],
+    });
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ...project,
+          server_version: 1,
+          calendar: null,
+          estimation_mode: 'open',
+        }),
+      }),
+    );
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/members/**`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([{ id: 'mem-1', role: 300 }]),
+      }),
+    );
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/sprints/**`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ count: 1, next: null, previous: null, results: [SPRINT] }),
+      }),
+    );
+    await page.route(/\/api\/v1\/sprints\/sp-slip\/burndown\//, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ sprint: SPRINT, snapshots: [] }),
+      }),
+    );
+    await page.route('**/api/v1/sprints/sp-slip/duration-events/', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ events: [] }),
+      }),
+    );
+    let accepted = false;
+    await page.route('**/api/v1/sprints/sp-slip/scope-changes/', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          summary: { points_added: 0, points_removed: 0, added_mid_sprint_count: 0, total: 0 },
+          events: [slipEvent(accepted ? 'accepted' : 'pending')],
+        }),
+      }),
+    );
+    let acceptBody: unknown = null;
+    await page.route(`**/api/v1/scope-changes/${SLIP_ID}/accept/`, async (route) => {
+      acceptBody = route.request().postDataJSON();
+      accepted = true;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: SLIP_ID,
+          item_name: 'Committed work',
+          status: 'accepted',
+          goal_impact: false,
+          added_at: '2026-04-08T09:00:00Z',
+          kind: 'slip',
+          proposed_start: '2026-04-06',
+          proposed_finish: '2026-04-17',
+          batch_id: null,
+          decision_reason: 'Vendor late',
+          task: 'slip-task-1',
+          sprint: SPRINT.id,
+          reason: '',
+          pending_count: 0,
+        }),
+      });
+    });
+
+    await page.goto(`/projects/${PROJECT_ID}/board`);
+    await page.getByRole('button', { name: /1 date change waiting/ }).click();
+    const drawer = page.getByRole('dialog', { name: 'Scope changes' });
+    await expect(drawer).toBeVisible();
+    await drawer.getByLabel(/Reason for the decision on Committed work/).fill('Vendor late');
+    await drawer.getByRole('button', { name: 'Accept the date change for Committed work' }).click();
+
+    await expect.poll(() => acceptBody).toEqual({ reason: 'Vendor late' });
+    await expect(drawer.getByTestId('slip-row')).toContainText('Accepted');
+    await expect(
+      drawer.getByRole('button', { name: 'Accept the date change for Committed work' }),
+    ).toHaveCount(0);
+  });
+});

@@ -28,33 +28,38 @@ export function SprintScopeBadge({ sprintId, projectId }: Props) {
   // must open the drawer too.
   const pendingSlips =
     data?.events.filter((e) => e.kind === 'slip' && e.status === 'pending').length ?? 0;
-  if (count === 0 && pendingSlips === 0) return null;
+  const hasSignal = count > 0 || pendingSlips > 0;
+  // Keep an open drawer mounted when its last pending row is decided: the badge
+  // has nothing left to say, but the user is still reading the drawer.
+  if (!hasSignal && !open) return null;
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        aria-haspopup="dialog"
-        className="mt-0.5 inline-flex items-center gap-1 self-start rounded-full border border-semantic-at-risk/40
+      {hasSignal && (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          aria-haspopup="dialog"
+          className="mt-0.5 inline-flex items-center gap-1 self-start rounded-full border border-semantic-at-risk/40
           bg-semantic-at-risk-bg px-2 py-0.5 text-xs font-medium text-semantic-at-risk
           hover:border-semantic-at-risk focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
-      >
-        <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
-        {count > 0 && (
-          <span>
-            <span className="tppm-mono">{count}</span> task{count === 1 ? '' : 's'} added mid-
-            {itl.lower}
-          </span>
-        )}
-        {count > 0 && pendingSlips > 0 && <span aria-hidden="true">·</span>}
-        {pendingSlips > 0 && (
-          <span>
-            <span className="tppm-mono">{pendingSlips}</span> date change
-            {pendingSlips === 1 ? '' : 's'} waiting
-          </span>
-        )}
-      </button>
+        >
+          <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
+          {count > 0 && (
+            <span>
+              <span className="tppm-mono">{count}</span> task{count === 1 ? '' : 's'} added mid-
+              {itl.lower}
+            </span>
+          )}
+          {count > 0 && pendingSlips > 0 && <span aria-hidden="true">·</span>}
+          {pendingSlips > 0 && (
+            <span>
+              <span className="tppm-mono">{pendingSlips}</span> date change
+              {pendingSlips === 1 ? '' : 's'} waiting
+            </span>
+          )}
+        </button>
+      )}
       {open && (
         <ScopeChangeDrawer
           sprintId={sprintId}
