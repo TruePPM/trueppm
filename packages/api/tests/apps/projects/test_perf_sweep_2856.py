@@ -262,6 +262,9 @@ class TestPhases:
             assert resp.status_code == 200, resp.data
             return len(ctx)
 
+        # Warm-up: on a committed plan the first reorder opens a changeset entry and
+        # later ones absorb into it (ADR-1477 §3), so compare two absorbing runs.
+        run(3)
         assert run(3) == run(12)
 
     def test_reorder_persists_order_version_and_sync_cursor(
