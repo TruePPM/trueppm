@@ -1,4 +1,5 @@
 ---
+documentedFor: "0.5"
 title: Board sprint panel
 description: Active-sprint summary embedded above the Board lanes — goal, dates, burndown, velocity, and planning capacity in one collapsible surface.
 ---
@@ -173,3 +174,19 @@ decline it.
   checks here use the same rank comparison)
 - [Sprint burndown](/features/sprint-burndown/), [Velocity panel](/features/velocity/),
   [Capacity preflight](/features/capacity-preflight/)
+
+## Commitment slips
+
+:::note[Ships in 0.5]
+Commitment slips arrive in 0.5. On the current release, a date change on committed sprint work applies for anyone who can edit the task, and nothing records it for the sprint.
+:::
+
+A **commitment slip** is a date change that moves committed work in the active sprint past the sprint's end date. Changing a task's start, its duration, or its finish can each cause one.
+
+- **If you can accept scope changes** (project Admin or above, or the team's Product Owner or Scrum Master), the change applies. You must give a reason, and the sprint records the slip as accepted.
+- **If you can't**, the change will not apply yet. The schedule shows "Waiting for a Sprint N decision", and the sprint gets a pending slip that holds your proposed dates. When someone accepts it, your dates apply. When someone rejects it, the task keeps its dates.
+
+Every slip from one change, such as a bulk edit or one offline sync, shares a batch. People who can accept scope changes can decide the whole batch or one row at a time. API tokens and agents can cause pending slips, but only a signed-in person can decide them.
+
+A slip that comes from a schedule recalculation, after an earlier task moves, is not blocked. It is flagged as at risk instead.
+

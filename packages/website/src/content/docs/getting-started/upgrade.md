@@ -1622,3 +1622,14 @@ docker compose -f docker-compose.prod.yml exec api python manage.py collectstati
 **WebSocket connections drop after upgrade**
 
 Expected — clients reconnect automatically within a few seconds. The Channels layer (Valkey) is not drained between upgrades; in-flight messages are lost but clients recover via the reconnect loop.
+
+## Scope decisions need a person (0.5)
+
+:::note[Ships in 0.5]
+This change lands in 0.5. On the current release, an API token with full access can still accept and reject sprint scope changes.
+:::
+
+In 0.5, accepting and rejecting sprint scope changes will refuse every API token, whatever its scopes. The four routes are `POST /api/v1/scope-changes/{id}/accept/`, `POST /api/v1/scope-changes/{id}/reject/`, `POST /api/v1/sprints/{id}/scope-changes/accept/` and `POST /api/v1/sprints/{id}/scope-changes/reject/`. A token call to any of them will get a `403`, and the agent log will record it as refused for identity. Tokens and agents can still cause pending scope changes and read them.
+
+If an integration auto-accepts scope through a token, move that decision to a person who signs in, before you upgrade.
+

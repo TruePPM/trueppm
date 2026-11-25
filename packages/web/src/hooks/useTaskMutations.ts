@@ -1,7 +1,13 @@
 import { useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
-import { handleSyncConflict, isSyncConflict } from '@/api/conflict';
+import {
+  asCommitmentSlip,
+  commitmentSlipMessage,
+  handleSyncConflict,
+  isSyncConflict,
+} from '@/api/conflict';
+import { toast } from '@/components/Toast';
 import {
   extractRejectReason,
   recordSchedulePreview,
@@ -347,6 +353,13 @@ export function useUpdateTask() {
         extractRejectReason(err),
         () => mutateRef.current?.(variables),
       );
+      // ADR-1485 D1: the server deferred a commitment slip (a PENDING scope change),
+      // so the edit is waiting on an Admin+ decision. Say so; never the error toast.
+      const slip = asCommitmentSlip(err);
+      if (slip) {
+        toast.info(commitmentSlipMessage(slip));
+        return;
+      }
       // A caller with its own inline conflict UI (TaskFormModal's banner, #2036)
       // opts out of the toast so the two don't stack; rollback above still runs.
       if (variables.suppressConflictToast && isSyncConflict(err)) return;
@@ -522,6 +535,13 @@ export function useRescheduleTask() {
           duration: payload.optimistic.duration,
         })
       ) {
+        return;
+      }
+      // ADR-1485 D1: a deferred commitment slip is a PENDING scope change, not a
+      // refusal. No rejection strip: its Retry would file a second pending row.
+      const slip = asCommitmentSlip(err);
+      if (slip) {
+        toast.info(commitmentSlipMessage(slip));
         return;
       }
       // ADR-0784: a silent revert is the defect. Surface the server's reason on

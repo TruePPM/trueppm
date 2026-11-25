@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
+from django.db import transaction
 from rest_framework import status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 
@@ -353,7 +354,9 @@ def _apply_created_row(
         if conflict is not None:
             result.conflicts.append({"id": str(existing.pk), **conflict})
             return
-        task = ser.save()
+        task = _save_or_defer_slip(ser, existing.pk, ctx, result)
+        if task is None:
+            return
         maybe_record_scope_injection(task, old_sprint_id, ctx.request.user)
         result.events.append(("task_updated", str(task.pk)))
     else:
@@ -420,11 +423,38 @@ def _apply_updated_row(row: dict[str, Any], ctx: _ApplyContext, result: BatchApp
     if conflict is not None:
         result.conflicts.append({"id": str(target.pk), **conflict})
         return
-    saved = ser.save()
+    saved = _save_or_defer_slip(ser, target.pk, ctx, result)
+    if saved is None:
+        return
     maybe_record_scope_injection(saved, old_sprint_id, ctx.request.user)
     result.updated.append({"id": str(saved.pk), "server_version": saved.server_version})
     result.events.append(("task_updated", str(saved.pk)))
     result.bump(saved.sync_seq)
+
+
+def _save_or_defer_slip(ser: Any, row_id: Any, ctx: _ApplyContext, result: BatchApplyResult) -> Any:
+    """Save one task row, or report it as a commitment-slip conflict (ADR-1485 D1).
+
+    A row whose date write would slip committed work past its ACTIVE sprint's end,
+    pushed by someone who cannot accept that, is NOT applied: the savepoint unwinds,
+    a PENDING slip row is recorded, and the row comes back in ``conflicts`` with
+    ``code: commitment_slip_requires_acceptance`` so the client keeps its local
+    edit pending rather than treating it as synced. Returns the saved task, or
+    ``None`` when the row was deferred.
+    """
+    from trueppm_api.apps.projects.services import (
+        CommitmentSlipDeferred,
+        commitment_slip_conflict_body,
+        record_deferred_slip,
+    )
+
+    try:
+        with transaction.atomic():
+            return ser.save()
+    except CommitmentSlipDeferred as exc:
+        row = record_deferred_slip(exc, ctx.request)
+        result.conflicts.append({"id": str(row_id), **commitment_slip_conflict_body(row)})
+        return None
 
 
 def _apply_deleted_row(del_id: Any, ctx: _ApplyContext, result: BatchApplyResult) -> None:

@@ -243,7 +243,7 @@ def _shift_specs() -> tuple[DateShift, ...]:
         ),
         DateShift(
             "projects.SprintScopeChange",
-            ("added_at",),
+            ("added_at", "decided_at", "proposed_start", "proposed_finish"),
             lambda p: SprintScopeChange.objects.filter(sprint__project__program=p),
         ),
         DateShift(

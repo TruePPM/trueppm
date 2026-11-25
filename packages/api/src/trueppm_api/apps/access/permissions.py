@@ -2642,6 +2642,68 @@ class IsNotTokenAuthenticated(BasePermission):
         return False
 
 
+class IsNotTokenForScopeDecision(IsNotTokenAuthenticated):
+    """Refuse ``ApiToken`` callers of any scope on scope accept/reject (ADR-1485 D1).
+
+    Deciding sprint scope (an injection or a commitment slip) is human-only: tokens
+    and agents may *cause* PENDING rows and read them, never decide them. ADR-0102
+    forbade an auto-accept path but left tokens able to accept; this closes it.
+
+    The refusal is about *what the credential is*, so it is marked ``identity``
+    (D10), not the class's default policy mark. A view with the MCP audit mixin
+    records it from that mark; a view without it (the flat
+    ``scope-changes/{id}/`` routes) gets the ``refused`` row queued here, drained
+    after the request transaction so ``set_rollback()`` cannot discard it.
+    """
+
+    message = "Accepting or rejecting sprint scope changes requires a person, not an API token."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        from trueppm_api.apps.agents.models import RefusalConstraint
+        from trueppm_api.apps.projects.models import ApiToken
+
+        token = getattr(request, "auth", None)
+        if not isinstance(token, ApiToken):
+            return True
+        _mark_identity_refusal(request, RefusalConstraint.TOKEN_IDENTITY)
+        if not hasattr(view, "_record_mcp_agent_action"):
+            _queue_scope_decision_refusal(request, view, token)
+        return False
+
+
+def _queue_scope_decision_refusal(request: Request, view: APIView, token: Any) -> None:
+    """Queue the ``refused``/``identity`` agent-action row for a token decision attempt."""
+    from trueppm_api.apps.agents.deferred import queue_agent_action
+    from trueppm_api.apps.agents.models import (
+        AgentActionRefusalReason,
+        AgentActionVerdict,
+        AgentActorKind,
+        RefusalConstraint,
+    )
+    from trueppm_api.apps.agents.services import hash_request_payload
+
+    match = getattr(request, "resolver_match", None)
+    action = (match.view_name if match is not None else "") or type(view).__name__
+    queue_agent_action(
+        request,
+        actor_kind=AgentActorKind.MCP_TOKEN,
+        actor_token=token,
+        principal=getattr(token, "owner", None),
+        action=action,
+        method=request.method or "",
+        capability_used="",
+        verdict=AgentActionVerdict.REFUSED,
+        refusal_reason=AgentActionRefusalReason.IDENTITY,
+        refusal_constraint=RefusalConstraint.TOKEN_IDENTITY,
+        object_type="SprintScopeChange",
+        object_id=str((getattr(view, "kwargs", {}) or {}).get("pk") or ""),
+        project_id=None,
+        payload_hash=hash_request_payload(request),
+        summary=f"{request.method} {action} — refused (token cannot decide scope)",
+        source_ip=_mcp_client_ip(request),
+    )
+
+
 class IsNotFullTokenAuthenticated(IsNotTokenAuthenticated):
     """Refuse API-token callers, except a ``webhooks:manage`` token (#2414, #4461).
 
@@ -3405,7 +3467,15 @@ class McpReadableViewMixin(_McpViewBase):
         # predicate is now load-bearing rather than aspirational — a scoped token walked
         # against the collection tools is recorded.
         allowed = status_code < 400
-        if allowed and not is_agent_token(token):
+        # ADR-1485 D10: a token write that produced a PENDING commitment slip is
+        # neither allowed nor refused — it waits on a person. Recorded for every
+        # token (not only agent tokens), on a 409 and on a 207 bulk/sync alike.
+        from trueppm_api.apps.projects.services import SLIP_PENDING_ATTR
+
+        slip_pending = bool(
+            getattr(getattr(request, "_request", request), SLIP_PENDING_ATTR, False)
+        )
+        if allowed and not slip_pending and not is_agent_token(token):
             return
 
         from trueppm_api.apps.agents.deferred import queue_agent_action
@@ -3433,10 +3503,15 @@ class McpReadableViewMixin(_McpViewBase):
         # (test_mcp_read_records_allowed_action). Restructuring did not clear it (96e7ea9d2).
         verdict = AgentActionVerdict.ALLOWED if allowed else AgentActionVerdict.REFUSED  # NOSONAR
         refusal_reason, refusal_constraint = self._mcp_refusal_classification(request, allowed)
+        if slip_pending:
+            verdict = AgentActionVerdict.REQUIRES_APPROVAL
+            refusal_reason, refusal_constraint = "", ""
 
         action, object_type, object_id, project_id = self._mcp_audit_target(request)
         summary = f"MCP {request.method} {action}"
-        if not allowed:  # NOSONAR
+        if slip_pending:
+            summary += " — commitment slip awaiting acceptance"
+        elif not allowed:  # NOSONAR
             summary += f" — refused ({status})"
         elif getattr(request, "_mcp_scope_filtered", False):
             # ADR-0678 T8: a collection read that had opted-out projects filtered out
@@ -3468,7 +3543,7 @@ class McpReadableViewMixin(_McpViewBase):
         # deferred path it may well have ended by the time the queue drains.
         _set_agent_span_attributes(token, str(verdict))
 
-        if allowed:  # NOSONAR
+        if allowed or slip_pending:  # NOSONAR
             # Fail-closed, and inline for that reason: a successful read that we could
             # not audit must not be served, so the write shares the read's transaction —
             # it raises, ATOMIC_REQUESTS rolls back, and the request 500s. This is the

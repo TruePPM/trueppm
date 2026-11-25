@@ -45970,10 +45970,26 @@
                 "tags": [
                     "sprints"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ScopeChangeDecisionRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ScopeChangeDecisionRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ScopeChangeDecisionRequest"
+                            }
+                        }
+                    }
+                },
                 "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
                     {
                         "jwtAuth": []
                     },
@@ -46020,6 +46036,39 @@
                             }
                         }
                     },
+                    "400": {
+                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
+                                            "example": "Request body must be a JSON object."
+                                        },
+                                        "code": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
+                                            "example": "invalid_body"
+                                        }
+                                    },
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
+                                    }
+                                }
+                            }
+                        }
+                    },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
                     }
@@ -46056,10 +46105,26 @@
                 "tags": [
                     "sprints"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ScopeChangeDecisionRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ScopeChangeDecisionRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ScopeChangeDecisionRequest"
+                            }
+                        }
+                    }
+                },
                 "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
                     {
                         "jwtAuth": []
                     },
@@ -46101,6 +46166,39 @@
                                             "type": "string",
                                             "example": "Request was throttled. Expected available in 42 seconds."
                                         }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
+                                            "example": "Request body must be a JSON object."
+                                        },
+                                        "code": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
+                                            "example": "invalid_body"
+                                        }
+                                    },
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
                                     }
                                 }
                             }
@@ -50638,9 +50736,6 @@
                 },
                 "security": [
                     {
-                        "personalApiTokenAuth": []
-                    },
-                    {
                         "jwtAuth": []
                     },
                     {
@@ -50778,9 +50873,6 @@
                     }
                 },
                 "security": [
-                    {
-                        "personalApiTokenAuth": []
-                    },
                     {
                         "jwtAuth": []
                     },
@@ -74428,6 +74520,12 @@
                         "description": "Why this change was made. Recorded in plan history and sent to the people assigned to the task when the project is committed. Ignored on a draft — authoring a plan nobody has agreed to yet carries no reason.",
                         "maxLength": 500
                     },
+                    "slip_reason": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "description": "Why this date change moves committed work past the end of its active sprint (ADR-1485 D1). Required when a caller who can accept scope changes makes that change directly; recorded on the commitment-slip row. A caller without that authority gets a 409 instead.",
+                        "maxLength": 500
+                    },
                     "structure_role": {
                         "allOf": [
                             {
@@ -85595,6 +85693,27 @@
                             "type": "string",
                             "format": "uuid"
                         }
+                    },
+                    "batch_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "reason": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 500
+                    }
+                }
+            },
+            "ScopeChangeDecisionRequest": {
+                "type": "object",
+                "description": "Optional body for the single-row accept/reject actions (ADR-1485 D1, D10).\n\n``reason`` is the decider's reason, stored on the row as ``decision_reason``\nand returned to the requester on a rejected commitment slip.",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 500
                     }
                 }
             },
@@ -88070,13 +88189,49 @@
                         "type": "string",
                         "format": "date-time",
                         "readOnly": true
+                    },
+                    "kind": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "proposed_start": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "proposed_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "batch_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "decision_reason": {
+                        "type": "string",
+                        "readOnly": true
                     }
                 },
                 "required": [
                     "added_at",
+                    "batch_id",
+                    "decision_reason",
                     "goal_impact",
                     "id",
                     "item_name",
+                    "kind",
+                    "proposed_finish",
+                    "proposed_start",
+                    "reason",
                     "sprint",
                     "status",
                     "task"
@@ -88219,6 +88374,36 @@
                         "format": "date-time",
                         "readOnly": true
                     },
+                    "kind": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "proposed_start": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "proposed_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "batch_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "decision_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "pending_count": {
                         "type": "integer",
                         "readOnly": true
@@ -88226,10 +88411,16 @@
                 },
                 "required": [
                     "added_at",
+                    "batch_id",
+                    "decision_reason",
                     "goal_impact",
                     "id",
                     "item_name",
+                    "kind",
                     "pending_count",
+                    "proposed_finish",
+                    "proposed_start",
+                    "reason",
                     "sprint",
                     "status",
                     "task"
@@ -91106,6 +91297,12 @@
                         "description": "Why this change was made. Recorded in plan history and sent to the people assigned to the task when the project is committed. Ignored on a draft — authoring a plan nobody has agreed to yet carries no reason.",
                         "maxLength": 500
                     },
+                    "slip_reason": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "description": "Why this date change moves committed work past the end of its active sprint (ADR-1485 D1). Required when a caller who can accept scope changes makes that change directly; recorded on the commitment-slip row. A caller without that authority gets a 409 instead.",
+                        "maxLength": 500
+                    },
                     "structure_role": {
                         "allOf": [
                             {
@@ -92410,6 +92607,12 @@
                         "type": "string",
                         "writeOnly": true,
                         "description": "Why this change was made. Recorded in plan history and sent to the people assigned to the task when the project is committed. Ignored on a draft — authoring a plan nobody has agreed to yet carries no reason.",
+                        "maxLength": 500
+                    },
+                    "slip_reason": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "description": "Why this date change moves committed work past the end of its active sprint (ADR-1485 D1). Required when a caller who can accept scope changes makes that change directly; recorded on the commitment-slip row. A caller without that authority gets a 409 instead.",
                         "maxLength": 500
                     },
                     "structure_role": {

@@ -25,6 +25,11 @@ interface OptimisticDates {
 /** Best-effort human message from a DRF error payload — detail, then first field. */
 export function extractRejectReason(err: unknown): string {
   const data = (err as { response?: { data?: unknown } })?.response?.data;
+  // ADR-1485 D1: a deferred commitment slip is waiting on a decision, not refused.
+  const slip = data as { code?: unknown; sprint_name?: unknown } | undefined;
+  if (slip?.code === 'commitment_slip_requires_acceptance' && typeof slip.sprint_name === 'string') {
+    return `Waiting for a ${slip.sprint_name} decision`;
+  }
   if (data && typeof data === 'object') {
     const detail = (data as { detail?: unknown }).detail;
     if (typeof detail === 'string') return detail;

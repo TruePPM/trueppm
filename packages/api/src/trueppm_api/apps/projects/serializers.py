@@ -4461,6 +4461,18 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "a draft — authoring a plan nobody has agreed to yet carries no reason."
         ),
     )
+    slip_reason = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        max_length=500,
+        help_text=(
+            "Why this date change moves committed work past the end of its active "
+            "sprint (ADR-1485 D1). Required when a caller who can accept scope "
+            "changes makes that change directly; recorded on the commitment-slip "
+            "row. A caller without that authority gets a 409 instead."
+        ),
+    )
     is_summary = serializers.BooleanField(read_only=True, default=False)
     # is_phase — computed: a non-subtask task with >=1 structural (non-subtask)
     # child. A phase is a pure rollup (ADR-0293): status, estimate, assignee,
@@ -4738,6 +4750,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "duration",
             "duration_unit",
             "amend_reason",
+            "slip_reason",
             "structure_role",
             "own_status",
             "own_estimate",
@@ -7009,6 +7022,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         ``_owners_broadcast_enabled``.
         """
         owners = validated_data.pop("owners", None)
+        # A new task is never committed work, so no commitment slip can apply.
+        validated_data.pop("slip_reason", None)
         project = validated_data.get("project")
         candidate = validated_data.get("planned_start")
         # #2646: a task created with an estimate is an estimate write too. Without
@@ -7074,6 +7089,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         # not reach ``super().update()``. Applied after the save so the assignment rides
         # the task write's transaction, CPM re-trigger, and board broadcast (ADR-0774).
         owners = validated_data.pop("owners", None)
+        self._guard_commitment_slip(instance, validated_data)
 
         self._apply_project_start_shift(instance, validated_data)
         self._sync_early_start_to_planned(instance, validated_data)
@@ -7126,6 +7142,35 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         context differs.
         """
         return not self.context.get("suppress_owner_broadcast", False)
+
+    def _guard_commitment_slip(self, instance: Task, validated_data: dict[str, Any]) -> None:
+        """Run the ADR-1485 D1 commitment-slip guard before any part of this write.
+
+        Every task date write that goes through this serializer (REST PATCH/PUT,
+        the bulk edit, the sync push, token and agent writes on those routes) meets
+        the guard here, after ``planned_finish`` has been resolved into
+        ``duration``. Runs before any helper mutates ``instance`` so a deferred slip
+        (``CommitmentSlipDeferred``) leaves the task untouched.
+        """
+        from trueppm_api.apps.projects.services import guard_commitment_slip
+
+        reason = validated_data.pop("slip_reason", "") or ""
+        new_start = validated_data.get("planned_start")
+        new_duration = validated_data.get("duration")
+        if "planned_start" in validated_data and new_start == instance.planned_start:
+            new_start = None
+        if "duration" in validated_data and new_duration == instance.duration:
+            new_duration = None
+        if new_start is None and new_duration is None:
+            return
+        guard_commitment_slip(
+            instance,
+            new_start=new_start,
+            new_duration=new_duration,
+            request=self.context.get("request"),
+            reason=reason,
+            calendar_factory=lambda: self._composed_calendar_for(validated_data),
+        )
 
     def _apply_project_start_shift(self, instance: Task, validated_data: dict[str, Any]) -> None:
         """#867 auto-shift: pull the project start back to an earlier planned_start.
@@ -11225,6 +11270,13 @@ class SprintScopeChangeSerializer(serializers.Serializer[dict[str, Any]]):
     status = serializers.CharField(read_only=True)
     goal_impact = serializers.BooleanField(read_only=True)
     added_at = serializers.DateTimeField(read_only=True)
+    # ADR-1485 D1: ``slip`` rows carry the proposed dates and the batch they share.
+    kind = serializers.CharField(read_only=True)
+    proposed_start = serializers.DateField(read_only=True, allow_null=True)
+    proposed_finish = serializers.DateField(read_only=True, allow_null=True)
+    batch_id = serializers.UUIDField(read_only=True, allow_null=True)
+    reason = serializers.CharField(read_only=True)
+    decision_reason = serializers.CharField(read_only=True)
 
 
 class SprintScopeChangeSingleActionResultSerializer(SprintScopeChangeSerializer):
@@ -11240,6 +11292,16 @@ class SprintScopeChangeSingleActionResultSerializer(SprintScopeChangeSerializer)
     pending_count = serializers.IntegerField(read_only=True)
 
 
+class ScopeChangeDecisionSerializer(serializers.Serializer[dict[str, Any]]):
+    """Optional body for the single-row accept/reject actions (ADR-1485 D1, D10).
+
+    ``reason`` is the decider's reason, stored on the row as ``decision_reason``
+    and returned to the requester on a rejected commitment slip.
+    """
+
+    reason = serializers.CharField(required=False, allow_blank=True, max_length=500, default="")
+
+
 class ScopeChangeBulkSerializer(serializers.Serializer[dict[str, Any]]):
     """Validate the body for the bulk accept/reject endpoints (ADR-0102 §5).
 
@@ -11250,6 +11312,9 @@ class ScopeChangeBulkSerializer(serializers.Serializer[dict[str, Any]]):
     ids = serializers.ListField(
         child=serializers.UUIDField(), required=False, default=list, allow_empty=True
     )
+    # ADR-1485 D1: act on one commitment-slip batch (every slip one request made).
+    batch_id = serializers.UUIDField(required=False, allow_null=True, default=None)
+    reason = serializers.CharField(required=False, allow_blank=True, max_length=500, default="")
 
 
 class SprintScopeChangeBulkResultSerializer(serializers.Serializer[dict[str, Any]]):

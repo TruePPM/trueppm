@@ -7447,6 +7447,20 @@ class ScopeChangeStatus(models.TextChoices):
     REJECTED = "rejected", "Rejected — removed from sprint"
 
 
+class ScopeChangeKind(models.TextChoices):
+    """What a ``SprintScopeChange`` row records (ADR-1485 D1).
+
+    ``INJECTION`` is the ADR-0102 original: an item linked into an ACTIVE sprint
+    after activation. ``SLIP`` is a *commitment slip*: a date write that would move
+    a committed task's finish past its ACTIVE sprint's end. A slip row carries the
+    proposed dates; accepting applies them, rejecting discards them. Neither kind
+    has an auto-accept path.
+    """
+
+    INJECTION = "injection", "Scope injection"
+    SLIP = "slip", "Commitment slip"
+
+
 class SprintScopeChange(models.Model):
     """Records each item injected into a task's ACTIVE sprint mid-sprint.
 
@@ -7513,6 +7527,34 @@ class SprintScopeChange(models.Model):
         default=ScopeChangeStatus.PENDING,
         db_index=True,
     )
+    # ADR-1485 D1: ``slip`` rows record a commitment slip. ``added_by`` is the
+    # requester for both kinds. The proposed_* columns are set only on a slip:
+    # PENDING slips hold the write that was NOT applied, and accepting replays
+    # exactly these values (duration is stored so the replay is exact rather than
+    # re-derived from a finish on a calendar that may have changed since).
+    kind = models.CharField(
+        max_length=12,
+        choices=ScopeChangeKind.choices,
+        default=ScopeChangeKind.INJECTION,
+    )
+    proposed_start = models.DateField(null=True, blank=True)
+    proposed_finish = models.DateField(null=True, blank=True)
+    proposed_duration = models.IntegerField(null=True, blank=True)
+    # One id per request: every slip one write produced (a multi-select drag, a
+    # bulk edit, one sync push) shares it, so accept/reject can act on the batch.
+    batch_id = models.UUIDField(null=True, blank=True, db_index=True)
+    # The requester's reason (required when an authority holder slips directly),
+    # and the decider's reason on accept/reject (feeds the Decisions view).
+    reason = models.TextField(blank=True, default="")
+    decision_reason = models.TextField(blank=True, default="")
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sprint_scope_changes_decided",
+    )
+    decided_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "projects_sprintscopechange"
