@@ -406,6 +406,16 @@ def test_backfill_resolves_a_visited_project_of_an_empty_list_without_seeding(
     assert later["seed_line"] == {"lens": "scrum_master", "hidden_count": 3}
 
 
+def test_backfill_resolves_a_visited_project_of_a_user_with_no_profile(cal: Calendar) -> None:
+    p = _project(cal)
+    user = User.objects.create_user(username="noprofile", password="pw")
+    ProjectMembership.objects.create(project=p, user=user, role=Role.MEMBER)
+    _visit(user, p, "2026-10-01T09:00:00+00:00")
+    backfill_project_view_states(django_apps, None)
+    state = ProjectViewState.objects.get(user=user, project=p)
+    assert (state.seeded_lens, state.hides) == ("unified", [])
+
+
 def test_backfill_leaves_non_member_visits_and_non_empty_lists_alone(cal: Calendar) -> None:
     p = _project(cal)
     gone = _member(p, "scrum_master", name="gone")
