@@ -3214,10 +3214,13 @@ def _expected_row(project: RefProject, ref: RefResult, tid: str) -> dict[str, An
         day = first_working_on_or_after(want.shown_at, cal)
         prior = last_working_on_or_before(day - timedelta(days=1), cal)
         readings = [[day.isoformat(), False], [prior.isoformat(), True]]
-        if not cal.is_working(want.shown_at):
+        floor = project.progress.get(tid, RefProgress()).actual_start
+        if floor is not None and floor == want.shown_at and not cal.is_working(want.shown_at):
             # A recorded ``actual_start`` floor is kept verbatim even on a non-working
             # day (reference_cpm.py, #4332), so a milestone held by one is shown on that
             # day itself: the reference's own instant is a third accepted reading (#4914).
+            # Only that case — any other non-working ``shown_at`` must still land on one
+            # of the two working-time readings, or an engine regression would hide here.
             readings.append([want.shown_at.isoformat(), False])
         return {"milestone_shown": readings}
     row: dict[str, Any] = {

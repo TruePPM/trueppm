@@ -19,7 +19,11 @@ decide on a nightly slot before adding one.
 | Killed (incl. 10 timeouts) | 3,128 |
 | Survived | 1,920 |
 | No test reaches the mutant | 4,656 |
-| Total | 9,714 |
+| Total | 9,704 |
+
+The first draft of this table said 9,714; its rows sum to 9,704 and the 10-mutant
+difference could not be attributed from the recorded output (mutmut's timeout,
+suspicious and skipped statuses are not broken out), so the total is the row sum.
 
 Score `killed / (killed + survived)` = **62.0%**. The unreached 4,656 are a coverage
 gap, not an assertion gap, and are excluded from the score the same way
