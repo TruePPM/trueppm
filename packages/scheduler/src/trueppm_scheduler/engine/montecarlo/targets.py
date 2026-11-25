@@ -63,6 +63,18 @@ class _TargetCollector:
         self.cols = np.asarray([task_idx[tid] for tid in ids], dtype=np.intp)
         self.shown = np.empty((runs, len(ids)), dtype=np.float64)
         self.position = np.empty((runs, len(ids)), dtype=np.float64)
+        self._verbatim: dict[int, int] = {}  # column -> ordinal of its verbatim day
+
+    def note_verbatim(self, verbatim_shown: dict[int, tuple[np.ndarray, int]]) -> None:
+        """Record the columns this chunk shows on a non-working ``actual_start``.
+
+        The offset index holds working days only, so such a column carries the working
+        day before and the date itself has to floor the reading, as it floors the
+        project finish (#4175). Runs not shown on that day finish after it, so one
+        floor per column is exact.
+        """
+        for col, (_mask, ordinal) in verbatim_shown.items():
+            self._verbatim[col] = ordinal
 
     def add(self, lo: int, hi: int, ef_ref: np.ndarray, wt_ref: np.ndarray) -> None:
         """Copy this chunk's target columns out before the chunk is dropped."""
@@ -71,14 +83,15 @@ class _TargetCollector:
 
     def result(
         self,
-        percentiles: Callable[[np.ndarray, np.ndarray], list[tuple[date, bool]]],
-        to_date: Callable[[float], date],
+        percentiles: Callable[[np.ndarray, np.ndarray, date | None], list[tuple[date, bool]]],
+        to_date: Callable[[float, date | None], date],
         completed: dict[str, tuple[date, bool]],
     ) -> dict[str, TargetForecast]:
         """One :class:`TargetForecast` per target, in request order.
 
-        ``percentiles(position, shown)`` is the project-level reader with no finish
-        floor; ``to_date`` maps a shown offset to its day. ``completed`` maps a
+        ``percentiles(position, shown, floor)`` is the project-level reader, given the
+        target's own finish floor (never the project's); ``to_date(offset, floor)``
+        maps a shown offset to its day. ``completed`` maps a
         completed target to its recorded finish and edge-of-day reading, reported
         verbatim at every level: the offset ruler cannot hold a recorded finish on a
         non-working day.
@@ -95,11 +108,13 @@ class _TargetCollector:
                     distribution=[pinned[0]] * runs,
                 )
                 continue
-            levels = percentiles(self.position[:, j], self.shown[:, j])
+            ordinal = self._verbatim.get(int(self.cols[j]))
+            floor = None if ordinal is None else date.fromordinal(ordinal)
+            levels = percentiles(self.position[:, j], self.shown[:, j], floor)
             uniq, counts = np.unique(self.shown[:, j], return_counts=True)
             distribution: list[date] = []
             for offset, count in zip(uniq.tolist(), counts.tolist(), strict=True):
-                distribution.extend([to_date(offset)] * count)
+                distribution.extend([to_date(offset, floor)] * count)
             out[tid] = TargetForecast(
                 task_id=tid,
                 percentiles={

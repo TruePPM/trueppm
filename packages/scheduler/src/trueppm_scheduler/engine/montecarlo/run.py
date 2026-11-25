@@ -272,6 +272,36 @@ def _check_return_samples(return_samples: object, runs: int, n_tasks: int) -> No
         )
 
 
+def _sharing_verbatim(
+    forward: Callable[
+        [int, int, np.ndarray, dict[int, tuple[np.ndarray, int]]],
+        tuple[np.ndarray, np.ndarray, date | None, dict[str, np.ndarray]],
+    ],
+    samples: _SampleCollector | None,
+    targets: _TargetCollector | None,
+) -> Callable[
+    [int, int, np.ndarray], tuple[np.ndarray, np.ndarray, date | None, dict[str, np.ndarray]]
+]:
+    """Hand each chunk's verbatim-day columns to both optional collectors (#4135).
+
+    The forward pass records the columns it shows on a non-working ``actual_start``;
+    the working-day index cannot hold that date, so each reader has to apply it.
+    """
+
+    def chunk(
+        lo: int, hi: int, block: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, date | None, dict[str, np.ndarray]]:
+        verbatim_shown: dict[int, tuple[np.ndarray, int]] = {}
+        out = forward(lo, hi, block, verbatim_shown)
+        if targets is not None:
+            targets.note_verbatim(verbatim_shown)
+        if samples is not None:
+            samples.verbatim_shown.update(verbatim_shown)
+        return out
+
+    return chunk
+
+
 def _replayed_chunks(
     durations: _SampledDurations,
     forward: Callable[
@@ -1313,25 +1343,29 @@ def monte_carlo(
     shown_offsets, completion_offsets, milestone_finish_floor = _mc_chunked_finishes(
         _replayed_chunks(
             durations,
-            lambda lo, hi, block: _mc_forward_pass(
-                topo_order,
-                hi - lo,
-                g,
-                task_idx,
-                edge_lag_delta,
-                block,
-                es_floor,
-                completed_offsets,
-                completed_edge,
-                elapsed_days,
-                milestone_ids,
-                mc_index,
-                verbatim_actuals,
-                milestone_floors,
-                zero_base_ids,
-                None if velocity is None else velocity.rows(lo, hi),
-                link_elapsed,
-                None if collector is None else collector.verbatim_shown,
+            _sharing_verbatim(
+                lambda lo, hi, block, verbatim_shown: _mc_forward_pass(
+                    topo_order,
+                    hi - lo,
+                    g,
+                    task_idx,
+                    edge_lag_delta,
+                    block,
+                    es_floor,
+                    completed_offsets,
+                    completed_edge,
+                    elapsed_days,
+                    milestone_ids,
+                    mc_index,
+                    verbatim_actuals,
+                    milestone_floors,
+                    zero_base_ids,
+                    None if velocity is None else velocity.rows(lo, hi),
+                    link_elapsed,
+                    verbatim_shown,
+                ),
+                collector,
+                target_collector,
             ),
             collector,
         ),
@@ -1398,8 +1432,10 @@ def monte_carlo(
         None
         if target_collector is None
         else target_collector.result(
-            lambda position, shown: _mc_percentiles(position, shown, wd_index, None, False),
-            lambda offset: _offset_to_date(offset, wd_index, None),
+            lambda position, shown, floor: _mc_percentiles(
+                position, shown, wd_index, floor, floor is not None
+            ),
+            lambda offset, floor: _offset_to_date(offset, wd_index, floor),
             {
                 tid: (ef_date, tid in completed_start_ids)
                 for tid, (_es_date, ef_date) in completed_dates.items()

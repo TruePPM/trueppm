@@ -169,6 +169,28 @@ class TestTargets:
         assert clone.targets == r.targets
 
 
+class TestVerbatimNonWorkingDay:
+    """A milestone held on a weekend ``actual_start`` is read on that day (#4135)."""
+
+    def test_open_milestone_on_a_weekend_actual_start_matches_cpm(self) -> None:
+        saturday = date(2026, 8, 1)
+        project = Project(
+            id="p",
+            name="p",
+            start_date=date(2026, 3, 2),
+            tasks=[Task(id="m", name="m", duration=timedelta(0), actual_start=saturday)],
+            dependencies=[],
+        )
+        (task,) = schedule(project).tasks
+        result = monte_carlo(project, runs=8, seed=3, targets=["m"])
+        assert result.targets is not None
+        forecast = result.targets["m"]
+        assert task.early_finish == saturday
+        assert (forecast.p50, forecast.p80, forecast.p95) == (saturday,) * 3
+        assert set(forecast.distribution) == {saturday}
+        assert forecast.percentiles[50] == result.percentiles[50]
+
+
 class TestTargetValidation:
     @pytest.mark.parametrize("bad", ["A", b"A", 5, ["A", 3]])
     def test_malformed_targets_are_refused(self, bad: object) -> None:
