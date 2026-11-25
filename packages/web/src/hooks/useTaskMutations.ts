@@ -350,15 +350,10 @@ export function useUpdateTask() {
       if (captureDemoOverlay(err, variables.id, scheduleDatesFromUpdatePayload(variables))) {
         return;
       }
-      // ADR-0784: surface the refusal instead of reverting the row in silence.
-      rejectSchedulePreview(
-        variables.id,
-        scheduleDatesFromUpdatePayload(variables),
-        extractRejectReason(err),
-        () => mutateRef.current?.(variables),
-      );
       // ADR-1485 D1: the caller may apply this slip but owes a reason. The rollback
-      // above already restored the dates, so Cancel leaves them unchanged.
+      // above already restored the dates, so Cancel leaves them unchanged. Both slip
+      // branches run BEFORE the rejection strip (as in `useRescheduleTask`): neither
+      // is a refusal, and the strip's Retry would file a second pending row.
       if (isSlipReasonRequired(err)) {
         void requestSlipReason().then((reason) => {
           if (reason) mutateRef.current?.({ ...variables, slip_reason: reason });
@@ -372,6 +367,13 @@ export function useUpdateTask() {
         toast.info(commitmentSlipMessage(slip));
         return;
       }
+      // ADR-0784: surface the refusal instead of reverting the row in silence.
+      rejectSchedulePreview(
+        variables.id,
+        scheduleDatesFromUpdatePayload(variables),
+        extractRejectReason(err),
+        () => mutateRef.current?.(variables),
+      );
       // A caller with its own inline conflict UI (TaskFormModal's banner, #2036)
       // opts out of the toast so the two don't stack; rollback above still runs.
       if (variables.suppressConflictToast && isSyncConflict(err)) return;
