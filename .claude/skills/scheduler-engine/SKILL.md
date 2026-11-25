@@ -21,7 +21,7 @@ You are working on trueppm-scheduler, a pure Python library with ZERO Django dep
 - **Input/output via data classes.** Accept Project/Task/Dependency objects, return computed fields.
 - **No database access.** The library never touches PostgreSQL. Django loads data, calls the engine, writes results back.
 - **Deterministic by default.** Same input = same output (Monte Carlo uses seeded RNG for reproducibility in tests).
-- **networkx for graph operations.** DAG construction, topological sort, cycle detection.
+- **`engine/digraph.py` for graph operations.** DAG construction, lexicographic topological sort, cycle detection. No networkx.
 - **numpy for Monte Carlo.** Vectorized sampling across all simulations for performance.
 - **Every export is a commitment for the 1.x line, so review its shape, not only its behavior.** For each name in `trueppm_scheduler.__all__`, check:
   - Dataclasses that take positional arguments freeze their field *order*; prefer `kw_only=True` before 1.0.
