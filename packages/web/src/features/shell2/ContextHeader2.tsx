@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useLocation } from 'react-router';
 import { useProjectId } from '@/hooks/useProjectId';
@@ -101,7 +101,12 @@ const TAB =
   'border-b-2 border-transparent -mb-px hover:text-p1-text-1 focus:outline-none focus:ring-2 focus:ring-p1-focus focus:ring-inset ' +
   'aria-[current=page]:border-p1-brand aria-[current=page]:text-p1-text-1 data-[active=true]:border-p1-brand data-[active=true]:text-p1-text-1';
 
-function MoreMenu({
+/**
+ * The project/program header's "More" menu button: overflow views, views hidden from
+ * the tabs, workspace-off views (focusable, announced disabled) and "Customize views…",
+ * in one arrow-key order.
+ */
+export function MoreMenu({
   model,
   onCustomize,
 }: {
@@ -126,20 +131,35 @@ function MoreMenu({
   });
   const anyActive = model.more.some((t) => t.active);
 
-  const focusItem = (i: number) => window.setTimeout(() => itemsRef.current[i]?.focus(), 0);
+  const liveItems = () => itemsRef.current.filter((el): el is HTMLElement => el !== null);
   // A menu button opens AND seats focus on the first item (APG menu button pattern);
   // Escape closes and returns focus to the button.
+  //
+  // Focus is seated in a layout effect on the commit that mounts the menu, not in a
+  // `setTimeout(0)`: a deferred focus leaves the trigger focused for one task, so a key
+  // typed straight after Enter (End, an arrow) lands on the trigger and is dropped, and
+  // focus then jumps to the first item regardless (#3715's soak failure). A discrete
+  // event's state update commits synchronously, so the layout effect runs before the
+  // browser dispatches the next keydown.
+  const pendingFocus = useRef<number | null>(null);
   const openMenu = () => {
+    pendingFocus.current = 0;
     setOpen(true);
-    focusItem(0);
   };
+  useLayoutEffect(() => {
+    if (!open || pendingFocus.current === null) return;
+    // preventScroll: the panel is still at the offscreen placeholder until the anchor
+    // hook's reposition renders, so focusing it must not scroll the page there.
+    liveItems()[pendingFocus.current]?.focus({ preventScroll: true });
+    pendingFocus.current = null;
+  }, [open]);
   const closeMenu = () => {
     setOpen(false);
     triggerRef.current?.focus();
   };
 
   const onMenuKeyDown = (e: KeyboardEvent) => {
-    const items = itemsRef.current.filter((el): el is HTMLElement => el !== null);
+    const items = liveItems();
     const i = items.findIndex((el) => el === document.activeElement);
     if (e.key === 'Escape' || e.key === 'Tab') {
       e.preventDefault();
@@ -180,11 +200,11 @@ function MoreMenu({
             setOpen(false);
           } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
             e.preventDefault();
-            if (open)
-              focusItem(
-                e.key === 'ArrowDown' ? 0 : itemsRef.current.filter((el) => el !== null).length - 1,
-              );
-            else openMenu();
+            if (open) {
+              // The items are already mounted while open, so focus moves now.
+              const items = liveItems();
+              items[e.key === 'ArrowDown' ? 0 : items.length - 1]?.focus();
+            } else openMenu();
           }
         }}
         className={TAB}
