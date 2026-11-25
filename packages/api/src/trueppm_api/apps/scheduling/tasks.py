@@ -56,39 +56,6 @@ def _release_dropped_recalc(task: object, args: tuple[Any, ...]) -> None:
     release_dropped_schedule_request(str(args[0]), _message_id(task))
 
 
-def _settle_failed_recalc(
-    task: object, project_id: str, claimed_ids: list[uuid.UUID], exc: Exception
-) -> None:
-    """Settle the claimed outbox rows after an unexpected failure.
-
-    A row left DISPATCHED holds back every later recalculation of the project until
-    the orphan sweep. While Celery still has a retry to make, the row stays: the
-    retry serves it (retiring it here would make the retry, which keeps the task id,
-    bail as already served). Retries exhausted on a transient error hands the work
-    back to the drain. Any other failure would recur, so it is dead-lettered for an
-    operator and the rows are retired.
-    """
-    from trueppm_api.apps.scheduling.services import (
-        release_schedule_requests,
-        retire_schedule_requests,
-    )
-
-    try:
-        if isinstance(exc, _RETRIABLE):
-            request = task.request  # type: ignore[attr-defined]
-            max_retries = task.max_retries  # type: ignore[attr-defined]
-            if max_retries is not None and request.retries >= max_retries:
-                release_schedule_requests(claimed_ids)
-            return
-        _dead_letter_current(task, project_id, exc)
-        retire_schedule_requests(claimed_ids)
-    except Exception:
-        # The original failure must still propagate; the orphan sweep is the backstop.
-        logger.exception(
-            "recalculate_schedule: could not settle the outbox for project %s", project_id
-        )
-
-
 @idempotent_task(
     lock_key_template="schedule_lock:{0}",
     lock_ttl=300,
@@ -224,9 +191,18 @@ def recalculate_schedule(
                 )
 
             transaction.on_commit(_broadcast_error)
-    except Exception as exc:
-        _settle_failed_recalc(self, project_id, claimed_ids, exc)
-        raise
+    # Any other failure leaves the claimed rows DISPATCHED, deliberately. Only the
+    # verdicts above are known to be deterministic. Anything else may be transient
+    # even when it is outside _RETRIABLE (an InterfaceError on a closed connection, a
+    # redis TimeoutError, a kombu error during a broadcast), so retiring the rows
+    # would drop an edit that is never recalculated. Releasing them as a fresh
+    # PENDING row instead would let the drain re-run a failure that does recur (a
+    # statement timeout on a large project) every 30 s. A DISPATCHED row is served
+    # by Celery's next retry, which re-claims it, and otherwise by the drain's
+    # orphan sweep, no sooner than RECALC_ORPHAN_AFTER after the last claim. That is
+    # the same bound as a crashed worker. The cost is that an edit made after the
+    # failure waits for that sweep too, because a DISPATCHED row reads as a run in
+    # flight to enqueue_recalculate and to the drain.
 
 
 def _request_already_served(task: object, project_id: str) -> bool:

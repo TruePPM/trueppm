@@ -7,7 +7,6 @@ dispatch.
 
 from __future__ import annotations
 
-import contextlib
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from datetime import date, timedelta
@@ -17,8 +16,9 @@ from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 
 import pytest
+import redis as redis_lib
 from celery.exceptions import Retry, SoftTimeLimitExceeded
-from django.db import OperationalError
+from django.db import InterfaceError, OperationalError
 from django.utils import timezone
 from trueppm_scheduler import SchedulerError, engine
 
@@ -30,6 +30,7 @@ from trueppm_api.apps.scheduling.models import (
     ScheduleRequestStatus,
 )
 from trueppm_api.apps.scheduling.services import (
+    RECALC_ORPHAN_AFTER,
     claim_schedule_request,
     enqueue_recalculate,
     retire_schedule_requests,
@@ -330,18 +331,79 @@ def test_missing_project_retires_the_claimed_row(project: Project) -> None:
     assert _statuses(project) == ["done"]
 
 
-@pytest.mark.parametrize("error", [ValueError("boom"), SoftTimeLimitExceeded()])
-def test_terminal_failure_retires_the_row_and_dead_letters(
-    project: Project, delay: MagicMock, runs: MagicMock, error: Exception
+def test_time_limit_retires_the_row_and_dead_letters(
+    project: Project, delay: MagicMock, runs: MagicMock
 ) -> None:
     _dispatched(project)
-    runs.side_effect = error
+    runs.side_effect = SoftTimeLimitExceeded()
 
-    with contextlib.suppress(ValueError):
-        _execute(project, id="m1")
+    _execute(project, id="m1")
 
     assert FailedTask.objects.filter(task_id="m1").count() == 1
     _assert_drain_dispatches_the_next_edit(project, delay)
+
+
+def _age_claim(project: Project, age: timedelta) -> None:
+    ScheduleRequest.objects.filter(project=project, status="dispatched").update(
+        dispatched_at=timezone.now() - age
+    )
+
+
+def _assert_recovered_only_by_the_orphan_sweep(project: Project, delay: MagicMock) -> None:
+    """The work is neither lost nor handed back sooner than RECALC_ORPHAN_AFTER."""
+    assert _statuses(project)[-1:] == ["dispatched"], "the claimed row must not be retired"
+    delay.reset_mock()
+    sched_tasks._do_drain()
+    _age_claim(project, RECALC_ORPHAN_AFTER - timedelta(seconds=5))
+    sched_tasks._do_drain()
+    delay.assert_not_called()
+
+    _age_claim(project, RECALC_ORPHAN_AFTER + timedelta(seconds=5))
+    sched_tasks._do_drain()
+    delay.assert_called_once_with(str(project.pk))
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        InterfaceError("connection already closed"),
+        redis_lib.TimeoutError("Timeout reading from socket"),
+        ValueError("boom"),
+    ],
+    ids=["db-interface", "redis-timeout", "unknown"],
+)
+def test_unexpected_failure_hands_the_work_to_the_orphan_sweep(
+    project: Project, delay: MagicMock, runs: MagicMock, error: Exception
+) -> None:
+    """An error outside the known verdicts may be transient: it must not retire the row."""
+    _dispatched(project)
+    runs.side_effect = error
+
+    with pytest.raises(type(error)):
+        _execute(project, id="m1")
+
+    assert _statuses(project) != ["done"]
+    _assert_recovered_only_by_the_orphan_sweep(project, delay)
+
+
+def test_edit_during_an_unexpected_failure_is_recalculated(
+    project: Project, delay: MagicMock, runs: MagicMock
+) -> None:
+    def _edit_then_fail(*_: object) -> bool:
+        enqueue_recalculate(str(project.pk))
+        raise InterfaceError("connection already closed")
+
+    _dispatched(project)
+    runs.side_effect = _edit_then_fail
+
+    with pytest.raises(InterfaceError):
+        _execute(project, id="m1")
+
+    assert _statuses(project) == ["dispatched", "pending"]
+    _age_claim(project, RECALC_ORPHAN_AFTER + timedelta(seconds=5))
+    delay.reset_mock()
+    sched_tasks._do_drain()
+    delay.assert_called_once_with(str(project.pk))
 
 
 def test_transient_failure_keeps_the_row_for_the_retry(project: Project, runs: MagicMock) -> None:
@@ -356,17 +418,20 @@ def test_transient_failure_keeps_the_row_for_the_retry(project: Project, runs: M
     assert row.status == ScheduleRequestStatus.DISPATCHED
 
 
-def test_exhausted_retries_hand_the_work_back_to_the_drain(
+def test_exhausted_retries_wait_for_the_orphan_sweep_every_time(
     project: Project, delay: MagicMock, runs: MagicMock
 ) -> None:
+    """A deterministic OperationalError (a statement timeout) must not loop on the drain."""
     _dispatched(project)
-    runs.side_effect = OperationalError("gone")
+    runs.side_effect = OperationalError("canceling statement due to statement timeout")
 
-    with pytest.raises(OperationalError):
-        _execute(project, id="m1", retries=3, called_directly=False)
+    for attempt in range(2):
+        with pytest.raises(OperationalError):
+            _execute(project, id=f"m{attempt}", retries=3, called_directly=False)
+        # The sweep's re-dispatch is the message the next attempt delivers.
+        _assert_recovered_only_by_the_orphan_sweep(project, delay)
 
-    assert _statuses(project) == ["done", "pending"]
-    _assert_drain_dispatches_the_next_edit(project, delay)
+    assert runs.call_count == 2
 
 
 def _drop(project: Project, **request: Any) -> None:
