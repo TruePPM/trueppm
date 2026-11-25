@@ -104,6 +104,9 @@ def project_headline_forecast(project_id: Any) -> tuple[str, str]:
         return cpm, HeadlineForecastReason.NO_SCHEDULED_TASKS.value
     if 2 * linked >= scheduled:
         return cpm, HeadlineForecastReason.DEPENDENCY_NETWORK.value
+    # velocity-unfiltered-ok: only the forecast's presence and basis are read, and
+    # they leave this function as a kind/reason pair, never a velocity figure. The
+    # audience gate is caller_headline_forecast (callers below it never get here).
     forecast = sprint_forecast(project_id)
     if (
         forecast.get("forecast_basis") != "velocity"
