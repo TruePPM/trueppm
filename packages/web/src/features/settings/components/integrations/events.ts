@@ -24,6 +24,8 @@ export interface WebhookEventDef {
   id: string;
   label: string;
   isNew?: boolean;
+  /** Delivery condition shown under the checkbox, when subscribing alone is not enough. */
+  hint?: string;
 }
 
 export interface WebhookEventGroup {
@@ -55,7 +57,12 @@ export const WEBHOOK_EVENT_CATALOG: WebhookEventGroup[] = [
     category: 'Schedule',
     events: [
       { id: 'schedule.recalculated', label: 'Schedule recalculated' },
-      { id: 'schedule.finish_changed', label: 'Headline forecast changed', isNew: true },
+      {
+        id: 'schedule.finish_changed',
+        label: 'Headline forecast changed',
+        isNew: true,
+        hint: 'Sent only when the team shares velocity outward.',
+      },
     ],
   },
   {

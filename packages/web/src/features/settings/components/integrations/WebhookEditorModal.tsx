@@ -108,9 +108,7 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
   // Subscriptions this build cannot render a checkbox for. Rendered in their own
   // section so they are visible and can be removed deliberately — the point is
   // that removal must be a decision, not a side effect of pressing Save.
-  const unknownEvents = (webhook?.events ?? []).filter(
-    (id) => !ALL_WEBHOOK_EVENT_IDS.includes(id),
-  );
+  const unknownEvents = (webhook?.events ?? []).filter((id) => !ALL_WEBHOOK_EVENT_IDS.includes(id));
 
   // Trap focus and route Escape to close (guarded while saving, matching the
   // backdrop-dismiss guard). The hook seats initial focus on the first focusable
@@ -319,31 +317,45 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
                           {group.category}
                         </legend>
                         <div className="border border-neutral-border rounded overflow-hidden">
-                          {group.events.map((ev, i) => (
-                            <label
-                              key={ev.id}
-                              className={[
-                                'flex items-center gap-2 px-3 py-1.5 text-[13px] cursor-pointer hover:bg-neutral-surface-sunken',
-                                i ? 'border-t border-neutral-border/55' : '',
-                              ].join(' ')}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={events.has(ev.id)}
-                                onChange={() => toggleEvent(ev.id)}
-                                className="accent-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
-                              />
-                              <span className="tppm-mono text-[11px] text-neutral-text-secondary">
-                                {ev.id}
-                              </span>
-                              <span className="text-neutral-text-primary">· {ev.label}</span>
-                              {ev.isNew && (
-                                <span className="ml-auto text-[11px] font-semibold text-navy-900 bg-sage-500 rounded px-1.5 py-0.5">
-                                  new
-                                </span>
-                              )}
-                            </label>
-                          ))}
+                          {group.events.map((ev, i) => {
+                            const hintId = ev.hint ? `webhook-event-hint-${ev.id}` : undefined;
+                            return (
+                              <div
+                                key={ev.id}
+                                className={[
+                                  'hover:bg-neutral-surface-sunken',
+                                  i ? 'border-t border-neutral-border/55' : '',
+                                ].join(' ')}
+                              >
+                                <label className="flex items-center gap-2 px-3 py-1.5 text-[13px] cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={events.has(ev.id)}
+                                    onChange={() => toggleEvent(ev.id)}
+                                    aria-describedby={hintId}
+                                    className="accent-brand-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                                  />
+                                  <span className="tppm-mono text-[11px] text-neutral-text-secondary">
+                                    {ev.id}
+                                  </span>
+                                  <span className="text-neutral-text-primary">· {ev.label}</span>
+                                  {ev.isNew && (
+                                    <span className="ml-auto text-[11px] font-semibold text-navy-900 bg-sage-500 rounded px-1.5 py-0.5">
+                                      new
+                                    </span>
+                                  )}
+                                </label>
+                                {ev.hint && (
+                                  <p
+                                    id={hintId}
+                                    className="px-3 pb-1.5 text-[12px] text-neutral-text-secondary"
+                                  >
+                                    {ev.hint}
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       </fieldset>
                     ))}
@@ -478,15 +490,12 @@ function CreatedSecretPanel({ secret, onDone }: { secret: string; onDone: () => 
 
   return (
     <div className="p-5 space-y-4">
-      <h3
-        className="text-[13px] font-semibold text-neutral-text-primary"
-        aria-live="polite"
-      >
+      <h3 className="text-[13px] font-semibold text-neutral-text-primary" aria-live="polite">
         Signing secret created — copy it now
       </h3>
       <div className="border border-semantic-at-risk/80 bg-semantic-at-risk-bg rounded p-3 text-[12px] text-neutral-text-primary">
-        This is the only time the signing secret is shown. Store it in your
-        receiver&apos;s configuration now — it cannot be retrieved later, only rotated.
+        This is the only time the signing secret is shown. Store it in your receiver&apos;s
+        configuration now — it cannot be retrieved later, only rotated.
       </div>
       <div ref={copyRef} className="flex items-center gap-2">
         <input
@@ -504,7 +513,6 @@ function CreatedSecretPanel({ secret, onDone }: { secret: string; onDone: () => 
     </div>
   );
 }
-
 
 /**
  * Surfaces the automatic failure guard (#2884), with the control that clears it.
@@ -533,8 +541,8 @@ function DisabledNotice({
   return (
     <div className="border border-semantic-critical/80 bg-semantic-critical-bg rounded p-3 text-[12px] text-neutral-text-primary">
       <span className="block font-semibold mb-0.5">Deliveries paused automatically</span>
-      {reason || `Deactivated after ${failures} consecutive failed deliveries.`} Fix the
-      receiver, then resume deliveries.
+      {reason || `Deactivated after ${failures} consecutive failed deliveries.`} Fix the receiver,
+      then resume deliveries.
       <button
         type="button"
         onClick={onResume}
@@ -546,7 +554,6 @@ function DisabledNotice({
     </div>
   );
 }
-
 
 /**
  * A representative Slack render of a `task.assigned` event.
@@ -595,7 +602,12 @@ function SlackExample() {
 }
 
 function RecentDeliveries({ scope, webhookId }: { scope: IntegrationScope; webhookId: string }) {
-  const { data: deliveries, isLoading, isError, forbidden } = useWebhookDeliveries(scope, webhookId);
+  const {
+    data: deliveries,
+    isLoading,
+    isError,
+    forbidden,
+  } = useWebhookDeliveries(scope, webhookId);
   return (
     <div>
       <div className="text-[11px] uppercase tracking-wide font-semibold text-neutral-text-secondary mb-2">

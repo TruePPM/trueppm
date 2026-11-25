@@ -301,6 +301,14 @@ describe('WebhookEditorModal — event selection', () => {
     expect(arg.body.events).toEqual(['task.created']);
   });
 
+  it('describes the delivery condition of schedule.finish_changed visibly', () => {
+    render(<WebhookEditorModal scope={SCOPE} onClose={vi.fn()} onSaved={vi.fn()} />);
+    const hint = 'Sent only when the team shares velocity outward.';
+    const box = screen.getByRole('checkbox', { name: /schedule\.finish_changed/ });
+    expect(box).toHaveAccessibleDescription(hint);
+    expect(screen.getByText(hint)).toBeVisible();
+  });
+
   it('offers every backend event, including the sprint / risk / baseline / comment cohorts', () => {
     render(<WebhookEditorModal scope={SCOPE} onClose={vi.fn()} onSaved={vi.fn()} />);
     for (const id of [
