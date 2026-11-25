@@ -424,8 +424,6 @@ NO_BODY_PATHS = [
     "/api/v1/sprints/{id}/cancel/",
     "/api/v1/sprints/{id}/unbind-milestone/",
     "/api/v1/sprints/{id}/retrospective/action-items/{item_pk}/promote/",
-    "/api/v1/scope-changes/{id}/accept/",
-    "/api/v1/scope-changes/{id}/reject/",
     "/api/v1/tasks/{id}/approve-estimates/",
     "/api/v1/projects/{project_pk}/task-runs/{id}/cancel/",
     "/api/v1/projects/{project_pk}/webhooks/{id}/test/",
@@ -592,8 +590,12 @@ def test_documented_roster_body_example_matches_the_declared_type(schema: dict[s
     ("path", "expected_properties"),
     [
         ("/api/v1/sprints/{id}/close/", {"carry_over_to", "pending_disposition"}),
-        ("/api/v1/sprints/{id}/scope-changes/accept/", {"ids"}),
-        ("/api/v1/sprints/{id}/scope-changes/reject/", {"ids"}),
+        ("/api/v1/sprints/{id}/scope-changes/accept/", {"ids", "batch_id", "reason"}),
+        # ADR-1485 D1: a single decision reads an optional reason.
+        ("/api/v1/scope-changes/{id}/accept/", {"reason"}),
+        ("/api/v1/sprints/{id}/scope-changes/reject/", {"ids", "batch_id", "reason"}),
+        # ADR-1485 D1: a single decision reads an optional reason.
+        ("/api/v1/scope-changes/{id}/reject/", {"reason"}),
         ("/api/v1/tasks/{id}/split/", {"name"}),
     ],
 )
