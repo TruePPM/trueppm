@@ -439,29 +439,15 @@ def _confidence_curve(histogram: list[dict[str, object]], total: int) -> list[di
     return curve
 
 
-def _mc_target_ids(db_tasks: list[Task], sched_tasks: list[Any], cap: int) -> list[str]:
-    """The milestones a run reports per-target percentiles for (#4135).
-
-    Every committed milestone that is in the simulated network (a summary is not),
-    capped at the engine's ``MC_TARGET_CAP`` so the per-target payload stays bounded
-    however many milestones a project carries. ``db_tasks`` arrives in ``Task``'s
-    default ordering, which is WBS order, so the cap keeps the plan's
-    earliest-listed milestones rather than an arbitrary set.
-    """
-    simulated = {t.id for t in sched_tasks}
-    return [str(t.id) for t in db_tasks if t.is_milestone and str(t.id) in simulated][:cap]
-
-
 def _distribution_for_persist(payload: dict[str, Any]) -> dict[str, Any]:
     """Shrink the distribution payload to fit MC_DISTRIBUTION_MAX_BYTES for storage (#1231).
 
-    Takes the ``{histogram_buckets, confidence_curve, sensitivity, targets}`` slice of
-    the full result and, if its serialized size exceeds the cap, down-samples the
+    Takes the ``{histogram_buckets, confidence_curve, sensitivity}`` slice of the
+    full result and, if its serialized size exceeds the cap, down-samples the
     histogram (keeps every Nth bucket, always retaining the first and last so the
     spread endpoints survive) until it fits. The confidence curve is recomputed
     from the thinned buckets so the two stay consistent; sensitivity is left intact
-    (it is bounded by the task count, not the bucket count), and so are the
-    per-milestone percentiles (#4135), bounded by ``MC_TARGET_CAP``.
+    (it is bounded by the task count, not the bucket count).
 
     Returns a NEW dict — the caller's full ``result_dict`` (and the cache copy it
     feeds) is never mutated, so the live view still serves the full-resolution
@@ -471,7 +457,6 @@ def _distribution_for_persist(payload: dict[str, Any]) -> dict[str, Any]:
         "histogram_buckets": payload.get("histogram_buckets", []),
         "confidence_curve": payload.get("confidence_curve", []),
         "sensitivity": payload.get("sensitivity", []),
-        "targets": payload.get("targets", []),
     }
     cap = settings.MC_DISTRIBUTION_MAX_BYTES
     if len(json.dumps(dist).encode()) <= cap:
@@ -490,7 +475,6 @@ def _distribution_for_persist(payload: dict[str, Any]) -> dict[str, Any]:
             "histogram_buckets": thinned,
             "confidence_curve": _confidence_curve(thinned, total),
             "sensitivity": dist["sensitivity"],
-            "targets": dist["targets"],
         }
         stride += 1
     return dist
@@ -1074,12 +1058,7 @@ def simulate_and_record_monte_carlo(
     ``result_summary`` is that body plus ``status_code``), so the refusal contract
     is unchanged — only where it is delivered moved.
     """
-    from trueppm_scheduler.engine import (
-        MC_TARGET_CAP,
-        CyclicDependencyError,
-        SimulationCapExceeded,
-        monte_carlo,
-    )
+    from trueppm_scheduler.engine import CyclicDependencyError, SimulationCapExceeded, monte_carlo
     from trueppm_scheduler.models import Project as SchedProject
 
     try:
@@ -1214,9 +1193,6 @@ def simulate_and_record_monte_carlo(
                     seed=_mc_input_seed(sched_project, n_simulations),
                     max_runs=cap,
                     max_tasks=settings.MC_TASK_CAP,
-                    # Per-milestone P50/P80/P95 (#4135). Draws nothing from the RNG,
-                    # so the seeded project percentiles are what they were without it.
-                    targets=_mc_target_ids(db_tasks, graph.tasks, MC_TARGET_CAP),
                     **_mc_lag_delta_kwargs(),
                     **mc_deadline_kwargs(),
                 )
@@ -1507,9 +1483,6 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
                 "n_simulations": latest.n_simulations,
                 "histogram_buckets": dist.get("histogram_buckets", []),
                 "sensitivity": dist.get("sensitivity", []),
-                # Per-milestone percentiles persist with the run (#4135); without
-                # them they would vanish from the response once the cache expires.
-                "targets": dist.get("targets", []),
                 # Persisted with the run since #2483, so the "why is this flat"
                 # explanation now survives cache expiry alongside the distribution.
                 # Legacy rows have none; the client already treats an absent
