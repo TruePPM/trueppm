@@ -23,6 +23,7 @@
  */
 import { useCallback } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import axios from 'axios';
 import { apiClient } from '@/api/client';
 import { toast } from '@/components/Toast/toast';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
@@ -50,6 +51,10 @@ export interface SingleScopeChangeResponse extends ScopeChangeRow {
 export interface BulkScopeChangeResponse {
   accepted?: ScopeChangeRow[];
   rejected?: ScopeChangeRow[];
+  /** ADR-1485 D1: slips the accept refused as stale (closed, dates kept). */
+  stale?: ScopeChangeRow[];
+  /** Rows whose decision could not be applied; they stay pending. */
+  failed?: { id: string; detail: string }[];
   pending_count: number;
 }
 
@@ -126,6 +131,79 @@ export function useScopeChangeActions(
   });
 
   return { acceptOne, rejectOne, acceptBulk, rejectBulk };
+}
+
+/** One commitment-slip decision: a single row, or every pending row of a batch. */
+export interface SlipDecision {
+  accept: boolean;
+  /** The row to decide; omit with `batchId` to decide the whole batch. */
+  id?: string;
+  batchId?: string;
+  /** Optional decider's reason, stored as the row's `decision_reason`. */
+  reason?: string;
+}
+
+const STALE_SLIP_MESSAGE =
+  'This date change is out of date (the task changed since it was proposed), so it was closed without applying.';
+
+/**
+ * Accept/reject a commitment slip (ADR-1485 D1) from the scope-change drawer.
+ *
+ * Accepting replays the stored dates; the server refuses a stale row (409
+ * `commitment_slip_stale` on a single row, the `stale` list on a batch) and
+ * closes it unapplied, which this toasts rather than reporting success. The
+ * render gate is `useCanManageScope`; the server's 403 is the real gate.
+ * On settle it invalidates the drawer's feed, the sprint, and the task lists so
+ * the board and the schedule pick up the applied dates.
+ */
+export function useSlipDecision(
+  projectId: string | null | undefined,
+  sprintId: string | null | undefined,
+) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ accept, id, batchId, reason }: SlipDecision) => {
+      const verb = accept ? 'accept' : 'reject';
+      const body = reason?.trim() ? { reason: reason.trim() } : {};
+      if (id) {
+        await apiClient.post(`/scope-changes/${id}/${verb}/`, body);
+        return { stale: 0, failed: 0, decided: 1 };
+      }
+      const res = await apiClient.post<BulkScopeChangeResponse>(
+        `/sprints/${sprintId}/scope-changes/${verb}/`,
+        { batch_id: batchId, ...body },
+      );
+      const decided = (accept ? res.data.accepted : res.data.rejected)?.length ?? 0;
+      return { stale: res.data.stale?.length ?? 0, failed: res.data.failed?.length ?? 0, decided };
+    },
+    onSuccess: ({ stale, failed, decided }, { accept }) => {
+      if (stale > 0)
+        toast.info(
+          stale === 1
+            ? STALE_SLIP_MESSAGE
+            : `${stale} date changes were out of date and closed without applying.`,
+        );
+      if (failed > 0)
+        toast.error(
+          `${failed} date change${failed === 1 ? '' : 's'} could not be applied and still need${failed === 1 ? 's' : ''} a decision.`,
+        );
+      if (decided > 0) toast.success(accept ? 'Date change accepted.' : 'Date change rejected.');
+    },
+    onError: (err) => {
+      const code =
+        axios.isAxiosError(err) && err.response?.status === 409
+          ? (err.response.data as { code?: string } | undefined)?.code
+          : undefined;
+      if (code === 'commitment_slip_stale') toast.info(STALE_SLIP_MESSAGE);
+      else toast.error("Couldn't decide the date change — try again.");
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ['sprint', sprintId, 'scope-changes'] });
+      void queryClient.invalidateQueries({ queryKey: ['sprints', projectId] });
+      void queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      invalidateMyWork(queryClient);
+    },
+  });
 }
 
 /**

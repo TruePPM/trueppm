@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { screen, fireEvent, waitFor } from '@testing-library/react';
 import { renderWithProviders as render } from '@/test/utils';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ScopeChangeDrawer } from './ScopeChangeDrawer';
@@ -13,6 +13,15 @@ vi.mock('@/hooks/useSprints', () => ({
   useSprintScopeChanges: vi.fn(),
   useSprintDurationChanges: vi.fn(),
 }));
+
+const { canManage, postMock, toastMock } = vi.hoisted(() => ({
+  canManage: { value: false },
+  postMock: vi.fn(),
+  toastMock: { info: vi.fn(), error: vi.fn(), success: vi.fn(), action: vi.fn() },
+}));
+vi.mock('@/hooks/useCanManageScope', () => ({ useCanManageScope: () => canManage.value }));
+vi.mock('@/api/client', () => ({ apiClient: { post: postMock } }));
+vi.mock('@/components/Toast/toast', () => ({ toast: toastMock }));
 const mockScope = vi.mocked(useSprintScopeChanges);
 const mockDuration = vi.mocked(useSprintDurationChanges);
 
@@ -24,6 +33,9 @@ function setDuration(data: SprintDurationChanges | undefined, isLoading = false)
 }
 
 beforeEach(() => {
+  canManage.value = false;
+  postMock.mockReset();
+  postMock.mockResolvedValue({ data: { pending_count: 0 } });
   mockScope.mockReset();
   mockDuration.mockReset();
   // Default: no duration events unless a test opts in.
@@ -60,7 +72,9 @@ describe('ScopeChangeDrawer', () => {
     });
     render(<ScopeChangeDrawer sprintId="sp-1" onClose={() => {}} />);
 
-    expect(screen.getByTestId('slip-row')).toHaveTextContent(/Date slip to 2026-04-24/);
+    // The user's date format, never the raw ISO.
+    expect(screen.getByTestId('slip-row')).toHaveTextContent(/Date slip to /);
+    expect(screen.getByTestId('slip-row')).not.toHaveTextContent('2026-04-24');
     expect(screen.getByText('Not applied')).toBeInTheDocument();
     expect(screen.queryByLabelText(/removed 5 points/)).not.toBeInTheDocument();
     expect(screen.queryByText('Removed')).not.toBeInTheDocument();
@@ -164,5 +178,78 @@ describe('ScopeChangeDrawer', () => {
     // Newest (duration, Apr 12) sorts before the older scope row (Apr 10).
     expect(items[0]).toHaveTextContent('Later duration change');
     expect(items[1]).toHaveTextContent('Scoped item');
+  });
+
+  describe('commitment slip decisions (ADR-1485 D1)', () => {
+    const slip = (id: string, batch: string | null, name = `Task ${id}`) => ({
+      id,
+      item_name: name,
+      story_points: null,
+      added_by_name: 'Sam',
+      added_at: '2026-04-10T09:00:00Z',
+      goal_impact: false,
+      status: 'pending' as const,
+      kind: 'slip' as const,
+      proposed_start: '2026-04-10',
+      proposed_finish: '2026-04-24',
+      batch_id: batch,
+    });
+    const summary = { points_added: 0, points_removed: 0, added_mid_sprint_count: 0, total: 0 };
+
+    it('offers no decision controls without the accept capability', () => {
+      setScope({ summary, events: [slip('s1', null)] });
+      render(<ScopeChangeDrawer sprintId="sp-1" projectId="p-1" onClose={() => {}} />);
+      expect(screen.queryByRole('button', { name: /Accept the date change/ })).toBeNull();
+    });
+
+    it('offers no decision controls without a project to gate on', () => {
+      canManage.value = true;
+      setScope({ summary, events: [slip('s1', null)] });
+      render(<ScopeChangeDrawer sprintId="sp-1" onClose={() => {}} />);
+      expect(screen.queryByRole('button', { name: /Accept the date change/ })).toBeNull();
+    });
+
+    it('accepts one pending slip with the optional reason', async () => {
+      canManage.value = true;
+      setScope({ summary, events: [slip('s1', null, 'Pour slab')] });
+      render(<ScopeChangeDrawer sprintId="sp-1" projectId="p-1" onClose={() => {}} />);
+      fireEvent.change(screen.getByLabelText(/Reason for the decision on Pour slab/), {
+        target: { value: 'Vendor late' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Accept the date change for Pour slab' }));
+      await waitFor(() =>
+        expect(postMock).toHaveBeenCalledWith('/scope-changes/s1/accept/', {
+          reason: 'Vendor late',
+        }),
+      );
+      expect(screen.queryByRole('button', { name: /Accept all/ })).toBeNull();
+    });
+
+    it('rejects a whole batch from the row that leads it', async () => {
+      canManage.value = true;
+      setScope({ summary, events: [slip('s1', 'b-1'), slip('s2', 'b-1')] });
+      postMock.mockResolvedValue({ data: { rejected: [{}, {}], stale: [], pending_count: 0 } });
+      render(<ScopeChangeDrawer sprintId="sp-1" projectId="p-1" onClose={() => {}} />);
+      const batchButtons = screen.getAllByRole('button', { name: 'Reject all 2' });
+      expect(batchButtons).toHaveLength(1);
+      fireEvent.click(batchButtons[0]);
+      await waitFor(() =>
+        expect(postMock).toHaveBeenCalledWith('/sprints/sp-1/scope-changes/reject/', {
+          batch_id: 'b-1',
+        }),
+      );
+    });
+
+    it('says a stale accept was closed without applying', async () => {
+      canManage.value = true;
+      setScope({ summary, events: [slip('s1', 'b-1'), slip('s2', 'b-1')] });
+      postMock.mockResolvedValue({ data: { accepted: [{}], stale: [{}], pending_count: 0 } });
+      render(<ScopeChangeDrawer sprintId="sp-1" projectId="p-1" onClose={() => {}} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Accept all 2' }));
+      await waitFor(() =>
+        expect(toastMock.info).toHaveBeenCalledWith(expect.stringMatching(/out of date/)),
+      );
+      expect(toastMock.success).toHaveBeenCalledWith('Date change accepted.');
+    });
   });
 });

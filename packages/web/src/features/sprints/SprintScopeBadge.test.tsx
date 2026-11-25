@@ -41,4 +41,19 @@ describe('SprintScopeBadge', () => {
     render(<SprintScopeBadge sprintId="sp-1" />);
     expect(screen.getByRole('button', { name: /1 task added mid-sprint/i })).toBeInTheDocument();
   });
+
+  it('opens the drawer when the only pending row is a commitment slip (ADR-1485 D1)', () => {
+    const data: SprintScopeChanges = {
+      summary: { points_added: 0, points_removed: 0, added_mid_sprint_count: 0, total: 0 },
+      events: [
+        { id: 's1', item_name: 'Pour slab', story_points: null, added_by_name: 'Sam', added_at: '2026-04-10T09:00:00Z', goal_impact: false, status: 'pending', kind: 'slip', proposed_start: null, proposed_finish: '2026-04-24', batch_id: null },
+      ],
+    };
+    mockHook.mockReturnValue({ data, isLoading: false } as ReturnType<typeof useSprintScopeChanges>);
+    render(<SprintScopeBadge sprintId="sp-1" projectId="p-1" />);
+    const btn = screen.getByRole('button', { name: /1 date change waiting/i });
+    expect(btn).not.toHaveTextContent(/added mid-/);
+    fireEvent.click(btn);
+    expect(screen.getByTestId('slip-row')).toBeInTheDocument();
+  });
 });

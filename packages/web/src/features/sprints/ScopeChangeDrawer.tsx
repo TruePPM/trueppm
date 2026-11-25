@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 import {
   useSprintScopeChanges,
@@ -8,6 +8,8 @@ import {
 } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
+import { useCanManageScope } from '@/hooks/useCanManageScope';
+import { useSlipDecision } from '@/hooks/useScopeChangeActions';
 import { RepeatIcon, TargetIcon } from '@/components/Icons';
 
 /** A scope-change and a duration-change row, merged into one time-sorted feed. */
@@ -18,7 +20,18 @@ type FeedItem =
 interface Props {
   /** Sprint whose scope-change audit to show. */
   sprintId: string;
+  /** The sprint's project. Needed to offer the slip decision controls; without it
+   *  the drawer stays read-only. */
+  projectId?: string;
   onClose: () => void;
+}
+
+/** What a pending slip row needs to offer its decision controls. */
+interface SlipDecisionProps {
+  projectId: string;
+  sprintId: string;
+  /** Pending rows sharing this row's `batch_id`, when this row leads the batch. */
+  batchSize: number;
 }
 
 /**
@@ -29,10 +42,13 @@ interface Props {
  *
  * Mounted from the persistent scope-change chip on the milestone surfaces (Gantt,
  * Overview, sprint workspace) and the SprintPanel "N added mid-sprint" badge, so
- * the team and the PM see the same audit from either side (Morgan parity). No
- * controls — it never mutates; aggregated points + ids only (no per-assignee).
+ * the team and the PM see the same audit from either side (Morgan parity).
+ * Aggregated points + ids only (no per-assignee). The one control: a PENDING
+ * commitment slip (ADR-1485 D1) has no other decide surface, so its row offers
+ * Accept / Reject (and the whole batch) to an accept-authority holder.
  */
-export function ScopeChangeDrawer({ sprintId, onClose }: Props) {
+export function ScopeChangeDrawer({ sprintId, projectId, onClose }: Props) {
+  const canDecide = useCanManageScope(projectId) && !!projectId;
   const { data, isLoading } = useSprintScopeChanges(sprintId);
   const { data: durationData, isLoading: durationLoading } = useSprintDurationChanges(sprintId);
   const itl = useIterationLabel();
@@ -65,6 +81,28 @@ export function ScopeChangeDrawer({ sprintId, onClose }: Props) {
   }, [data?.events, durationData?.events]);
 
   const loading = isLoading || durationLoading;
+
+  // The first pending slip of each batch carries the batch controls; the count is
+  // how many pending rows that batch holds.
+  const batchLead = useMemo(() => {
+    const sizes = new Map<string, number>();
+    const lead = new Map<string, string>();
+    for (const e of data?.events ?? []) {
+      if (e.kind !== 'slip' || e.status !== 'pending' || !e.batch_id) continue;
+      sizes.set(e.batch_id, (sizes.get(e.batch_id) ?? 0) + 1);
+      if (!lead.has(e.batch_id)) lead.set(e.batch_id, e.id);
+    }
+    return { sizes, lead };
+  }, [data?.events]);
+
+  function slipDecision(event: ScopeChangeEvent): SlipDecisionProps | undefined {
+    if (!canDecide || !projectId || event.kind !== 'slip' || event.status !== 'pending') {
+      return undefined;
+    }
+    const leads = event.batch_id ? batchLead.lead.get(event.batch_id) === event.id : false;
+    const batchSize = leads && event.batch_id ? (batchLead.sizes.get(event.batch_id) ?? 0) : 0;
+    return { projectId, sprintId, batchSize };
+  }
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-neutral-text-primary/40">
@@ -115,7 +153,11 @@ export function ScopeChangeDrawer({ sprintId, onClose }: Props) {
             <ul className="flex flex-col">
               {feed.map((item) =>
                 item.kind === 'scope' ? (
-                  <ScopeChangeRow key={`scope-${item.event.id}`} event={item.event} />
+                  <ScopeChangeRow
+                    key={`scope-${item.event.id}`}
+                    event={item.event}
+                    decision={slipDecision(item.event)}
+                  />
                 ) : (
                   <DurationChangeRow key={`duration-${item.event.id}`} event={item.event} />
                 ),
@@ -145,8 +187,8 @@ const SLIP_STATUS_LABEL: Record<ScopeChangeEvent['status'], string> = {
  * committed to the sprint. It adds and removes no scope, so it carries no ± points
  * accent and is never labeled an addition.
  */
-function SlipRow({ event }: { event: ScopeChangeEvent }) {
-  const { formatInstantDate } = useUserDateFormat();
+function SlipRow({ event, decision }: { event: ScopeChangeEvent; decision?: SlipDecisionProps }) {
+  const { formatInstantDate, fmtDateShort } = useUserDateFormat();
   const when = formatInstantDate(event.added_at, 'short');
   return (
     <li
@@ -165,7 +207,7 @@ function SlipRow({ event }: { event: ScopeChangeEvent }) {
           {event.proposed_finish ? (
             <>
               {' '}
-              to <span className="tppm-mono">{event.proposed_finish}</span>
+              to <span className="tppm-mono">{fmtDateShort(event.proposed_finish)}</span>
             </>
           ) : null}{' '}
           · {event.added_by_name ?? 'Someone'} · <span className="tppm-mono">{when}</span>
@@ -173,6 +215,7 @@ function SlipRow({ event }: { event: ScopeChangeEvent }) {
         {event.decision_reason ? (
           <p className="text-xs text-neutral-text-secondary">{event.decision_reason}</p>
         ) : null}
+        {decision ? <SlipDecisionControls event={event} {...decision} /> : null}
       </div>
       <span className="text-xs px-1.5 py-0.5 rounded shrink-0 bg-neutral-surface-sunken text-neutral-text-secondary">
         {SLIP_STATUS_LABEL[event.status]}
@@ -181,10 +224,102 @@ function SlipRow({ event }: { event: ScopeChangeEvent }) {
   );
 }
 
-function ScopeChangeRow({ event }: { event: ScopeChangeEvent }) {
+const DECIDE_BTN =
+  'h-8 px-3 rounded text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed ' +
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1';
+const ACCEPT_BTN = `${DECIDE_BTN} bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary-dark focus-visible:ring-brand-primary`;
+const REJECT_BTN = `${DECIDE_BTN} border border-semantic-critical/40 text-semantic-critical hover:bg-semantic-critical-bg focus-visible:ring-semantic-critical`;
+
+/**
+ * Accept / Reject for one PENDING slip, and for its whole batch when this row
+ * leads a batch of more than one (ADR-1485 D1). The reason is optional; it is
+ * stored on the row as the decision reason.
+ */
+function SlipDecisionControls({
+  event,
+  projectId,
+  sprintId,
+  batchSize,
+}: { event: ScopeChangeEvent } & SlipDecisionProps) {
+  const [reason, setReason] = useState('');
+  const decide = useSlipDecision(projectId, sprintId);
+  const busy = decide.isPending;
+  const reasonId = `slip-reason-${event.id}`;
+  const showBatch = batchSize > 1 && !!event.batch_id;
+  return (
+    <div className="mt-2 flex flex-col gap-2">
+      <label htmlFor={reasonId} className="sr-only">
+        Reason for the decision on {event.item_name} (optional)
+      </label>
+      <input
+        id={reasonId}
+        type="text"
+        maxLength={500}
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        placeholder="Reason (optional)"
+        className="h-8 w-full rounded border border-neutral-border bg-neutral-surface px-2 text-xs
+          text-neutral-text-primary placeholder:text-neutral-text-disabled
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+      />
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => decide.mutate({ accept: true, id: event.id, reason })}
+          aria-label={`Accept the date change for ${event.item_name}`}
+          className={ACCEPT_BTN}
+        >
+          Accept
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => decide.mutate({ accept: false, id: event.id, reason })}
+          aria-label={`Reject the date change for ${event.item_name}`}
+          className={REJECT_BTN}
+        >
+          Reject
+        </button>
+        {showBatch ? (
+          <>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                decide.mutate({ accept: true, batchId: event.batch_id ?? undefined, reason })
+              }
+              className={ACCEPT_BTN}
+            >
+              Accept all {batchSize}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() =>
+                decide.mutate({ accept: false, batchId: event.batch_id ?? undefined, reason })
+              }
+              className={REJECT_BTN}
+            >
+              Reject all {batchSize}
+            </button>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function ScopeChangeRow({
+  event,
+  decision,
+}: {
+  event: ScopeChangeEvent;
+  decision?: SlipDecisionProps;
+}) {
   const { formatInstantDate } = useUserDateFormat();
   const itl = useIterationLabel();
-  if (event.kind === 'slip') return <SlipRow event={event} />;
+  if (event.kind === 'slip') return <SlipRow event={event} decision={decision} />;
   const removed = event.status === 'rejected';
   const points = event.story_points ?? 0;
   const when = formatInstantDate(event.added_at, 'short');

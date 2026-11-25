@@ -7,6 +7,8 @@ import { ScopeChangeDrawer } from './ScopeChangeDrawer';
 interface Props {
   /** The ACTIVE sprint whose mid-sprint additions to surface. */
   sprintId: string;
+  /** The sprint's project, so the drawer can offer slip decisions (ADR-1485 D1). */
+  projectId?: string;
 }
 
 /**
@@ -16,12 +18,17 @@ interface Props {
  * that opens the scope-change audit drawer (who/when/what/points). Self-contained
  * so the SprintPanel only mounts one element.
  */
-export function SprintScopeBadge({ sprintId }: Props) {
+export function SprintScopeBadge({ sprintId, projectId }: Props) {
   const { data } = useSprintScopeChanges(sprintId);
   const itl = useIterationLabel();
   const [open, setOpen] = useState(false);
   const count = data?.summary.added_mid_sprint_count ?? 0;
-  if (count === 0) return null;
+  // ADR-1485 D1: a pending commitment slip is not counted in `summary` (it adds
+  // no scope), but it is waiting on a decision only the drawer offers, so it
+  // must open the drawer too.
+  const pendingSlips =
+    data?.events.filter((e) => e.kind === 'slip' && e.status === 'pending').length ?? 0;
+  if (count === 0 && pendingSlips === 0) return null;
 
   return (
     <>
@@ -34,9 +41,27 @@ export function SprintScopeBadge({ sprintId }: Props) {
           hover:border-semantic-at-risk focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
       >
         <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
-        <span className="tppm-mono">{count}</span> task{count === 1 ? '' : 's'} added mid-{itl.lower}
+        {count > 0 && (
+          <span>
+            <span className="tppm-mono">{count}</span> task{count === 1 ? '' : 's'} added mid-
+            {itl.lower}
+          </span>
+        )}
+        {count > 0 && pendingSlips > 0 && <span aria-hidden="true">·</span>}
+        {pendingSlips > 0 && (
+          <span>
+            <span className="tppm-mono">{pendingSlips}</span> date change
+            {pendingSlips === 1 ? '' : 's'} waiting
+          </span>
+        )}
       </button>
-      {open && <ScopeChangeDrawer sprintId={sprintId} onClose={() => setOpen(false)} />}
+      {open && (
+        <ScopeChangeDrawer
+          sprintId={sprintId}
+          projectId={projectId}
+          onClose={() => setOpen(false)}
+        />
+      )}
     </>
   );
 }
