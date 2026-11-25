@@ -10,7 +10,7 @@ from collections.abc import Callable
 from datetime import date as _date
 from datetime import datetime as _datetime
 from datetime import timedelta
-from typing import Any, cast
+from typing import Any, TypedDict, cast
 
 from django.conf import settings
 from django.core.cache import cache
@@ -99,6 +99,7 @@ from trueppm_api.apps.scheduling.risk_premium import (
     risk_premium_for_forecast_payload,
 )
 from trueppm_api.apps.scheduling.serializers import (
+    SCHEDULE_DERIVATION_PASS_CHOICES,
     FailedTaskBulkActionResultSerializer,
     FailedTaskDropSerializer,
     FailedTaskRequeueResultSerializer,
@@ -637,7 +638,13 @@ def _mc_input_seed(sched_project: Any, runs: int) -> int:
     return int.from_bytes(digest[:8], "big") >> 1  # 63 bits: fits any signed/unsigned seed API
 
 
-def _mc_lag_delta_kwargs() -> dict[str, int]:
+class _McLagDeltaKwargs(TypedDict, total=False):
+    """Typed so splatting it into ``monte_carlo()`` names which parameter it fills."""
+
+    max_lag_delta_cells: int
+
+
+def _mc_lag_delta_kwargs() -> _McLagDeltaKwargs:
     """Request-path ``monte_carlo()`` kwargs bounding the lag-delta table (#4129).
 
     Empty when ``MC_LAG_DELTA_CELL_CAP`` is ``None`` so the library default applies.
@@ -3005,17 +3012,17 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
             200: OpenApiResponse(
                 response=PolymorphicProxySerializer(
                     component_name="ScheduleDerivationResponse",
-                    serializers=[
-                        ScheduleCpmDerivationSerializer,
-                        ScheduleMonteCarloDerivationSerializer,
-                    ],
-                    # Neither shape carries a field naming which one it is — the
-                    # caller already knows, from the `quantity` query param it sent,
-                    # which shape comes back. A discriminator field would have to be
-                    # fabricated onto the wire payload, which ADR-0218's "nothing is
-                    # fabricated" rule (rule 120) forbids just to satisfy
-                    # client-generator tooling.
-                    resource_type_field_name=None,
+                    # `pass` is already on both payloads and tells them apart
+                    # (#4291): a CPM pass or the literal "monte_carlo". Nothing is
+                    # added to the wire for the sake of client generators.
+                    serializers={
+                        **{
+                            p: ScheduleCpmDerivationSerializer
+                            for p in SCHEDULE_DERIVATION_PASS_CHOICES
+                        },
+                        "monte_carlo": ScheduleMonteCarloDerivationSerializer,
+                    },
+                    resource_type_field_name="pass",
                 ),
                 description=(
                     "The derivation of the requested value. A CPM quantity returns "

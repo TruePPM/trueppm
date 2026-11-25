@@ -2668,6 +2668,11 @@ SPECTACULAR_SETTINGS = {
         # ADR-1478: the views endpoints reuse the lens choices; keep one RoleContextEnum
         # rather than letting the first field to claim it rename the component.
         "RoleContextEnum": "trueppm_api.apps.profiles.models.RoleContext.choices",
+        # #4291: the derivation `kind` vocabulary is a third kind of `kind`; pinned so
+        # a generated client's type name does not move when another one is added.
+        "ScheduleDerivationContributionKindEnum": (
+            "trueppm_api.apps.scheduling.serializers.SCHEDULE_CONTRIBUTION_KIND_CHOICES"
+        ),
         # ADR-1477 (#3150): two `kind` choice sets and a `surface` set would
         # otherwise be named by a hash of their choices.
         "ChangesetEntryKindEnum": "trueppm_api.apps.projects.models.ChangesetEntryKind",

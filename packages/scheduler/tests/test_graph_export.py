@@ -437,3 +437,11 @@ class TestLoaderHardening:
             GraphExport.from_dict(d).nodes[0].early_start
             > GraphExport.from_dict(d).nodes[0].early_finish
         )
+
+
+def test_edge_dep_type_is_the_enum_and_serializes_as_a_plain_str() -> None:
+    graph = _export(_diamond())
+    for g in (graph, GraphExport.from_dict(graph.to_dict())):
+        edge = g.edges[0]
+        assert edge.dep_type is DependencyType.FS
+        assert type(edge.to_dict()["dep_type"]) is str

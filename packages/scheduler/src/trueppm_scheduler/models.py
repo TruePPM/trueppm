@@ -83,11 +83,12 @@ def _date_repr(value: object) -> str:
 # The casing therefore differs *between* the two enums by design; it is uniform
 # *within* each value-kind. Do not "normalise" one to the other — that would
 # break interop with the API and every serialized document already on disk.
-class DependencyType(enum.Enum):
+class DependencyType(enum.StrEnum):
     """Relationship type between two tasks.
 
     Values are uppercase acronyms (``FS``/``FF``/``SS``/``SF``); see the
     enum-casing convention note above — this casing is a frozen public contract.
+    A ``StrEnum``, so a member compares equal to its value.
     """
 
     FS = "FS"  # Finish-to-Start

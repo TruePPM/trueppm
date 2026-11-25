@@ -55,7 +55,7 @@ longer matches the generator.
 | `gate` (every pipeline, derandomized) | 200 |
 | `scheduler:fuzz-deep` (nightly, randomized) | 50,000 |
 
-73 Hypothesis properties across 16 test files; the 8 with the most: `test_cpm_oracle.py` (22), `test_contract_fuzz.py` (11), `test_cpm_invariants.py` (9), `test_milestone_instant.py` (5), `test_duration_expansion_arithmetic.py` (4), `test_elapsed_working_days.py` (4), `test_monte_carlo_finish_reading.py` (3), `test_sub_start_floor.py` (3).
+74 Hypothesis properties across 17 test files; the 8 with the most: `test_cpm_oracle.py` (22), `test_contract_fuzz.py` (11), `test_cpm_invariants.py` (9), `test_milestone_instant.py` (5), `test_duration_expansion_arithmetic.py` (4), `test_elapsed_working_days.py` (4), `test_monte_carlo_finish_reading.py` (3), `test_sub_start_floor.py` (3).
 
 ### Committed corpora
 

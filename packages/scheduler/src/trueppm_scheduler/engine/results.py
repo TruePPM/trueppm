@@ -13,8 +13,11 @@ from typing import (
     Any,
 )
 
+import numpy as np
+
 from trueppm_scheduler._slots import pickle_as_field_dict
 from trueppm_scheduler.models import (
+    DependencyType,
     Task,
     _date_repr,
     _summary_repr,
@@ -49,8 +52,9 @@ class DrivingEdge:
     Monday, and a calendar-day lag landing on a weekend does the same on one
     calendar (#4537). Testing zero free float alone dropped those links (#4704).
 
-    Identified by the (predecessor, successor) pair plus ``dep_type`` (the string
-    value ``"FS"``/``"SS"``/``"FF"``/``"SF"``), matching the stored dependency row.
+    Identified by the (predecessor, successor) pair plus ``dep_type`` (a
+    :class:`~trueppm_scheduler.DependencyType`, which compares equal to its value
+    ``"FS"``/``"SS"``/``"FF"``/``"SF"``), matching the stored dependency row.
     Metadata only: the forward/backward passes and float values are unaffected.
 
     **Public contract (#4894).** The field set is exactly ``predecessor_id``,
@@ -96,7 +100,7 @@ class DrivingEdge:
 
     predecessor_id: str
     successor_id: str
-    dep_type: str
+    dep_type: DependencyType
 
     def to_dict(self) -> dict[str, str]:
         """Return this driving edge as a JSON-serializable dict.
@@ -109,7 +113,7 @@ class DrivingEdge:
         return {
             "predecessor_id": self.predecessor_id,
             "successor_id": self.successor_id,
-            "dep_type": self.dep_type,
+            "dep_type": str(self.dep_type),
         }
 
 
@@ -299,6 +303,37 @@ class Percentile:
     at_day_start: bool = False
 
 
+@pickle_as_field_dict
+@dataclass(slots=True, eq=False)
+class MonteCarloSamples:
+    """The per-run matrices behind one simulation, for a caller's own analysis.
+
+    Returned on :attr:`MonteCarloResult.samples` by
+    ``monte_carlo(return_samples=True)``. Both matrices are ``(runs, n_tasks)``:
+    row ``i`` is one run, and column ``j`` belongs to ``task_ids[j]``. They cost
+    ``runs x n_tasks x 4 bytes x 2``. Instances compare by identity.
+
+    Attributes:
+        task_ids: The column order of both matrices.
+        durations: ``float32`` days each run drew for the task. For a three-point
+            or deterministic task this is its sampled *total* duration (elapsed
+            work not subtracted); for a velocity-sampled scrum task it is the
+            working days the run actually spent claiming its remaining points. A
+            completed task's column is not used by the simulation.
+        early_finish: ``int32`` proleptic Gregorian ordinals
+            (``date.fromordinal(int(x))``) of each run's early finish for the task,
+            on the same rule as :attr:`~trueppm_scheduler.Task.early_finish`.
+    """
+
+    task_ids: tuple[str, ...]
+    durations: np.ndarray
+    early_finish: np.ndarray
+
+    def __repr__(self) -> str:
+        """Summarize the shape only; the matrices are too large to print."""
+        return f"MonteCarloSamples(runs={len(self.durations)}, tasks={len(self.task_ids)})"
+
+
 @dataclass(init=False)
 class MonteCarloResult:
     """Output of a Monte Carlo probabilistic schedule simulation.
@@ -361,6 +396,9 @@ class MonteCarloResult:
             ``sprint_length_days``) and ``"velocity_history_unusable"`` (no usable
             observation, or a mean velocity that is not positive, such as an
             all-zero history).
+        samples: The per-run matrices, when ``monte_carlo(return_samples=True)``
+            asked for them; ``None`` otherwise. Not part of equality, ``repr`` or
+            :meth:`to_dict`.
     """
 
     project_id: str
@@ -370,6 +408,7 @@ class MonteCarloResult:
     percentiles: dict[int, Percentile]
     velocity_saturated_runs: int
     velocity_fallback_reasons: tuple[str, ...]
+    samples: MonteCarloSamples | None = field(default=None, compare=False)
 
     def __init__(
         self,
@@ -387,6 +426,7 @@ class MonteCarloResult:
         percentiles: dict[int, Percentile] | None = None,
         velocity_saturated_runs: int = 0,
         velocity_fallback_reasons: tuple[str, ...] = (),
+        samples: MonteCarloSamples | None = None,
     ) -> None:
         """Build a Monte Carlo result from legacy keywords or ``percentiles=``.
 
@@ -452,6 +492,7 @@ class MonteCarloResult:
         self.percentiles = levels
         self.velocity_saturated_runs = velocity_saturated_runs
         self.velocity_fallback_reasons = tuple(velocity_fallback_reasons)
+        self.samples = samples
 
     def __repr__(self) -> str:
         """Summarize the result: run count, the confidence-level dates, a few ids.

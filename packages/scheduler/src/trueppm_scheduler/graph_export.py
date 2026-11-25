@@ -130,7 +130,8 @@ class GraphEdge:
     Attributes:
         predecessor_id: Id of the constraining task.
         successor_id: Id of the constrained task.
-        dep_type: ``"FS"``, ``"SS"``, ``"FF"`` or ``"SF"``.
+        dep_type: The link's :class:`~trueppm_scheduler.DependencyType`
+            (``"FS"``, ``"SS"``, ``"FF"`` or ``"SF"``).
         lag_days: Lag in calendar days (negative is a lead).
         is_driving: ``True`` when the link is in ``ScheduleResult.driving_edges``:
             it binds its successor or has zero relationship free float.
@@ -138,7 +139,7 @@ class GraphEdge:
 
     predecessor_id: str
     successor_id: str
-    dep_type: str
+    dep_type: DependencyType
     lag_days: float
     is_driving: bool
 
@@ -147,7 +148,7 @@ class GraphEdge:
         return {
             "predecessor_id": self.predecessor_id,
             "successor_id": self.successor_id,
-            "dep_type": self.dep_type,
+            "dep_type": str(self.dep_type),
             "lag_days": self.lag_days,
             "is_driving": self.is_driving,
         }
@@ -377,7 +378,7 @@ def _edge_from_dict(d: dict[str, Any]) -> GraphEdge:
     return GraphEdge(
         predecessor_id=_req_str(d["predecessor_id"], "predecessor_id"),
         successor_id=_req_str(d["successor_id"], "successor_id"),
-        dep_type=dep_type,
+        dep_type=DependencyType(dep_type),
         lag_days=_req_days(d["lag_days"], "lag_days"),
         is_driving=_req_bool(d["is_driving"], "is_driving"),
     )
@@ -516,7 +517,7 @@ def to_graph(result: ScheduleResult, project: Project) -> GraphExport:
         GraphEdge(
             predecessor_id=d.predecessor_id,
             successor_id=d.successor_id,
-            dep_type=d.dep_type.value,
+            dep_type=d.dep_type,
             lag_days=_days(d.lag),
             is_driving=(d.predecessor_id, d.successor_id, d.dep_type.value) in driving,
         )

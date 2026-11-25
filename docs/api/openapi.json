@@ -84794,7 +84794,7 @@
                 "description": "One candidate constraint the CPM engine weighed for a derived value (ADR-0218).\n\nMirrors :meth:`trueppm_scheduler.derive.DerivationContribution.to_dict`. Exactly\none contribution in a given derivation's ``contributions`` list carries\n``is_binding=True`` — the term the engine's ``max``/``min`` actually selected.",
                 "properties": {
                     "kind": {
-                        "type": "string"
+                        "$ref": "#/components/schemas/ScheduleDerivationContributionKindEnum"
                     },
                     "source_task_id": {
                         "type": "string",
@@ -84805,8 +84805,15 @@
                         "nullable": true
                     },
                     "dep_type": {
-                        "type": "string",
-                        "nullable": true
+                        "nullable": true,
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/DepTypeEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
                     },
                     "lag_days": {
                         "type": "integer",
@@ -84841,6 +84848,38 @@
                     "source_task_name"
                 ]
             },
+            "ScheduleDerivationContributionKindEnum": {
+                "enum": [
+                    "project_start",
+                    "data_date",
+                    "planned_start_snet",
+                    "actual_start",
+                    "actual_finish",
+                    "predecessor_fs",
+                    "predecessor_ss",
+                    "predecessor_ff",
+                    "predecessor_sf",
+                    "project_finish",
+                    "successor_fs",
+                    "successor_ss",
+                    "successor_ff",
+                    "successor_sf",
+                    "early_start",
+                    "early_finish",
+                    "late_start",
+                    "successor_free_slack",
+                    "total_float",
+                    "duration_from_early_start",
+                    "early_finish_pullback",
+                    "duration_from_late_finish",
+                    "duration_from_late_start",
+                    "late_window_floor",
+                    "full_duration_backoff"
+                ],
+                "type": "string",
+                "description": "* `project_start` - project_start\n* `data_date` - data_date\n* `planned_start_snet` - planned_start_snet\n* `actual_start` - actual_start\n* `actual_finish` - actual_finish\n* `predecessor_fs` - predecessor_fs\n* `predecessor_ss` - predecessor_ss\n* `predecessor_ff` - predecessor_ff\n* `predecessor_sf` - predecessor_sf\n* `project_finish` - project_finish\n* `successor_fs` - successor_fs\n* `successor_ss` - successor_ss\n* `successor_ff` - successor_ff\n* `successor_sf` - successor_sf\n* `early_start` - early_start\n* `early_finish` - early_finish\n* `late_start` - late_start\n* `successor_free_slack` - successor_free_slack\n* `total_float` - total_float\n* `duration_from_early_start` - duration_from_early_start\n* `early_finish_pullback` - early_finish_pullback\n* `duration_from_late_finish` - duration_from_late_finish\n* `duration_from_late_start` - duration_from_late_start\n* `late_window_floor` - late_window_floor\n* `full_duration_backoff` - full_duration_backoff",
+                "x-trueppm-enum": "open"
+            },
             "ScheduleDerivationResponse": {
                 "oneOf": [
                     {
@@ -84849,7 +84888,16 @@
                     {
                         "$ref": "#/components/schemas/ScheduleMonteCarloDerivation"
                     }
-                ]
+                ],
+                "discriminator": {
+                    "propertyName": "pass",
+                    "mapping": {
+                        "forward": "#/components/schemas/ScheduleCpmDerivation",
+                        "backward": "#/components/schemas/ScheduleCpmDerivation",
+                        "float": "#/components/schemas/ScheduleCpmDerivation",
+                        "monte_carlo": "#/components/schemas/ScheduleMonteCarloDerivation"
+                    }
+                }
             },
             "ScheduleDrivingChain": {
                 "type": "object",

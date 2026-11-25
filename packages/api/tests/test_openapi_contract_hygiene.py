@@ -13,6 +13,12 @@ from typing import Any
 
 import pytest
 from django.urls import resolve
+from trueppm_scheduler.derive import ContributionKind, DerivationPass
+
+from trueppm_api.apps.scheduling.serializers import (
+    SCHEDULE_CONTRIBUTION_KIND_CHOICES,
+    SCHEDULE_DERIVATION_PASS_CHOICES,
+)
 
 _SCHEMA = json.loads(
     (Path(__file__).resolve().parents[3] / "docs" / "api" / "openapi.json").read_text()
@@ -144,3 +150,28 @@ def test_deprecated_aliases_are_marked_deprecated() -> None:
     assert pull.get("deprecated") is True
     task = _SCHEMA["components"]["schemas"]["Task"]["properties"]["sprint_scope_changes"]
     assert task["items"]["properties"]["subtask_name"]["deprecated"] is True
+
+
+def test_derivation_vocabulary_is_published_as_enums() -> None:
+    """`kind`/`dep_type` are enums and the derivation union is discriminated (#4291)."""
+    schemas = _SCHEMA["components"]["schemas"]
+    props = schemas["ScheduleDerivationContribution"]["properties"]
+    assert props["kind"] == {"$ref": "#/components/schemas/ScheduleDerivationContributionKindEnum"}
+    assert set(schemas["ScheduleDerivationContributionKindEnum"]["enum"]) == {
+        k.value for k in ContributionKind
+    }
+    assert {"$ref": "#/components/schemas/DepTypeEnum"} in props["dep_type"]["oneOf"]
+
+    discriminator = schemas["ScheduleDerivationResponse"]["discriminator"]
+    assert discriminator["propertyName"] == "pass"
+    cpm = "#/components/schemas/ScheduleCpmDerivation"
+    assert discriminator["mapping"] == {
+        **{p.value: cpm for p in DerivationPass},
+        "monte_carlo": "#/components/schemas/ScheduleMonteCarloDerivation",
+    }
+
+
+def test_derivation_choice_literals_match_the_engine_enums() -> None:
+    """The API spells the vocabulary out so it imports against scheduler 0.4.0 (#4291)."""
+    assert sorted(SCHEDULE_CONTRIBUTION_KIND_CHOICES) == sorted(k.value for k in ContributionKind)
+    assert sorted(SCHEDULE_DERIVATION_PASS_CHOICES) == sorted(p.value for p in DerivationPass)

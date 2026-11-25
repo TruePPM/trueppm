@@ -601,6 +601,24 @@ On a network of FS and SS links the CPM deterministic finish is the earliest any
 
 :::
 
+### Per-run samples
+
+:::note[Ships in 0.5]
+`return_samples` and `MonteCarloSamples` are not in 0.4.
+:::
+
+From 0.5, `monte_carlo(project, return_samples=True)` will also return the matrices behind the percentiles on `result.samples`, for your own analysis. `task_ids` gives the column order; `durations` is `float32` working days and `early_finish` is `int32` date ordinals (`date.fromordinal(int(x))`), both shaped `(runs, n_tasks)`. For a three-point or deterministic task the duration is the sampled total; for a velocity-sampled scrum task it is the working days that run spent on the remaining points; a completed task's duration column is not used by the simulation.
+
+The matrices cost `runs × tasks × 4 bytes × 2` of memory on top of the run (80 MB for 1,000 tasks × 10,000 runs). Above 50,000,000 cells the call will raise `SimulationCapExceeded`, and `max_runs` / `max_tasks` apply as well. The default (`False`) will be unchanged.
+
+### Explaining a date: the derivation vocabulary
+
+:::note[Ships in 0.5]
+In 0.4 these values are plain strings with no published list.
+:::
+
+From 0.5, `derive_value()` will type its vocabulary: `binding.kind` as `ContributionKind`, `quantity` as `Quantity`, `pass_` as `DerivationPass` and `dep_type` (also on `DrivingEdge`, and on the `GraphEdge` that `to_graph` returns) as `DependencyType`. All are `StrEnum`s, so comparing with a string keeps working and `to_dict()` emits the same strings. A later release may add a `ContributionKind`, so keep a default branch. One change to check for: `str(DependencyType.FS)` will return `"FS"` rather than `"DependencyType.FS"`.
+
 ### CLI
 
 ```bash

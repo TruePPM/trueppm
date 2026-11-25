@@ -106,7 +106,7 @@ test-web: ## Run packages/web tests (vitest)
 # These targets mirror the CI jobs that gate every MR. Run `make pre-push`
 # before `git push` to catch failures locally instead of in CI.
 
-migrations-check: ## Verify no missing Django migrations (local venv, PYTHONPATH=src; never the api container)
+migrations-check: ## Verify no missing Django migrations (local venv, tree sources; never the api container)
 	@# Always the symlinked venv, never `docker compose exec api`: (1) an exec'd process
 	@# does not inherit the JWT_SIGNING_KEY the dev api generates in its start command,
 	@# so settings raise ImproperlyConfigured whenever the stack is up (#4754, #4648);
@@ -121,7 +121,7 @@ migrations-check: ## Verify no missing Django migrations (local venv, PYTHONPATH
 	@# connection to a RuntimeWarning (silenced below) and the diff still runs,
 	@# exactly as in CI's DB-free `.api-no-db` api:migration-check.
 	@cd packages/api && \
-	  PYTHONPATH=src \
+	  PYTHONPATH=src:../scheduler/src \
 	  TRUEPPM_ALLOW_DEV_SETTINGS=1 \
 	  DATABASE_URL="postgres://trueppm:trueppm@127.0.0.1:1/trueppm_nodb" \
 	  .venv/bin/python -W "ignore:Got an error checking a consistent migration history:RuntimeWarning" \

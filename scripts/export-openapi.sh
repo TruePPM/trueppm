@@ -42,7 +42,9 @@ export TRUEPPM_ALLOW_DEV_SETTINGS=1
 # producing self-consistent garbage the api:schema-drift check is happy with (#642).
 # REPO_ROOT is this script's own tree, so this pins generation to the committed
 # source. No-op in the main checkout (same path the editable install resolves).
-export PYTHONPATH="${REPO_ROOT}/packages/api/src${PYTHONPATH:+:${PYTHONPATH}}"
+# The scheduler too: the shared venv may hold an older installed copy that lacks
+# names this tree's API imports.
+export PYTHONPATH="${REPO_ROOT}/packages/api/src:${REPO_ROOT}/packages/scheduler/src${PYTHONPATH:+:${PYTHONPATH}}"
 
 "${PYTHON_BIN}" manage.py spectacular --format openapi-json --file "${TMP}" > /dev/null
 

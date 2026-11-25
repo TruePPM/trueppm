@@ -755,6 +755,7 @@ def _mc_forward_pass(
     zero_base_ids: frozenset[str] = frozenset(),
     velocity: _VelocityCapacity | None = None,
     link_elapsed: dict[str, int] | None = None,
+    verbatim_shown: dict[int, tuple[np.ndarray, int]] | None = None,  # return_samples
 ) -> tuple[np.ndarray, np.ndarray, date | None, dict[str, _InstantRuns]]:
     """Vectorised forward pass — early-start/early-finish working-day offset matrices.
 
@@ -873,6 +874,8 @@ def _mc_forward_pass(
                 # that very (non-working) day. The column carries the working day
                 # before it and the date itself floors the finish (#4175).
                 ef_mat[:, col] = position
+                if verbatim_shown is not None:
+                    verbatim_shown[col] = (start_display, actual[0])  # all True here
                 floor_day = date.fromordinal(actual[0])
                 finish_floor = floor_day if finish_floor is None else max(finish_floor, floor_day)
             continue
@@ -942,6 +945,8 @@ def _mc_forward_pass(
                 actual,
             )
             if actual_day is not None:
+                if verbatim_shown is not None:
+                    verbatim_shown[col] = (instant_runs[tid], actual_day.toordinal())
                 finish_floor = actual_day if finish_floor is None else max(finish_floor, actual_day)
 
         es_mat[:, col] = es
