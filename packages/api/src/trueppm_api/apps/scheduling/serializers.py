@@ -191,6 +191,23 @@ class MonteCarloSensitivitySerializer(serializers.Serializer[dict[str, Any]]):
     index = serializers.FloatField()
 
 
+class MonteCarloTargetSerializer(serializers.Serializer[dict[str, Any]]):
+    """One milestone's own completion percentiles (#4135).
+
+    Read from the same simulated runs as the project percentiles, so at every level
+    a milestone is never later than the project. Each ``*_at_day_start`` flag says
+    which edge of its shown day the percentile is, as for the project finish.
+    """
+
+    task_id = serializers.CharField()
+    p50 = serializers.DateField()
+    p80 = serializers.DateField()
+    p95 = serializers.DateField()
+    p50_at_day_start = serializers.BooleanField()
+    p80_at_day_start = serializers.BooleanField()
+    p95_at_day_start = serializers.BooleanField()
+
+
 class MonteCarloDistributionFieldsSerializer(serializers.Serializer[dict[str, Any]]):
     """The ``{histogram_buckets, confidence_curve, sensitivity}`` shape (#1231).
 
@@ -204,6 +221,14 @@ class MonteCarloDistributionFieldsSerializer(serializers.Serializer[dict[str, An
     histogram_buckets = MonteCarloHistogramBucketSerializer(many=True)
     confidence_curve = MonteCarloConfidencePointSerializer(many=True)
     sensitivity = MonteCarloSensitivitySerializer(many=True)
+    targets = MonteCarloTargetSerializer(
+        many=True,
+        required=False,
+        help_text=(
+            "Per-milestone P50/P80/P95 (#4135), for up to 50 committed milestones in "
+            "WBS order. Absent on a run recorded before it shipped."
+        ),
+    )
 
 
 class MonteCarloForecastDiagnosticSerializer(serializers.Serializer[dict[str, Any]]):

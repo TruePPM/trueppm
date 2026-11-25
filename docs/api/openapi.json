@@ -69755,6 +69755,13 @@
                         "items": {
                             "$ref": "#/components/schemas/MonteCarloSensitivity"
                         }
+                    },
+                    "targets": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MonteCarloTarget"
+                        },
+                        "description": "Per-milestone P50/P80/P95 (#4135), for up to 50 committed milestones in WBS order. Absent on a run recorded before it shipped."
                     }
                 },
                 "required": [
@@ -69831,6 +69838,13 @@
                         "items": {
                             "$ref": "#/components/schemas/MonteCarloSensitivity"
                         }
+                    },
+                    "targets": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MonteCarloTarget"
+                        },
+                        "description": "Per-milestone P50/P80/P95 (#4135), for up to 50 committed milestones in WBS order. Absent on a run recorded before it shipped."
                     },
                     "project_id": {
                         "type": "string"
@@ -70321,6 +70335,45 @@
                         "description": "Number of simulations. Omitted: the largest count this project's size admits. An explicit value is honored exactly or refused with a 4xx cap error."
                     }
                 }
+            },
+            "MonteCarloTarget": {
+                "type": "object",
+                "description": "One milestone's own completion percentiles (#4135).\n\nRead from the same simulated runs as the project percentiles, so at every level\na milestone is never later than the project. Each ``*_at_day_start`` flag says\nwhich edge of its shown day the percentile is, as for the project finish.",
+                "properties": {
+                    "task_id": {
+                        "type": "string"
+                    },
+                    "p50": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "p80": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "p95": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "p50_at_day_start": {
+                        "type": "boolean"
+                    },
+                    "p80_at_day_start": {
+                        "type": "boolean"
+                    },
+                    "p95_at_day_start": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "p50",
+                    "p50_at_day_start",
+                    "p80",
+                    "p80_at_day_start",
+                    "p95",
+                    "p95_at_day_start",
+                    "task_id"
+                ]
             },
             "MonteCarloWhatIfApplied": {
                 "type": "object",

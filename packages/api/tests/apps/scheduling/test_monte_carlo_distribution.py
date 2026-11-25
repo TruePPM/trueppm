@@ -92,7 +92,12 @@ class TestDistributionPersistsOnRun:
         assert run is not None
         assert run.distribution is not None
         # Same shape as the cache payload / latest response.
-        assert set(run.distribution) == {"histogram_buckets", "confidence_curve", "sensitivity"}
+        assert set(run.distribution) == {
+            "histogram_buckets",
+            "confidence_curve",
+            "sensitivity",
+            "targets",
+        }
         assert run.distribution["histogram_buckets"]  # non-empty for a PERT task
 
 

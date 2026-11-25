@@ -198,6 +198,21 @@ The most recent result is also available without re-running the simulation:
 GET /api/v1/projects/<project_id>/monte-carlo/latest/
 ```
 
+### Milestone dates
+
+:::note[Ships in 0.5]
+Per-milestone percentiles ship in 0.5 (#4135). In 0.4 a run reports P50/P80/P95
+for the project finish only.
+:::
+
+A run also answers the milestone question, "what is the P80 on Design Complete?".
+
+| Field | Meaning |
+|---|---|
+| `targets` | One entry per committed milestone, for up to 50 milestones in WBS order: `task_id`, `p50`, `p80`, `p95` and the three `*_at_day_start` flags, read the same way as the project's. They come from the same simulated runs as the project finish, so a milestone's date is never later than the project's at the same level. A completed milestone reports its recorded date at every level. Stored with the run, so the history endpoint's `?expand=distribution` returns them too. |
+
+Requesting them does not change the seeded P50/P80/P95.
+
 ## Which forecast a project headlines
 
 ::::note[Ships in 0.5]

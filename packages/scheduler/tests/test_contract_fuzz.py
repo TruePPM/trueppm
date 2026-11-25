@@ -45,6 +45,7 @@ from contextlib import contextmanager
 from datetime import date, timedelta
 from fractions import Fraction
 from itertools import pairwise
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -52,11 +53,13 @@ from hypothesis import example, given
 from hypothesis import strategies as st
 
 from trueppm_scheduler import (
+    MC_TARGET_CAP,
     Calendar,
     DateRange,
     DeliveryMode,
     Dependency,
     DependencyType,
+    Percentile,
     Project,
     Quantity,
     SchedulerError,
@@ -1393,3 +1396,96 @@ def test_monte_carlo_knobs_conform(
             max_index_cells=max_index_cells,  # type: ignore[arg-type]
         ),
     )
+
+
+def _edge(p: Percentile) -> tuple[date, bool]:
+    """A percentile as an orderable working-time reading: the start of a day precedes its end."""
+    return (p.date, not p.at_day_start)
+
+
+def _check_targets(project: Project, runs: int) -> None:
+    """The opt-in targets output (#4135) against a default run of the same seed."""
+    try:
+        with _time_limit(HANG_SECONDS):
+            base = monte_carlo(project, runs=runs, seed=7, max_runs=None, max_tasks=None)
+            ids = [t.id for t in project.tasks][:MC_TARGET_CAP]
+            mc = monte_carlo(
+                project,
+                runs=runs,
+                seed=7,
+                max_runs=None,
+                max_tasks=None,
+                targets=ids,
+            )
+    except SchedulerError:
+        return
+    except _Timeout as exc:  # pragma: no cover - guarded by the conformance tests
+        raise AssertionError(f"monte_carlo targets: HANG — {exc}") from exc
+    # The option does not consume the RNG or moves the project reading or the tornado.
+    assert mc.percentiles == base.percentiles
+    assert mc.distribution == base.distribution
+    assert [(s.task_id, s.index) for s in mc.sensitivity] == [
+        (s.task_id, s.index) for s in base.sensitivity
+    ]
+    assert mc.targets is not None and list(mc.targets) == ids
+    for tid, forecast in mc.targets.items():
+        for q in (50, 80, 95):
+            assert _edge(forecast.percentiles[q]) <= _edge(mc.percentiles[q]), (
+                f"target {tid} P{q} {forecast.percentiles[q]} is later than the "
+                f"project's {mc.percentiles[q]}"
+            )
+        assert len(forecast.distribution) == runs
+
+
+@given(project=_plausible_projects() | _plausible_projects(per_task_calendars=True))
+def test_targets_never_later_than_project_and_change_nothing_else(project: Project) -> None:
+    """Every target is at or before the project at each level; the default reading is unchanged.
+
+    The project finish is the per-run maximum over every column, so the order
+    statistic of any one column cannot exceed it (#4135). Asking for targets must
+    not touch the RNG stream: P50/P80/P95, the
+    distribution and the tornado ranking are compared exactly with a default run.
+    """
+    _check_targets(project, runs=24)
+
+
+@given(project=_per_task_calendar_projects())
+def test_zero_variance_target_equals_its_cpm_early_finish(project: Project) -> None:
+    """With no estimates every target's P50 == P80 == P95 == its own ``early_finish`` (#4135).
+
+    Drawn over per-task calendars, so a target off the project calendar is read
+    through its own working week, re-expressed on the shared ruler.
+    """
+    try:
+        with _time_limit(HANG_SECONDS):
+            cpm = schedule(project)
+            ids = [t.id for t in project.tasks][:MC_TARGET_CAP]
+            mc = monte_carlo(project, runs=8, seed=3, max_runs=None, max_tasks=None, targets=ids)
+    except SchedulerError:
+        return
+    except _Timeout as exc:  # pragma: no cover - guarded by the conformance tests
+        raise AssertionError(f"monte_carlo targets: HANG — {exc}") from exc
+    assert mc.targets is not None
+    by_id = {t.id: t for t in cpm.tasks}
+    for tid, forecast in mc.targets.items():
+        expected = by_id[tid].early_finish
+        assert forecast.p50 == forecast.p80 == forecast.p95 == expected, (
+            f"target {tid}: {forecast.p50}/{forecast.p80}/{forecast.p95} != CPM {expected}"
+        )
+
+
+@pytest.mark.parametrize(
+    "fixture",
+    sorted(
+        p
+        for p in (
+            Path(__file__).resolve().parent.parent.parent / "wasm-scheduler" / "fixtures"
+        ).glob("*.json")
+        if p.name != "PROVENANCE.json"
+    ),
+    ids=lambda p: p.stem,
+)
+def test_targets_invariant_over_the_conformance_corpus(fixture: Path) -> None:
+    """The #4135 target invariant and the no-RNG property on every shared fixture."""
+    project = Project.from_dict(json.loads(fixture.read_text()))
+    _check_targets(project, runs=64)

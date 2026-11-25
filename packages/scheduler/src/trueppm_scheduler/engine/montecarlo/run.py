@@ -84,6 +84,10 @@ from trueppm_scheduler.engine.montecarlo.sampling import (
     _velocity_points,
     _WorkingDayIndex,
 )
+from trueppm_scheduler.engine.montecarlo.targets import (
+    _TargetCollector,
+    _validate_targets,
+)
 from trueppm_scheduler.engine.results import (
     MonteCarloResult,
     MonteCarloSamples,
@@ -478,6 +482,7 @@ def _mc_chunked_finishes(
     instants: tuple[list[int], dict[int, float]],
     reference: tuple[np.ndarray | None, list[tuple[int, np.ndarray]], dict[int, np.ndarray]],
     deadline: float | None = None,
+    on_chunk: Callable[[int, int, np.ndarray, np.ndarray], None] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, date | None]:
     """Each run's shown finish offset and working-time finish, one row chunk at a time (#3824).
 
@@ -489,6 +494,10 @@ def _mc_chunked_finishes(
     the union ruler, each calendar's column group and the calendars' ordinals, with a
     ``None`` ruler for a single-calendar project. ``deadline`` is checked before
     each chunk (#4496), so an overrun stops at the next chunk boundary.
+
+    ``on_chunk(lo, hi, ef_ref, wt_ref)`` (#4135), when given, sees each chunk's
+    shown-day and working-time matrices on the reference ruler before the chunk is
+    dropped.
 
     Returns ``(shown_offsets, completion_offsets, milestone_finish_floor)``.
     """
@@ -532,6 +541,8 @@ def _mc_chunked_finishes(
                 )
         shown_offsets[lo:hi] = ef_mat.max(axis=1)
         completion_offsets[lo:hi] = wt_mat.max(axis=1)
+        if on_chunk is not None:
+            on_chunk(lo, hi, ef_mat, wt_mat)
         del es_mat, ef_mat, wt_mat
     return shown_offsets, completion_offsets, milestone_finish_floor
 
@@ -671,6 +682,7 @@ def monte_carlo(
     max_index_cells: int = MAX_INDEX_CELLS,
     deadline: float | None = None,
     return_samples: bool = False,
+    targets: Sequence[str] | None = None,
 ) -> MonteCarloResult:
     """Run Monte Carlo probabilistic scheduling on a project.
 
@@ -892,6 +904,18 @@ def monte_carlo(
                    above 50,000,000 (400 MB) raises :class:`SimulationCapExceeded`;
                    ``max_runs`` / ``max_tasks`` apply as well. It does not change
                    any other value in the result.
+        targets:   Task ids to report a completion distribution for, on
+                   :attr:`MonteCarloResult.targets` (#4135), or ``None`` (the
+                   default) for none. At most ``MC_TARGET_CAP`` distinct ids;
+                   duplicates are read once. Each target costs two ``runs``-long
+                   float64 columns while the run lasts, plus its sorted
+                   distribution. A target's percentiles are read from the same
+                   per-run matrices the project finish is the maximum of, on the
+                   same ruler, so at every level a target is never later than the
+                   project. A completed target reports its recorded finish at every
+                   level. Limit: a live milestone shown on a non-working
+                   ``actual_start`` floors the *project* finish at that date, but
+                   its own target reading is the working day before it.
 
     Returns:
         MonteCarloResult with P50, P80, P95 completion dates — each an order
@@ -929,6 +953,7 @@ def monte_carlo(
     )
     deadline = _validate_deadline(deadline)
     _validate_project(project)
+    target_ids = _validate_targets(project, targets)
 
     g = _build_graph(project)
     # Detect cycles via the topological sort itself (#1526), the same happy-path
@@ -1283,6 +1308,7 @@ def monte_carlo(
         if return_samples
         else None
     )
+    target_collector = None if target_ids is None else _TargetCollector(target_ids, task_idx, runs)
 
     shown_offsets, completion_offsets, milestone_finish_floor = _mc_chunked_finishes(
         _replayed_chunks(
@@ -1315,6 +1341,7 @@ def monte_carlo(
         (milestone_cols, closed_positions),
         (ref_ord, cal_col_groups, wd_ord_by_cal),
         deadline,
+        None if target_collector is None else target_collector.add,
     )
     # The floor wins over the index only when it is later; it is a start-of-day
     # reading exactly when every source reaching it is a milestone shown at the start
@@ -1367,6 +1394,18 @@ def monte_carlo(
         topo_order,
         sensitivity_cap,
     )
+    target_forecasts = (
+        None
+        if target_collector is None
+        else target_collector.result(
+            lambda position, shown: _mc_percentiles(position, shown, wd_index, None, False),
+            lambda offset: _offset_to_date(offset, wd_index, None),
+            {
+                tid: (ef_date, tid in completed_start_ids)
+                for tid, (_es_date, ef_date) in completed_dates.items()
+            },
+        )
+    )
 
     return MonteCarloResult(
         project_id=project.id,
@@ -1382,4 +1421,5 @@ def monte_carlo(
         velocity_saturated_runs=int(np.count_nonzero(velocity_saturated)),
         velocity_fallback_reasons=_velocity_fallback_reasons(project),
         samples=None if collector is None else collector.result(),
+        targets=target_forecasts,
     )
