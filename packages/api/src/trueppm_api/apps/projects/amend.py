@@ -624,7 +624,13 @@ def record_from_request(request: Any, project: Project, kind: str, task_ids: lis
         task_ids,
         surface=ctx["surface"],
         actor=getattr(request, "user", None),
-        reason=ctx["reason"] if _may_answer_reason(request, project) else None,
+        # The role lookup runs only when a reason was sent, so a plain structural
+        # write pays no extra membership read.
+        reason=(
+            ctx["reason"]
+            if ctx["reason"] is not None and _may_answer_reason(request, project)
+            else None
+        ),
         new_group=ctx["new_group"],
     )
 
