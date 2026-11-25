@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Exists, OuterRef
 
 #: Batch size for the ``hidden_views`` → ``ProjectViewState`` backfill.
 BATCH_SIZE = 500
@@ -27,8 +27,9 @@ def backfill_project_view_states(apps: Any, schema_editor: Any) -> None:
 
     An empty list does not mean "never customized" for a project the user had already
     opened: they know its tabs, and seeding it would hide views they were using (ADR-1478
-    §6 step 1, clarified 2026-11-24). So every ``ProjectVisit`` on a live membership of a
-    user with an empty list (or no profile) gets a row too, with no entries and
+    §6 step 1, clarified 2026-11-24). So every ``ProjectVisit`` on a live membership that
+    pass 1 left without a row (an empty list, no profile, or a list holding no current
+    view key) gets a row too, with no entries and
     ``seeded_lens`` set to the lens at migration time: resolved, never seeded. The
     migration itself is the "before the upgrade" cutoff. ``visited_at`` cannot be,
     because it is the *last* visit and every open after the upgrade overwrites it.
@@ -86,7 +87,6 @@ def backfill_project_view_states(apps: Any, schema_editor: Any) -> None:
     ProjectVisit = apps.get_model("profiles", "ProjectVisit")
     visits = (
         ProjectVisit.objects.filter(
-            Q(user__profile__isnull=True) | Q(user__profile__hidden_views=[]),
             Exists(
                 ProjectMembership.objects.filter(
                     user_id=OuterRef("user_id"),

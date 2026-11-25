@@ -150,7 +150,7 @@ def test_seed_is_narrowed_by_methodology(cal: Calendar) -> None:
 def test_seed_failure_fails_open_and_writes_nothing(cal: Calendar) -> None:
     p = _project(cal)
     user = _member(p, "scrum_master")
-    with mock.patch.object(ProjectViewState.objects, "get_or_create", side_effect=DatabaseError):
+    with mock.patch.object(ProjectViewState.objects, "create", side_effect=DatabaseError):
         data = _client(user).get(_url(p)).json()
     assert all(v["visible"] for v in data["views"])
     assert {v["source"] for v in data["views"]} == {"always", "default"}
@@ -374,6 +374,23 @@ def test_a_list_stored_with_no_membership_survives_the_first_v2_open(cal: Calend
     assert c.get("/api/v1/auth/me/profile/").data["hidden_views"] == ["risk"]
 
 
+def test_a_stale_stored_list_does_not_flip_the_deprecated_read_on_a_later_project(
+    cal: Calendar,
+) -> None:
+    """One v2 choice is not overridden by an older v1 list when another project opens."""
+    a, b = _project(cal, name="A"), _project(cal, name="B")
+    user = _member(a, "pm", name="stale")
+    c = _client(user)
+    c.patch("/api/v1/auth/me/profile/", {"hidden_views": ["risk"]}, format="json")
+    c.get(_url(a))
+    assert c.patch(_url(a), {"key": "risk", "hidden": False}, format="json").status_code == 200
+    before = c.get("/api/v1/auth/me/").data["hidden_views"]
+    ProjectMembership.objects.create(project=b, user=user, role=Role.MEMBER)
+    views_b = _views(c.get(_url(b)).json())
+    assert c.get("/api/v1/auth/me/").data["hidden_views"] == before
+    assert views_b["risk"]["source"] != "user"
+
+
 def _visit(user: Any, project: Project, when: str) -> None:
     from datetime import datetime
 
@@ -429,6 +446,14 @@ def test_backfill_leaves_non_member_visits_and_non_empty_lists_alone(cal: Calend
     assert not ProjectViewState.objects.filter(user=gone).exists()
     state = ProjectViewState.objects.get(user=listed, project=p)
     assert [e["view"] for e in state.hides] == ["risk"]  # the list pass, unchanged
+    stale = _member(p, "scrum_master", name="stalekey")
+    UserProfile.objects.update_or_create(
+        user=stale, defaults={"hidden_views": ["retired-key"], "role_context": "scrum_master"}
+    )
+    _visit(stale, p, "2026-10-01T09:00:00+00:00")
+    backfill_project_view_states(django_apps, None)
+    row = ProjectViewState.objects.get(user=stale, project=p)
+    assert (row.seeded_lens, row.hides) == ("scrum_master", [])
 
 
 def test_last_layouts_stay_bounded_across_requests(cal: Calendar) -> None:

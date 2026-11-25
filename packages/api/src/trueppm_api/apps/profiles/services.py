@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from typing import Any, TypeVar
 
 from django.conf import settings
-from django.db import DatabaseError, transaction
+from django.db import DatabaseError, IntegrityError, transaction
 from django.db.models import Max, QuerySet
 from django.utils import timezone
 
@@ -952,9 +952,7 @@ def resolve_project_views(user: Any, project: Any, *, persist: bool = True) -> R
         return _build(existing, lens, project)
     try:
         with transaction.atomic():
-            state, _ = ProjectViewState.objects.get_or_create(
-                user=user, project=project, defaults=_seed_defaults(user, project, lens)
-            )
+            state = _get_or_create_state(user, project, lens)
             if not state.seeded_lens:
                 state = _locked_state(user, project, lens)
     except DatabaseError:
@@ -968,23 +966,51 @@ def resolve_project_views(user: Any, project: Any, *, persist: bool = True) -> R
     return _build(state, lens, project)
 
 
+def _get_or_create_state(user: Any, project: Any, lens: str) -> ProjectViewState:
+    """The caller's row, building seed defaults only when it is missing.
+
+    ``get_or_create(defaults=...)`` evaluates its defaults on every call, which would
+    add a ``UserProfile`` read to every warm resolve. The unique constraint keeps the
+    create race-safe; the loser of a race reads the winner's row.
+    """
+
+    state = ProjectViewState.objects.filter(user=user, project=project).first()
+    if state is not None:
+        return state
+    try:
+        with transaction.atomic():
+            return ProjectViewState.objects.create(
+                user=user, project=project, **_seed_defaults(user, project, lens)
+            )
+    except IntegrityError:
+        return ProjectViewState.objects.get(user=user, project=project)
+
+
 def _seed_defaults(user: Any, project: Any, lens: str) -> dict[str, Any]:
     """A new row: the stored legacy ``hidden_views`` as ``user`` entries, then the seed.
 
-    The stored list is carried in because a legacy fan-out only reaches projects the
-    user belonged to when it ran. A list written with no live membership (Settings › Me
-    before the first project, or after every membership ended) would otherwise be
-    dropped on the first open of a later project, and the deprecated read, which
-    reports only ``user`` entries once any row exists, would go back to ``[]``. This is
-    the row the fan-out would have created, completed as ``_complete_pending_seed``
-    completes one.
+    The stored list is carried in only when the user has no row on a live membership,
+    the case a legacy fan-out could not reach: a list written with no live membership
+    (Settings › Me before the first project, or after every membership ended) would
+    otherwise be dropped on the first open, and the deprecated read, which reports only
+    ``user`` entries once any row exists, would go back to ``[]``. Once the user has a
+    row, their per-project v2 choices outrank the older list, so a later project is
+    seeded without it. The carried row is what the fan-out would have created,
+    completed as ``_complete_pending_seed`` completes one.
     """
 
     now = timezone.now()
     at = now.isoformat()
+    has_live_row = ProjectViewState.objects.filter(
+        user=user,
+        project__is_deleted=False,
+        project__memberships__user=user,
+        project__memberships__is_deleted=False,
+    ).exists()
+    stored = [] if has_live_row else get_hidden_views(user)
     user_entries = [
         _entry(k, source="user", hidden=True, lens=None, at=at)
-        for k in sorted({k for k in get_hidden_views(user) if k in HIDEABLE_VIEW_KEYS})
+        for k in sorted({k for k in stored if k in HIDEABLE_VIEW_KEYS})
     ]
     user_keys = {e["view"] for e in user_entries}
     seed = [
@@ -1026,9 +1052,7 @@ def _locked_state(user: Any, project: Any, lens: str | None = None) -> ProjectVi
     """The caller's own row, seeded if new or still pending, locked for a replace."""
 
     lens = lens or _role_context(user)
-    ProjectViewState.objects.get_or_create(
-        user=user, project=project, defaults=_seed_defaults(user, project, lens)
-    )
+    _get_or_create_state(user, project, lens)
     state = ProjectViewState.objects.select_for_update().get(user=user, project=project)
     if _complete_pending_seed(state, user, project, lens):
         state.save(update_fields=["hides", "seeded_lens", "seeded_at", "updated_at"])
