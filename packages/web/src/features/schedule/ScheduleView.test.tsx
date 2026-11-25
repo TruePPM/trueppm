@@ -388,6 +388,19 @@ vi.mock('@/hooks/useTaskGrouping', async (importOriginal) => {
 // orchestration (#2727, ADR-0776 §2: subtree walk, id remapping, top-level-
 // selected-node filtering) rather than just asserting a row delegates to it.
 let capturedBuildMode: import('./buildMode').BuildModeApi | null = null;
+// Counts row-list derivations so a test can prove a selection change does not
+// rebuild the tree in v1 (the cap-exemption ids are v2-only memo inputs).
+const flattenVisibleSpy = vi.hoisted(() => vi.fn());
+vi.mock('@/features/grid/buildWbsTree', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/features/grid/buildWbsTree')>();
+  return {
+    ...actual,
+    flattenVisible: (...args: Parameters<typeof actual.flattenVisible>) => {
+      flattenVisibleSpy();
+      return actual.flattenVisible(...args);
+    },
+  };
+});
 vi.mock('./buildMode', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./buildMode')>();
   return {
@@ -1281,6 +1294,18 @@ describe('ScheduleView — three insert affordances (#2957)', () => {
       expect.objectContaining({ parent_id: null }),
       expect.anything(),
     );
+  });
+
+  it('does not re-derive the row list when the selection changes outside shell v2', () => {
+    renderSchedule();
+    const before = flattenVisibleSpy.mock.calls.length;
+    act(() => {
+      useScheduleStore.setState({ selectedTaskId: 't3' });
+    });
+    act(() => {
+      useScheduleStore.setState({ scrollToTaskId: 't2' });
+    });
+    expect(flattenVisibleSpy.mock.calls.length).toBe(before);
   });
 
   it('gives a viewer no footer at all — absent, not disabled', () => {

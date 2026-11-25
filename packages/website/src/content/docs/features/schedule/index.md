@@ -200,7 +200,7 @@ The redesigned page is a first pass, and so far it covers the toolbar, the legen
 - Filters other than **Milestones only**. The **Filter** menu holds that one filter for now.
 - Grouping recurring tasks under one row. Each occurrence is stored per task already; the plan is to group them for display in the browser from what the server sends, but nothing is built.
 - A phone layout for the toolbar. Below 768 pixels wide the redesigned toolbar is not shown at all; the phone's schedule list has no toolbar controls, as in the current release.
-- The page's states are partly redrawn: the loading skeleton lays down the rows and the today line first, and the blank project offers **Import plan** and **Add phase** next to **Add item**. Naming the dependency loop in a failed load needs the server to report it, and does not yet.
+- The page's states are partly redrawn: the loading skeleton lays down the rows and the today line first, and an empty task list will offer **Import plan** and **Add phase** next to **Add item**, while the blank-project canvas will offer **Add phase** beside **Import a file**. Naming the dependency loop in a failed load needs the server to report it, and does not yet.
 - A pill on a row for a blocked task. The footer counts blocked tasks, but no row pill for them is drawn yet.
 - The **Commit** marker and the **P80** tick on the chart, with their definitions.
 - An as-of date beside the commitment and the P50 / P80 forecast dates, which depends on the server reporting when each was computed ([#4760](https://gitlab.com/trueppm/trueppm/-/issues/4760)).

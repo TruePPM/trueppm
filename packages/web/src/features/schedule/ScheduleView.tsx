@@ -1119,9 +1119,15 @@ export function ScheduleView() {
   const shellV2 = useFeatureFlag(SCHEDULE_SHELL_V2_FLAG);
   const showAllChildren = useScheduleV2OpeningStore((s) => s.showAll);
   const setHiddenByCap = useScheduleV2OpeningStore((s) => s.setHidden);
-  const selectedTaskIdForCap = useScheduleStore((s) => s.selectedTaskId);
-  const scrollTargetIdForCap = useScheduleStore((s) => s.scrollToTaskId);
   const [noStartOnly, setNoStartOnly] = useState(false);
+  // Constant (null) in v1 and in filter mode, so a row click or jump there never
+  // invalidates the row-derivation memo below; only the capped v2 list depends on them.
+  const selectedTaskIdForCap = useScheduleStore((s) =>
+    shellV2 && !noStartOnly ? s.selectedTaskId : null,
+  );
+  const scrollTargetIdForCap = useScheduleStore((s) =>
+    shellV2 && !noStartOnly ? s.scrollToTaskId : null,
+  );
 
   // Sprint lookup for the Duplicate Undo affordance (#477).
   const { sprints } = useSprints(projectId);
