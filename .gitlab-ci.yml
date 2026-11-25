@@ -3318,12 +3318,17 @@ scheduler:test:compat:
       - .cache/pip/
   variables:
     PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+    # tests/test_result_stability.py needs the merge base with origin/main and
+    # fails NO_MERGE_BASE_CI_FIX on a shallow clone (#5116); mirrors scheduler:test.
+    GIT_DEPTH: "0"
   before_script:
     # git: the ci-scheduler image bakes it in; the stock slim image does not,
     # and tests/test_public_surface.py shells out to it.
     - apt-get update -qq && apt-get install -y -qq --no-install-recommends git
     - bash scripts/ci/pip-floor.sh
     - pip install -e "packages/scheduler[dev]" --quiet
+    - git config --global --add safe.directory "$CI_PROJECT_DIR"
+    - 'git fetch origin "+refs/heads/main:refs/remotes/origin/main" || echo "warning: could not fetch origin/main; the stability fragment check may fail on a missing merge base"'
   script:
     - python --version
     - cd packages/scheduler
