@@ -7223,6 +7223,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             request=self.context.get("request"),
             reason=reason,
             calendar_factory=lambda: self._composed_calendar_for(validated_data),
+            defer_without_reason=bool(self.context.get("commitment_slip_defer_without_reason")),
         )
 
     def _apply_project_start_shift(self, instance: Task, validated_data: dict[str, Any]) -> None:
@@ -11378,6 +11379,13 @@ class ScopeChangeBulkSerializer(serializers.Serializer[dict[str, Any]]):
     reason = serializers.CharField(required=False, allow_blank=True, max_length=500, default="")
 
 
+class ScopeChangeBulkFailureSerializer(serializers.Serializer[dict[str, Any]]):
+    """One row a bulk scope-change decision could not apply; it stays PENDING."""
+
+    id = serializers.UUIDField(read_only=True)
+    detail = serializers.CharField(read_only=True)
+
+
 class SprintScopeChangeBulkResultSerializer(serializers.Serializer[dict[str, Any]]):
     """``{"<accepted|rejected>": [...], "pending_count": N}`` for the bulk scope-change
     actions (ADR-0102 §5, #3652).
@@ -11393,6 +11401,9 @@ class SprintScopeChangeBulkResultSerializer(serializers.Serializer[dict[str, Any
     rejected = SprintScopeChangeSerializer(many=True, read_only=True, required=False)
     # ADR-1485 D1: slips the accept refused as stale (closed REJECTED, dates kept).
     stale = SprintScopeChangeSerializer(many=True, read_only=True, required=False)
+    # Rows whose decision raised (e.g. an accepted slip's replay failed validation);
+    # they were left PENDING.
+    failed = ScopeChangeBulkFailureSerializer(many=True, read_only=True, required=False)
     pending_count = serializers.IntegerField(read_only=True)
 
 

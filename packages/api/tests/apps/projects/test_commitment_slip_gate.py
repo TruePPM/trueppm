@@ -789,3 +789,135 @@ def test_token_slip_on_bulk_and_sync_is_audited_requires_approval(
     task.refresh_from_db()
     assert task.duration == 3
     assert AgentAction.objects.filter(verdict=AgentActionVerdict.REQUIRES_APPROVAL).exists()
+
+
+# --------------------------------------------------------------------------- #
+# Authority holders on bulk and sync, PUT, containers, a failing batch replay
+# --------------------------------------------------------------------------- #
+
+
+def test_admin_sync_push_defers_a_reasonless_slip_per_row(
+    project: Project, sprint: Sprint, admin: Any
+) -> None:
+    """An offline push cannot answer a reason prompt: the slipping row comes back
+    as a per-row conflict and a PENDING row; the ordinary row still applies."""
+    slipping = _committed(project, sprint, "Slips")
+    ordinary = _committed(project, sprint, "Fits")
+    payload = {
+        "client_batch_id": "6f1c9a52-6c55-4f0e-9d0b-2f5f9a1d3c09",
+        "changes": {
+            "tasks": {
+                "created": [],
+                "updated": [
+                    {"id": str(slipping.pk), "duration": 20},
+                    {"id": str(ordinary.pk), "duration": 4},
+                ],
+                "deleted": [],
+            }
+        },
+    }
+    res = _client(admin).post(f"/api/v1/projects/{project.pk}/sync/", payload, format="json")
+    assert res.status_code == 200, res.data
+    conflicts = res.data["conflicts"]["tasks"]
+    assert [c["id"] for c in conflicts] == [str(slipping.pk)]
+    assert conflicts[0]["code"] == COMMITMENT_SLIP_CODE
+    slipping.refresh_from_db()
+    ordinary.refresh_from_db()
+    assert (slipping.duration, ordinary.duration) == (3, 4)
+    row = SprintScopeChange.objects.get(task=slipping, kind=ScopeChangeKind.SLIP)
+    assert row.status == ScopeChangeStatus.PENDING
+
+
+def test_admin_bulk_slip_without_reason_is_a_per_row_reject(
+    project: Project, sprint: Sprint, admin: Any
+) -> None:
+    slipping = _committed(project, sprint, "Slips")
+    ordinary = _committed(project, sprint, "Fits")
+    ops = [
+        {"op": "update", "id": str(slipping.pk), "data": {"duration": 20}},
+        {"op": "update", "id": str(ordinary.pk), "data": {"duration": 4}},
+    ]
+    res = _client(admin).post(
+        f"/api/v1/projects/{project.pk}/tasks/bulk/", {"operations": ops}, format="json"
+    )
+    assert res.status_code in (200, 207), res.data
+    assert [r["id"] for r in res.data["rejected"]] == [str(slipping.pk)]
+    assert res.data["rejected"][0]["message"].startswith("slip_reason")
+    slipping.refresh_from_db()
+    ordinary.refresh_from_db()
+    assert (slipping.duration, ordinary.duration) == (3, 4)
+    assert not SprintScopeChange.objects.filter(kind=ScopeChangeKind.SLIP).exists()
+
+
+def test_admin_bulk_slip_with_reason_applies_and_records_accepted(
+    project: Project, sprint: Sprint, admin: Any
+) -> None:
+    task = _committed(project, sprint)
+    ops = [{"op": "update", "id": str(task.pk), "data": {"duration": 20, "slip_reason": "Late"}}]
+    res = _client(admin).post(
+        f"/api/v1/projects/{project.pk}/tasks/bulk/", {"operations": ops}, format="json"
+    )
+    assert res.status_code in (200, 207), res.data
+    assert not res.data["rejected"], res.data
+    task.refresh_from_db()
+    assert task.duration == 20
+    row = SprintScopeChange.objects.get(task=task, kind=ScopeChangeKind.SLIP)
+    assert (row.status, row.reason) == (ScopeChangeStatus.ACCEPTED, "Late")
+
+
+def test_put_slip_is_deferred(project: Project, sprint: Sprint, member: Any) -> None:
+    task = _committed(project, sprint)
+    body = {"project": str(project.pk), "name": task.name, "duration": 15}
+    res = _client(member).put(f"/api/v1/tasks/{task.pk}/", body, format="json")
+    assert res.status_code == 409, res.data
+    assert res.data["code"] == COMMITMENT_SLIP_CODE
+    task.refresh_from_db()
+    assert task.duration == 3
+
+
+def test_batch_accept_reports_a_row_whose_replay_fails_validation(
+    project: Project, sprint: Sprint, member: Any, admin: Any
+) -> None:
+    """A replay the task serializer refuses leaves the row PENDING and is listed
+    under ``failed``, never a silent 200 that looks like nothing was pending."""
+    from rest_framework.exceptions import ValidationError
+
+    task, row = _pending_slip(project, sprint, member)
+    with patch(
+        "trueppm_api.apps.projects.serializers.TaskSerializer.validate",
+        side_effect=ValidationError({"duration": ["Refused."]}),
+    ):
+        res = _client(admin).post(
+            f"/api/v1/sprints/{sprint.pk}/scope-changes/accept/",
+            {"batch_id": str(row.batch_id)},
+            format="json",
+        )
+    assert res.status_code == 200, res.data
+    assert res.data["accepted"] == []
+    assert res.data["failed"] == [{"id": str(row.pk), "detail": "duration: Refused."}]
+    row.refresh_from_db()
+    assert row.status == ScopeChangeStatus.PENDING
+    task.refresh_from_db()
+    assert task.duration == 3
+
+
+def test_a_committed_container_slip_states_its_container_role(
+    project: Project, sprint: Sprint, admin: Any
+) -> None:
+    """A phase (a task with a structural child) can sit in a sprint; a token's slip
+    on it is deferred like any task's, and the 409 says it is a container."""
+    phase = Task.objects.create(
+        project=project,
+        name="Phase",
+        planned_start=SPRINT_START,
+        duration=3,
+        sprint=sprint,
+        wbs_path="1",
+    )
+    Task.objects.create(project=project, name="Leaf", duration=3, wbs_path="1.1")
+    res = _bearer(_personal_token(admin)).patch(
+        f"/api/v1/tasks/{phase.pk}/", {"duration": 15}, format="json"
+    )
+    assert res.status_code == 409, res.data
+    assert res.data["code"] == COMMITMENT_SLIP_CODE
+    assert res.data["structure_role"] == "container"

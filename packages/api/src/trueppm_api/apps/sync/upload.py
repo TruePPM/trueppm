@@ -564,6 +564,11 @@ def apply_task_changes(
             "caller_role": role,
             "project": project,
             "suppress_owner_broadcast": True,
+            # ADR-1485 D1: an offline push cannot answer a reason prompt, so an
+            # authority holder's reason-less slip is deferred per row (a PENDING
+            # row and a conflict) instead of a ValidationError that 400s the
+            # whole upload on every retry.
+            "commitment_slip_defer_without_reason": True,
         },
         existing_by_id=_fetch_existing_tasks(tasks, project),
         last_pulled_at=last_pulled_at,

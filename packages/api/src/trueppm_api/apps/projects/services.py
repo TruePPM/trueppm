@@ -3757,6 +3757,7 @@ def guard_commitment_slip(
     by: Any = None,
     reason: str = "",
     calendar_factory: Any = None,
+    defer_without_reason: bool = False,
 ) -> Any | None:
     """The one commitment-slip guard every task date-write path calls (ADR-1485 D1).
 
@@ -3766,7 +3767,8 @@ def guard_commitment_slip(
     - an accept-authority holder (the ADR-0102 gate, :func:`assert_scope_gate_for_project`)
       calling with a session or JWT: the write applies, and a ``slip`` row is
       recorded ACCEPTED now, in the caller's transaction, with the required
-      ``reason`` (a blank reason raises a 400 ``commitment_slip_reason_required``).
+      ``reason`` (a blank reason raises a 400 ``commitment_slip_reason_required``,
+      or, with ``defer_without_reason`` (the sync push), defers like anyone else).
       Returns that row.
     - anyone else, and **every** ``ApiToken`` caller (tokens may cause PENDING
       rows, never decide them): raises :class:`CommitmentSlipDeferred` and the
@@ -3799,6 +3801,10 @@ def guard_commitment_slip(
         except ScopeAcceptForbidden:
             has_authority = False
     batch_id = commitment_slip_batch_id(request) if request is not None else uuid.uuid4()
+    if has_authority and not (reason or "").strip() and defer_without_reason:
+        # A caller that cannot prompt for the reason (the sync push) defers the
+        # write instead: the PENDING row waits for a decision with a reason.
+        has_authority = False
     if has_authority:
         if not (reason or "").strip():
             raise ValidationError(
@@ -4059,6 +4065,7 @@ def decide_scope_change_batch(
     ids: list[Any] | None = None,
     batch_id: Any = None,
     reason: str = "",
+    failed: list[dict[str, str]] | None = None,
 ) -> list[Any]:
     """Accept or reject PENDING scope changes in ``sprint``, by rows or by batch.
 
@@ -4067,7 +4074,14 @@ def decide_scope_change_batch(
     explicit rows; neither means every PENDING row. Each row is locked and
     re-checked PENDING in its own savepoint, so a double accept is a no-op and a
     row decided concurrently is skipped. The caller has already run the gate.
+
+    A row whose decision raised (an accepted slip's replay failing the task
+    serializer's validation, say) rolls back to PENDING and, when ``failed`` is
+    given, is appended there as ``{"id", "detail"}`` so the caller can say so
+    rather than answer as if every row was decided.
     """
+    from rest_framework.exceptions import ValidationError
+
     from trueppm_api.apps.projects.models import ScopeChangeStatus, SprintScopeChange
 
     qs = SprintScopeChange.objects.filter(sprint_id=sprint.pk, status=ScopeChangeStatus.PENDING)
@@ -4092,10 +4106,30 @@ def decide_scope_change_batch(
             continue  # decided by a concurrent call between the scan and the lock
         except ScopeAcceptForbidden:
             raise
+        except ValidationError as exc:
+            logger.warning("bulk scope-change refused for %s: %s", sc_id, exc.detail)
+            if failed is not None:
+                failed.append({"id": str(sc_id), "detail": _validation_sentence(exc)})
+            continue
         except Exception:
             logger.exception("bulk scope-change failed for %s", sc_id)
+            if failed is not None:
+                failed.append({"id": str(sc_id), "detail": "The change could not be applied."})
             continue
     return done
+
+
+def _validation_sentence(exc: Any) -> str:
+    """The first message of a DRF ``ValidationError``, prefixed by its field."""
+    detail = exc.detail
+    while isinstance(detail, dict) and detail:
+        field, detail = next(iter(detail.items()))
+        if isinstance(detail, list) and detail:
+            leaf = detail[0]
+            return f"{field}: {leaf}" if not isinstance(leaf, (dict, list)) else str(leaf)
+    if isinstance(detail, list) and detail:
+        return str(detail[0])
+    return str(detail)
 
 
 def pending_scope_advisory(sprint: Any) -> dict[str, Any] | None:

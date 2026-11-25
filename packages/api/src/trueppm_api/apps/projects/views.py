@@ -18012,6 +18012,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
                 assert_scope_gate_for_project(sprint.project_id, request.user)
             # Per-row lock + PENDING re-check lives in the service (P26, ADR-1485 D1),
             # so a double accept is a no-op and a concurrently decided row is skipped.
+            failed: list[dict[str, str]] = []
             done = decide_scope_change_batch(
                 sprint=sprint,
                 by=request.user,
@@ -18019,6 +18020,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
                 ids=ids,
                 batch_id=batch_id,
                 reason=reason,
+                failed=failed,
             )
         except ScopeAcceptForbidden:
             return Response(
@@ -18036,6 +18038,8 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             {
                 key: [SprintScopeChangeSerializer(row).data for row in decided],
                 "stale": [SprintScopeChangeSerializer(row).data for row in stale],
+                # Rows whose decision raised and stayed PENDING (never a silent 200).
+                "failed": failed,
                 "pending_count": sprint_pending_count(sprint.pk),
             },
             status=status.HTTP_200_OK,

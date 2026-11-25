@@ -85715,6 +85715,25 @@
                     "start"
                 ]
             },
+            "ScopeChangeBulkFailure": {
+                "type": "object",
+                "description": "One row a bulk scope-change decision could not apply; it stays PENDING.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true
+                    },
+                    "detail": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "detail",
+                    "id"
+                ]
+            },
             "ScopeChangeBulkRequest": {
                 "type": "object",
                 "description": "Validate the body for the bulk accept/reject endpoints (ADR-0102 §5).\n\n``ids`` is the list of SprintScopeChange UUIDs to act on; omit or pass an\nempty list to act on *all* PENDING scope changes in the sprint.",
@@ -88294,6 +88313,13 @@
                         },
                         "readOnly": true
                     },
+                    "failed": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ScopeChangeBulkFailure"
+                        },
+                        "readOnly": true
+                    },
                     "pending_count": {
                         "type": "integer",
                         "readOnly": true
@@ -88301,6 +88327,7 @@
                 },
                 "required": [
                     "accepted",
+                    "failed",
                     "pending_count",
                     "rejected",
                     "stale"
