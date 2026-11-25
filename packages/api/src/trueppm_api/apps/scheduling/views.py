@@ -41,6 +41,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle, SimpleRateThrottle
 from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet
+from trueppm_scheduler.derive import DerivationPass
 
 from trueppm_api.apps.access.permissions import (
     IsProjectAdmin,
@@ -3005,17 +3006,14 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
             200: OpenApiResponse(
                 response=PolymorphicProxySerializer(
                     component_name="ScheduleDerivationResponse",
-                    serializers=[
-                        ScheduleCpmDerivationSerializer,
-                        ScheduleMonteCarloDerivationSerializer,
-                    ],
-                    # Neither shape carries a field naming which one it is — the
-                    # caller already knows, from the `quantity` query param it sent,
-                    # which shape comes back. A discriminator field would have to be
-                    # fabricated onto the wire payload, which ADR-0218's "nothing is
-                    # fabricated" rule (rule 120) forbids just to satisfy
-                    # client-generator tooling.
-                    resource_type_field_name=None,
+                    # `pass` is already on both payloads and tells them apart
+                    # (#4291): a CPM pass or the literal "monte_carlo". Nothing is
+                    # added to the wire for the sake of client generators.
+                    serializers={
+                        **{p.value: ScheduleCpmDerivationSerializer for p in DerivationPass},
+                        "monte_carlo": ScheduleMonteCarloDerivationSerializer,
+                    },
+                    resource_type_field_name="pass",
                 ),
                 description=(
                     "The derivation of the requested value. A CPM quantity returns "

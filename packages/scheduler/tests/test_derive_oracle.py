@@ -32,6 +32,9 @@ from hypothesis import given
 from tests.test_contract_fuzz import _plausible_projects
 from trueppm_scheduler import (
     Calendar,
+    ContributionKind,
+    DependencyType,
+    DerivationPass,
     Project,
     Quantity,
     SchedulerError,
@@ -73,6 +76,11 @@ def test_derivation_matches_result_and_has_one_binding(project: Project) -> None
         for q in Quantity:
             d = derive_value(project, t.id, q, result=result)
             engine_value = getattr(by_id[t.id], q.value)
+            # (0) the published vocabulary (#4291): enum members, never bare strings.
+            assert d.quantity is q and isinstance(d.pass_, DerivationPass)
+            for c in d.contributions:
+                assert isinstance(c.kind, ContributionKind), (t.id, q, c.kind)
+                assert c.dep_type is None or isinstance(c.dep_type, DependencyType)
             # (1) value == the ScheduleResult field.
             if q in _DATE_QUANTITIES:
                 expected = engine_value.isoformat() if engine_value is not None else None

@@ -730,7 +730,7 @@ def _free_float_days(
         succ_free = free_instants.get(succ_id)
         # The driving edge keeps the link's own type; the arithmetic below uses the
         # type a milestone successor sees (FF is FS, #4272).
-        label = dep.dep_type.value
+        label = dep.dep_type
         succ_cal = calendar if task_calendars is None else task_calendars.get(succ_id, calendar)
         # Checked on the link's own type: a milestone proposal reads FF as FS itself.
         reads = _reads_instant(task, dep.dep_type)

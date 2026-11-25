@@ -199,6 +199,14 @@ The driving-chain endpoint ships in 0.5 (ADR-1381). In 0.4, call
 `GET /projects/{id}/schedule/derivation/` once per hop.
 :::
 
+### Derivation vocabulary
+
+:::note[Ships in 0.5]
+In 0.4 the schema declares `kind` and `dep_type` as open strings and the response union has no discriminator.
+:::
+
+From 0.5, each entry of `contributions` (and `binding`) from `GET /projects/{id}/schedule/derivation/` will be typed in the OpenAPI schema: `kind` as `ScheduleDerivationContributionKindEnum` and `dep_type` as `DepTypeEnum` or null. `ScheduleDerivationResponse` will carry a discriminator on `pass`: `forward`, `backward` and `float` select the CPM shape, `monte_carlo` the percentile shape. The kind enum is open, so a client must tolerate a value it does not know. The payload itself does not change.
+
 ## Project and program keys
 
 Every project and program has a **key**, the short name that appears in its links

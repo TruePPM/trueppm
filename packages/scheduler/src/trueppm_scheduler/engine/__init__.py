@@ -766,6 +766,9 @@ from trueppm_scheduler.engine.results import (
     MonteCarloResult as MonteCarloResult,
 )
 from trueppm_scheduler.engine.results import (
+    MonteCarloSamples as MonteCarloSamples,
+)
+from trueppm_scheduler.engine.results import (
     Percentile as Percentile,
 )
 from trueppm_scheduler.engine.results import (

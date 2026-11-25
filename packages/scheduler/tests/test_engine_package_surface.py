@@ -331,14 +331,17 @@ def test_the_snapshot_is_the_whole_04_surface() -> None:
 
 
 # Names promoted to the public surface after 0.4, in ``__all__`` order (#4158, #4894,
-# #4496, #5009, #5010).
+# #4496, #5009, #5010, #4291, #4166).
 _ALL_ADDED_IN_05 = (
+    "ContributionKind",
     "DeliveryForecast",
+    "DerivationPass",
     "GRAPH_FORMAT_VERSION",
     "GraphEdge",
     "GraphExport",
     "GraphNode",
     "MAX_PROJECT_WORK_DAYS",
+    "MonteCarloSamples",
     "SimulationTimeExceeded",
     "WorkingDayCounter",
     "collect_leaves",

@@ -83,6 +83,7 @@ from trueppm_scheduler.engine.montecarlo.sampling import (
 )
 from trueppm_scheduler.engine.results import (
     MonteCarloResult,
+    MonteCarloSamples,
 )
 from trueppm_scheduler.engine.validate import (
     _validate_project,
@@ -92,6 +93,7 @@ from trueppm_scheduler.models import (
     Calendar,
     DateRange,
     Project,
+    _short_repr,
 )
 
 # Cells per row block when gathering a calendar's columns onto the reference ruler.
@@ -127,6 +129,11 @@ _MC_FORWARD_CHUNK_CELLS = 8_000_000
 # measured at 50,000 tasks x 1,000 runs, peak RSS 893 MB -> 589 MB, 6.2 s -> 9.3 s.
 # Every project the API's default caps admit (5,000 tasks x 1,000 runs) stays below it.
 _MC_SAMPLED_MATRIX_CELLS = 32_000_000
+
+# Largest ``runs x tasks`` for ``return_samples=True`` (#4166): the two returned
+# float32/int32 matrices are 8 bytes a cell, 400 MB at this size, held whole on top of
+# the run itself, so chunking cannot bound them.
+_MC_MAX_RETURNED_SAMPLE_CELLS = 50_000_000
 
 # With a ``deadline``, the forward pass is split into about this many chunks of
 # ``ceil(runs / 8)`` runs each (#4496): exactly eight from about 50 runs up, fewer for
@@ -169,11 +176,101 @@ def _mc_forward_chunk_rows(
     return rows
 
 
+class _SampleCollector:
+    """Fills the ``return_samples`` matrices one forward-pass chunk at a time (#4166).
+
+    The forward pass works in each task's own working-day offsets; this maps them to
+    dates on the task's calendar before the chunk's matrices are rewritten onto the
+    shared reference ruler and dropped. It only reads them.
+    """
+
+    def __init__(
+        self,
+        runs: int,
+        topo_order: list[str],
+        columns_by_cal: list[tuple[Calendar, np.ndarray, list[int]]],
+        completed_dates: dict[str, tuple[date, date]],
+    ) -> None:
+        shape = (runs, len(topo_order))
+        self._task_ids = tuple(topo_order)
+        self.durations = np.empty(shape, dtype=np.float32)
+        self.early_finish = np.empty(shape, dtype=np.int32)
+        self._columns_by_cal = columns_by_cal
+        self._completed = {
+            col: completed_dates[tid][1].toordinal()
+            for col, tid in enumerate(topo_order)
+            if tid in completed_dates
+        }
+        # Filled by the forward pass for each chunk (see ``_mc_forward_pass``).
+        self.verbatim_shown: dict[int, tuple[np.ndarray, int]] = {}
+
+    def add(self, lo: int, block: np.ndarray, ef_mat: np.ndarray) -> None:
+        """Record runs ``[lo, lo + len(block))`` from their durations and EF offsets."""
+        hi = lo + block.shape[0]
+        self.durations[lo:hi] = block
+        out = self.early_finish[lo:hi]
+        for cal, wd_ord, cols in self._columns_by_cal:
+            # Column by column, so no second runs x tasks matrix is built.
+            for col in cols:
+                # Same reading as ``_offset_to_date``: the day the offset falls in.
+                idx = np.ceil(ef_mat[:, col] - _MC_DAY_EPS).astype(np.int64) - 1
+                if idx.max() > len(wd_ord) - 1:
+                    _raise_mc_index_overrun()
+                out[:, col] = wd_ord[np.maximum(idx, 0)]
+                before = idx < 0
+                if before.any():
+                    # Ends before the index opens (a milestone at the project start).
+                    first = date.fromordinal(int(wd_ord[0]))
+                    prev = _prev_working_day(_safe_offset(first, -timedelta(days=1)), cal)
+                    out[before, col] = prev.toordinal()
+        for col, ordinal in self._completed.items():
+            out[:, col] = ordinal
+        for col, (mask, ordinal) in self.verbatim_shown.items():
+            out[mask, col] = ordinal
+        self.verbatim_shown.clear()
+
+    def result(self) -> MonteCarloSamples:
+        """The filled matrices, in the public shape."""
+        return MonteCarloSamples(self._task_ids, self.durations, self.early_finish)
+
+
+def _sample_collector(
+    runs: int,
+    topo_order: list[str],
+    cal_key_of: dict[str, int],
+    cal_of: dict[str, Calendar],
+    wd_ord_by_cal: dict[int, np.ndarray],
+    completed_dates: dict[str, tuple[date, date]],
+) -> _SampleCollector:
+    """A :class:`_SampleCollector` with the columns grouped by task calendar."""
+    cols_of: dict[int, list[int]] = {}
+    for col, tid in enumerate(topo_order):
+        cols_of.setdefault(cal_key_of[tid], []).append(col)
+    groups = [
+        (cal_of[topo_order[cols[0]]], wd_ord_by_cal[key], cols) for key, cols in cols_of.items()
+    ]
+    return _SampleCollector(runs, topo_order, groups, completed_dates)
+
+
+def _check_return_samples(return_samples: object, runs: int, n_tasks: int) -> None:
+    """Reject a non-bool flag, and a ``True`` call whose matrices would be too large."""
+    if not isinstance(return_samples, bool):
+        raise InvalidScheduleInput(
+            f"return_samples must be a bool, got {_short_repr(return_samples)}."
+        )
+    if return_samples and runs * n_tasks > _MC_MAX_RETURNED_SAMPLE_CELLS:
+        raise SimulationCapExceeded(
+            f"return_samples=True would exceed {_MC_MAX_RETURNED_SAMPLE_CELLS:,} cells: "
+            f"{runs:,} runs x {n_tasks:,} tasks. Reduce runs or drop return_samples."
+        )
+
+
 def _replayed_chunks(
     durations: _SampledDurations,
     forward: Callable[
         [int, int, np.ndarray], tuple[np.ndarray, np.ndarray, date | None, dict[str, np.ndarray]]
     ],
+    collector: _SampleCollector | None = None,
 ) -> Callable[[int, int], tuple[np.ndarray, np.ndarray, date | None, dict[str, np.ndarray]]]:
     """``forward(lo, hi, block)`` over runs ``[lo, hi)`` of ``durations``, one block at a time.
 
@@ -188,6 +285,8 @@ def _replayed_chunks(
         block = durations.rows(lo, hi)
         out = forward(lo, hi, block)
         durations.keep_written(lo, block)
+        if collector is not None:
+            collector.add(lo, block, out[1])
         return out
 
     return chunk
@@ -568,6 +667,7 @@ def monte_carlo(
     max_lag_delta_cells: int = MAX_LAG_DELTA_CELLS,
     max_index_cells: int = MAX_INDEX_CELLS,
     deadline: float | None = None,
+    return_samples: bool = False,
 ) -> MonteCarloResult:
     """Run Monte Carlo probabilistic scheduling on a project.
 
@@ -780,6 +880,15 @@ def monte_carlo(
                    embedder on a request path passes ``time.monotonic() + budget``.
                    It does not change any computed value: a run that finishes in
                    time returns exactly what it would have without one.
+        return_samples: When ``True``, also return the per-run duration and
+                   early-finish matrices on ``result.samples``
+                   (:class:`~trueppm_scheduler.MonteCarloSamples`). Off by default.
+                   The two matrices cost ``runs x tasks x 4 bytes x 2`` of memory
+                   held whole, on top of the run itself (80 MB for 1,000 tasks x
+                   10,000 runs), which chunking cannot bound, so ``runs x tasks``
+                   above 50,000,000 (400 MB) raises :class:`SimulationCapExceeded`;
+                   ``max_runs`` / ``max_tasks`` apply as well. It does not change
+                   any other value in the result.
 
     Returns:
         MonteCarloResult with P50, P80, P95 completion dates — each an order
@@ -843,6 +952,8 @@ def monte_carlo(
             f"Monte Carlo sampled durations would exceed {_MAX_SAMPLE_CELLS:,} cells: "
             f"{runs:,} runs x {n_tasks:,} tasks. Reduce runs."
         )
+
+    _check_return_samples(return_samples, runs, n_tasks)
 
     _check_deadline(deadline)
     rng = np.random.default_rng(seed)
@@ -1169,6 +1280,12 @@ def monte_carlo(
         chunk_rows = max(1, min(chunk_rows, _VELOCITY_CHUNK_CELLS // max(1, sprints)))
         chunk_rows = block * max(1, chunk_rows // block)
 
+    collector = (
+        _sample_collector(runs, topo_order, cal_key_of, cal_of, wd_ord_by_cal, completed_dates)
+        if return_samples
+        else None
+    )
+
     shown_offsets, completion_offsets, milestone_finish_floor = _mc_chunked_finishes(
         _replayed_chunks(
             durations,
@@ -1190,7 +1307,9 @@ def monte_carlo(
                 zero_base_ids,
                 None if velocity is None else velocity.rows(lo, hi),
                 link_elapsed,
+                None if collector is None else collector.verbatim_shown,
             ),
+            collector,
         ),
         runs,
         chunk_rows,
@@ -1264,4 +1383,5 @@ def monte_carlo(
         p95_at_day_start=p95_start,
         velocity_saturated_runs=int(np.count_nonzero(velocity_saturated)),
         velocity_fallback_reasons=_velocity_fallback_reasons(project),
+        samples=None if collector is None else collector.result(),
     )

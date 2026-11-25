@@ -18,6 +18,16 @@ change between releases. Pin an exact version (e.g.
 
 ### Changed
 
+- **The derivation vocabulary is published as enums
+  ([#4291](https://gitlab.com/trueppm/trueppm/-/issues/4291)).**
+  `DerivationContribution.kind` is a `ContributionKind`, `Derivation.quantity` a
+  `Quantity`, `Derivation.pass_` a `DerivationPass`, and
+  `DerivationContribution.dep_type` / `DrivingEdge.dep_type` a `DependencyType`.
+  `Quantity` and `DependencyType` are now `StrEnum`s: a member compares equal to
+  its value and `to_dict()` output is unchanged, but `str(DependencyType.FS)` and
+  `str(Quantity.EARLY_START)` return the value (`"FS"`, `"early_start"`) rather
+  than `"DependencyType.FS"` / `"Quantity.EARLY_START"`, and a member now equals
+  the bare string (`DependencyType.FS == "FS"` is `True`).
 - **`Task` docstring now ranks the start/finish vocabularies ([#3795](https://gitlab.com/trueppm/trueppm/-/issues/3795)).** Docstring only; no behavior change.
 - **`MAX_DEPENDENCIES` and `MAX_EXPANDED_EDGES` raised from 100,000 to 250,000
   ([#3825](https://gitlab.com/trueppm/trueppm/-/issues/3825)).** A 50,000-task
@@ -26,6 +36,12 @@ change between releases. Pin an exact version (e.g.
 
 ### Added
 
+- **`monte_carlo(return_samples=True)`
+  ([#4166](https://gitlab.com/trueppm/trueppm/-/issues/4166)).**
+  `result.samples` (a `MonteCarloSamples`) carries the `(runs, n_tasks)`
+  duration (`float32` days) and early-finish (`int32` date ordinals) matrices and
+  the task-id column order. Costs `runs x n_tasks x 8` bytes; refused above
+  50,000,000 cells. Off by default, and no other result value changes.
 - **Public working-day helpers in `trueppm_scheduler.calendar`
   ([#5009](https://gitlab.com/trueppm/trueppm/-/issues/5009)).**
   `working_day_count(start, finish, calendar)` (inclusive on both ends),

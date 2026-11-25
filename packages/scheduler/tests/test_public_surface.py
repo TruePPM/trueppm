@@ -216,7 +216,9 @@ _EXPECTED_FIELD_ORDER: dict[str, list[str]] = {
         "percentiles",
         "velocity_saturated_runs",
         "velocity_fallback_reasons",
+        "samples",
     ],
+    "MonteCarloSamples": ["task_ids", "durations", "early_finish"],
     "Project": [
         "id",
         "name",
@@ -406,6 +408,79 @@ class TestEnumCasingContract:
         assert {m.value for m in DeliveryMode} == {"waterfall", "scrum"}
         for m in DeliveryMode:
             assert m.value == m.name.lower()
+
+
+class TestDerivationVocabulary:
+    """The published derivation enums (#4291). Removing or renaming a value breaks consumers."""
+
+    def test_contribution_kind_values_are_frozen(self) -> None:
+        assert {m.value for m in ts.ContributionKind} == {
+            "project_start",
+            "data_date",
+            "planned_start_snet",
+            "actual_start",
+            "actual_finish",
+            "predecessor_fs",
+            "predecessor_ss",
+            "predecessor_ff",
+            "predecessor_sf",
+            "project_finish",
+            "successor_fs",
+            "successor_ss",
+            "successor_ff",
+            "successor_sf",
+            "early_start",
+            "early_finish",
+            "late_start",
+            "successor_free_slack",
+            "total_float",
+            "duration_from_early_start",
+            "early_finish_pullback",
+            "duration_from_late_finish",
+            "duration_from_late_start",
+            "late_window_floor",
+            "full_duration_backoff",
+        }
+        for m in ts.ContributionKind:
+            assert m.value == m.name.lower()
+
+    def test_every_contribution_kind_has_an_emission_site(self) -> None:
+        source = Path(ts.derive_value.__code__.co_filename).read_text()
+        unused = [m.name for m in ts.ContributionKind if f"ContributionKind.{m.name}" not in source]
+        assert not unused
+
+    def test_derivation_pass_values_are_frozen(self) -> None:
+        assert {m.value for m in ts.DerivationPass} == {"forward", "backward", "float"}
+
+    def test_enums_stay_string_compatible_and_serialize_as_plain_str(self) -> None:
+        project = Project(
+            id="p",
+            name="P",
+            start_date=date(2026, 1, 5),
+            tasks=[
+                Task(id="A", name="A", duration=timedelta(days=1)),
+                Task(id="B", name="B", duration=timedelta(days=1)),
+            ],
+            dependencies=[
+                ts.Dependency(predecessor_id="A", successor_id="B", dep_type=DependencyType.FS)
+            ],
+        )
+        d = ts.derive_value(project, "B", "early_start")
+        assert d.quantity == "early_start" and d.pass_ == "forward"
+        assert d.binding is not None
+        assert d.binding.kind == "predecessor_fs" and d.binding.dep_type == "FS"
+        edge = schedule(project).driving_edges[0]
+        assert edge.dep_type is DependencyType.FS and edge.dep_type == "FS"
+        payload = d.to_dict()
+        binding = payload["binding"]
+        for value in (
+            payload["quantity"],
+            payload["pass"],
+            binding["kind"],
+            binding["dep_type"],
+            edge.to_dict()["dep_type"],
+        ):
+            assert type(value) is str
 
 
 class TestSerializationDocstrings:

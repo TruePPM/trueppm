@@ -6,6 +6,7 @@ from typing import Any
 
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
+from trueppm_scheduler.derive import ContributionKind, DerivationPass
 from trueppm_scheduler.derive import Quantity as CpmDerivationQuantity
 
 from trueppm_api.apps.projects.metric_provenance import (
@@ -282,6 +283,11 @@ class ForecastStalenessFieldsSerializer(serializers.Serializer[dict[str, Any]]):
     plan_version_current = serializers.IntegerField(allow_null=True)
 
 
+#: ``DerivationContribution.kind`` vocabulary (#4291). Module-level so
+#: ``ENUM_NAME_OVERRIDES`` pins the published component name to these values.
+SCHEDULE_CONTRIBUTION_KIND_CHOICES = [k.value for k in ContributionKind]
+
+
 class ScheduleDerivationContributionSerializer(serializers.Serializer[dict[str, Any]]):
     """One candidate constraint the CPM engine weighed for a derived value (ADR-0218).
 
@@ -290,10 +296,10 @@ class ScheduleDerivationContributionSerializer(serializers.Serializer[dict[str, 
     ``is_binding=True`` — the term the engine's ``max``/``min`` actually selected.
     """
 
-    kind = serializers.CharField()
+    kind = serializers.ChoiceField(choices=SCHEDULE_CONTRIBUTION_KIND_CHOICES)
     source_task_id = serializers.CharField(allow_null=True)
     source_task_name = serializers.CharField(allow_null=True)
-    dep_type = serializers.CharField(allow_null=True)
+    dep_type = serializers.ChoiceField(choices=DEPENDENCY_TYPE_CHOICES, allow_null=True)
     lag_days = serializers.IntegerField(allow_null=True)
     imposed_date = serializers.DateField(allow_null=True)
     calendar_days_added = serializers.IntegerField(allow_null=True)
@@ -338,7 +344,7 @@ class ScheduleCpmDerivationSerializer(serializers.Serializer[dict[str, Any]]):
 # field is added to the declared-fields map directly instead of following the
 # trailing-underscore convention into the schema, which would misdeclare the key.
 ScheduleCpmDerivationSerializer._declared_fields["pass"] = serializers.ChoiceField(
-    choices=["forward", "backward", "float"]
+    choices=[p.value for p in DerivationPass]
 )
 
 

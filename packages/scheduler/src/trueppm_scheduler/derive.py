@@ -89,12 +89,13 @@ from trueppm_scheduler.models import (
 )
 
 
-class Quantity(enum.Enum):
+class Quantity(enum.StrEnum):
     """A computed schedule value whose derivation can be explained.
 
     Values match the corresponding :class:`~trueppm_scheduler.models.Task`
     attribute names, so ``Quantity.EARLY_START.value == "early_start"``. This
     casing is a public contract (the API mirrors these strings as query values).
+    A ``StrEnum``, so a member compares equal to (and serializes as) its value.
     """
 
     EARLY_START = "early_start"
@@ -111,15 +112,66 @@ class Quantity(enum.Enum):
     SCHEDULED_START = "scheduled_start"
 
 
+class DerivationPass(enum.StrEnum):
+    """Which part of the CPM algorithm produced a derived value."""
+
+    FORWARD = "forward"
+    BACKWARD = "backward"
+    FLOAT = "float"
+
+
+class ContributionKind(enum.StrEnum):
+    """The constraint category of one :class:`DerivationContribution`.
+
+    The complete set the engine emits. A ``StrEnum``, so a member compares equal
+    to (and serializes as) its value. A later release may add a member, so a
+    consumer switching on the kind should keep a default branch; renaming or
+    removing a value is a breaking change.
+    """
+
+    PROJECT_START = "project_start"
+    DATA_DATE = "data_date"
+    PLANNED_START_SNET = "planned_start_snet"
+    ACTUAL_START = "actual_start"
+    ACTUAL_FINISH = "actual_finish"
+    PREDECESSOR_FS = "predecessor_fs"
+    PREDECESSOR_SS = "predecessor_ss"
+    PREDECESSOR_FF = "predecessor_ff"
+    PREDECESSOR_SF = "predecessor_sf"
+    PROJECT_FINISH = "project_finish"
+    SUCCESSOR_FS = "successor_fs"
+    SUCCESSOR_SS = "successor_ss"
+    SUCCESSOR_FF = "successor_ff"
+    SUCCESSOR_SF = "successor_sf"
+    EARLY_START = "early_start"
+    EARLY_FINISH = "early_finish"
+    LATE_START = "late_start"
+    SUCCESSOR_FREE_SLACK = "successor_free_slack"
+    TOTAL_FLOAT = "total_float"
+    DURATION_FROM_EARLY_START = "duration_from_early_start"
+    EARLY_FINISH_PULLBACK = "early_finish_pullback"
+    DURATION_FROM_LATE_FINISH = "duration_from_late_finish"
+    DURATION_FROM_LATE_START = "duration_from_late_start"
+    #: The late window raised to the early window by
+    #: ``engine._apply_late_dates``, reachable whenever an early date sits on a
+    #: non-working day (a recorded actual the engine keeps verbatim) and, through
+    #: the LS-pullback branch, on a working-day ``early_finish`` too (#3963).
+    LATE_WINDOW_FLOOR = "late_window_floor"
+    #: ADR-0752 ``scheduled_start``: the calendar back-off of the task's full
+    #: duration from ``early_finish``, for an in-progress task with no
+    #: ``actual_start``.
+    FULL_DURATION_BACKOFF = "full_duration_backoff"
+
+
 # Which pass produced each quantity — a fixed fact of the CPM algorithm.
-_PASS_FOR_QUANTITY: dict[Quantity, str] = {
-    Quantity.EARLY_START: "forward",
-    Quantity.EARLY_FINISH: "forward",
-    Quantity.LATE_START: "backward",
-    Quantity.LATE_FINISH: "backward",
-    Quantity.TOTAL_FLOAT: "float",
-    Quantity.FREE_FLOAT: "float",
-    Quantity.SCHEDULED_START: "forward",
+_PASS_FOR_QUANTITY: dict[Quantity, DerivationPass] = {
+    Quantity.EARLY_START: DerivationPass.FORWARD,
+    Quantity.EARLY_FINISH: DerivationPass.FORWARD,
+    Quantity.LATE_START: DerivationPass.BACKWARD,
+    Quantity.LATE_FINISH: DerivationPass.BACKWARD,
+    Quantity.TOTAL_FLOAT: DerivationPass.FLOAT,
+    Quantity.FREE_FLOAT: DerivationPass.FLOAT,
+    Quantity.SCHEDULED_START: DerivationPass.FORWARD,
 }
 
 
@@ -136,15 +188,14 @@ class DerivationContribution:
     ``(snapped_working_day - raw_offset).days`` — never estimated.
 
     Attributes:
-        kind: Constraint category, for example ``project_start``,
-            ``predecessor_fs`` or ``total_float``; the full set is listed in the
-            comments on the field below.
+        kind: Constraint category, a :class:`ContributionKind` member such as
+            ``project_start``, ``predecessor_fs`` or ``total_float``.
         source_task_id: Driving predecessor or successor task id for a link term;
             ``None`` for an anchor.
         source_task_name: The driving task's name, for citation; ``None`` for
             anchors.
-        dep_type: Dependency type of the link (``FS``/``SS``/``FF``/``SF``);
-            ``None`` for anchors.
+        dep_type: The link's :class:`~trueppm_scheduler.DependencyType`
+            (``FS``/``SS``/``FF``/``SF``); ``None`` for anchors.
         lag_days: Signed lag in calendar days on the link; ``None`` for anchors.
         imposed_date: The date this constraint forced onto the target; ``None``
             for a float slack term.
@@ -155,29 +206,15 @@ class DerivationContribution:
         is_binding: ``True`` on the single contribution the engine selected.
     """
 
-    #: Constraint category: ``project_start`` | ``data_date`` |
-    #: ``planned_start_snet`` | ``predecessor_fs`` | ``predecessor_ss`` |
-    #: ``predecessor_ff`` | ``predecessor_sf`` | ``project_finish`` |
-    #: ``successor_fs`` | ``successor_ss`` | ``successor_ff`` | ``successor_sf`` |
-    #: ``actual_start`` | ``actual_finish`` | ``early_start`` | ``late_start`` |
-    #: ``successor_free_slack`` | ``total_float`` | ``duration_from_early_start`` |
-    #: ``early_finish_pullback`` | ``duration_from_late_finish`` |
-    #: ``duration_from_late_start`` | ``late_window_floor`` (the late window raised
-    #: to the early window by ``engine._apply_late_dates``, reachable whenever an
-    #: early date sits on a non-working day — a recorded actual the engine keeps
-    #: verbatim — and, through the LS-pullback branch, on a working-day
-    #: ``early_finish`` too, #3963) |
-    #: ``full_duration_backoff`` (ADR-0752
-    #: ``scheduled_start``: the calendar back-off of the task's full duration
-    #: from ``early_finish``, for an in-progress task with no ``actual_start``).
-    kind: str
+    #: Constraint category.
+    kind: ContributionKind
     #: The driving predecessor/successor task id for a link term; ``None`` for an
     #: anchor (project start/finish, data date, SNET, recorded actual).
     source_task_id: str | None = None
     #: The driving task's human-readable name, for citation; ``None`` for anchors.
     source_task_name: str | None = None
     #: Dependency type of the link (``FS``/``SS``/``FF``/``SF``); ``None`` for anchors.
-    dep_type: str | None = None
+    dep_type: DependencyType | None = None
     #: Signed lag in calendar days on the link; ``None`` for anchors.
     lag_days: int | None = None
     #: The date this constraint forced onto the target; ``None`` for a float slack term.
@@ -196,10 +233,10 @@ class DerivationContribution:
             an explanation can be serialized straight to an API response.
         """
         return {
-            "kind": self.kind,
+            "kind": str(self.kind),
             "source_task_id": self.source_task_id,
             "source_task_name": self.source_task_name,
-            "dep_type": self.dep_type,
+            "dep_type": str(self.dep_type) if self.dep_type is not None else None,
             "lag_days": self.lag_days,
             "imposed_date": self.imposed_date.isoformat() if self.imposed_date else None,
             "calendar_days_added": self.calendar_days_added,
@@ -222,12 +259,13 @@ class Derivation:
     Attributes:
         task_id: Id of the task the value belongs to.
         task_name: The task's name.
-        quantity: Which value is explained, a :class:`Quantity` value such as
+        quantity: Which value is explained, a :class:`Quantity` member such as
             ``early_start`` or ``total_float``.
         value: The derived value: an ISO-8601 date string, or an integer count
             of working days for the float quantities; ``None`` when absent.
-        pass_: Which pass produced it (``forward`` or ``backward``). Serialized
-            as ``"pass"``; the underscore avoids the Python keyword.
+        pass_: Which pass produced it, a :class:`DerivationPass` member
+            (``forward``, ``backward`` or ``float``). Serialized as ``"pass"``; the
+            underscore avoids the Python keyword.
         is_critical: Whether the task is on the critical path.
         binding: The contribution the engine selected, or ``None``.
         contributions: Every candidate weighed, with the binding one flagged.
@@ -235,9 +273,9 @@ class Derivation:
 
     task_id: str
     task_name: str
-    quantity: str
+    quantity: Quantity
     value: str | int | None
-    pass_: str
+    pass_: DerivationPass
     is_critical: bool
     binding: DerivationContribution | None
     contributions: list[DerivationContribution] = field(default_factory=list)
@@ -257,9 +295,9 @@ class Derivation:
         return {
             "task_id": self.task_id,
             "task_name": self.task_name,
-            "quantity": self.quantity,
+            "quantity": str(self.quantity),
             "value": self.value,
-            "pass": self.pass_,
+            "pass": str(self.pass_),
             "is_critical": self.is_critical,
             "binding": self.binding.to_dict() if self.binding else None,
             "contributions": [c.to_dict() for c in self.contributions],
@@ -318,35 +356,47 @@ def _completed_forward_contribs(
         # (#4458), so actual_finish binds both quantities; actual_start is context only.
         contribs.append(
             DerivationContribution(
-                kind="actual_finish", imposed_date=task.actual_finish, is_binding=True
+                kind=ContributionKind.ACTUAL_FINISH,
+                imposed_date=task.actual_finish,
+                is_binding=True,
             )
         )
         if task.actual_start is not None:
             contribs.append(
                 DerivationContribution(
-                    kind="actual_start", imposed_date=task.actual_start, is_binding=False
+                    kind=ContributionKind.ACTUAL_START,
+                    imposed_date=task.actual_start,
+                    is_binding=False,
                 )
             )
     elif task.actual_finish is not None:
         contribs.append(
             DerivationContribution(
-                kind="actual_finish", imposed_date=task.early_finish, is_binding=want_finish
+                kind=ContributionKind.ACTUAL_FINISH,
+                imposed_date=task.early_finish,
+                is_binding=want_finish,
             )
         )
         contribs.append(
             DerivationContribution(
-                kind="actual_start", imposed_date=task.early_start, is_binding=not want_finish
+                kind=ContributionKind.ACTUAL_START,
+                imposed_date=task.early_start,
+                is_binding=not want_finish,
             )
         )
     elif task.actual_start is not None:
         contribs.append(
             DerivationContribution(
-                kind="actual_start", imposed_date=task.early_start, is_binding=not want_finish
+                kind=ContributionKind.ACTUAL_START,
+                imposed_date=task.early_start,
+                is_binding=not want_finish,
             )
         )
         contribs.append(
             DerivationContribution(
-                kind="actual_finish", imposed_date=task.early_finish, is_binding=want_finish
+                kind=ContributionKind.ACTUAL_FINISH,
+                imposed_date=task.early_finish,
+                is_binding=want_finish,
             )
         )
     else:
@@ -359,7 +409,7 @@ def _completed_forward_contribs(
         start_base = _next_working_day(project_start, cal)
         anchors = [
             DerivationContribution(
-                kind="project_start",
+                kind=ContributionKind.PROJECT_START,
                 imposed_date=start_base,
                 calendar_days_added=_days_between(project_start, start_base),
             )
@@ -368,7 +418,7 @@ def _completed_forward_contribs(
             snet = _next_working_day(task.planned_start, cal)
             anchors.append(
                 DerivationContribution(
-                    kind="planned_start_snet",
+                    kind=ContributionKind.PLANNED_START_SNET,
                     imposed_date=snet,
                     calendar_days_added=_days_between(task.planned_start, snet),
                 )
@@ -390,7 +440,7 @@ def _completed_forward_contribs(
             imposed = cap if want_finish or task.early_start is None else task.early_start
             contribs.append(
                 DerivationContribution(
-                    kind="data_date",
+                    kind=ContributionKind.DATA_DATE,
                     imposed_date=imposed,
                     calendar_days_added=_days_between(status_date, imposed),
                     is_binding=True,
@@ -405,7 +455,9 @@ def _completed_forward_contribs(
         contribs.extend(anchors)
         contribs.append(
             DerivationContribution(
-                kind="early_start", imposed_date=task.early_finish, is_binding=want_finish
+                kind=ContributionKind.EARLY_START,
+                imposed_date=task.early_finish,
+                is_binding=want_finish,
             )
         )
     return contribs
@@ -437,7 +489,7 @@ def _derive_scheduled_start(
     if _is_complete(task) or (task.percent_complete or 0.0) <= 0:
         contribs = [
             DerivationContribution(
-                kind="early_start", imposed_date=task.early_start, is_binding=True
+                kind=ContributionKind.EARLY_START, imposed_date=task.early_start, is_binding=True
             )
         ]
         return task.early_start.isoformat(), contribs
@@ -445,7 +497,7 @@ def _derive_scheduled_start(
     if task.actual_start is not None:
         contribs = [
             DerivationContribution(
-                kind="actual_start", imposed_date=task.actual_start, is_binding=True
+                kind=ContributionKind.ACTUAL_START, imposed_date=task.actual_start, is_binding=True
             )
         ]
         return task.actual_start.isoformat(), contribs
@@ -457,10 +509,10 @@ def _derive_scheduled_start(
         scheduled_start = _compute_scheduled_start(task, cal)
     contribs = [
         DerivationContribution(
-            kind="early_finish", imposed_date=task.early_finish, is_binding=False
+            kind=ContributionKind.EARLY_FINISH, imposed_date=task.early_finish, is_binding=False
         ),
         DerivationContribution(
-            kind="full_duration_backoff",
+            kind=ContributionKind.FULL_DURATION_BACKOFF,
             imposed_date=scheduled_start,
             slack_days=full_days,
             is_binding=True,
@@ -483,11 +535,11 @@ class _LinkContext:
 
 
 # Provenance kind + label per dependency type, mirroring ``engine._forward_pass``.
-_FORWARD_PRED_KIND: dict[DependencyType, tuple[str, str]] = {
-    DependencyType.FS: ("predecessor_fs", "FS"),
-    DependencyType.SS: ("predecessor_ss", "SS"),
-    DependencyType.FF: ("predecessor_ff", "FF"),
-    DependencyType.SF: ("predecessor_sf", "SF"),
+_FORWARD_PRED_KIND: dict[DependencyType, ContributionKind] = {
+    DependencyType.FS: ContributionKind.PREDECESSOR_FS,
+    DependencyType.SS: ContributionKind.PREDECESSOR_SS,
+    DependencyType.FF: ContributionKind.PREDECESSOR_FF,
+    DependencyType.SF: ContributionKind.PREDECESSOR_SF,
 }
 
 
@@ -546,12 +598,11 @@ def _pred_forward_contribution(
         )
         imposed = _instant_day(raw, start_display, cal)
         key = (raw, start_display)
-    kind, label = _FORWARD_PRED_KIND[dep_type]
     contribution = DerivationContribution(
-        kind=kind,
+        kind=_FORWARD_PRED_KIND[dep_type],
         source_task_id=pred.id,
         source_task_name=pred.name,
-        dep_type=label,
+        dep_type=dep_type,
         lag_days=lag.days,
         imposed_date=imposed,
         calendar_days_added=_days_between(raw, imposed),
@@ -731,7 +782,7 @@ def _forward_floor_contribs(
     if include_project_start:
         contribs.append(
             DerivationContribution(
-                kind="project_start",
+                kind=ContributionKind.PROJECT_START,
                 imposed_date=start_base,
                 calendar_days_added=_days_between(project_start, start_base),
             )
@@ -740,7 +791,7 @@ def _forward_floor_contribs(
         snapped = _next_working_day(status_date, cal)
         contribs.append(
             DerivationContribution(
-                kind="data_date",
+                kind=ContributionKind.DATA_DATE,
                 imposed_date=snapped,
                 calendar_days_added=_days_between(status_date, snapped),
             )
@@ -748,7 +799,7 @@ def _forward_floor_contribs(
     if task.actual_start is not None:
         contribs.append(
             DerivationContribution(
-                kind="actual_start",
+                kind=ContributionKind.ACTUAL_START,
                 imposed_date=task.actual_start,
             )
         )
@@ -756,7 +807,7 @@ def _forward_floor_contribs(
         snapped = _next_working_day(task.planned_start, cal)
         contribs.append(
             DerivationContribution(
-                kind="planned_start_snet",
+                kind=ContributionKind.PLANNED_START_SNET,
                 imposed_date=snapped,
                 calendar_days_added=_days_between(task.planned_start, snapped),
             )
@@ -770,7 +821,7 @@ def _forward_duration_binding(task: Task) -> DerivationContribution:
     The date this term produces is the ``early_finish`` itself.
     """
     return DerivationContribution(
-        kind="duration_from_early_start",
+        kind=ContributionKind.DURATION_FROM_EARLY_START,
         imposed_date=task.early_finish,
         is_binding=True,
         slack_days=_effective_duration_days(task),
@@ -790,7 +841,7 @@ def _forward_pullback_binding(
     # and no ES term at all, where the earliest one would name the wrong link.
     driver = max(ef_terms, key=lambda c: c.imposed_date or date.min) if ef_terms else None
     return DerivationContribution(
-        kind="early_finish_pullback",
+        kind=ContributionKind.EARLY_FINISH_PULLBACK,
         source_task_id=driver.source_task_id if driver else None,
         source_task_name=driver.source_task_name if driver else None,
         dep_type=driver.dep_type if driver else None,
@@ -824,10 +875,14 @@ def _derive_backward(
         # Completed → late == early → zero float; the finish anchor is its own finish.
         contribs = [
             DerivationContribution(
-                kind="early_start", imposed_date=task.late_start, is_binding=want_start
+                kind=ContributionKind.EARLY_START,
+                imposed_date=task.late_start,
+                is_binding=want_start,
             ),
             DerivationContribution(
-                kind="project_finish", imposed_date=task.late_finish, is_binding=not want_start
+                kind=ContributionKind.PROJECT_FINISH,
+                imposed_date=task.late_finish,
+                is_binding=not want_start,
             ),
         ]
         value = task.late_start if want_start else task.late_finish
@@ -865,7 +920,7 @@ def _derive_backward(
         else:
             contribs.append(
                 DerivationContribution(
-                    kind="late_window_floor", imposed_date=value, is_binding=True
+                    kind=ContributionKind.LATE_WINDOW_FLOOR, imposed_date=value, is_binding=True
                 )
             )
         return (value.isoformat() if value else None, contribs)
@@ -972,7 +1027,7 @@ def _backward_successor_terms(
     seed = _prev_working_day(_safe_offset(milestone_seed, -timedelta(days=1)), cal)
     lf_terms: list[DerivationContribution] = [
         DerivationContribution(
-            kind="project_finish",
+            kind=ContributionKind.PROJECT_FINISH,
             imposed_date=seed if milestone_day is None else milestone_day(milestone_seed),
         )
     ]
@@ -981,13 +1036,12 @@ def _backward_successor_terms(
     ls_terms: list[DerivationContribution] = []
 
     # FS/FF bound when this task may finish; SS/SF bound when it may start. The
-    # dep_type label is spelled out rather than read off the enum so the emitted
-    # provenance strings stay pinned to their frozen public contract.
-    bounds: dict[DependencyType, tuple[list[DerivationContribution], str, str]] = {
-        DependencyType.FS: (lf_terms, "successor_fs", "FS"),
-        DependencyType.FF: (lf_terms, "successor_ff", "FF"),
-        DependencyType.SS: (ls_terms, "successor_ss", "SS"),
-        DependencyType.SF: (ls_terms, "successor_sf", "SF"),
+    # link keeps its stored type even where it is inverted as another (#4272).
+    bounds: dict[DependencyType, tuple[list[DerivationContribution], ContributionKind]] = {
+        DependencyType.FS: (lf_terms, ContributionKind.SUCCESSOR_FS),
+        DependencyType.FF: (lf_terms, ContributionKind.SUCCESSOR_FF),
+        DependencyType.SS: (ls_terms, ContributionKind.SUCCESSOR_SS),
+        DependencyType.SF: (ls_terms, ContributionKind.SUCCESSOR_SF),
     }
 
     for succ, dep_type, lag in succs:
@@ -996,7 +1050,8 @@ def _backward_successor_terms(
         # a derivation term or the explanation would disagree with the late dates.
         if _is_complete(succ):
             continue
-        terms, kind, label = bounds[dep_type]
+        terms, kind = bounds[dep_type]
+        link_type = dep_type
         dep_type = _as_seen_by(succ, dep_type, milestone_ids)
         succ_start, succ_finish = (refs or _late_dates)(succ, dep_type, lag)
 
@@ -1035,7 +1090,7 @@ def _backward_successor_terms(
             kind=kind,
             source_task_id=succ.id,
             source_task_name=succ.name,
-            dep_type=label,
+            dep_type=link_type,
             lag_days=lag.days,
             imposed_date=imposed,
             calendar_days_added=_days_between(raw, imposed),
@@ -1120,7 +1175,7 @@ def _late_window_floor_binding(
     if pre is None or pre >= early:
         return None
     return DerivationContribution(
-        kind="late_window_floor",
+        kind=ContributionKind.LATE_WINDOW_FLOOR,
         imposed_date=early,
         is_binding=True,
     )
@@ -1132,7 +1187,7 @@ def _backward_duration_binding(task: Task) -> DerivationContribution:
     The date this term produces is the ``late_start`` itself.
     """
     return DerivationContribution(
-        kind="duration_from_late_finish",
+        kind=ContributionKind.DURATION_FROM_LATE_FINISH,
         imposed_date=task.late_start,
         is_binding=True,
         slack_days=_effective_duration_days(task),
@@ -1152,7 +1207,7 @@ def _backward_pullback_binding(
     """
     driver = min(ls_terms, key=lambda c: c.imposed_date or date.max) if ls_terms else None
     return DerivationContribution(
-        kind="duration_from_late_start",
+        kind=ContributionKind.DURATION_FROM_LATE_START,
         source_task_id=driver.source_task_id if driver else None,
         source_task_name=driver.source_task_name if driver else None,
         dep_type=driver.dep_type if driver else None,
@@ -1207,9 +1262,14 @@ def _derive_total_float(
     # ``Derivation.binding`` already returned when both were flagged (#2181).
     contribs = [
         DerivationContribution(
-            kind="early_start", imposed_date=task.early_start, is_binding=True, slack_days=tf_days
+            kind=ContributionKind.EARLY_START,
+            imposed_date=task.early_start,
+            is_binding=True,
+            slack_days=tf_days,
         ),
-        DerivationContribution(kind="late_start", imposed_date=task.late_start, is_binding=False),
+        DerivationContribution(
+            kind=ContributionKind.LATE_START, imposed_date=task.late_start, is_binding=False
+        ),
     ]
     return tf_days, contribs
 
@@ -1334,10 +1394,10 @@ def _derive_free_float(
         )
         slack = max(0, slack)
         c = DerivationContribution(
-            kind="successor_free_slack",
+            kind=ContributionKind.SUCCESSOR_FREE_SLACK,
             source_task_id=succ.id,
             source_task_name=succ.name,
-            dep_type=dep_type.value,
+            dep_type=dep_type,
             lag_days=lag.days,
             imposed_date=latest,
             slack_days=slack,
@@ -1352,7 +1412,9 @@ def _derive_free_float(
     else:
         # No live successor bound the slip (none exist, all are complete, or every
         # link's slack exceeds total float): free float falls back to total float.
-        fallback = DerivationContribution(kind="total_float", slack_days=tf_days, is_binding=True)
+        fallback = DerivationContribution(
+            kind=ContributionKind.TOTAL_FLOAT, slack_days=tf_days, is_binding=True
+        )
         contribs.append(fallback)
     return ff_days, contribs
 
@@ -1684,7 +1746,7 @@ def derive_value(
     return Derivation(
         task_id=task.id,
         task_name=task.name,
-        quantity=q.value,
+        quantity=q,
         value=value,
         pass_=_PASS_FOR_QUANTITY[q],
         is_critical=task.is_critical,

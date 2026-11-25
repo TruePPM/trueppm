@@ -205,6 +205,34 @@ This is what lets a UI (or an AI agent) answer "why is this task starting on the
 17th?" with the actual dependency instead of a guess — the value returned is
 computed the same way the engine computed it, not re-derived heuristically.
 
+From 0.5, the vocabulary will be published as enums instead of open strings:
+`ContributionKind` (`DerivationContribution.kind`), `Quantity` (`quantity`), `DerivationPass`
+(`pass_`) and `DependencyType` (`dep_type`, here and on `DrivingEdge`). All are
+`StrEnum`s, so existing comparisons such as `binding.kind == "predecessor_fs"`
+keep working, and `to_dict()` emits the same plain strings. A later release may
+add a `ContributionKind`, so keep a default branch when you switch on it.
+
+## Keeping the per-run samples
+
+From 0.5, `monte_carlo(project, return_samples=True)` will also hand back the
+matrices behind the percentiles, as a `MonteCarloSamples` on `result.samples`:
+
+```python
+from datetime import date
+from trueppm_scheduler import monte_carlo
+
+result = monte_carlo(project, runs=2_000, seed=42, return_samples=True)
+samples = result.samples
+column = samples.task_ids.index("t-2")
+durations = samples.durations[:, column]  # float32 days, one per run
+finishes = [date.fromordinal(int(x)) for x in samples.early_finish[:, column]]
+```
+
+Both matrices are `(runs, n_tasks)` and cost `runs x n_tasks x 4 bytes x 2`
+(80 MB for 1,000 tasks x 10,000 runs) on top of the run itself. Above
+50,000,000 cells the call raises `SimulationCapExceeded`; the default path is
+unaffected.
+
 ## Exporting the graph
 
 > **Ships in 0.5.** `to_graph()` and the graph types below are not in 0.4.0; this
@@ -961,10 +989,6 @@ release it is scheduled for:
   forward chunk (8M cells, about 130 MB of start and finish offsets) plus the
   project's own graph; the under-250 MB target and `MC_TASK_CAP` are tracked in
   [#4953](https://gitlab.com/trueppm/trueppm/-/issues/4953).
-- **API contract / errors** — the derivation vocabulary
-  (`DerivationContribution.kind`, `Derivation.quantity`/`pass_`) is still an
-  open string, not a published enum
-  ([#4291](https://gitlab.com/trueppm/trueppm/-/issues/4291)).
 
 **Committed for 0.5.** 0.5 will run a hardening pass over the engine
 ([#3988](https://gitlab.com/trueppm/trueppm/-/issues/3988)) rather than ship
