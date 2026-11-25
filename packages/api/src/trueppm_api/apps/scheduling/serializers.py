@@ -6,7 +6,6 @@ from typing import Any
 
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
-from trueppm_scheduler.derive import ContributionKind, DerivationPass
 from trueppm_scheduler.derive import Quantity as CpmDerivationQuantity
 
 from trueppm_api.apps.projects.metric_provenance import (
@@ -285,7 +284,39 @@ class ForecastStalenessFieldsSerializer(serializers.Serializer[dict[str, Any]]):
 
 #: ``DerivationContribution.kind`` vocabulary (#4291). Module-level so
 #: ``ENUM_NAME_OVERRIDES`` pins the published component name to these values.
-SCHEDULE_CONTRIBUTION_KIND_CHOICES = [k.value for k in ContributionKind]
+#: Literals, not ``trueppm_scheduler.derive.ContributionKind``: the API still declares
+#: ``trueppm-scheduler>=0.4.0``, where that enum and ``DerivationPass`` do not exist.
+#: ``tests/test_openapi_contract_hygiene.py`` holds both lists equal to the engine's.
+SCHEDULE_CONTRIBUTION_KIND_CHOICES = [
+    "project_start",
+    "data_date",
+    "planned_start_snet",
+    "actual_start",
+    "actual_finish",
+    "predecessor_fs",
+    "predecessor_ss",
+    "predecessor_ff",
+    "predecessor_sf",
+    "project_finish",
+    "successor_fs",
+    "successor_ss",
+    "successor_ff",
+    "successor_sf",
+    "early_start",
+    "early_finish",
+    "late_start",
+    "successor_free_slack",
+    "total_float",
+    "duration_from_early_start",
+    "early_finish_pullback",
+    "duration_from_late_finish",
+    "duration_from_late_start",
+    "late_window_floor",
+    "full_duration_backoff",
+]
+
+#: ``Derivation.pass_`` vocabulary (CPM passes only).
+SCHEDULE_DERIVATION_PASS_CHOICES = ["forward", "backward", "float"]
 
 
 class ScheduleDerivationContributionSerializer(serializers.Serializer[dict[str, Any]]):
@@ -344,7 +375,7 @@ class ScheduleCpmDerivationSerializer(serializers.Serializer[dict[str, Any]]):
 # field is added to the declared-fields map directly instead of following the
 # trailing-underscore convention into the schema, which would misdeclare the key.
 ScheduleCpmDerivationSerializer._declared_fields["pass"] = serializers.ChoiceField(
-    choices=[p.value for p in DerivationPass]
+    choices=SCHEDULE_DERIVATION_PASS_CHOICES
 )
 
 

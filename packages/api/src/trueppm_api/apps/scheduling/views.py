@@ -41,7 +41,6 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle, SimpleRateThrottle
 from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet
-from trueppm_scheduler.derive import DerivationPass
 
 from trueppm_api.apps.access.permissions import (
     IsProjectAdmin,
@@ -100,6 +99,7 @@ from trueppm_api.apps.scheduling.risk_premium import (
     risk_premium_for_forecast_payload,
 )
 from trueppm_api.apps.scheduling.serializers import (
+    SCHEDULE_DERIVATION_PASS_CHOICES,
     FailedTaskBulkActionResultSerializer,
     FailedTaskDropSerializer,
     FailedTaskRequeueResultSerializer,
@@ -3016,7 +3016,10 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
                     # (#4291): a CPM pass or the literal "monte_carlo". Nothing is
                     # added to the wire for the sake of client generators.
                     serializers={
-                        **{p.value: ScheduleCpmDerivationSerializer for p in DerivationPass},
+                        **{
+                            p: ScheduleCpmDerivationSerializer
+                            for p in SCHEDULE_DERIVATION_PASS_CHOICES
+                        },
                         "monte_carlo": ScheduleMonteCarloDerivationSerializer,
                     },
                     resource_type_field_name="pass",

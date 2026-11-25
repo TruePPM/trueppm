@@ -15,6 +15,11 @@ import pytest
 from django.urls import resolve
 from trueppm_scheduler.derive import ContributionKind, DerivationPass
 
+from trueppm_api.apps.scheduling.serializers import (
+    SCHEDULE_CONTRIBUTION_KIND_CHOICES,
+    SCHEDULE_DERIVATION_PASS_CHOICES,
+)
+
 _SCHEMA = json.loads(
     (Path(__file__).resolve().parents[3] / "docs" / "api" / "openapi.json").read_text()
 )
@@ -164,3 +169,9 @@ def test_derivation_vocabulary_is_published_as_enums() -> None:
         **{p.value: cpm for p in DerivationPass},
         "monte_carlo": "#/components/schemas/ScheduleMonteCarloDerivation",
     }
+
+
+def test_derivation_choice_literals_match_the_engine_enums() -> None:
+    """The API spells the vocabulary out so it imports against scheduler 0.4.0 (#4291)."""
+    assert sorted(SCHEDULE_CONTRIBUTION_KIND_CHOICES) == sorted(k.value for k in ContributionKind)
+    assert sorted(SCHEDULE_DERIVATION_PASS_CHOICES) == sorted(p.value for p in DerivationPass)
