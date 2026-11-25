@@ -54,6 +54,9 @@ STRUCTURAL: dict[str, str] = {
     "structural_operation_views.StructuralOperationViewSet.undo": (
         f"{_A}.projects.structural_operation_services.undo_structural_operation"
     ),
+    # CSV import undo: retracts the import's `add` entry. The Jira and MS Project
+    # importers have no undo route, so they have nothing to retract.
+    "views.CsvImportUndoView.post": f"{_A}.projects.task_batch_services.undo_import_fix_operation",
     # Structural by the ADR's rules but not yet recording; see PENDING.
     "views.TaskSyncView.post": "",
     "views.SprintViewSet.promote_to_milestone": "",
@@ -63,10 +66,12 @@ STRUCTURAL: dict[str, str] = {
 
 #: Structural routes classified but not yet recording an amendment. This set may
 #: only shrink: an entry that starts calling ``amend`` fails until removed here.
+#: Recurring occurrences (`services._spawn_occurrence`, Celery) have no route and
+#: so are not enumerated here at all; TODO(#5126) covers them with the three below.
 PENDING: set[str] = {
-    "views.TaskSyncView.post",  # inbound task push: an add
-    "views.SprintViewSet.promote_to_milestone",  # creates the sprint's milestone task
-    "template_views.ProjectTemplateViewSet.apply",  # async apply adds the template's rows
+    "views.TaskSyncView.post",  # inbound task push: an add. TODO(#5126)
+    "views.SprintViewSet.promote_to_milestone",  # the sprint's milestone task. TODO(#5126)
+    "template_views.ProjectTemplateViewSet.apply",  # adds the template's rows. TODO(#5126)
 }
 
 #: Writes task fields or ordering outside the plan's WBS shape.
@@ -103,7 +108,7 @@ _PERFORM = {
 }
 _TASK_WRITE = re.compile(
     r"amend\.|TaskSerializer\(|Task\.objects\.(create|bulk_create)\(|\bTask\(|bulk_create_tasks|"
-    r"soft_delete_task|apply_task_changes|enqueue_import|paste_many|undo_paste_many|"
+    r"soft_delete_task|apply_task_changes|enqueue_import|paste_many|undo_paste_many|undo_import_fix|"
     r"apply_template|promote_retro_action_item|split_story|pull_to_project_backlog|"
     r"flag_outcome_for_backlog|promote_sprint_to_milestone|_create_milestone_for_sprint|"
     r"_spawn_occurrence|enqueue_template_apply|indent|outdent|reparent|reorder|group_tasks|ungroup|duplicate|"

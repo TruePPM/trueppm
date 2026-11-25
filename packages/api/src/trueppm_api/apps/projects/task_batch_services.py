@@ -173,10 +173,10 @@ def undo_paste_many_operation(operation: PasteManyOperation) -> dict[str, int]:
             for row in Task.objects.filter(pk__in=untouched, is_deleted=False):
                 row.soft_delete()
             _broadcast_and_recalc(operation.project_id, untouched)
-            # ADR-1477 §3: undo takes the acts back out of their open entries.
+            # ADR-1477 §3: undoing a paste retracts the `add` it recorded.
             from . import amend
 
-            amend.retract(operation.project_id, list(untouched))
+            amend.retract(operation.project_id, list(untouched), kind="add")
 
         result = {"deleted": len(untouched), "kept": len(touched)}
         operation.status = SyncBatchOperationStatus.UNDONE
@@ -365,6 +365,12 @@ def undo_import_fix_operation(csv_import_request: CsvImportRequest) -> dict[str,
             for row in Task.objects.filter(pk__in=untouched, is_deleted=False):
                 row.soft_delete()
             _broadcast_and_recalc(csv_import_request.project_id, untouched)
+            # ADR-1477 §3: undoing an import retracts the `add` entry
+            # `csvimport.tasks` recorded for it, or the undone rows would keep
+            # blocking Take v2 with nothing left on the plan to explain.
+            from . import amend
+
+            amend.retract(csv_import_request.project_id, list(untouched), kind="add")
 
         result = {"deleted": len(untouched), "kept": len(touched)}
         csv_import_request.status = CsvImportStatus.UNDONE

@@ -687,9 +687,12 @@ def undo_structural_operation(
         # (raised below) rolls the retraction back with it.
         from trueppm_api.apps.projects import amend
 
+        # Every outline gesture (indent, outdent, reparent, reorder, group,
+        # ungroup) is recorded as a `move` (views.py), so that is the kind undone.
         amend.retract(
             locked.project_id,
             [*locked.anchor_task_ids, *locked.created_task_ids],
+            kind="move",
         )
 
         _raise_if_undo_blocked(locked)

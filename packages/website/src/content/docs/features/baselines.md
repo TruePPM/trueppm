@@ -150,8 +150,10 @@ set of changes made since the active baseline, each with room for one line of *w
   group, ungroup), and deleting one. Date, duration, owner and status edits never join, and
   neither does moving a card between sprints or from the backlog into a sprint.
 - **The edit applies first.** An entry is created the moment the edit lands, with no
-  reason. You, or a Scheduler, Admin or Owner, can answer it afterwards. A Member's
-  structural edit joins the changeset too, and the plan owner answers it.
+  reason. A Scheduler, Project Manager (`ADMIN`) or Owner answers it afterwards, or gives
+  the reason with the edit itself. A Member's structural edit joins the changeset too, always
+  without a reason (a reason sent with a Member's edit is not stored), and someone at
+  Scheduler or above answers it.
 - **Related acts group.** Acts of the same kind, on the same surface, by the same person,
   within two minutes of each other share one entry and one reason. One multi-select action
   is one entry. Answering an entry closes it, so a later act opens a new one. In the app,
@@ -159,8 +161,14 @@ set of changes made since the active baseline, each with room for one line of *w
   a Grid restructure. Switching view or mode, opening the review, or leaving or reloading
   the page also closes the open entry, so the next act starts a new one.
 - **A reason is set once.** It cannot be rewritten afterwards.
-- **Undo retracts.** Undoing an act removes it from its entry, and undoing the last act in
-  an entry deletes the entry.
+- **Undo retracts the act it undoes, and only that act.** Restoring a deleted task takes
+  back the delete, undoing a paste or a CSV import takes back the add, and undoing an outline
+  restructure takes back the move. An earlier add or a later move of the same task stays
+  listed, because it still happened. Undoing the last act in an entry deletes the entry.
+- **Not yet in the changeset.** Tasks added by an inbound task push, by promoting a sprint to
+  a milestone, by applying a template, or by a recurring task's next occurrence do not open
+  an entry yet. That is tracked in
+  [#5126](https://gitlab.com/trueppm/trueppm/-/issues/5126). <!-- TODO(#5126) -->
 
 ### The two exits
 

@@ -580,3 +580,193 @@ class TestTheOneCapture:
         assert self._taken(client, committed).status_code == 201
         assert Project.objects.get(pk=committed.pk).health == before
         assert client.get(f"{API}/projects/{committed.pk}/").json().get("health") == overview_before
+
+
+def _decide_both(client: APIClient, project: Project) -> None:
+    """One ``kept`` and one ``taken`` decision on ``project``: both FKs to a baseline set."""
+    url = f"{API}/projects/{project.pk}/baseline-decisions/"
+    r = client.post(url, {"kind": "kept", "expected_open_count": 0}, format="json")
+    assert r.status_code == 201, r.content
+    client.post(f"{API}/tasks/", {"project": str(project.pk), "name": "a", "duration": 1})
+    ChangesetEntry.objects.filter(project=project).update(reason="CO-7")
+    r = client.post(
+        url,
+        {
+            "kind": "taken",
+            "expected_open_count": 1,
+            "reason_code": "approved_scope_change",
+            "reason": "Sponsor re-agreed scope",
+        },
+        format="json",
+    )
+    assert r.status_code == 201, r.content
+    assert BaselineDecision.objects.filter(project=project).count() == 2
+
+
+@pytest.mark.django_db
+class TestHardDeleteWithDecisions:
+    """A decision names baselines with RESTRICT, so a project hard-delete still cascades."""
+
+    def test_hard_delete_projects_removes_a_project_with_decisions(
+        self, client: APIClient, committed: Project
+    ) -> None:
+        from trueppm_api.apps.access.services import hard_delete_projects
+
+        _decide_both(client, committed)
+        assert hard_delete_projects([committed.pk]) == 1
+        assert not Project.objects.filter(pk=committed.pk).exists()
+        assert not BaselineDecision.objects.filter(project_id=committed.pk).exists()
+        assert not Baseline.objects.filter(project_id=committed.pk).exists()
+
+    def test_hard_delete_program_removes_its_projects_with_decisions(
+        self, client: APIClient, committed: Project
+    ) -> None:
+        from trueppm_api.apps.access.services import hard_delete_program
+        from trueppm_api.apps.projects.models import Program
+
+        program = Program.objects.create(name="Pad program")
+        Project.objects.filter(pk=committed.pk).update(program=program)
+        _decide_both(client, committed)
+        assert hard_delete_program(program.pk) == 1
+        assert not Project.objects.filter(pk=committed.pk).exists()
+        assert not Program.objects.filter(pk=program.pk).exists()
+
+    def test_the_trail_still_refuses_a_direct_or_bulk_delete(
+        self, client: APIClient, committed: Project
+    ) -> None:
+        from django.db.models import RestrictedError
+
+        _decide_both(client, committed)
+        with pytest.raises(ImmutableModelError):
+            BaselineDecision.objects.filter(project=committed).delete()
+        with pytest.raises(ImmutableModelError):
+            BaselineDecision.objects.filter(project=committed).update(note="x")
+        # A baseline the trail names cannot be removed on its own.
+        named = BaselineDecision.objects.filter(project=committed, kind="taken").get()
+        with pytest.raises(RestrictedError):
+            Baseline.objects.filter(pk=named.to_baseline_id).delete()
+
+
+@pytest.mark.django_db
+class TestUndoRetractsOnlyTheUndoneAct:
+    """``amend.retract`` takes back the act being undone, never an earlier or later one."""
+
+    def test_restoring_a_deleted_add_keeps_the_add_entry(
+        self, client: APIClient, committed: Project
+    ) -> None:
+        body = {"project": str(committed.pk), "name": "X", "duration": 1}
+        r = client.post(f"{API}/tasks/", body, format="json")
+        assert r.status_code == 201, r.content
+        tid = r.json()["id"]
+        assert client.delete(f"{API}/tasks/{tid}/").status_code == 204
+        assert sorted(e.kind for e in _entries(committed)) == ["add", "delete"]
+        assert client.post(f"{API}/tasks/{tid}/restore/").status_code == 200
+        assert Task.objects.filter(pk=tid, is_deleted=False).exists()
+        [entry] = _entries(committed)
+        assert entry.kind == "add" and entry.task_ids == [tid]
+
+    def test_restoring_after_a_move_keeps_the_move_entry(
+        self, client: APIClient, committed: Project
+    ) -> None:
+        t2 = Task.objects.get(project=committed, name="Survey")
+        assert (
+            client.post(f"{API}/projects/{committed.pk}/tasks/{t2.pk}/indent/").status_code == 200
+        )
+        assert client.delete(f"{API}/tasks/{t2.pk}/").status_code == 204
+        assert client.post(f"{API}/tasks/{t2.pk}/restore/").status_code == 200
+        [entry] = _entries(committed)
+        assert entry.kind == "move" and entry.task_ids == [str(t2.pk)]
+
+    def test_undoing_a_reparent_keeps_the_earlier_add(
+        self, client: APIClient, committed: Project
+    ) -> None:
+        body = {"project": str(committed.pk), "name": "X", "duration": 1}
+        r = client.post(f"{API}/tasks/", body, format="json")
+        assert r.status_code == 201, r.content
+        tid = r.json()["id"]
+        parent = Task.objects.get(project=committed, name="Permits")
+        moved = client.post(
+            f"{API}/projects/{committed.pk}/tasks/{tid}/reparent/",
+            {"new_parent_id": str(parent.pk)},
+            format="json",
+        )
+        assert moved.status_code == 200, moved.content
+        assert sorted(e.kind for e in _entries(committed)) == ["add", "move"]
+        undo = client.post(
+            f"{API}/structural-operations/{moved.json()['operation_id']}/undo/", {}, format="json"
+        )
+        assert undo.status_code == 200, undo.content
+        [entry] = _entries(committed)
+        assert entry.kind == "add" and entry.task_ids == [tid]
+
+    def test_undoing_a_csv_import_retracts_its_add_entry(
+        self, committed: Project, owner: object
+    ) -> None:
+        import base64
+
+        from trueppm_api.apps.csvimport.models import CsvImportRequest, CsvImportStatus
+        from trueppm_api.apps.csvimport.parser import parse_spreadsheet
+        from trueppm_api.apps.msproject.importer import import_project
+        from trueppm_api.apps.projects.task_batch_services import (
+            finalize_import_fix_operation,
+            undo_import_fix_operation,
+        )
+
+        from ..csvimport.fixtures import REFERENCE_CSV
+
+        parsed = parse_spreadsheet(REFERENCE_CSV, "plan.csv")
+        summary = import_project(str(committed.pk), parsed.project_data)
+        created = summary["created_task_ids"]
+        # What `csvimport.tasks` does inside the import's transaction.
+        amend.record_import(committed.pk, created, owner.pk)  # type: ignore[attr-defined]
+        [entry] = _entries(committed)
+        assert entry.kind == "add" and entry.surface == "import"
+        req = CsvImportRequest.objects.create(
+            project=committed,
+            filename="plan.csv",
+            file_content_b64=base64.b64encode(REFERENCE_CSV).decode("ascii"),
+            status=CsvImportStatus.DONE,
+        )
+        finalize_import_fix_operation(str(req.pk), committed.pk, created)
+        req.refresh_from_db()
+        assert undo_import_fix_operation(req)["deleted"] == len(created)
+        assert _entries(committed) == []
+
+
+@pytest.mark.django_db
+class TestInlineReasonFloor:
+    """An inline ``amend_reason`` answers the entry only at the reason PATCH's floor."""
+
+    def test_a_member_reason_on_the_write_is_dropped(self, committed: Project) -> None:
+        member = _member(committed, Role.MEMBER, "cs-mem")
+        r = member.post(
+            f"{API}/tasks/",
+            {"project": str(committed.pk), "name": "Y", "duration": 1, "amend_reason": "because"},
+            format="json",
+        )
+        assert r.status_code == 201, r.content
+        [entry] = _entries(committed)
+        assert entry.reason is None and entry.closed_at is None
+
+    def test_an_admin_reason_on_the_write_is_stored(self, committed: Project) -> None:
+        admin = _member(committed, Role.ADMIN, "cs-adm")
+        r = admin.post(
+            f"{API}/tasks/",
+            {"project": str(committed.pk), "name": "Z", "duration": 1, "amend_reason": "RFI 9"},
+            format="json",
+        )
+        assert r.status_code == 201, r.content
+        [entry] = _entries(committed)
+        assert entry.reason == "RFI 9" and entry.closed_at is not None
+
+    def test_a_scheduler_reason_is_stored_at_the_floor(self, committed: Project) -> None:
+        # A Scheduler cannot author the plan over REST (ADR-0773), so no HTTP write
+        # reaches here as one; the floor itself is pinned on the recorder.
+        from types import SimpleNamespace
+
+        user = get_user_model().objects.create_user(username="cs-sch", password="pw")
+        ProjectMembership.objects.create(project=committed, user=user, role=Role.SCHEDULER)
+        task = Task.objects.get(project=committed, name="Pour")
+        request = SimpleNamespace(user=user, data={"amend_reason": "RFI 10"})
+        entry = amend.record_from_request(request, committed, "move", [task.pk])
+        assert entry is not None and entry.reason == "RFI 10"

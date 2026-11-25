@@ -454,8 +454,18 @@ def broadcast_changeset(project_id: Any) -> None:
     )
 
 
-def retract(project_id: Any, task_ids: list[Any]) -> None:
-    """Undo removes the acts from their open entries (ADR-1477 §3, D10).
+def retract(project_id: Any, task_ids: list[Any], *, kind: str) -> None:
+    """Undo removes the undone act from the entry that recorded it (ADR-1477 §3, D10).
+
+    ``kind`` is the kind of the act being undone, not of the undo: restoring a
+    deleted task retracts a ``delete``, undoing a paste, a template or an import
+    retracts an ``add``, and undoing an outline restructure retracts a ``move``.
+    Only entries of that kind are touched, and each task leaves only the newest
+    open one that holds it, which is the entry its latest act of that kind landed
+    in. Keying on the kind and not on "every entry naming the task" is what keeps
+    an earlier ``add`` of the same task (or a later ``move`` of it) standing when
+    a delete is restored: that act still happened, and silently erasing it would
+    re-baseline a structural change nobody explained (ADR-1477 risk #2).
 
     An entry emptied by the undo is deleted, reason and all. Otherwise its
     ``finish_after`` is cleared so the next recalculation re-stamps the reduced
@@ -463,28 +473,32 @@ def retract(project_id: Any, task_ids: list[Any]) -> None:
     """
     from .models import ChangesetEntry
 
-    targets = {str(t) for t in task_ids}
-    if not targets:
+    remaining = {str(t) for t in task_ids}
+    if not remaining:
         return
     changed = False
-    for entry in ChangesetEntry.objects.select_for_update().filter(
-        project_id=project_id, resolved_by__isnull=True
+    for entry in (
+        ChangesetEntry.objects.select_for_update()
+        .filter(project_id=project_id, kind=kind, resolved_by__isnull=True)
+        .order_by("-last_act_at", "-opened_at")
     ):
-        if not targets.intersection(entry.task_ids):
+        hit = remaining.intersection(entry.task_ids)
+        if not hit:
             continue
+        remaining -= hit
         changed = True
         pairs = [
-            (i, n)
-            for i, n in zip(entry.task_ids, entry.task_names, strict=False)
-            if i not in targets
+            (i, n) for i, n in zip(entry.task_ids, entry.task_names, strict=False) if i not in hit
         ]
         if not pairs:
             entry.delete()
-            continue
-        entry.task_ids = [i for i, _ in pairs]
-        entry.task_names = [n for _, n in pairs]
-        entry.finish_after = None
-        entry.save(update_fields=["task_ids", "task_names", "finish_after"])
+        else:
+            entry.task_ids = [i for i, _ in pairs]
+            entry.task_names = [n for _, n in pairs]
+            entry.finish_after = None
+            entry.save(update_fields=["task_ids", "task_names", "finish_after"])
+        if not remaining:
+            break
     if changed:
         broadcast_changeset(project_id)
 
@@ -610,6 +624,22 @@ def record_from_request(request: Any, project: Project, kind: str, task_ids: lis
         task_ids,
         surface=ctx["surface"],
         actor=getattr(request, "user", None),
-        reason=ctx["reason"],
+        reason=ctx["reason"] if _may_answer_reason(request, project) else None,
         new_group=ctx["new_group"],
     )
+
+
+def _may_answer_reason(request: Any, project: Project) -> bool:
+    """Whether an inline ``amend_reason`` on this write may answer its entry.
+
+    The same floor as the reason PATCH (``IsProjectScheduler``, ADR-1477 §5):
+    an answered entry is closed and stops blocking Take v2, so a Member must not
+    reach that through the write body when the PATCH refuses them. Below
+    Scheduler the write still applies and the entry stays unreasoned, for a
+    Scheduler or above to answer in Review (decided 2026-11-24).
+    """
+    from trueppm_api.apps.access.models import Role
+    from trueppm_api.apps.access.permissions import effective_project_role
+
+    role = effective_project_role(request, project.pk)
+    return role is not None and role >= Role.SCHEDULER

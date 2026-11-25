@@ -5463,11 +5463,28 @@ class RebaselineReasonCode(models.TextChoices):
     CALENDAR_CHANGE = "calendar_change", "Calendar change"
 
 
+class BaselineDecisionQuerySet(models.QuerySet["BaselineDecision"]):
+    """Refuses bulk ``update()`` and ``delete()``: the decision trail is evidence.
+
+    A project's hard delete still removes its decisions: the deletion collector
+    issues its own SQL through the base manager and never calls
+    ``QuerySet.delete()`` or ``Model.delete()`` here (the ``StatusUpdate`` pattern).
+    """
+
+    def update(self, **kwargs: Any) -> int:
+        raise ImmutableModelError("BaselineDecision rows are append-only.")
+
+    def delete(self) -> tuple[int, dict[str, int]]:
+        raise ImmutableModelError("BaselineDecision rows cannot be deleted.")
+
+
 class BaselineDecision(models.Model):
     """One exit from the changeset: v(n+1) taken, or v(n) kept (ADR-1477 §1).
 
     Append-only change-control evidence. ``save()`` refuses to update an existing
-    row and ``delete()`` refuses outright; no route edits or deletes one. Keeping
+    row, and ``delete()`` and the queryset's bulk ``update()``/``delete()`` refuse
+    outright; no route edits or deletes one. The one way a row leaves is with its
+    project, through a hard delete's cascade. Keeping
     the baseline is a recorded decision, not an absence — otherwise "nobody
     looked" and "we looked and chose to live with the variance" are the same row.
     """
@@ -5477,11 +5494,15 @@ class BaselineDecision(models.Model):
         Project, on_delete=models.CASCADE, related_name="baseline_decisions"
     )
     kind = models.CharField(max_length=8, choices=BaselineDecisionKind.choices)
+    # RESTRICT, not PROTECT: a baseline a decision names cannot be deleted on its
+    # own (the trail would lose what it points at), but a project hard-delete
+    # cascades to both the baseline and the decision, and RESTRICT lets that one
+    # collector pass remove them together where PROTECT refuses it outright.
     from_baseline = models.ForeignKey(
-        Baseline, on_delete=models.PROTECT, null=True, blank=True, related_name="+"
+        Baseline, on_delete=models.RESTRICT, null=True, blank=True, related_name="+"
     )
     to_baseline = models.ForeignKey(
-        Baseline, on_delete=models.PROTECT, null=True, blank=True, related_name="+"
+        Baseline, on_delete=models.RESTRICT, null=True, blank=True, related_name="+"
     )
     # Blank for `kept`: the code applies only to the decision to re-baseline.
     reason_code = models.CharField(
@@ -5508,7 +5529,7 @@ class BaselineDecision(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
-    objects: models.Manager[BaselineDecision] = models.Manager()
+    objects = BaselineDecisionQuerySet.as_manager()
 
     class Meta:
         db_table = "projects_baseline_decision"

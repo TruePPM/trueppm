@@ -7831,10 +7831,11 @@ class TaskViewSet(
                 before = capture_graph_state(project_id)
                 task.restore()
                 cascade_task_children_restore(task)
-                # ADR-1477 §3: undoing a delete retracts it from its open entry.
+                # ADR-1477 §3: undoing a delete retracts the `delete` it recorded,
+                # and only that: an earlier `add` of this task still stands.
                 from trueppm_api.apps.projects import amend
 
-                amend.retract(task.project_id, [task.pk])
+                amend.retract(task.project_id, [task.pk], kind="delete")
                 # #4858: a trashed row keeps its old wbs_path, so a live task that has
                 # since taken the parent path adopts the row (and its revived subtree)
                 # as a descendant. A link between the two then runs summary-to-own-
