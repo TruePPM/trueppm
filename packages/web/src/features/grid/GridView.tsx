@@ -44,6 +44,7 @@ import { useLabels } from '@/hooks/useLabels';
 import { useProjectResourcePool } from '@/hooks/useProjectResourcePool';
 import { useFilterAnnouncement } from '@/hooks/useFilterAnnouncement';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { setChangesetSurface } from '@/lib/changesetHints';
 
 type DeletePhase = 'idle' | 'confirming' | 'deleting';
 
@@ -353,6 +354,11 @@ export function GridView() {
     setManualModeSinceDrill(false);
   }, [overdue]);
   const effectiveMode: GridMode = overdue && !manualModeSinceDrill ? 'flat' : mode;
+  // The changeset's grouping key (ADR-1477 §3): Outline is its own surface, and
+  // any mode change closes the open group.
+  useEffect(() => {
+    setChangesetSurface(effectiveMode === 'outline' ? 'outline' : 'grid', effectiveMode);
+  }, [effectiveMode]);
 
   // The project's label catalog drives the facet's option list (every label,
   // including ones on no loaded row — decision 2). Counts are computed over the

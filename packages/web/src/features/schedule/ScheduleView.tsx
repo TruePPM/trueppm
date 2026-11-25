@@ -63,6 +63,7 @@ import {
   surfaceToggleableColumns,
 } from './scheduleSurface';
 import { useBuildMode } from './buildMode/BuildModeContext';
+import { setChangesetSurface } from '@/lib/changesetHints';
 import { BuildModeRowMenu, type RowMenuItem } from './buildMode';
 import { ZoomControl } from './ZoomControl';
 import { QuarterModeControl } from './QuarterModeControl';
@@ -1383,6 +1384,11 @@ export function ScheduleView() {
   const scrollToTask = useScheduleStore((s) => s.scrollToTask);
   const viewMode = useScheduleStore((s) => s.viewMode);
   const setViewMode = useScheduleStore((s) => s.setViewMode);
+  // The changeset's grouping key (ADR-1477 §3): Grid and Timeline are separate
+  // surfaces, so switching between them closes the open group.
+  useEffect(() => {
+    setChangesetSurface(viewMode === 'timeline' ? 'gantt' : 'grid', viewMode);
+  }, [viewMode]);
 
   // Adjacency + per-task dep-chip data — only depends on `allLinks`, so the
   // identity stays stable across hover transitions. This matters for

@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { closeChangesetGroup } from '@/lib/changesetHints';
 import { Button } from '@/components/Button';
 import { toast } from '@/components/Toast';
 import { BottomSheet } from '@/components/ui/BottomSheet';
@@ -214,6 +215,11 @@ interface BodyProps {
 function ChangesetSheetBody({ projectId, data, currentRole, isPhone, onClose, decide }: BodyProps) {
   const canDecide = currentRole != null && currentRole >= ROLE_ADMIN;
   const online = useOnlineStatus();
+  // Opening Review closes the open group (ADR-1477 §3): an edit made after the
+  // reviewer has seen the list is a new entry, never absorbed into one they saw.
+  useEffect(() => {
+    closeChangesetGroup();
+  }, []);
   const [draft, setDraftState] = useState<Draft>(() => readDraft(projectId));
   // Phone only: "Take v2…" opens the reason step (4A-c).
   const [phoneStep, setPhoneStep] = useState<'list' | 'take'>('list');
