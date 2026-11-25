@@ -146,4 +146,5 @@ The second was chosen.
   `sprint-forecast`, `schedule/derivation`) that #2839 bounded the same way. Moving it
   to a worker is reopened only if a consumer appears that needs the what-if
   asynchronously, or if web-worker occupancy, not connections, is observed to be the
-  constraint.
+  constraint. The maintainer accepted this on 2026-11-25 as closing #5067, although a
+  web worker still runs the simulation.
