@@ -271,6 +271,7 @@ function MoreMenu({
                     className="flex min-h-11 items-center rounded-md px-2.5 text-sm text-p1-text-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-p1-focus"
                   >
                     <span aria-hidden="true">⊘&nbsp;</span>
+                    {/* TODO(#4888): frame 1B's "· Why" explainer; no view is off until capability toggles ship. */}
                     {t.label} is off
                   </div>
                 ))}
