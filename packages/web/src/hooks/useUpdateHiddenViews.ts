@@ -11,7 +11,9 @@ interface HiddenViewsResponse {
  * is naturally idempotent and "Reset to default" is simply `[]`.
  *
  * On success the `['current-user']` query is invalidated so `hidden_views` (read
- * from `/auth/me/`) re-fetches and the view bar recomposes. Validation is
+ * from `/auth/me/`) re-fetches and the view bar recomposes. The write fans out to
+ * every project's view set server-side (ADR-1478 §6.2), so every cached
+ * `['project-views', …]` set is invalidated as well. Validation is
  * server-side (400 on an unknown/non-hideable key); callers drive an optimistic
  * local toggle state and revert it on error (the `MyGeneralPreferencesPage`
  * pattern), so the menu feels instant.
@@ -27,6 +29,7 @@ export function useUpdateHiddenViews(): UseMutationResult<HiddenViewsResponse, E
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['current-user'] });
+      void queryClient.invalidateQueries({ queryKey: ['project-views'] });
     },
   });
 }

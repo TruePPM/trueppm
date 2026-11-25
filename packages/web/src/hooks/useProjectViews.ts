@@ -44,7 +44,12 @@ export interface ProjectViewsPatch {
   last_layouts?: Record<string, string>;
 }
 
-/** `PATCH /projects/{id}/views/` — the response is the new resolved set, written straight into the cache. */
+/**
+ * `PATCH /projects/{id}/views/` — the response is the new resolved set, written straight
+ * into the cache. A per-view choice (`key`) also changes the deprecated `hidden_views`
+ * union `/auth/me/` reports, so `['current-user']` is invalidated for it; layout and
+ * dismissal patches leave that union alone and skip the refetch.
+ */
 export function useUpdateProjectViews(projectId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -52,7 +57,11 @@ export function useUpdateProjectViews(projectId: string | undefined) {
       const res = await apiClient.patch<ProjectViewSet>(`/projects/${projectId}/views/`, body);
       return res.data;
     },
-    onSuccess: (data) => queryClient.setQueryData(projectViewsKey(projectId), data),
+    onSuccess: (data, body) => {
+      queryClient.setQueryData(projectViewsKey(projectId), data);
+      if (body.key !== undefined)
+        void queryClient.invalidateQueries({ queryKey: ['current-user'] });
+    },
   });
 }
 
