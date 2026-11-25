@@ -1,4 +1,4 @@
-import { test, expect, type Page } from './fixtures/coverage';
+import { test, expect, type Page, type WebSocketRoute } from './fixtures/coverage';
 import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
@@ -121,7 +121,14 @@ function decision(kind: 'taken' | 'kept', body: Record<string, unknown>) {
   };
 }
 
-async function gotoCommittedSchedule(page: Page, store: Store, role = 300) {
+interface GotoOptions {
+  /** The task list the schedule reads; one row by default. */
+  tasks?: Record<string, unknown>[];
+  /** Receives the project socket, so a test can push the server's board events. */
+  onSocket?: (ws: WebSocketRoute) => void;
+}
+
+async function gotoCommittedSchedule(page: Page, store: Store, role = 300, opts: GotoOptions = {}) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -180,6 +187,8 @@ async function gotoCommittedSchedule(page: Page, store: Store, role = 300) {
         is_sample: false,
         program_detail: null,
         lifecycle: 'active',
+        // The authoring gate (ADR-0773): the row's structure controls need it.
+        can_author: true,
         server_version: 1,
       }),
     ),
@@ -188,8 +197,9 @@ async function gotoCommittedSchedule(page: Page, store: Store, role = 300) {
     route.fulfill(json([{ id: 'm1', role, user_detail: { id: 'u1', username: 'kelly' } }])),
   );
   await page.route('**/api/v1/projects/*/presence/', (route) => route.fulfill(json([])));
+  const tasks = opts.tasks ?? [TASK];
   await page.route('**/api/v1/tasks/**', (route) =>
-    route.fulfill(json({ count: 1, next: null, previous: null, results: [TASK] })),
+    route.fulfill(json({ count: tasks.length, next: null, previous: null, results: tasks })),
   );
   await page.route('**/api/v1/dependencies/**', (route) =>
     route.fulfill(json({ count: 0, next: null, previous: null, results: [] })),
@@ -231,8 +241,13 @@ async function gotoCommittedSchedule(page: Page, store: Store, role = 300) {
     }
     return route.fulfill(json(decision(body.kind as 'taken' | 'kept', body), 201));
   });
-  await page.routeWebSocket('**/ws/v1/projects/**', () => {
-    /* accept and hold open */
+  // The socket mints a single-use ticket first (ADR-0141); without it no socket opens.
+  await page.route('**/api/v1/ws/ticket/', (route) =>
+    route.fulfill(json({ ticket: 'e2e-ticket', expires_in: 30 })),
+  );
+  await page.routeWebSocket('**/ws/v1/projects/**', (ws) => {
+    // Accept and hold open; hand the socket to a test that pushes events.
+    opts.onSocket?.(ws);
   });
   await page.goto(`/projects/${PROJECT_ID}/schedule`);
 }
@@ -289,6 +304,68 @@ test.describe('Baseline changeset on a committed plan', () => {
       reason_code: 'approved_scope_change',
     });
     await expect(page.getByTestId('changeset-review-trigger')).toHaveCount(0);
+  });
+
+  test('a structural gesture sends the hints and its entry appears', async ({ page }) => {
+    // Drives the act itself rather than seeding its entry: the Indent control
+    // sends the write, the mock records the body the interceptor shaped, the
+    // server's entry joins the store, and the counts-only `changeset_updated`
+    // board event is what makes the app refetch it (ADR-1477 §3, §5).
+    const store = freshStore([]);
+    const rows = [
+      { ...TASK, id: 'umob', wbs_path: '1', name: 'Mobilization' },
+      { ...TASK, id: 'usurvey', wbs_path: '2', name: 'Survey' },
+    ];
+    let socket: WebSocketRoute | null = null;
+    const bodies: Record<string, unknown>[] = [];
+    await page.route('**/api/v1/projects/*/tasks/*/indent/', async (route) => {
+      const body = (route.request().postDataJSON() ?? {}) as Record<string, unknown>;
+      bodies.push(body);
+      store.entries.push(
+        entry({
+          id: 'e2',
+          surface: typeof body.surface === 'string' ? body.surface : 'api',
+          task_ids: ['usurvey'],
+          task_names: ['Survey'],
+        }),
+      );
+      store.entriesSinceKept += 1;
+      await route.fulfill({
+        json: { updated: [{ id: 'usurvey', wbs_path: '1.1' }], warning: null, operation_id: 'op1' },
+      });
+      void socket?.send(
+        JSON.stringify({
+          protocol_version: 1,
+          event_type: 'changeset_updated',
+          payload: { id: PROJECT_ID, project_id: PROJECT_ID, open_count: 1, unreasoned_count: 1 },
+          seq: 1,
+        }),
+      );
+    });
+    await gotoCommittedSchedule(page, store, 300, {
+      tasks: rows,
+      onSocket: (ws) => {
+        socket = ws;
+      },
+    });
+
+    const row = page.getByRole('row').filter({ hasText: 'Survey' }).first();
+    await expect(row).toBeVisible();
+    await expect(page.getByTestId('changeset-counts')).toHaveCount(0);
+    await row.hover();
+    await row.getByRole('button', { name: /^Indent Survey/ }).click();
+
+    await expect.poll(() => bodies.length, { timeout: 10_000 }).toBe(1);
+    // The first structural write of a fresh page session opens a new group, and
+    // the Schedule names its own surface rather than letting it read as `api`.
+    expect(bodies[0]).toMatchObject({ amend_group: 'new' });
+    expect(['grid', 'gantt']).toContain(bodies[0].surface);
+    await expect(page.getByTestId('changeset-counts')).toHaveText(
+      '◷ 1 change open · 1 needs a reason',
+    );
+    await expect(page.getByTestId('changeset-reason-line').getByRole('status')).toHaveText(
+      'Survey moved · finish 2026-11-14 → 2026-11-19',
+    );
   });
 
   test('Take v2 is blocked while a change needs a reason; Keep v1 is not', async ({ page }) => {
