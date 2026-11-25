@@ -87,11 +87,13 @@ def _backward_pass(
     uses its *own* calendar for its own arithmetic, because that arithmetic must
     land on a day the node itself can work — every successor-derived constraint
     here also snaps to a working day on **this task's own** calendar (``node_cal``),
-    never the successor's. (The successor's calendar governs lag arithmetic and the
-    free-float mirror in :func:`_compute_floats`, which simulates what the forward
-    pass would impose *on the successor* — a different node, a different question.
-    Using the successor's calendar here instead was issue #1490: it could snap a
-    predecessor's own late date to a day before its early date.) With
+    never the successor's. (The successor's calendar governs lag arithmetic on the
+    *successor's own* forward constraint. The free-float mirror in
+    :func:`_compute_floats` also snaps its inverse constraint on **this task's own**
+    calendar: it derives the latest date this task could finish or start, so that
+    date must be one this task can work, and the slip is counted in this task's
+    working days. Using the successor's calendar here was issue #1490: it could snap
+    a predecessor's own late date to a day before its early date.) With
     ``task_calendars=None`` every lookup resolves to ``calendar`` and the pass is
     identical to before.
 
