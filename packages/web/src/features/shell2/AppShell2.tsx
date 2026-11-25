@@ -9,6 +9,7 @@ import { useShortcutsModalStore } from '@/stores/shortcutsModalStore';
 import { useHelpShortcut } from '@/hooks/useHelpShortcut';
 import { useBlockerOffline } from '@/features/blocker/offline/useBlockerOffline';
 import { ToastHost } from '@/components/Toast';
+import { SlipReasonDialog } from '@/components/dialog/SlipReasonDialog';
 import { EmptyStateAnnouncer } from '@/components/EmptyStateAnnouncer';
 import {
   SessionExpiredBanner,
@@ -132,6 +133,7 @@ export function AppShell2() {
       <GlobalTaskDrawer />
       {shortcutsModalOpen && <KeyboardShortcutsModal onClose={closeShortcutsModal} />}
       <ToastHost />
+      <SlipReasonDialog />
       {import.meta.env.DEV && import.meta.env.VITE_REACT_QUERY_DEVTOOLS === 'true' && (
         <ReactQueryDevtools initialIsOpen={false} />
       )}

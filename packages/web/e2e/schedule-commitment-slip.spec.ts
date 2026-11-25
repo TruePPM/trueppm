@@ -94,4 +94,49 @@ test.describe('Commitment slip on reschedule (ADR-1485 D1)', () => {
     await expect(page.getByText('Waiting for a Sprint 4 decision')).toBeVisible();
     await expect(page.getByText("Couldn't save the change.")).toHaveCount(0);
   });
+
+  test('an authority holder is asked for a reason and the retry carries it', async ({ page }) => {
+    const bodies: Record<string, unknown>[] = [];
+    await page.route('**/api/v1/tasks/slip-task-1/', async (route) => {
+      if (route.request().method() !== 'PATCH') {
+        await route.fallback();
+        return;
+      }
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      bodies.push(body);
+      if (!body.slip_reason) {
+        await route.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            slip_reason: ['Moving committed work past the sprint end needs a reason.'],
+          }),
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...TASKS[0], ...body }),
+      });
+    });
+
+    await page.goto(BASE_URL);
+    const bar = page.getByRole('option', { name: /Committed work/ });
+    await expect(bar).toBeVisible();
+    await bar.focus();
+    await page.keyboard.press('r');
+    await expect(page.getByTestId('preview-overlay')).toBeVisible();
+    for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('Enter');
+
+    const dialog = page.getByRole('dialog', { name: 'Move past the sprint end?' });
+    await expect(dialog).toBeVisible();
+    await dialog.getByLabel('Reason').fill('Vendor slipped');
+    await dialog.getByRole('button', { name: 'Move it' }).click();
+
+    await expect.poll(() => bodies.length).toBe(2);
+    expect(bodies[1].slip_reason).toBe('Vendor slipped');
+    await expect(dialog).toBeHidden();
+  });
 });

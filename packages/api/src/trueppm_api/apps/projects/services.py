@@ -3820,6 +3820,8 @@ def record_commitment_slip(
         decided_at=timezone.now() if accepted else None,
         decision_reason=(reason or "") if accepted else "",
     )
+    if accepted:
+        _record_decision_note(row, actor, reason)
     if request is not None and not accepted:
         setattr(_host(request), SLIP_PENDING_ATTR, True)
     _on_commit_scope_broadcast(row)
@@ -3854,9 +3856,30 @@ def record_deferred_slip(exc: CommitmentSlipDeferred, request: Any) -> Any:
 
 
 def _stamp_decision(row: Any, by: Any, reason: str) -> None:
+    """Stamp who decided and why, and feed a reasoned decision to the Decisions view.
+
+    Call after ``row.status`` holds the outcome. ADR-1485 D10: a decision with a
+    reason becomes a ``decision=True`` task note, which is what the ADR-0167
+    Decisions view lists, so accept/reject reasons are read where decisions are.
+    """
     row.decided_by = by if (by is not None and getattr(by, "is_authenticated", False)) else None
     row.decided_at = timezone.now()
     row.decision_reason = reason or ""
+    _record_decision_note(row, row.decided_by, reason)
+
+
+def _record_decision_note(row: Any, author: Any, reason: str) -> None:
+    from trueppm_api.apps.projects.models import ScopeChangeKind, TaskNote
+
+    if not (reason or "").strip():
+        return
+    what = "Commitment slip" if row.kind == ScopeChangeKind.SLIP else "Scope change"
+    TaskNote.objects.create(
+        task_id=row.task_id,
+        author=author,
+        body=f"{what} {row.status} for {row.sprint.name}: {reason.strip()}",
+        decision=True,
+    )
 
 
 def _on_commit_scope_broadcast(row: Any) -> None:

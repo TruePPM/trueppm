@@ -91,3 +91,13 @@ export function asCommitmentSlip(error: unknown): CommitmentSlipConflict | null 
 export function commitmentSlipMessage(slip: Pick<CommitmentSlipConflict, 'sprint_name'>): string {
   return `Waiting for a ${slip.sprint_name} decision`;
 }
+
+/**
+ * True when the server needs a reason for a commitment slip the caller may apply
+ * (a 400 carrying a `slip_reason` field error, ADR-1485 D1).
+ */
+export function isSlipReasonRequired(error: unknown): boolean {
+  if (!axios.isAxiosError(error) || error.response?.status !== 400) return false;
+  const data = error.response.data as { slip_reason?: unknown } | undefined;
+  return Array.isArray(data?.slip_reason);
+}

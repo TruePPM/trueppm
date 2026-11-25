@@ -3,6 +3,8 @@
 ## Status
 Accepted (2026-11-24)
 
+> **Amendment (2026-11-24, #2563):** D1's accept authority is the existing ADR-0102 gate, `assert_scope_gate_for_project`: project role Admin or above **or** the Scrum Master / Product Owner facet on the project's default team (#1140). "Admin+" elsewhere in this ADR means that gate. Tokens hold no authority under either arm.
+
 > **Implementation status (2026-11-24, #5125):** design only. **No endpoint, model, field, or webhook event described here exists yet**: verified 2026-11-24 against `packages/api/src/trueppm_api/apps/scheduling/views.py` (only the Monte Carlo what-if exists), `apps/projects/models.py` (`SprintScopeChange` covers injection only, and `Sprint` has no owner field), and `apps/projects/people_load_views.py`. One D1 decision **reverses current behavior**: today an `api:full` token *can* accept and reject scope changes. `scope-changes/<pk>/accept|reject/` and `sprints/<pk>/scope-changes/accept|reject/` are on the pinned token write surface (`packages/api/tests/apps/access/token_write_surface.txt` lines 276–277, 294–295), and `SprintScopeChangeViewSet` has no token refusal.
 
 ## Context

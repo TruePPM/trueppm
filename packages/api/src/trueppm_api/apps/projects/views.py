@@ -7465,6 +7465,11 @@ class TaskViewSet(
             record_deferred_slip,
         )
 
+        # The savepoint exists for CommitmentSlipDeferred (ADR-1485 D1). It also means
+        # a TaskWriteRefusal now rolls back anything written before it in this
+        # request. No refusal relies on that: every TaskWriteRefusal subclass is
+        # raised from TaskSerializer.validate()/its helpers, before perform_update
+        # writes anything (checked when this savepoint was added).
         try:
             with transaction.atomic():
                 response: Response = super_method(request, *args, **kwargs)

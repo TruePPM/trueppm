@@ -26,6 +26,7 @@ import { KeyboardShortcutsModal } from './KeyboardShortcutsModal';
 import { CreateDispatcher } from './CreateDispatcher';
 import { GlobalTaskDrawer } from './GlobalTaskDrawer';
 import { ToastHost } from '@/components/Toast';
+import { SlipReasonDialog } from '@/components/dialog/SlipReasonDialog';
 import { EmptyStateAnnouncer } from '@/components/EmptyStateAnnouncer';
 import { DisplayFormatSync } from './DisplayFormatSync';
 import { useBlockerOffline } from '@/features/blocker/offline/useBlockerOffline';
@@ -226,6 +227,7 @@ export function AppShell() {
           for app-wide confirmations (create/complete/save/pin/theme). Board-local
           notices stay in BoardDropNotice (rule 170). */}
       <ToastHost />
+      <SlipReasonDialog />
 
       {/* The React Query devtools panel is opt-in: it occupies screen real estate,
           so it stays off unless VITE_REACT_QUERY_DEVTOOLS=true is set at build/dev

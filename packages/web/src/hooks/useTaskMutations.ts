@@ -5,8 +5,10 @@ import {
   asCommitmentSlip,
   commitmentSlipMessage,
   handleSyncConflict,
+  isSlipReasonRequired,
   isSyncConflict,
 } from '@/api/conflict';
+import { requestSlipReason } from '@/stores/slipReasonPromptStore';
 import { toast } from '@/components/Toast';
 import {
   extractRejectReason,
@@ -133,6 +135,8 @@ export function useCreateTask(projectId: string | null) {
 export interface UpdateTaskPayload {
   id: string;
   projectId: string;
+  /** Required when an accept-authority caller slips committed work (ADR-1485 D1). */
+  slip_reason?: string;
   name?: string;
   duration?: number;
   percent_complete?: number;
@@ -353,6 +357,14 @@ export function useUpdateTask() {
         extractRejectReason(err),
         () => mutateRef.current?.(variables),
       );
+      // ADR-1485 D1: the caller may apply this slip but owes a reason. The rollback
+      // above already restored the dates, so Cancel leaves them unchanged.
+      if (isSlipReasonRequired(err)) {
+        void requestSlipReason().then((reason) => {
+          if (reason) mutateRef.current?.({ ...variables, slip_reason: reason });
+        });
+        return;
+      }
       // ADR-1485 D1: the server deferred a commitment slip (a PENDING scope change),
       // so the edit is waiting on an Admin+ decision. Say so; never the error toast.
       const slip = asCommitmentSlip(err);
@@ -402,6 +414,8 @@ export function useUpdateTask() {
 export interface RescheduleTaskPayload {
   id: string;
   projectId: string;
+  /** Required when an accept-authority caller slips committed work (ADR-1485 D1). */
+  slip_reason?: string;
   planned_start?: string | null;
   duration?: number;
   /** Target finish date (#951) — the server derives the working-day `duration`
@@ -535,6 +549,13 @@ export function useRescheduleTask() {
           duration: payload.optimistic.duration,
         })
       ) {
+        return;
+      }
+      // ADR-1485 D1: reason owed for an applicable slip (see useUpdateTask).
+      if (isSlipReasonRequired(err)) {
+        void requestSlipReason().then((reason) => {
+          if (reason) mutateRef.current?.({ ...payload, slip_reason: reason });
+        });
         return;
       }
       // ADR-1485 D1: a deferred commitment slip is a PENDING scope change, not a

@@ -30,12 +30,14 @@ from trueppm_api.apps.projects.models import (
     SprintScopeChange,
     SprintState,
     Task,
+    TaskNote,
 )
 from trueppm_api.apps.projects.services import (
     COMMITMENT_SLIP_CODE,
     accept_scope_change,
     reject_scope_change,
 )
+from trueppm_api.apps.teams.models import Team, TeamMembership, TeamRole
 
 User = get_user_model()
 
@@ -381,3 +383,124 @@ def test_token_cannot_decide_a_batch(
     assert row.status == ScopeChangeStatus.PENDING
     refused = AgentAction.objects.filter(verdict=AgentActionVerdict.REFUSED)
     assert refused.filter(refusal_reason="identity").exists()
+
+
+# --------------------------------------------------------------------------- #
+# Authority includes the SM/PO facet (ADR-1485 D1 amendment, #1140)
+# --------------------------------------------------------------------------- #
+
+
+def _product_owner(project: Project) -> Any:
+    po = _user(project, "slip_po", Role.MEMBER)
+    team = Team.objects.create(
+        project=project, is_default=True, name="Default Team", short_id="T01", server_version=1
+    )
+    TeamMembership.objects.create(team=team, user=po, role=TeamRole.MEMBER, is_product_owner=True)
+    return po
+
+
+def test_product_owner_below_admin_can_apply_a_slip(project: Project, sprint: Sprint) -> None:
+    po = _product_owner(project)
+    task = Task.objects.create(
+        project=project,
+        name="PO task",
+        planned_start=SPRINT_START,
+        duration=3,
+        sprint=sprint,
+        assignee=po,
+    )
+    res = _patch(_client(po), task, {"duration": 15, "slip_reason": "Scope trade-off"})
+    assert res.status_code == 200, res.data
+    row = SprintScopeChange.objects.get(task=task, kind=ScopeChangeKind.SLIP)
+    assert row.status == ScopeChangeStatus.ACCEPTED
+
+
+def test_product_owner_below_admin_can_decide_a_slip(
+    project: Project, sprint: Sprint, member: Any
+) -> None:
+    po = _product_owner(project)
+    task, row = _pending_slip(project, sprint, member)
+    res = _client(po).post(
+        f"/api/v1/scope-changes/{row.pk}/accept/", {"reason": "PO accepts"}, format="json"
+    )
+    assert res.status_code == 200, res.data
+    task.refresh_from_db()
+    assert task.duration == 15
+
+
+# --------------------------------------------------------------------------- #
+# D10: reasons feed the Decisions view (ADR-0167)
+# --------------------------------------------------------------------------- #
+
+
+def test_decision_reasons_become_decision_notes(
+    project: Project, sprint: Sprint, member: Any, admin: Any
+) -> None:
+    from trueppm_api.apps.projects.decisions_services import decision_notes_queryset
+
+    _task, row = _pending_slip(project, sprint, member)
+    reject_scope_change(row, admin, reason="Hold the date")
+    notes = list(decision_notes_queryset(project.pk))
+    assert [n.body for n in notes] == ["Commitment slip rejected for Sprint 4: Hold the date"]
+    assert notes[0].author == admin
+
+
+def test_a_decision_without_a_reason_adds_no_note(
+    project: Project, sprint: Sprint, member: Any, admin: Any
+) -> None:
+    _task, row = _pending_slip(project, sprint, member)
+    accept_scope_change(row, admin)
+    assert not TaskNote.objects.filter(decision=True).exists()
+
+
+# --------------------------------------------------------------------------- #
+# Every date-write route answers a non-authority slip with the code
+# --------------------------------------------------------------------------- #
+
+
+def _via_patch(client: APIClient, project: Project, task: Task) -> str:
+    res = _patch(client, task, {"duration": 15})
+    assert res.status_code == 409, res.data
+    return str(res.data["code"])
+
+
+def _via_bulk(client: APIClient, project: Project, task: Task) -> str:
+    ops = [{"op": "update", "id": str(task.pk), "data": {"duration": 15}}]
+    res = client.post(
+        f"/api/v1/projects/{project.pk}/tasks/bulk/", {"operations": ops}, format="json"
+    )
+    return str(res.data["rejected"][0]["code"])
+
+
+def _via_sync(client: APIClient, project: Project, task: Task) -> str:
+    payload = {
+        "client_batch_id": "6f1c9a52-6c55-4f0e-9d0b-2f5f9a1d3c02",
+        "changes": {
+            "tasks": {
+                "created": [],
+                "updated": [{"id": str(task.pk), "duration": 15}],
+                "deleted": [],
+            }
+        },
+    }
+    res = client.post(f"/api/v1/projects/{project.pk}/sync/", payload, format="json")
+    return str(res.data["conflicts"]["tasks"][0]["code"])
+
+
+@pytest.mark.parametrize(
+    "route",
+    [_via_patch, _via_bulk, _via_sync],
+    ids=["PATCH tasks/{id}/", "POST projects/{id}/tasks/bulk/", "POST projects/{id}/sync/"],
+)
+def test_every_date_write_route_defers_a_non_authority_slip(
+    project: Project, sprint: Sprint, member: Any, route: Any
+) -> None:
+    """The date-write route table (ADR-1485 D1). Token and agent writes reach these
+    same routes; "Schedule selected…" placement (D5) does not exist yet."""
+    task = _committed(project, sprint)
+    assert route(_client(member), project, task) == COMMITMENT_SLIP_CODE
+    task.refresh_from_db()
+    assert task.duration == 3
+    assert SprintScopeChange.objects.filter(
+        task=task, kind=ScopeChangeKind.SLIP, status=ScopeChangeStatus.PENDING
+    ).exists()
