@@ -1,5 +1,9 @@
 ---
-// Custom 404 that bypasses the Starlight content collection lookup
+// Custom 404 that bypasses the Starlight content collection lookup.
+// Starlight's stylesheet is not loaded here, so the few tokens it needs are
+// declared locally, and the theme follows the OS preference.
+import "../styles/fonts.css";
+import Brand from "../components/Brand.astro";
 ---
 <!doctype html>
 <html lang="en">
@@ -7,20 +11,90 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>404 — TruePPM Docs</title>
-    <style>
-      body { font-family: system-ui, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #17181c; color: #eef0f6; }
-      .container { text-align: center; max-width: 480px; padding: 2rem; }
-      h1 { font-size: 3rem; margin: 0 0 0.5rem; color: #7b9ff9; }
-      p { font-size: 1.125rem; margin: 0.5rem 0 1.5rem; color: #8b90a0; }
-      a { color: #7b9ff9; text-decoration: none; border: 1px solid #7b9ff9; padding: 0.5rem 1.5rem; border-radius: 4px; }
-      a:hover { background: #7b9ff9; color: #17181c; }
-    </style>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   </head>
   <body>
-    <div class="container">
+    <main class="container">
+      <Brand />
       <h1>404</h1>
       <p>The page you're looking for doesn't exist.</p>
-      <a href="/">Back to docs</a>
-    </div>
+      <a class="button" href="/">Back to docs</a>
+    </main>
   </body>
 </html>
+
+<style is:global>
+  :root {
+    color-scheme: light dark;
+    --tp-docs-ink: #1b2a4a;
+    --tp-docs-mark-node: #1b2a4a;
+    --bg: #faf8f3;
+    --body: #3c4147;
+    --button-bg: #4fa884;
+    --button-text: #0e1626;
+    --button-border: #316f57;
+    --button-hover-bg: #316f57;
+    --button-hover-text: #ffffff;
+    --focus: #316f57;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --tp-docs-ink: #e9edf3;
+      --tp-docs-mark-node: #e9edf3;
+      --bg: #0e1626;
+      --body: #9baac6;
+      --button-bg: #66b998;
+      --button-border: #66b998;
+      --button-hover-bg: #84cbac;
+      --button-hover-text: #0e1626;
+      --focus: #66b998;
+    }
+  }
+  body {
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    margin: 0;
+    background: var(--bg);
+    color: var(--body);
+  }
+  .container {
+    text-align: center;
+    max-width: 480px;
+    padding: 2rem;
+  }
+  h1 {
+    font-family: "Space Grotesk", "Inter", system-ui, sans-serif;
+    font-weight: 600;
+    font-size: 64px;
+    line-height: 1.1;
+    margin: 1.5rem 0 0.5rem;
+    color: var(--tp-docs-ink);
+  }
+  p {
+    font-size: 18px;
+    line-height: 1.6;
+    margin: 0.5rem 0 1.5rem;
+  }
+  .button {
+    display: inline-block;
+    padding: 13px 20px;
+    border: 1px solid var(--button-border);
+    border-radius: 9px;
+    background: var(--button-bg);
+    color: var(--button-text);
+    font-weight: 500;
+    font-size: 15px;
+    text-decoration: none;
+  }
+  .button:hover {
+    background: var(--button-hover-bg);
+    color: var(--button-hover-text);
+  }
+  a:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+</style>

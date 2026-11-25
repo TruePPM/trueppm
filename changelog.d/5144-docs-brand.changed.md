@@ -1,0 +1,1 @@
+- Docs site: brought the styling in line with the trueppm.com brand (navy and sage in light and dark, self-hosted brand typefaces, a header lockup and favicon, distinct version-status callouts, one dark code theme, framed diagrams, and a reworked landing hero). The theme now follows the visitor's system preference instead of forcing light on a first visit. (#5144)

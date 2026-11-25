@@ -134,3 +134,20 @@ records a decision at a point in time, and re-editing it per release is how the
 original "matching the devDependency" claim came to be trusted in the first
 place. `PLAYWRIGHT_BASE_TAG` in `.gitlab-ci.yml` is the single live value, and
 `check-playwright-pins.sh` is what proves the other three agree with it.
+
+## Amendment (2026-11-25): navy/sage palette and per-theme overrides (#5144)
+
+The build-time decision is unchanged: one render, inline SVG, zero client
+JavaScript. Two details of it moved.
+
+- **Palette.** The indigo fills and gray edges described above are replaced by the
+  brand's navy/sage values ([ADR-0103](0103-design-system-v2-navy-sage-rebrand.md)):
+  sage-700 nodes with white labels, navy edge-label and note chips, slate lines.
+- **Theme-aware CSS.** No single color reaches 4.5:1 on both a white and a navy
+  page, so unfilled text and lines (edges, arrowheads, cluster outlines and
+  cluster titles) take a per-theme value from CSS custom properties in
+  `packages/website/src/styles/custom.css`, extending the arrowhead override this
+  ADR already carried. The baked colors remain the fallback. Each diagram also
+  sits in a framed panel. The Arial metric stack stays, since it is a correctness
+  constraint.
+
