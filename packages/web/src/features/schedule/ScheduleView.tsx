@@ -1119,6 +1119,8 @@ export function ScheduleView() {
   const shellV2 = useFeatureFlag(SCHEDULE_SHELL_V2_FLAG);
   const showAllChildren = useScheduleV2OpeningStore((s) => s.showAll);
   const setHiddenByCap = useScheduleV2OpeningStore((s) => s.setHidden);
+  const selectedTaskIdForCap = useScheduleStore((s) => s.selectedTaskId);
+  const scrollTargetIdForCap = useScheduleStore((s) => s.scrollToTaskId);
   const [noStartOnly, setNoStartOnly] = useState(false);
 
   // Sprint lookup for the Duplicate Undo affordance (#477).
@@ -1252,7 +1254,11 @@ export function ScheduleView() {
       };
     const tree = buildWbsTree(allTasks);
     const sIds = new Set(allTasks.filter((t) => t.isSummary).map((t) => t.id));
-    const visible = flattenVisible(tree, expandedIds).map((n) => n.task);
+    // The no-committed-start filter looks at every row, not just the unfolded
+    // ones: the footer counts the whole project, so the list it opens must too.
+    const visible = flattenVisible(tree, shellV2 && noStartOnly ? sIds : expandedIds).map(
+      (n) => n.task,
+    );
     // Rows in each summary's SUBTREE. Descendants rather than direct children
     // because folding hides the whole subtree, so that is what "N hidden" —
     // and therefore "N inside" — is counting (#3025). Read by the fold
@@ -1289,10 +1295,31 @@ export function ScheduleView() {
     // Both keep summaries, so the hierarchy a surviving row sits in stays legible.
     let hiddenByCap = new Map<string, number>();
     if (shellV2 && noStartOnly) {
-      filtered = filtered.filter((t) => t.isSummary || isMissingCommittedStart(t));
+      // Keep each match's ancestor summaries (so it sits in its phase) and drop
+      // summaries with no match beneath them.
+      const byId = new Map(filtered.map((t) => [t.id, t]));
+      const keep = new Set<string>();
+      for (const t of filtered) {
+        if (t.isSummary || !isMissingCommittedStart(t)) continue;
+        for (let cur: Task | undefined = t; cur && !keep.has(cur.id); ) {
+          keep.add(cur.id);
+          cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+        }
+      }
+      filtered = filtered.filter((t) => keep.has(t.id));
     }
     if (shellV2 && !noStartOnly) {
-      const capped = capChildren(filtered, (t) => t.parentId ?? null, showAllChildren);
+      // A row the reader selected or jumped to is never hidden by the cap, nor
+      // are the ancestors it hangs from.
+      const exempt = new Set<string>();
+      const byId = new Map(filtered.map((t) => [t.id, t]));
+      for (const id of [selectedTaskIdForCap, scrollTargetIdForCap]) {
+        for (let cur = id ? byId.get(id) : undefined; cur && !exempt.has(cur.id); ) {
+          exempt.add(cur.id);
+          cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+        }
+      }
+      const capped = capChildren(filtered, (t) => t.parentId ?? null, showAllChildren, undefined, exempt);
       filtered = capped.rows;
       hiddenByCap = capped.hiddenByParent;
     }
@@ -1306,6 +1333,8 @@ export function ScheduleView() {
     shellV2,
     noStartOnly,
     showAllChildren,
+    selectedTaskIdForCap,
+    scrollTargetIdForCap,
     allTasks,
     expandedIds,
     showCriticalOnly,
@@ -1424,7 +1453,6 @@ export function ScheduleView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allTasks.length, isDemoReadOnly]);
 
-  const visibleTasksForFooter = allTasks;
   const unscheduledTasks = useUnscheduledTasks(allTasks);
 
   // "N planned" phase badges (#1798). Attribute the sprint-assigned backlog
@@ -1919,7 +1947,7 @@ export function ScheduleView() {
     if (visibleTasks.length === 0) return;
 
     const todayIso = new Date().toISOString().slice(0, 10);
-    // Shell v2 (#5106): open on a 12-week window that starts 2.5 weeks before today,
+    // Shell v2 (#5106): open on a 12-week window that starts 16 days before today,
     // so today sits in the left fifth. Independent of where the work is — the Fit
     // fallback below is v1's answer to an empty opening canvas.
     if (shellV2 && !isDemoReadOnly) {
@@ -5021,9 +5049,9 @@ export function ScheduleView() {
 
       <ScheduleMainArea
         gridFooter={
-          shellV2 && outlineRendered && visibleTasksForFooter.length > 0 ? (
+          shellV2 && outlineRendered && allTasks.length > 0 ? (
             <ScheduleGridFooterV2
-              tasks={visibleTasksForFooter}
+              tasks={allTasks}
               width={outlineWidth}
               noStartOnly={noStartOnly}
               onToggleNoStart={() => setNoStartOnly((v) => !v)}
@@ -7495,6 +7523,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
               onAnnounce={onAnnounce}
               onAppendTaskAtEnd={onAppendTaskAtEnd}
               appendAtEndReadOnly={appendAtEndReadOnly}
+              bottomReserve={props.gridFooter ? 32 : 0}
             />
             {/* Panel splitter — drag to resize the name column. Present on both
                 surfaces: on the Timeline it is what makes a deeply nested WBS

@@ -74,6 +74,19 @@ function rows() {
       early_finish: iso(60),
       planned_start: iso(-10),
     },
+    // A defective row inside a FOLDED phase: the footer counts it, so the filter must list it.
+    {
+      ...base,
+      id: 'past2',
+      wbs_path: '1.2',
+      name: 'Past defect',
+      is_summary: false,
+      parent_id: 'past',
+      status: 'IN_PROGRESS',
+      early_start: iso(-40),
+      early_finish: iso(-35),
+      planned_start: null,
+    },
   ];
   for (let i = 1; i <= 13; i += 1) {
     out.push({
@@ -124,8 +137,83 @@ test.describe('shell v2 Schedule opening state (#5106)', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await open(page);
     await expect(page.getByTestId('schedule-grid-footer')).toBeVisible({ timeout: 15_000 });
-    const box = await page.getByTestId('schedule-grid-footer').boundingBox();
+    const box = await page.getByTestId('task-list-panel').boundingBox();
     expect(Math.round(box?.width ?? 0)).toBe(448);
+    // Exactly the five default columns: ID (WBS), task, owner, finish, total float.
+    const headers = page.getByRole('columnheader');
+    await expect(headers).toHaveCount(5);
+    for (const name of [
+      'Work breakdown structure',
+      'Item',
+      'Owner',
+      'Finish date',
+      'Total float',
+    ]) {
+      await expect(page.getByRole('columnheader', { name, exact: true })).toBeVisible();
+    }
+    for (const name of ['Duration', 'Start date', 'Progress', 'Free float']) {
+      await expect(page.getByRole('columnheader', { name, exact: true })).toHaveCount(0);
+    }
+  });
+
+  test('opens with today in the left fifth of the chart', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await open(page);
+    // Work item 5 starts today.
+    const bar = page.locator('[role="option"][data-task-id="k5"]');
+    await expect(bar).toBeAttached({ timeout: 15_000 });
+    const scroll = page.getByTestId('schedule-canvas-scroll');
+    // The engine frames the window after layout settles, so poll for the settled frame.
+    await expect
+      .poll(
+        async () => {
+          const b = await bar.boundingBox();
+          const c = await scroll.boundingBox();
+          if (!b || !c) return false;
+          const x = (b.x - c.x) / c.width;
+          return x > 0.1 && x <= 0.21;
+        },
+        { timeout: 10_000 },
+      )
+      .toBe(true);
+  });
+
+  test('the footer does not cover the append-task row at the end of the list', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 520 });
+    await open(page);
+    const append = page.getByTestId('schedule-append-task-footer');
+    await expect(append).toBeAttached({ timeout: 15_000 });
+    const clearance = async () => {
+      // Scroll the outline to its very end, where the append row meets the footer.
+      await page.getByTestId('task-list-panel').evaluate((panel) => {
+        for (const el of panel.querySelectorAll<HTMLElement>('*')) {
+          if (el.scrollHeight > el.clientHeight && getComputedStyle(el).overflowY === 'auto') {
+            el.scrollTop = el.scrollHeight;
+          }
+        }
+      });
+      const a = await append.boundingBox();
+      const f = await page.getByTestId('schedule-grid-footer').boundingBox();
+      return a && f ? f.y + 1 - (a.y + a.height) : -999;
+    };
+    // The append row must end at or above the footer's top edge.
+    await expect.poll(clearance, { timeout: 10_000 }).toBeGreaterThanOrEqual(0);
+    // Playwright's actionability check fails this click if the footer sits on top.
+    await append.getByRole('button').click({ timeout: 5_000 });
+  });
+
+  test('a task hidden by the 10-child cap is revealed when jumped to', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.addInitScript(() => {
+      localStorage.setItem('trueppm.featureFlags', JSON.stringify({ shell_v2: true }));
+    });
+    await setupAuth(page);
+    await setupCatchAll(page);
+    await setupApiMocks(page, { projects: PROJECTS, projectId: PROJECT_ID, tasks: rows() });
+    await setupTaskStore(page, { tasks: rows() });
+    await page.goto(`${BASE_URL}?task=k12`);
+    await expect(page.getByText('Work item 12', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('Work item 11', { exact: true })).toHaveCount(0);
   });
 
   test('no-committed-start rolls up into one footer count with a filter; no per-row chip', async ({
@@ -134,10 +222,13 @@ test.describe('shell v2 Schedule opening state (#5106)', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await open(page);
     const filter = page.getByTestId('schedule-no-start-filter');
-    await expect(filter).toContainText('2 no committed start', { timeout: 15_000 });
+    await expect(filter).toContainText('3 no committed start', { timeout: 15_000 });
     await expect(page.getByText('no committed start', { exact: false })).toHaveCount(1);
     await filter.click();
     await expect(page.getByText('Work item 2', { exact: true })).toBeVisible();
+    // The defect inside the folded past phase is listed too, under its phase.
+    await expect(page.getByText('Past defect', { exact: true })).toBeVisible();
+    await expect(page.getByText('Past child', { exact: true })).toHaveCount(0);
     await expect(page.getByText('Work item 3', { exact: true })).toHaveCount(0);
     await filter.click();
     await expect(page.getByText('Work item 3', { exact: true })).toBeVisible();

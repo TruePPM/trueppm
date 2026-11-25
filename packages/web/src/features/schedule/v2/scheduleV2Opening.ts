@@ -5,9 +5,14 @@ import { isMissingCommittedStart } from '../missingCommittedStart';
 export const V2_GRID_WIDTH = 448;
 /** Sum of the non-task columns of the v2 default set (wbs 48 + owner 72 + finish 74 + float 56). */
 export const V2_FIXED_COLUMNS_WIDTH = 250;
-/** The opening window: 12 weeks, starting 2.5 weeks before today (#5106). */
+/** The opening window: 12 weeks, starting 16 days before today (#5106). */
 export const V2_WINDOW_DAYS = 84;
-export const V2_LEAD_DAYS = 17.5;
+/**
+ * Whole days: `openingWindow` rounds the center date, so a fractional lead would
+ * shift the left edge by a day. 16/84 puts the today line at 19% of the width,
+ * inside the left fifth.
+ */
+export const V2_LEAD_DAYS = 16;
 /** Children shown under an expanded phase before the "N more" chip (#5106). */
 export const V2_CHILD_CAP = 10;
 
@@ -22,7 +27,7 @@ export function shiftIso(today: string, days: number): string {
 /**
  * The opening viewport: px/day that fits 12 weeks into the timeline, and the
  * date at the viewport's center (the engine centers on a date), so that the
- * left edge lands 2.5 weeks before today.
+ * left edge lands 16 days before today.
  */
 export function openingWindow(
   today: string,
@@ -76,7 +81,8 @@ export interface CapResult<T extends { id: string }> {
 
 /**
  * Cap each expanded parent's direct children at `cap`, hiding the rest (and
- * their subtrees) until the parent id is in `showAll`. `parentOf` returns a
+ * their subtrees) until the parent id is in `showAll`. Ids in `exempt` (a
+ * selected or jumped-to row and its ancestors) are never hidden. `parentOf` returns a
  * row's parent id. Order is preserved.
  */
 export function capChildren<T extends { id: string }>(
@@ -84,6 +90,7 @@ export function capChildren<T extends { id: string }>(
   parentOf: (row: T) => string | null,
   showAll: ReadonlySet<string>,
   cap = V2_CHILD_CAP,
+  exempt: ReadonlySet<string> = new Set(),
 ): CapResult<T> {
   const seen = new Map<string, number>();
   const hiddenParents = new Set<string>();
@@ -96,7 +103,7 @@ export function capChildren<T extends { id: string }>(
       hiddenParents.add(row.id);
       continue;
     }
-    if (parent && !showAll.has(parent)) {
+    if (parent && !showAll.has(parent) && !exempt.has(row.id)) {
       const n = (seen.get(parent) ?? 0) + 1;
       seen.set(parent, n);
       if (n > cap) {

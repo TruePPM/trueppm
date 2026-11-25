@@ -13,11 +13,12 @@ const t = (over: Partial<Task> & { id: string }): Task =>
   ({ name: over.id, isSummary: false, parentId: null, status: 'NOT_STARTED', ...over }) as Task;
 
 describe('openingWindow', () => {
-  it('fits 12 weeks and starts the window 2.5 weeks before today', () => {
+  it('fits 12 weeks and starts the window 16 days before today', () => {
     const w = openingWindow('2026-06-15', 840);
     expect(w.pxPerDay).toBe(10);
-    // centered 42 days into the window: left edge = today - 17.5d (rounded)
-    expect(w.centerIso).toBe(shiftIso('2026-06-15', 24.5));
+    // centered 42 days into the window: left edge = today - 16d, today at 19%
+    expect(w.centerIso).toBe(shiftIso('2026-06-15', 26));
+    expect(16 / 84).toBeLessThan(0.2);
   });
 });
 
@@ -33,6 +34,16 @@ describe('openingExpandedIds', () => {
   });
   it('falls back to the first unfinished phase when today is in none', () => {
     expect(openingExpandedIds(tasks, '2027-01-01')).toEqual(['a']);
+  });
+  it('does not match a phase with a missing start or finish as containing today', () => {
+    const open = [
+      t({ id: 'a', isSummary: true, start: '2026-01-01', finish: '2026-02-01', progress: 100 }),
+      t({ id: 'b', isSummary: true, start: '2026-06-01', progress: 50 }),
+      t({ id: 'b1', isSummary: true, parentId: 'b' }),
+      t({ id: 'c', isSummary: true, finish: '2026-09-01', progress: 0 }),
+    ];
+    // Neither b nor c can contain today, so the first unfinished phase opens.
+    expect(openingExpandedIds(open, '2026-06-15')).toEqual(['b', 'b1']);
   });
   it('returns nothing without phases', () => {
     expect(openingExpandedIds([t({ id: 'x' })], '2026-06-15')).toEqual([]);
@@ -58,6 +69,20 @@ describe('capChildren', () => {
     const r = capChildren(rows, parentOf, new Set(['p']));
     expect(r.rows).toHaveLength(rows.length);
     expect(r.hiddenByParent.size).toBe(0);
+  });
+});
+
+describe('capChildren exemption', () => {
+  const rows = [
+    { id: 'p', parentId: null as string | null },
+    ...Array.from({ length: 13 }, (_, i) => ({ id: `c${i}`, parentId: 'p' as string | null })),
+  ];
+  it('keeps an exempt row past the cap without revealing its siblings', () => {
+    const r = capChildren(rows, (x) => x.parentId, new Set(), undefined, new Set(['p', 'c11']));
+    const ids = r.rows.map((x) => x.id);
+    expect(ids).toContain('c11');
+    expect(ids).not.toContain('c10');
+    expect(r.hiddenByParent.get('p')).toBe(2);
   });
 });
 
