@@ -88,11 +88,11 @@ a committed, seeded corpus generated *by the reference*
 holds 160 planning networks, since #4633 80 progress networks drawn the way
 ``progress_projects(modeled=True)`` drew them before #4671, since #5034 80 more
 progress networks whose live percents are fractional (``fraction_*``, a separate seed
-so the earlier blocks stay byte-stable), and since #4785 the named shapes in
-``NAMED_CORPUS_CASES``. The corpus mirror is deliberately NOT widened with
-the live generators (#4671): that would change the committed fixture, so Rust is held
-in CI to the narrow corpus only, and the widened live properties (the 25-task profile
-included) run against Rust only where a Rust runner exists. The
+so the earlier blocks stay byte-stable), since #4914 80 wide progress networks
+(``wide_*``, the live near/far mixture, own seed), and since #4785 the named shapes in
+``NAMED_CORPUS_CASES``. The ``wide_*`` block mirrors the live generators' widened
+ranges (#4671), so CI holds Rust to the widened region too; the live properties still
+run against Rust only where a Rust runner exists. The
 corpus tests below keep that file in lock-step with the reference and check the
 Python engine against it too. Regenerate with
 ``REGEN_ORACLE_CORPUS=1 pytest tests/test_cpm_oracle.py -k corpus``.
@@ -181,6 +181,9 @@ PROGRESS_CORPUS_SIZE = 80
 # progress block above draws only 0/20/50/80 and is kept byte-stable (#4671).
 FRACTION_CORPUS_SEED = 5034
 FRACTION_CORPUS_SIZE = 80
+# The wide block (#4914): the near/far mixture of the live ``progress_projects``.
+WIDE_CORPUS_SEED = 4914
+WIDE_CORPUS_SIZE = 80
 # Same monorepo detection as test_wasm_conformance.py (#3856): outside the monorepo
 # (an unpacked sdist) the corpus is absent and its tests skip; inside it, a missing
 # corpus must fail loudly rather than silently skip (#1506).
@@ -533,18 +536,41 @@ def random_fractional_progress_project(rng: random.Random) -> RefProject:
             return project
 
 
-def _random_progress_project(rng: random.Random, *, fractional: bool = False) -> RefProject:
+def random_wide_progress_project(rng: random.Random) -> RefProject:
+    """The corpus's wide cases (#4914): the near/far mixture of ``progress_projects``.
+
+    :func:`_random_progress_project` with ``wide=True``, so CI holds Rust to the
+    widened region (far data dates, long tasks, large lags, long shutdowns, the
+    25-task profile) the live properties only check where a Rust runner exists.
+    """
+    while True:
+        project = _random_progress_project(rng, wide=True)
+        if not _ff_out_of_a_non_working_actual_finish(project):
+            return project
+
+
+def _random_progress_project(  # noqa: C901 - one flat seeded draw; splitting reorders the RNG
+    rng: random.Random, *, fractional: bool = False, wide: bool = False
+) -> RefProject:
+    # ``wide`` mirrors the live ``progress_projects`` draw (#4671): three in four
+    # projects stay near-start, the rest reach production's ranges. The other two
+    # corpus blocks never pass it, so their inputs stay byte-stable.
+    near = not wide or rng.randrange(4) > 0
     start = _EPOCH + timedelta(days=rng.randint(0, 6))
     n = rng.randint(1, 6)
+    if wide:
+        n = rng.randint(12, 25) if rng.random() < 0.1 else rng.randint(1, 8)
     # The fractional block draws longer tasks, so ``100 * k / n`` has more repeating
     # decimals to land on, and mostly live ones; the other blocks keep their draw.
-    durations = {f"T{i}": rng.randint(0, 12 if fractional else 5) for i in range(n)}
+    max_dur = 12 if fractional else (5 if near else 20)
+    durations = {f"T{i}": rng.randint(0, max_dur) for i in range(n)}
 
     def calendar(mask: int) -> RefCalendar:
         ranges = []
-        if rng.random() < 0.5:
-            lo = _EPOCH + timedelta(days=rng.randint(0, 30))
-            ranges.append((lo, lo + timedelta(days=rng.randint(0, 3))))
+        for _ in range(1 if near else rng.randint(1, 2)):
+            if rng.random() < 0.5:
+                lo = _EPOCH + timedelta(days=rng.randint(0, 30 if near else 150))
+                ranges.append((lo, lo + timedelta(days=rng.randint(0, 3 if near else 16))))
         return RefCalendar(working_mask=mask, exceptions=tuple(ranges))
 
     calendars: dict[str, RefCalendar] = {}
@@ -559,17 +585,28 @@ def _random_progress_project(rng: random.Random, *, fractional: bool = False) ->
             cid = rng.choice((None, "five", "four", "seven"))
             if cid is not None:
                 task_calendar[tid] = cid
+    # Sparse on a large far network (about two links per task), as the live draw.
+    link_p = 0.35 if near or n <= 8 else 2 / max(3, n // 2)
+    lag_lo, lag_hi = (-3, 5) if near else (-15, 25)
     links = [
         _on_one_calendar(
-            RefLink(f"T{i}", f"T{j}", rng.choice(LINK_TYPES), rng.randint(-3, 5)), task_calendar
+            RefLink(f"T{i}", f"T{j}", rng.choice(LINK_TYPES), rng.randint(lag_lo, lag_hi)),
+            task_calendar,
         )
         for j in range(n)
         for i in range(j)
-        if rng.random() < 0.35
+        if rng.random() < link_p
     ]
+    lo_snet, hi_snet = (-21, 12) if near else (-40, 90)
 
     def day(lo: int, hi: int) -> date:
         return start + timedelta(days=rng.randint(lo, hi))
+
+    # Mirrors the live draw's 99 / 99.9 percents on a wide task (#4671).
+    def percent(dur: int) -> float:
+        if wide and dur and rng.random() < 0.15:
+            return rng.choice((99.0, 99.9))
+        return _started_percent(rng, dur, fractional=fractional or wide)
 
     planned_start: dict[str, date] = {}
     progress: dict[str, RefProgress] = {}
@@ -577,12 +614,12 @@ def _random_progress_project(rng: random.Random, *, fractional: bool = False) ->
         if rng.random() < 0.25:
             # Three weeks before the start: the pre-#4671 near-start range of
             # progress_projects, which found #4635.
-            planned_start[tid] = day(-21, 12)
+            planned_start[tid] = day(lo_snet, hi_snet)
         state = rng.choice(("none", "none", "started", "done", "done_recorded"))
         if fractional and rng.random() < 0.6:
             state = "started"
         if state == "started":
-            pct = _started_percent(rng, dur, fractional=fractional)
+            pct = percent(dur)
             actual_start = day(-6, 4) if rng.random() < 0.5 else None
             if pct or actual_start is not None:
                 progress[tid] = RefProgress(percent_complete=pct, actual_start=actual_start)
@@ -597,7 +634,8 @@ def _random_progress_project(rng: random.Random, *, fractional: bool = False) ->
             progress[tid] = RefProgress(
                 percent_complete=pct, actual_start=started, actual_finish=finish
             )
-    status_date = day(-21, 8) if rng.random() < 0.5 else None
+    lo_status, hi_status = (-21, 8) if near else (-40, 90)
+    status_date = day(lo_status, hi_status) if rng.random() < 0.5 else None
     return RefProject(
         start=start,
         durations=durations,
@@ -848,8 +886,9 @@ def rust_engine() -> Iterator[RustRunner]:
             "No Rust toolchain: the live Rust properties need `cargo` or "
             "TRUEPPM_ORACLE_RUST_RUNNER. In CI, wasm:test holds Rust to the committed "
             "oracle corpus (tests/oracle_conformance.rs): 160 planning networks, 80 "
-            "progress networks and the named shapes. The random properties, and the "
-            "perturbation properties over shapes the reference refuses, run on Rust only locally."
+            "progress networks, 80 fractional, 80 wide and the named shapes. The random "
+            "properties, and the perturbation properties over shapes the reference refuses, "
+            "run on Rust only locally."
         )
     runner = RustRunner(binary)
     yield runner
@@ -3174,7 +3213,16 @@ def _expected_row(project: RefProject, ref: RefResult, tid: str) -> dict[str, An
         assert want.shown_at is not None
         day = first_working_on_or_after(want.shown_at, cal)
         prior = last_working_on_or_before(day - timedelta(days=1), cal)
-        return {"milestone_shown": [[day.isoformat(), False], [prior.isoformat(), True]]}
+        readings = [[day.isoformat(), False], [prior.isoformat(), True]]
+        floor = project.progress.get(tid, RefProgress()).actual_start
+        if floor is not None and floor == want.shown_at and not cal.is_working(want.shown_at):
+            # A recorded ``actual_start`` floor is kept verbatim even on a non-working
+            # day (reference_cpm.py, #4332), so a milestone held by one is shown on that
+            # day itself: the reference's own instant is a third accepted reading (#4914).
+            # Only that case — any other non-working ``shown_at`` must still land on one
+            # of the two working-time readings, or an engine regression would hide here.
+            readings.append([want.shown_at.isoformat(), False])
+        return {"milestone_shown": readings}
     row: dict[str, Any] = {
         "early_start": want.early_start.isoformat(),
         "early_finish": want.early_finish.isoformat(),
@@ -3277,6 +3325,11 @@ def build_corpus() -> dict[str, Any]:
         _corpus_case(f"fraction_{k:03d}", random_fractional_progress_project(rng))
         for k in range(FRACTION_CORPUS_SIZE)
     ]
+    rng = random.Random(WIDE_CORPUS_SEED)
+    cases += [
+        _corpus_case(f"wide_{k:03d}", random_wide_progress_project(rng))
+        for k in range(WIDE_CORPUS_SIZE)
+    ]
     cases += [_corpus_case(f"named_{name}", project) for name, project in NAMED_CORPUS_CASES]
     return {
         "_comment": (
@@ -3284,7 +3337,9 @@ def build_corpus() -> dict[str, Any]:
             "reference_cpm.py), NOT by either engine (#3987). case_* are planning "
             "networks; progress_* carry progress, a data date, SNETs and per-task "
             "calendars (#4633); fraction_* are progress networks whose live tasks "
-            "carry fractional, 100*k/n and one-ULP-off percents (#5034); named_* "
+            "carry fractional, 100*k/n and one-ULP-off percents (#5034); wide_* are "
+            "progress networks drawn from the live near/far mixture, far data dates, "
+            "long tasks and shutdowns and a 25-task profile included (#4914); named_* "
             "are hand-built shapes the random draw rarely reaches (#4785). "
             "Regenerate with "
             "REGEN_ORACLE_CORPUS=1 pytest packages/scheduler/tests/test_cpm_oracle.py -k corpus"
@@ -3292,6 +3347,7 @@ def build_corpus() -> dict[str, Any]:
         "seed": CORPUS_SEED,
         "progress_seed": PROGRESS_CORPUS_SEED,
         "fraction_seed": FRACTION_CORPUS_SEED,
+        "wide_seed": WIDE_CORPUS_SEED,
         "cases": cases,
     }
 
@@ -3346,7 +3402,11 @@ def test_python_engine_matches_the_oracle_corpus() -> None:
     """The same check ``oracle_conformance.rs`` runs on Rust, run on Python."""
     corpus = _load_corpus()
     assert len(corpus["cases"]) == (
-        CORPUS_SIZE + PROGRESS_CORPUS_SIZE + FRACTION_CORPUS_SIZE + len(NAMED_CORPUS_CASES)
+        CORPUS_SIZE
+        + PROGRESS_CORPUS_SIZE
+        + FRACTION_CORPUS_SIZE
+        + WIDE_CORPUS_SIZE
+        + len(NAMED_CORPUS_CASES)
     )
     problems = []
     for case in corpus["cases"]:
