@@ -26,9 +26,7 @@ from trueppm_scheduler.engine.calendar_math import (
     _safe_offset,
     _start_from_finish,
 )
-from trueppm_scheduler.engine.digraph import (
-    _DiGraph,
-)
+from trueppm_scheduler.engine.digraph import _DiGraph
 from trueppm_scheduler.engine.forward import (
     _floor_above_start,
     _forward_pass,
