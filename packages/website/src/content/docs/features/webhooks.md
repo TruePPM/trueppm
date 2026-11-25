@@ -113,7 +113,7 @@ Point a `slack`-format webhook at a Slack/Discord/Mattermost incoming-webhook UR
 
 ## Event types
 
-OSS fires **19 event types** (a deliberate hard cap), and 0.5 adds a twentieth, `schedule.finish_changed`:
+OSS fires **19 event types** (a deliberate hard cap), and 0.5 will add a twentieth, `schedule.finish_changed`:
 
 | Event | When fired |
 |-------|-----------|
