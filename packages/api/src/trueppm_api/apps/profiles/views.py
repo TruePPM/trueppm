@@ -38,7 +38,8 @@ from trueppm_api.apps.projects.models import Project, is_agent_token
 HIDDEN_VIEWS_DEPRECATION = "@1795478400"  # 2026-11-24T00:00:00Z
 HIDDEN_VIEWS_SUNSET = "Thu, 01 Jul 2027 00:00:00 GMT"
 HIDDEN_VIEWS_DEPRECATION_LINK = (
-    '<https://docs.trueppm.com/features/customize-views/>; rel="deprecation"; type="text/html"'
+    '<https://docs.trueppm.com/features/view-focus/#suggested-views-per-focus>; rel="deprecation"; '
+    'type="text/html"'
 )
 
 

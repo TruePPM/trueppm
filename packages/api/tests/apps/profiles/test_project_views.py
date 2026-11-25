@@ -8,6 +8,7 @@ path, the never-empty rule, apply-seed/reset/Show all touching only seed entries
 from __future__ import annotations
 
 import json
+import re
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -627,3 +628,16 @@ def test_profile_get_carries_the_deprecation_and_sunset_headers(cal: Calendar) -
     assert resp.status_code == 200
     assert resp["Deprecation"].startswith("@")
     assert resp["Sunset"].endswith("GMT")
+    # The Link target is a real published page and a real heading on it.
+    link = resp["Link"]
+    assert 'rel="deprecation"' in link
+    path, _, anchor = link.split("https://docs.trueppm.com/", 1)[1].split(">", 1)[0].partition("#")
+    docs = Path(__file__).resolve().parents[4] / "website" / "src" / "content" / "docs"
+    page = docs / f"{path.strip('/')}.md"
+    assert page.is_file(), page
+    slugs = {
+        re.sub(r"[^a-z0-9 -]", "", line.lstrip("#").strip().lower()).replace(" ", "-")
+        for line in page.read_text().splitlines()
+        if line.startswith("#")
+    }
+    assert anchor in slugs
