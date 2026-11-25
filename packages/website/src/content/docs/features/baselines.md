@@ -315,7 +315,7 @@ The MCP server exposes the same read as `get_baseline_variance`.
 
 ### Baseline drift on the project Overview
 
-The project Overview shows a **Baseline drift** panel for the active baseline: how far the project finish moved, how many tasks moved and in which direction, the total finish slip, and the task that slipped most, with the server's explanation of its current finish. Every figure is the variance `summary` above. With no active baseline, the panel says so and links to the Schedule, where you can set one. When the active baseline was captured before the schedule had computed dates, or no task has dates on both sides, the panel says the baseline can't be compared rather than reporting that nothing moved. The panel is hidden on Agile projects, along with the critical path.
+The current project Overview shows a **Baseline drift** panel for the active baseline (the redesigned Overview behind the new shell does not show it yet): how far the project finish moved, how many tasks moved and in which direction, the total finish slip, how many tasks were added and removed since the baseline, and the task that slipped most, with the server's explanation of its current finish. Every figure is the variance `summary` above. With no active baseline, the panel says so and links to the Schedule, where you can set one. When the active baseline was captured before the schedule had computed dates, or no task has dates on both sides, the panel says the baseline can't be compared rather than reporting that nothing moved. The panel is hidden on Agile projects, along with the critical path.
 
 ## Comparing against the plan
 

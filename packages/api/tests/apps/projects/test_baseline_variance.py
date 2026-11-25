@@ -612,3 +612,29 @@ def test_a_pre_cpm_baseline_does_not_compare_the_project_finish(
         "current_finish": str(_d(8)),
         "delta_working_days": None,
     }
+
+
+def test_a_legacy_snapshot_reading_makes_the_baseline_day_unknown(
+    project: Project, baseline: Baseline
+) -> None:
+    """A snapshot captured before ``finish_at_day_start`` existed reads as unknown.
+
+    Baseline last day Fri 3/6 with a NULL reading; now a start-of-day milestone on
+    that same day. Treating NULL as "end of day" would read the milestone as a day
+    earlier (-1); an unknown reading must not count against it.
+    """
+    gate = _task(
+        project,
+        "Gate",
+        _d(4),
+        _d(4),
+        duration=0,
+        is_milestone=True,
+        milestone_at_day_end=False,
+    )
+    _snap(baseline, gate, _d(4), _d(4))
+    BaselineTask.objects.filter(baseline=baseline).update(finish_at_day_start=None)
+
+    finish = _client(project).get(_url(project, baseline)).data["summary"]["project_finish"]
+
+    assert finish["delta_working_days"] == 0

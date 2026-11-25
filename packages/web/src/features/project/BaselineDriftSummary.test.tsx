@@ -132,6 +132,37 @@ describe('BaselineDriftSummary', () => {
     expect(screen.queryByText(/Largest slip/)).not.toBeInTheDocument();
   });
 
+  it('names added and removed tasks and does not claim nothing moved when they shifted the finish', () => {
+    setState(
+      { data: [ACTIVE] },
+      {
+        data: {
+          ...variance({
+            tasks_moved: 0,
+            tasks_finishing_later: 0,
+            tasks_finishing_earlier: 0,
+            finish_slip_working_days_total: 0,
+            top_slip: null,
+            project_finish: {
+              baseline_finish: '2026-03-06',
+              current_finish: '2026-03-10',
+              delta_working_days: 2,
+            },
+          }),
+          added: 2,
+          removed: 1,
+        },
+      },
+    );
+    render(<BaselineDriftSummary projectId="p-1" />);
+
+    expect(screen.queryByText(/No task has moved since the baseline/)).not.toBeInTheDocument();
+    expect(screen.getByText(/No task in both plans has moved\./)).toBeInTheDocument();
+    expect(
+      screen.getByText(/2 tasks added and 1 removed since the baseline\./),
+    ).toBeInTheDocument();
+  });
+
   it('says the baseline cannot be compared when no delta is comparable, not that nothing moved', () => {
     setState(
       { data: [ACTIVE] },

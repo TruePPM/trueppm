@@ -57,6 +57,8 @@ export function BaselineDriftSummary({ projectId }: { projectId: string }) {
         varianceError={variance.isError}
         summary={variance.data?.summary}
         hasCpmDates={variance.data?.has_cpm_dates ?? true}
+        added={variance.data?.added ?? 0}
+        removed={variance.data?.removed ?? 0}
         retry={() => {
           void (baselines.isError ? baselines.refetch() : variance.refetch());
         }}
@@ -74,6 +76,8 @@ interface DriftBodyProps {
   varianceError: boolean;
   summary: ApiBaselineVarianceSummary | undefined;
   hasCpmDates: boolean;
+  added: number;
+  removed: number;
   retry: () => void;
 }
 
@@ -123,10 +127,18 @@ function DriftBody(props: DriftBodyProps) {
   if (summary.tasks_moved === 0 && summary.project_finish.delta_working_days === null) {
     return <p className="text-sm text-neutral-text-primary">{NOT_COMPARABLE_COPY}</p>;
   }
+  // Tasks added or removed since the baseline can move the project finish with no
+  // task in both plans having moved, so say so rather than contradict the finish.
+  const changed = changedSentence(props.added, props.removed);
   if (summary.tasks_moved === 0) {
+    const lead =
+      summary.project_finish.delta_working_days === 0
+        ? 'No task has moved since the baseline.'
+        : 'No task in both plans has moved.';
     return (
       <p className="text-sm text-neutral-text-primary">
-        No task has moved since the baseline. {finishSentence(summary)}
+        {lead} {finishSentence(summary)}
+        {changed && ` ${changed}`}
       </p>
     );
   }
@@ -134,6 +146,7 @@ function DriftBody(props: DriftBodyProps) {
   return (
     <ul className="flex flex-col gap-1.5 text-sm text-neutral-text-primary">
       <li className="font-medium">{finishSentence(summary)}</li>
+      {changed && <li>{changed}</li>}
       {/* Not a partition: a task whose start alone moved is in the moved count only. */}
       <li>
         {plural(summary.tasks_moved, 'task')} moved ({summary.tasks_finishing_later} finish later,{' '}
@@ -157,6 +170,11 @@ function DriftBody(props: DriftBodyProps) {
       )}
     </ul>
   );
+}
+
+function changedSentence(added: number, removed: number): string | null {
+  if (added <= 0 && removed <= 0) return null;
+  return `${plural(added, 'task')} added and ${removed} removed since the baseline.`;
 }
 
 function plural(n: number, noun: string): string {
