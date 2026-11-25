@@ -759,6 +759,32 @@ index), so both the CPM pass and Monte Carlo snap to the next or previous
 working day in `O(log E)` regardless of how many tasks or dependencies
 reference that calendar.
 
+## The project document JSON Schema
+
+The shape of the document `Project.from_json` accepts and `Project.to_json` emits is
+published as a JSON Schema (draft 2020-12), so a client in any language can validate a
+plan before submitting it.
+
+- **Where it lives:** `src/trueppm_scheduler/project.schema.json` in the repository,
+  and `trueppm_scheduler/project.schema.json` inside the wheel. Read it with
+  `importlib.resources.files("trueppm_scheduler") / "project.schema.json"`.
+- **How it is made:** generated from `trueppm_scheduler.models` by
+  `scripts/generate_project_schema.py`; never edit it by hand. CI fails when a model
+  change is not followed by a regenerate, and validates every conformance fixture
+  against it.
+- **Versioning:** it versions with the package, because it is generated from the same
+  models. A new optional property is a minor change; removing or renaming a property,
+  making one required, or narrowing a type or range is a breaking change and follows
+  the [API stability](#api-stability-and-versioning) rules.
+- **What it does not check:** shape only. Cycles, duplicate task ids, edges naming an
+  unknown task, calendar consistency, and the span and duration caps are engine rules a
+  schema cannot express, so a document that validates can still be refused. The
+  schema's own `description` says so.
+
+The conformance corpus the schema is checked against is published with each release;
+see [Testing another implementation against the corpus](https://docs.trueppm.com/architecture/testing-another-implementation/).
+It certifies agreement with the reference engine, not correctness.
+
 ## API stability and versioning
 
 **The public API is the `__all__` surface of the top-level `trueppm_scheduler`
