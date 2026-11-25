@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.db.models import Exists, OuterRef, Q
+
 #: Batch size for the ``hidden_views`` → ``ProjectViewState`` backfill.
 BATCH_SIZE = 500
 
@@ -22,6 +24,15 @@ def backfill_project_view_states(apps: Any, schema_editor: Any) -> None:
     re-seeded: ``seeded_lens`` records the user's ``role_context`` at migration time,
     which marks the row "already resolved" under that lens, so the first read after the
     upgrade neither applies a lens seed on top nor offers that lens's suggestions.
+
+    An empty list does not mean "never customized" for a project the user had already
+    opened: they know its tabs, and seeding it would hide views they were using (ADR-1478
+    §6 step 1, clarified 2026-11-24). So every ``ProjectVisit`` on a live membership of a
+    user with an empty list (or no profile) gets a row too, with no entries and
+    ``seeded_lens`` set to the lens at migration time: resolved, never seeded. The
+    migration itself is the "before the upgrade" cutoff. ``visited_at`` cannot be,
+    because it is the *last* visit and every open after the upgrade overwrites it.
+    A project joined or first opened after the upgrade has no row and still seeds.
 
     Idempotent on the ``(user, project)`` unique constraint: an existing row is left
     alone and ``ignore_conflicts`` skips a concurrent duplicate, so a re-run or a
@@ -69,5 +80,40 @@ def backfill_project_view_states(apps: Any, schema_editor: Any) -> None:
             if len(batch) >= BATCH_SIZE:
                 ProjectViewState.objects.bulk_create(batch, ignore_conflicts=True)
                 batch = []
+    if batch:
+        ProjectViewState.objects.bulk_create(batch, ignore_conflicts=True)
+
+    ProjectVisit = apps.get_model("profiles", "ProjectVisit")
+    visits = (
+        ProjectVisit.objects.filter(
+            Q(user__profile__isnull=True) | Q(user__profile__hidden_views=[]),
+            Exists(
+                ProjectMembership.objects.filter(
+                    user_id=OuterRef("user_id"),
+                    project_id=OuterRef("project_id"),
+                    is_deleted=False,
+                    project__is_deleted=False,
+                )
+            ),
+        )
+        .exclude(
+            Exists(
+                ProjectViewState.objects.filter(
+                    user_id=OuterRef("user_id"), project_id=OuterRef("project_id")
+                )
+            )
+        )
+        .values_list("user_id", "project_id", "user__profile__role_context")
+    )
+    batch = []
+    for user_id, project_id, lens in visits.iterator(chunk_size=BATCH_SIZE):
+        batch.append(
+            ProjectViewState(
+                user_id=user_id, project_id=project_id, seeded_lens=lens or "unified", hides=[]
+            )
+        )
+        if len(batch) >= BATCH_SIZE:
+            ProjectViewState.objects.bulk_create(batch, ignore_conflicts=True)
+            batch = []
     if batch:
         ProjectViewState.objects.bulk_create(batch, ignore_conflicts=True)

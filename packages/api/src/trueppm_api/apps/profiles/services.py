@@ -969,14 +969,33 @@ def resolve_project_views(user: Any, project: Any, *, persist: bool = True) -> R
 
 
 def _seed_defaults(user: Any, project: Any, lens: str) -> dict[str, Any]:
+    """A new row: the stored legacy ``hidden_views`` as ``user`` entries, then the seed.
+
+    The stored list is carried in because a legacy fan-out only reaches projects the
+    user belonged to when it ran. A list written with no live membership (Settings › Me
+    before the first project, or after every membership ended) would otherwise be
+    dropped on the first open of a later project, and the deprecated read, which
+    reports only ``user`` entries once any row exists, would go back to ``[]``. This is
+    the row the fan-out would have created, completed as ``_complete_pending_seed``
+    completes one.
+    """
+
     now = timezone.now()
-    entries = _seed_entries(lens, project.methodology, user, now.isoformat())
+    at = now.isoformat()
+    user_entries = [
+        _entry(k, source="user", hidden=True, lens=None, at=at)
+        for k in sorted({k for k in get_hidden_views(user) if k in HIDEABLE_VIEW_KEYS})
+    ]
+    user_keys = {e["view"] for e in user_entries}
+    seed = [
+        e for e in _seed_entries(lens, project.methodology, user, at) if e["view"] not in user_keys
+    ]
     return {
-        "hides": entries,
+        "hides": user_entries + seed,
         # Always the lens resolved under, even with no entries: an empty value means
         # "not resolved yet" (a legacy fan-out row), and the lens offer compares to it.
         "seeded_lens": lens,
-        "seeded_at": now if entries else None,
+        "seeded_at": now if seed else None,
     }
 
 

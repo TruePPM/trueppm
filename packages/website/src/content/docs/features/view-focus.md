@@ -50,13 +50,19 @@ tabs:
 | Scrum Master | Schedule, Calendar, Team | Board |
 | Unified Today | nothing | as today |
 
+- **Projects you already used are left alone.** When your install upgrades to the release
+  that adds suggestions, a project you had opened before the upgrade keeps the tabs you
+  knew: it gets no suggestions on its first open in the new header, even if you never hid
+  a view. The suggestions apply to projects you join or open for the first time after the
+  upgrade. Switching focus later still offers that focus's suggestions, as below.
 - **A suggestion, not a rule.** A suggested-hidden view still opens from **More** and by
   its link, and you can bring it back to your tabs at any time.
 - **Per project, in the new project header.** Suggestions and per-project hiding apply in
   the new project header (shell v2): each project keeps its own set, and hiding a view in
   one project leaves the others alone. The classic header, still the default, keeps one
   **Customize views** list for all your projects, so a change made there applies to every
-  project you belong to, as before. Those choices carry into the new header as your own.
+  project you belong to, as before. Those choices carry into the new header as your own,
+  including into a project you join after making them.
 - **A one-time note.** The first time suggestions hide something, a line above the tabs
   says so (*Shown for Scrum Masters · 3 views hidden*), with **Show all**, a **Customize
   views** link and ✕ to dismiss it.

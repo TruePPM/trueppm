@@ -355,6 +355,71 @@ def test_hidden_views_backfill_copies_user_hides_per_membership(cal: Calendar) -
     assert views["product-backlog"]["visible"] is True
 
 
+def test_a_list_stored_with_no_membership_survives_the_first_v2_open(cal: Calendar) -> None:
+    """A list written before any project reaches the project joined later (G1, #3715)."""
+    p = _project(cal)
+    user = User.objects.create_user(username="early", password="pw")
+    UserProfile.objects.create(user=user, role_context="scrum_master")
+    c = _client(user)
+    assert c.patch("/api/v1/auth/me/profile/", {"hidden_views": ["risk"]}, format="json").data[
+        "hidden_views"
+    ] == ["risk"]
+    assert not ProjectViewState.objects.filter(user=user).exists()  # nothing to fan out to
+    ProjectMembership.objects.create(project=p, user=user, role=Role.MEMBER)
+    views = _views(c.get(_url(p)).json())
+    assert views["risk"] == {**views["risk"], "visible": False, "source": "user"}
+    assert views["resources"]["source"] == "seed"  # the lens seed still applies around it
+    assert c.get("/api/v1/auth/me/").data["hidden_views"] == ["risk"]
+    assert c.get("/api/v1/auth/me/profile/").data["hidden_views"] == ["risk"]
+
+
+def _visit(user: Any, project: Project, when: str) -> None:
+    from datetime import datetime
+
+    from trueppm_api.apps.profiles.models import ProjectVisit
+
+    ProjectVisit.objects.create(user=user, project=project, visited_at=datetime.fromisoformat(when))
+
+
+def test_backfill_resolves_a_visited_project_of_an_empty_list_without_seeding(
+    cal: Calendar,
+) -> None:
+    """Already opened before the upgrade → no seed and no offer (ADR-1478 §6.1, 2026-11-24)."""
+    visited, joined_later = _project(cal, name="visited"), _project(cal, name="later")
+    user = _member(visited, "scrum_master", name="veteran")
+    ProjectMembership.objects.create(project=joined_later, user=user, role=Role.MEMBER)
+    _visit(user, visited, "2026-10-01T09:00:00+00:00")
+    backfill_project_view_states(django_apps, None)
+    backfill_project_view_states(django_apps, None)  # idempotent
+    state = ProjectViewState.objects.get(user=user, project=visited)
+    assert (state.seeded_lens, state.hides) == ("scrum_master", [])
+    c = _client(user)
+    data = c.get(_url(visited)).json()
+    assert _views(data)["schedule"]["visible"] is True
+    assert data["lens_offer"] is None and data["seed_line"] is None
+    # A visit recorded after the migration (here: no row at migration time) still seeds,
+    # as does a project never opened.
+    _visit(user, joined_later, "2026-12-01T09:00:00+00:00")
+    later = c.get(_url(joined_later)).json()
+    assert _views(later)["schedule"]["source"] == "seed"
+    assert later["seed_line"] == {"lens": "scrum_master", "hidden_count": 3}
+
+
+def test_backfill_leaves_non_member_visits_and_non_empty_lists_alone(cal: Calendar) -> None:
+    p = _project(cal)
+    gone = _member(p, "scrum_master", name="gone")
+    _visit(gone, p, "2026-10-01T09:00:00+00:00")
+    ProjectMembership.objects.filter(user=gone).update(is_deleted=True)
+    listed = User.objects.create_user(username="listed", password="pw")
+    UserProfile.objects.create(user=listed, hidden_views=["risk"], role_context="scrum_master")
+    ProjectMembership.objects.create(project=p, user=listed, role=Role.MEMBER)
+    _visit(listed, p, "2026-10-01T09:00:00+00:00")
+    backfill_project_view_states(django_apps, None)
+    assert not ProjectViewState.objects.filter(user=gone).exists()
+    state = ProjectViewState.objects.get(user=listed, project=p)
+    assert [e["view"] for e in state.hides] == ["risk"]  # the list pass, unchanged
+
+
 def test_last_layouts_stay_bounded_across_requests(cal: Calendar) -> None:
     p = _project(cal)
     user = _member(p)
