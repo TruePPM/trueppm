@@ -71,6 +71,8 @@ export function handleSyncConflict(error: unknown, onReload: () => void): boolea
 export interface CommitmentSlipConflict {
   code: 'commitment_slip_requires_acceptance';
   detail: string;
+  /** The role the tree implies for the task. */
+  structure_role: 'work' | 'container';
   scope_change_id: string;
   batch_id: string | null;
   sprint_id: string;

@@ -221,7 +221,6 @@ from trueppm_api.apps.projects.serializers import (
     CalendarSerializer,
     CommentAcknowledgementSerializer,
     CommentReactionSerializer,
-    CommitmentSlipConflictSerializer,
     CommitmentSlipStaleSerializer,
     CommitProjectResultSerializer,
     CrossProjectSlipConflictSerializer,
@@ -6822,14 +6821,6 @@ class _NumericWbsOrderingFilter(filters.OrderingFilter):
         return queryset.order_by(*terms)
 
 
-#: The two 409 bodies a task PUT/PATCH can answer with, discriminated by ``code``.
-_TASK_WRITE_CONFLICT = PolymorphicProxySerializer(
-    component_name="TaskWriteConflict",
-    serializers=[CommitmentSlipConflictSerializer, StructureRoleConflictSerializer],
-    resource_type_field_name=None,
-)
-
-
 @extend_schema_view(
     update=extend_schema(
         # TaskWriteResponse, not Task: a successful write can carry a ``warnings`` array
@@ -6840,16 +6831,20 @@ _TASK_WRITE_CONFLICT = PolymorphicProxySerializer(
         responses={
             200: TaskWriteResponseSerializer,
             409: OpenApiResponse(
-                response=_TASK_WRITE_CONFLICT,
+                response=StructureRoleConflictSerializer,
                 description=(
-                    "Either body, told apart by `code`. "
-                    "`commitment_slip_requires_acceptance` (ADR-1485 D1): the date "
+                    "One of two bodies, told apart by `code`; both carry `detail` and "
+                    "`structure_role`. "
+                    "`commitment_slip_requires_acceptance` (ADR-1485 D1; also "
+                    "`scope_change_id`, `batch_id`, `sprint_id`, `sprint_name`, "
+                    "`proposed_start`, `proposed_finish`): the date "
                     "write would move sprint-committed work past the ACTIVE sprint's "
                     "end and the caller is not the accept authority (Admin+ or the "
                     "team's SM/PO facet; every API token). The write was NOT applied; "
                     "it is recorded as a PENDING slip (`scope_change_id`) for that "
                     "authority to accept or reject.\n\n"
-                    "`structure_role_contradicted`: the declared `structure_role` "
+                    "`structure_role_contradicted`: the "
+                    "declared `structure_role` "
                     "contradicts the tree (#2950, "
                     "ADR-0844). Returned when a client declares `work` on a row that "
                     "has structural children: the derived fact wins for every "
@@ -6867,11 +6862,13 @@ _TASK_WRITE_CONFLICT = PolymorphicProxySerializer(
         responses={
             200: TaskWriteResponseSerializer,
             409: OpenApiResponse(
-                response=_TASK_WRITE_CONFLICT,
+                response=StructureRoleConflictSerializer,
                 description=(
-                    "A commitment slip held for acceptance, or the declared "
-                    "`structure_role` contradicts the tree — see the note on `PUT`, "
-                    "told apart by `code`. This is the path the outline actually uses."
+                    "A commitment slip held for acceptance (`scope_change_id`, "
+                    "`batch_id`, `sprint_id`, `sprint_name`, `proposed_start`, "
+                    "`proposed_finish`), or the declared `structure_role` contradicts "
+                    "the tree (`structure_role`) — told apart by `code`; see the note "
+                    "on `PUT`. This is the path the outline actually uses."
                 ),
             ),
         },

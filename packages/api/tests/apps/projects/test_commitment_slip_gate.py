@@ -141,6 +141,7 @@ def test_member_slip_is_not_applied_and_records_pending(
     assert res.status_code == 409, res.data
     assert res.data["code"] == COMMITMENT_SLIP_CODE
     assert res.data["sprint_name"] == "Sprint 4"
+    assert res.data["structure_role"] == "work"
     task.refresh_from_db()
     assert task.duration == 3
     row = SprintScopeChange.objects.get(pk=res.data["scope_change_id"])

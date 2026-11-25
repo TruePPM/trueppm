@@ -3863,12 +3863,19 @@ def record_commitment_slip(
 
 def commitment_slip_conflict_body(row: Any) -> dict[str, Any]:
     """The 409 / per-row conflict body for a PENDING slip (ADR-1485 D1)."""
+    from trueppm_api.apps.projects.models import StructureRole, task_is_phase
+
+    # Every task-write 409 carries `structure_role` (required since v0.4.0), so the
+    # slip body states the role the tree implies, by the same probe the
+    # contradicted-role refusal uses.
+    role = StructureRole.CONTAINER if task_is_phase(row.task) else StructureRole.WORK
     return {
         "code": COMMITMENT_SLIP_CODE,
         "detail": (
             "This change moves committed work past the end of the active sprint. "
             "It is waiting for a decision from someone who can accept scope changes."
         ),
+        "structure_role": str(role),
         "scope_change_id": str(row.pk),
         "batch_id": str(row.batch_id) if row.batch_id else None,
         "sprint_id": str(row.sprint_id),

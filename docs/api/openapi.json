@@ -54040,11 +54040,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/TaskWriteConflict"
+                                    "$ref": "#/components/schemas/StructureRoleConflict"
                                 }
                             }
                         },
-                        "description": "Either body, told apart by `code`. `commitment_slip_requires_acceptance` (ADR-1485 D1): the date write would move sprint-committed work past the ACTIVE sprint's end and the caller is not the accept authority (Admin+ or the team's SM/PO facet; every API token). The write was NOT applied; it is recorded as a PENDING slip (`scope_change_id`) for that authority to accept or reject.\n\n`structure_role_contradicted`: the declared `structure_role` contradicts the tree (#2950, ADR-0844). Returned when a client declares `work` on a row that has structural children: the derived fact wins for every computation, so storing the declaration would leave the row rendering as a task while every rollup treats it as a phase.\n\n`409` rather than `400` because the payload is valid — it is the current state of the tree that forbids it, and that state can change without the client doing anything wrong. The body carries the derived role so the refusal is recoverable in one round trip."
+                        "description": "One of two bodies, told apart by `code`; both carry `detail` and `structure_role`. `commitment_slip_requires_acceptance` (ADR-1485 D1; also `scope_change_id`, `batch_id`, `sprint_id`, `sprint_name`, `proposed_start`, `proposed_finish`): the date write would move sprint-committed work past the ACTIVE sprint's end and the caller is not the accept authority (Admin+ or the team's SM/PO facet; every API token). The write was NOT applied; it is recorded as a PENDING slip (`scope_change_id`) for that authority to accept or reject.\n\n`structure_role_contradicted`: the declared `structure_role` contradicts the tree (#2950, ADR-0844). Returned when a client declares `work` on a row that has structural children: the derived fact wins for every computation, so storing the declaration would leave the row rendering as a task while every rollup treats it as a phase.\n\n`409` rather than `400` because the payload is valid — it is the current state of the tree that forbids it, and that state can change without the client doing anything wrong. The body carries the derived role so the refusal is recoverable in one round trip."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -54183,11 +54183,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/TaskWriteConflict"
+                                    "$ref": "#/components/schemas/StructureRoleConflict"
                                 }
                             }
                         },
-                        "description": "A commitment slip held for acceptance, or the declared `structure_role` contradicts the tree — see the note on `PUT`, told apart by `code`. This is the path the outline actually uses."
+                        "description": "A commitment slip held for acceptance (`scope_change_id`, `batch_id`, `sprint_id`, `sprint_name`, `proposed_start`, `proposed_finish`), or the declared `structure_role` contradicts the tree (`structure_role`) — told apart by `code`; see the note on `PUT`. This is the path the outline actually uses."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -64550,57 +64550,6 @@
                     "baseline_id",
                     "baseline_name",
                     "task_count"
-                ]
-            },
-            "CommitmentSlipConflict": {
-                "type": "object",
-                "description": "The ``409`` body of a date write held as a PENDING commitment slip (ADR-1485 D1).\n\nThe same body is a ``conflicts.tasks[]`` entry on the sync upload (plus the row\n``id``); the bulk route carries its id fields on the ``rejected[]`` entry.",
-                "properties": {
-                    "code": {
-                        "type": "string",
-                        "description": "Always `commitment_slip_requires_acceptance`."
-                    },
-                    "detail": {
-                        "type": "string"
-                    },
-                    "scope_change_id": {
-                        "type": "string",
-                        "format": "uuid",
-                        "description": "The PENDING slip row."
-                    },
-                    "batch_id": {
-                        "type": "string",
-                        "format": "uuid",
-                        "nullable": true,
-                        "description": "Shared by every slip this request recorded."
-                    },
-                    "sprint_id": {
-                        "type": "string",
-                        "format": "uuid"
-                    },
-                    "sprint_name": {
-                        "type": "string"
-                    },
-                    "proposed_start": {
-                        "type": "string",
-                        "format": "date",
-                        "nullable": true
-                    },
-                    "proposed_finish": {
-                        "type": "string",
-                        "format": "date",
-                        "nullable": true
-                    }
-                },
-                "required": [
-                    "batch_id",
-                    "code",
-                    "detail",
-                    "proposed_finish",
-                    "proposed_start",
-                    "scope_change_id",
-                    "sprint_id",
-                    "sprint_name"
                 ]
             },
             "CommitmentSlipStale": {
@@ -89450,19 +89399,51 @@
             },
             "StructureRoleConflict": {
                 "type": "object",
-                "description": "The body of the ``409`` a contradicted ``structure_role`` returns (#2976).\n\nDeclared as a real serializer rather than ``OpenApiTypes.OBJECT`` so the shape\nis visible in ``openapi.json``. #2942 records what OBJECT costs: the whole\nresponse becomes invisible to anyone diffing the schema, which is the only\nearly-warning mechanism an integrator has.\n\n**Every field is a string, and that is a contract, not an accident.** DRF\nwraps every value in an exception detail as an ``ErrorDetail`` (a ``str``\nsubclass), so a boolean here would reach a client as ``\"True\"``. Declaring\nthe types explicitly is what stops the next person adding a boolean field to\nthis body and shipping that trap.",
+                "description": "The ``409`` body of a task ``PUT``/``PATCH``: two shapes, told apart by ``code``.\n\nBoth ``structure_role_contradicted`` (#2976) and\n``commitment_slip_requires_acceptance`` (ADR-1485 D1, the body\n``commitment_slip_conflict_body`` builds) carry ``detail``, ``code`` and\n``structure_role``, so those are required; the slip fields are present only on\nthe second. The same slip body is a ``conflicts.tasks[]`` entry on the sync\nupload (plus the row ``id``); the bulk route carries its id fields on the\n``rejected[]`` entry.\n\nOne flat serializer rather than a ``oneOf``: the schema-breaking differ cannot\nsee inside ``oneOf``, so splitting it reports the published fields as removed.\nThe component keeps its published name for the same reason.\n\nDeclared as a real serializer rather than ``OpenApiTypes.OBJECT`` so the shape\nis visible in ``openapi.json``. #2942 records what OBJECT costs: the whole\nresponse becomes invisible to anyone diffing the schema, which is the only\nearly-warning mechanism an integrator has.\n\n**Every field is a string, and that is a contract, not an accident.** DRF\nwraps every value in an exception detail as an ``ErrorDetail`` (a ``str``\nsubclass), so a boolean here would reach a client as ``\"True\"``. Declaring\nthe types explicitly is what stops the next person adding a boolean field to\nthis body and shipping that trap.",
                 "properties": {
                     "detail": {
                         "type": "string",
-                        "description": "Human-readable explanation naming the contradiction."
+                        "description": "Human-readable explanation of the conflict."
                     },
                     "code": {
                         "type": "string",
-                        "description": "Always `structure_role_contradicted`."
+                        "description": "`structure_role_contradicted` or `commitment_slip_requires_acceptance`."
                     },
                     "structure_role": {
                         "type": "string",
-                        "description": "The role the tree actually implies — `container`. Sent so the caller can correct the declaration without a second round trip."
+                        "description": "The role the tree actually implies for this task: `container` or `work`. Always `container` on `structure_role_contradicted`, so the caller can correct the declaration without a second round trip."
+                    },
+                    "scope_change_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Commitment slip only: the PENDING slip row."
+                    },
+                    "batch_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true,
+                        "description": "Commitment slip only: shared by every slip this request recorded."
+                    },
+                    "sprint_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Commitment slip only: the ACTIVE sprint."
+                    },
+                    "sprint_name": {
+                        "type": "string",
+                        "description": "Commitment slip only: that sprint's name."
+                    },
+                    "proposed_start": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true,
+                        "description": "Commitment slip only: the start date held, not applied."
+                    },
+                    "proposed_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true,
+                        "description": "Commitment slip only: the finish date held, not applied."
                     }
                 },
                 "required": [
@@ -89616,7 +89597,7 @@
             },
             "SyncUploadConflicts": {
                 "type": "object",
-                "description": "The ``conflicts`` envelope of an upload response, keyed by collection name.\n\nEach entry is the REST-parity 409 body plus the row ``id`` — free-form here\nfor the same reason as the applied-row buckets above. Two shapes occur: a\nlost-update conflict (``conflict_fields`` / ``server_value`` / ``client_value``\n/ ``server_version``), and a commitment slip held for acceptance (ADR-1485 D1:\n``code: commitment_slip_requires_acceptance`` with the ``CommitmentSlipConflict``\nfields, ``scope_change_id`` / ``batch_id`` / ``sprint_id`` / ``sprint_name`` /\n``proposed_start`` / ``proposed_finish``).",
+                "description": "The ``conflicts`` envelope of an upload response, keyed by collection name.\n\nEach entry is the REST-parity 409 body plus the row ``id`` — free-form here\nfor the same reason as the applied-row buckets above. Two shapes occur: a\nlost-update conflict (``conflict_fields`` / ``server_value`` / ``client_value``\n/ ``server_version``), and a commitment slip held for acceptance (ADR-1485 D1:\n``code: commitment_slip_requires_acceptance`` with the slip fields of\n``StructureRoleConflict``, ``scope_change_id`` / ``batch_id`` / ``sprint_id`` /\n``sprint_name`` / ``proposed_start`` / ``proposed_finish``).",
                 "properties": {
                     "tasks": {
                         "type": "array",
@@ -89625,7 +89606,7 @@
                             "additionalProperties": {}
                         },
                         "readOnly": true,
-                        "description": "Rows not applied. A lost-update entry carries `conflict_fields`, `server_value`, `client_value` and `server_version`; a commitment-slip entry carries `code: commitment_slip_requires_acceptance`, `scope_change_id`, `batch_id`, `sprint_id`, `sprint_name`, `proposed_start` and `proposed_finish` (the `CommitmentSlipConflict` schema). Both carry the row `id`."
+                        "description": "Rows not applied. A lost-update entry carries `conflict_fields`, `server_value`, `client_value` and `server_version`; a commitment-slip entry carries `code: commitment_slip_requires_acceptance`, `structure_role`, `scope_change_id`, `batch_id`, `sprint_id`, `sprint_name`, `proposed_start` and `proposed_finish` (the slip fields of the `StructureRoleConflict` schema). Both carry the row `id`."
                     }
                 },
                 "required": [
@@ -93447,16 +93428,6 @@
                     "removed_dependency_ids",
                     "updated",
                     "warning"
-                ]
-            },
-            "TaskWriteConflict": {
-                "oneOf": [
-                    {
-                        "$ref": "#/components/schemas/CommitmentSlipConflict"
-                    },
-                    {
-                        "$ref": "#/components/schemas/StructureRoleConflict"
-                    }
                 ]
             },
             "TaskWriteResponse": {

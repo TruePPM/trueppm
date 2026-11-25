@@ -71,6 +71,7 @@ test.describe('Commitment slip on reschedule (ADR-1485 D1)', () => {
         body: JSON.stringify({
           code: 'commitment_slip_requires_acceptance',
           detail: 'This change moves committed work past the end of the active sprint.',
+          structure_role: 'work',
           scope_change_id: '7d1f2c3a-0000-4000-8000-000000002563',
           batch_id: '7d1f2c3a-0000-4000-8000-000000000001',
           sprint_id: '7d1f2c3a-0000-4000-8000-000000000002',

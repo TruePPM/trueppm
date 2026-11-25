@@ -204,7 +204,19 @@ class CommitProjectResultSerializer(serializers.Serializer[dict[str, Any]]):
 
 
 class StructureRoleConflictSerializer(serializers.Serializer[dict[str, Any]]):
-    """The body of the ``409`` a contradicted ``structure_role`` returns (#2976).
+    """The ``409`` body of a task ``PUT``/``PATCH``: two shapes, told apart by ``code``.
+
+    Both ``structure_role_contradicted`` (#2976) and
+    ``commitment_slip_requires_acceptance`` (ADR-1485 D1, the body
+    ``commitment_slip_conflict_body`` builds) carry ``detail``, ``code`` and
+    ``structure_role``, so those are required; the slip fields are present only on
+    the second. The same slip body is a ``conflicts.tasks[]`` entry on the sync
+    upload (plus the row ``id``); the bulk route carries its id fields on the
+    ``rejected[]`` entry.
+
+    One flat serializer rather than a ``oneOf``: the schema-breaking differ cannot
+    see inside ``oneOf``, so splitting it reports the published fields as removed.
+    The component keeps its published name for the same reason.
 
     Declared as a real serializer rather than ``OpenApiTypes.OBJECT`` so the shape
     is visible in ``openapi.json``. #2942 records what OBJECT costs: the whole
@@ -219,36 +231,42 @@ class StructureRoleConflictSerializer(serializers.Serializer[dict[str, Any]]):
     """
 
     detail = serializers.CharField(
-        help_text="Human-readable explanation naming the contradiction.",
+        help_text="Human-readable explanation of the conflict.",
     )
     code = serializers.CharField(
-        help_text="Always `structure_role_contradicted`.",
+        help_text=("`structure_role_contradicted` or `commitment_slip_requires_acceptance`."),
     )
     structure_role = serializers.CharField(
         help_text=(
-            "The role the tree actually implies — `container`. Sent so the caller "
-            "can correct the declaration without a second round trip."
+            "The role the tree actually implies for this task: `container` or `work`. "
+            "Always `container` on `structure_role_contradicted`, so the caller can "
+            "correct the declaration without a second round trip."
         ),
     )
-
-
-class CommitmentSlipConflictSerializer(serializers.Serializer[dict[str, Any]]):
-    """The ``409`` body of a date write held as a PENDING commitment slip (ADR-1485 D1).
-
-    The same body is a ``conflicts.tasks[]`` entry on the sync upload (plus the row
-    ``id``); the bulk route carries its id fields on the ``rejected[]`` entry.
-    """
-
-    code = serializers.CharField(help_text="Always `commitment_slip_requires_acceptance`.")
-    detail = serializers.CharField()
-    scope_change_id = serializers.UUIDField(help_text="The PENDING slip row.")
-    batch_id = serializers.UUIDField(
-        allow_null=True, help_text="Shared by every slip this request recorded."
+    scope_change_id = serializers.UUIDField(
+        required=False, help_text="Commitment slip only: the PENDING slip row."
     )
-    sprint_id = serializers.UUIDField()
-    sprint_name = serializers.CharField()
-    proposed_start = serializers.DateField(allow_null=True)
-    proposed_finish = serializers.DateField(allow_null=True)
+    batch_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Commitment slip only: shared by every slip this request recorded.",
+    )
+    sprint_id = serializers.UUIDField(
+        required=False, help_text="Commitment slip only: the ACTIVE sprint."
+    )
+    sprint_name = serializers.CharField(
+        required=False, help_text="Commitment slip only: that sprint's name."
+    )
+    proposed_start = serializers.DateField(
+        required=False,
+        allow_null=True,
+        help_text="Commitment slip only: the start date held, not applied.",
+    )
+    proposed_finish = serializers.DateField(
+        required=False,
+        allow_null=True,
+        help_text="Commitment slip only: the finish date held, not applied.",
+    )
 
 
 class CommitmentSlipStaleSerializer(serializers.Serializer[dict[str, Any]]):

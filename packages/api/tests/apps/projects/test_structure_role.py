@@ -270,7 +270,16 @@ class TestConflictIsInTheContract:
     def test_body_shape_is_visible_not_a_bare_object(self) -> None:
         """`OpenApiTypes.OBJECT` would make the whole body invisible — see #2942."""
         schema = self._schema()["components"]["schemas"]["StructureRoleConflict"]
-        assert set(schema["properties"]) == {"detail", "code", "structure_role"}
+        slip = {
+            "scope_change_id",
+            "batch_id",
+            "sprint_id",
+            "sprint_name",
+            "proposed_start",
+            "proposed_finish",
+        }
+        assert set(schema["properties"]) == {"detail", "code", "structure_role"} | slip
+        # The commitment-slip 409 shares this component, without the slip fields being required.
         assert set(schema["required"]) == {"detail", "code", "structure_role"}
 
     def test_every_field_is_declared_a_string(self) -> None:
@@ -281,4 +290,4 @@ class TestConflictIsInTheContract:
         Declaring the types is what stops the next person adding one.
         """
         props = self._schema()["components"]["schemas"]["StructureRoleConflict"]["properties"]
-        assert [p["type"] for p in props.values()] == ["string", "string", "string"]
+        assert {p["type"] for p in props.values()} == {"string"}

@@ -682,9 +682,9 @@ class SyncUploadConflictsSerializer(serializers.Serializer):  # type: ignore[typ
     for the same reason as the applied-row buckets above. Two shapes occur: a
     lost-update conflict (``conflict_fields`` / ``server_value`` / ``client_value``
     / ``server_version``), and a commitment slip held for acceptance (ADR-1485 D1:
-    ``code: commitment_slip_requires_acceptance`` with the ``CommitmentSlipConflict``
-    fields, ``scope_change_id`` / ``batch_id`` / ``sprint_id`` / ``sprint_name`` /
-    ``proposed_start`` / ``proposed_finish``).
+    ``code: commitment_slip_requires_acceptance`` with the slip fields of
+    ``StructureRoleConflict``, ``scope_change_id`` / ``batch_id`` / ``sprint_id`` /
+    ``sprint_name`` / ``proposed_start`` / ``proposed_finish``).
     """
 
     tasks = serializers.ListField(
@@ -693,10 +693,10 @@ class SyncUploadConflictsSerializer(serializers.Serializer):  # type: ignore[typ
         help_text=(
             "Rows not applied. A lost-update entry carries `conflict_fields`, "
             "`server_value`, `client_value` and `server_version`; a commitment-slip "
-            "entry carries `code: commitment_slip_requires_acceptance`, "
+            "entry carries `code: commitment_slip_requires_acceptance`, `structure_role`, "
             "`scope_change_id`, `batch_id`, `sprint_id`, `sprint_name`, "
-            "`proposed_start` and `proposed_finish` (the `CommitmentSlipConflict` "
-            "schema). Both carry the row `id`."
+            "`proposed_start` and `proposed_finish` (the slip fields of the "
+            "`StructureRoleConflict` schema). Both carry the row `id`."
         ),
     )
 
