@@ -134,7 +134,7 @@ export function ProgramSchedulePage() {
     });
   }, [engine, externalById]);
 
-  // Open a bar (double-click / Enter — the engine's `task-open`) on its own
+  // Open a bar (double-click — the engine's `task-open`) on its own
   // project's schedule, with the task drawer open via the `?task=` deep link
   // (#3896). Browser Back returns here: the program route is URL-addressable.
   // A redacted external task is skipped (the viewer cannot open that project);

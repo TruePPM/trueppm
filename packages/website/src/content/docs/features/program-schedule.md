@@ -52,7 +52,13 @@ The phone list below ships in 0.5. In the current release the program schedule o
 
 On a phone-width screen the timeline is replaced by a list grouped by project. Each project shows its own **P80 finish** (the Monte Carlo forecast date with an 80% chance of being met), and beneath it the tasks on the program-true critical path and any task at either end of a cross-project link, ordered by start date, each with its dates. A summary at the top gives the program's P80 finish. Tap a task to open it on its own project's schedule; the browser's Back button returns you to the program. Tasks in projects you cannot access are listed but not tappable. Open the schedule on a tablet or desktop for the full timeline.
 
-On the timeline itself, double-click a bar (or press **Enter** on a focused bar) to open that task on its project's schedule. Back returns to the program view.
+## Opening a task
+
+:::note[Ships in 0.5]
+Opening a task from the program timeline ships in 0.5. In the current release, double-clicking a bar on the program timeline does nothing; open the task from its own project's schedule instead.
+:::
+
+On the timeline itself, double-click a bar to open that task on its project's schedule. Back returns to the program view.
 
 ## Zoom and fit
 

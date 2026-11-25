@@ -7,12 +7,6 @@ import { setupCatchAll } from './fixtures/api-mocks';
  * At 390px the canvas Gantt is not mounted; a project-grouped list of
  * critical-path tasks and cross-project links renders instead, with the P80
  * finish. See program-schedule.spec.ts for the desktop view.
- *
- * The view renders the merged program-true cross-project schedule in the canvas
- * Gantt engine. Canvas pixels aren't assertable, so these specs verify the page
- * chrome that frames it: the header + project count, the legend that lets a
- * first-time viewer read cross-project edges and the critical path, and the
- * empty state when no member project has a computed schedule yet.
  */
 
 const ME_ID = 'user-alice';
