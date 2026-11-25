@@ -47,7 +47,7 @@ TXT
   tarball="$out/$name.tar.gz"
   # --sort/--owner need GNU tar; fall back to a sorted file list for bsdtar (macOS).
   (cd "$stage" && find "$name" -type f | LC_ALL=C sort > "$stage/.list")
-  if tar --version 2>/dev/null | grep -q 'GNU tar'; then
+  if grep -q 'GNU tar' <<<"$(tar --version 2>/dev/null)"; then
     (cd "$stage" && tar --mtime='2000-01-01 00:00:00' --owner=0 --group=0 --numeric-owner \
       -cf - -T "$stage/.list") | gzip -n > "$tarball"
   else
@@ -71,9 +71,9 @@ self_test() {
   for want in README.txt fixtures/PROVENANCE.json fixtures/basic_fs_chain.json \
     fixtures/expected/basic_fs_chain.json fixtures/invalid/cycle.json \
     fixtures/parse_rejects/task_id_non_string.json; do
-    if ! printf '%s\n' "$listing" | grep -q -- "$want\$"; then echo "FAIL: tarball lacks $want"; rc=1; fi
+    if ! grep -q -- "$want\$" <<<"$listing"; then echo "FAIL: tarball lacks $want"; rc=1; fi
   done
-  tar xzOf "$t" "$(printf '%s\n' "$listing" | grep 'README.txt$')" | grep -q "not correctness" \
+  grep -q "not correctness" <<<"$(tar xzOf "$t" "$(grep 'README.txt$' <<<"$listing")")" \
     || { echo "FAIL: README does not state agreement-not-correctness"; rc=1; }
   # The checksum file verifies, and a second packaging run is byte-identical.
   (cd "$tmp/a" && { command -v sha256sum >/dev/null && sha256sum -c ./*.sha256 >/dev/null || shasum -a 256 -c ./*.sha256 >/dev/null; }) \
