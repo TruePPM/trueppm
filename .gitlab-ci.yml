@@ -710,6 +710,10 @@ scripts:test:
   # macOS release machine; assemble-changelog.test.sh guards that statically.
   stage: lint
   image: python:3.11-slim@sha256:07d4824036af339fa1b6ef769cc99d9c10a141769538b52b3b597c84f7a7b535
+  variables:
+    # check-app-layering.test.sh compares its baseline with the MR's merge base,
+    # which the default depth of 20 loses on a branch with more commits than that.
+    GIT_DEPTH: "0"
   before_script:
     # wt-reserve.test.sh needs a real git binary (it stages sandbox repos);
     # osv-severity-gate.test.sh and scorecard-report.test.sh need jq (they classify JSON with it).
