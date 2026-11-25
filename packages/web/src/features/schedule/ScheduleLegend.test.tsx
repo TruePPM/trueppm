@@ -126,6 +126,17 @@ describe('ScheduleLegend', () => {
   });
 });
 
+describe('ScheduleLegend baseline slip row (#5065)', () => {
+  it('names the slip mark only while a summary or milestone mark is drawn', () => {
+    const { rerender } = render(<ScheduleLegend taskListWidth={0} canLink={false} baselineShown />);
+    expect(screen.queryByText('Baseline slip')).not.toBeInTheDocument();
+    rerender(<ScheduleLegend taskListWidth={0} canLink={false} baselineShown baselineSlipShown />);
+    expect(screen.getByText('Baseline slip')).toBeInTheDocument();
+    rerender(<ScheduleLegend taskListWidth={0} canLink={false} baselineSlipShown />);
+    expect(screen.queryByText('Baseline slip')).not.toBeInTheDocument();
+  });
+});
+
 describe('ScheduleLegend baseline row (#3821)', () => {
   it('names the baseline mark only while the canvas draws it', () => {
     const { rerender } = render(<ScheduleLegend taskListWidth={0} canLink={false} />);

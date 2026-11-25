@@ -13,6 +13,51 @@ import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
 const PROJECT_ID = 'e2e-baseline-ghost-0000-0000-0000-000000003821';
 const BASE_URL = `/projects/${PROJECT_ID}/schedule`;
 
+const SUMMARY_MILESTONE_TASKS = [
+  {
+    id: 'bg-sum',
+    wbs_path: '2',
+    name: 'Phase One',
+    early_start: '2026-04-06',
+    early_finish: '2026-04-15',
+    planned_start: '2026-04-06',
+    duration: 8,
+    percent_complete: 0,
+    is_critical: false,
+    is_milestone: false,
+    is_summary: true,
+    parent_id: null,
+    status: 'NOT_STARTED',
+    assignees: [],
+    total_float: 0,
+    predecessor_count: 0,
+    is_blocked: false,
+    linked_risks_count: 0,
+    linked_risks_max_severity: null,
+  },
+  {
+    id: 'bg-ms',
+    wbs_path: '3',
+    name: 'Handover',
+    early_start: '2026-04-20',
+    early_finish: '2026-04-20',
+    planned_start: '2026-04-20',
+    duration: 0,
+    percent_complete: 0,
+    is_critical: false,
+    is_milestone: true,
+    is_summary: false,
+    parent_id: null,
+    status: 'NOT_STARTED',
+    assignees: [],
+    total_float: 0,
+    predecessor_count: 0,
+    is_blocked: false,
+    linked_risks_count: 0,
+    linked_risks_max_severity: null,
+  },
+];
+
 const TASKS = [
   {
     id: 'bg1',
@@ -48,7 +93,11 @@ const BASELINE = {
   task_count: 1,
 };
 
-async function setup(page: Page, baselines: Array<typeof BASELINE>) {
+async function setup(
+  page: Page,
+  baselines: Array<typeof BASELINE>,
+  opts: { extraTasks?: typeof SUMMARY_MILESTONE_TASKS; slipped?: boolean } = {},
+) {
   await setupAuth(page);
   await setupCatchAll(page);
   await setupApiMocks(page, {
@@ -56,7 +105,7 @@ async function setup(page: Page, baselines: Array<typeof BASELINE>) {
       { id: PROJECT_ID, name: 'Baseline Ghost Project', description: '', start_date: '2026-04-01', calendar: 'default' },
     ],
     projectId: PROJECT_ID,
-    tasks: TASKS,
+    tasks: [...TASKS, ...(opts.extraTasks ?? [])],
   });
   await page.route('**/api/v1/projects/*/baselines/', (route) =>
     route.fulfill({
@@ -81,6 +130,26 @@ async function setup(page: Page, baselines: Array<typeof BASELINE>) {
             actual_start: null,
             actual_finish: null,
           },
+          ...(opts.extraTasks
+            ? [
+                // Baselined at 2026-04-10 / 2026-04-14: both now sit later (+5d, +6d)
+                // unless `slipped` is false, when they are on plan.
+                {
+                  task_id: 'bg-sum',
+                  task_name: 'Phase One',
+                  start: '2026-04-06',
+                  finish: opts.slipped === false ? '2026-04-15' : '2026-04-10',
+                  duration: 5,
+                },
+                {
+                  task_id: 'bg-ms',
+                  task_name: 'Handover',
+                  start: opts.slipped === false ? '2026-04-20' : '2026-04-14',
+                  finish: opts.slipped === false ? '2026-04-20' : '2026-04-14',
+                  duration: 0,
+                },
+              ]
+            : []),
         ],
       }),
     }),
@@ -123,5 +192,27 @@ test.describe('Baseline ghost bars (#3821)', () => {
     const menu = await openDisplayMenu(page);
     await expect(menu.getByRole('menuitemcheckbox', { name: 'Progress %' })).toBeVisible();
     await expect(menu.getByRole('menuitemcheckbox', { name: 'Baseline bars' })).toHaveCount(0);
+  });
+
+  test('slipped summary and milestone: the legend names the slip mark only while drawn (#5065)', async ({
+    page,
+  }) => {
+    await setup(page, [BASELINE], { extraTasks: SUMMARY_MILESTONE_TASKS });
+    const legend = page.getByTestId('schedule-legend-body');
+    await expect(legend.getByText('Baseline slip')).toBeVisible();
+
+    const menu = await openDisplayMenu(page);
+    await menu.getByRole('menuitemcheckbox', { name: 'Baseline bars' }).click();
+    await page.keyboard.press('Escape');
+    await expect(legend.getByText('Baseline slip')).toHaveCount(0);
+  });
+
+  test('on-plan summary and milestone draw no slip mark, so the legend omits it (#5065)', async ({
+    page,
+  }) => {
+    await setup(page, [BASELINE], { extraTasks: SUMMARY_MILESTONE_TASKS, slipped: false });
+    const legend = page.getByTestId('schedule-legend-body');
+    await expect(legend.getByText('Baseline (planned)')).toBeVisible();
+    await expect(legend.getByText('Baseline slip')).toHaveCount(0);
   });
 });

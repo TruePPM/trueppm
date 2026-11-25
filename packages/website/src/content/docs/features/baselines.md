@@ -277,8 +277,12 @@ moved away from the plan, so you can see which work moved across the whole sched
 - Turn it on or off from **Display → Chart → Baseline bars**. The row appears only when the
   project has an active baseline, and the choice is remembered in your browser.
 - The legend names it as **Baseline (planned)** while it is drawn.
-- Only the active baseline is drawn. Phases (summary rows) and milestones do not get an
-  outline yet; use the task detail's comparison table for those.
+- Only the active baseline is drawn.
+- Phases (summary rows) and milestones are marked only where they moved by a day or more. A
+  phase gets a thin whisker from its baseline finish to its current finish and a signed label
+  such as `+5d` (later than planned) or `−3d` (earlier). It is not outlined, so on-plan phases
+  stay clean. A milestone gets a hollow diamond at its baseline date, joined by a whisker to
+  the filled current diamond. The legend adds **Baseline slip** while at least one is drawn.
 - A task added after the baseline was captured has no outline.
 
 ## Comparing the whole project against a baseline

@@ -90,6 +90,7 @@ import {
 } from './buildMode/insertTarget';
 import { MilestonePulseOverlay } from './MilestonePulseOverlay';
 import { ScheduleLegend } from './ScheduleLegend';
+import { hasBaselineSlipMarks } from './engine/GanttRenderer';
 import { useScheduleKeyboard } from './useScheduleKeyboard';
 import { claimHelpShortcut, isUndoShortcutClaimed } from '@/hooks/useGlobalShortcut';
 import { inferNearestSummaryParent } from './inferMilestoneParent';
@@ -1519,6 +1520,14 @@ export function ScheduleView() {
       chartPrefs.baselineBarsVisible,
       baselineDrawable,
     ],
+  );
+
+  // A summary row or milestone is drawing a baseline slip mark (#5065): the
+  // legend names "Baseline slip" only while one is on screen (rule 460).
+  const baselineSlipShown = useMemo(
+    () =>
+      chartOptions.showBaselineBars === true && hasBaselineSlipMarks(allTasks, activeBaselineDates),
+    [chartOptions.showBaselineBars, allTasks, activeBaselineDates],
   );
 
   // Tracks tasks created but not yet scheduled (null dates filtered from Gantt).
@@ -4730,6 +4739,7 @@ export function ScheduleView() {
             <ScheduleLegendV2
               placement={placement}
               baselineShown={chartOptions.showBaselineBars === true}
+              baselineSlipShown={baselineSlipShown}
             />
           )}
           onLegendPlacementChange={setLegendV2Placement}
@@ -4948,6 +4958,7 @@ export function ScheduleView() {
         emptySprints={emptySprints}
         zoomLevel={zoomLevel}
         chartOptions={chartOptions}
+        baselineSlipShown={baselineSlipShown}
         handleEngineReady={handleEngineReady}
         mcResult={mcResult}
         scheduleScales={scheduleScales}
@@ -6369,7 +6380,10 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
         />
       )}
       {buildModeActive && !hasEditRights && (
-        <ScheduleViewOnlyBadge canLinkDependencies={canLinkDependencies} />
+        <ScheduleViewOnlyBadge
+          canLinkDependencies={canLinkDependencies}
+          baselineName={activeBaselineName}
+        />
       )}
       {/* "+ Item" button — shown when a project is selected AND the user is
           authoring. A viewer never sees it (#2949), and since #3748 neither
@@ -6907,6 +6921,7 @@ interface ScheduleMainAreaProps {
   emptySprints: ComponentProps<typeof CanvasScheduleTimeline>['emptySprints'];
   zoomLevel: ComponentProps<typeof CanvasScheduleTimeline>['zoomLevel'];
   chartOptions: ComponentProps<typeof CanvasScheduleTimeline>['chartOptions'];
+  baselineSlipShown: boolean;
   handleEngineReady: (eng: GanttEngine) => void;
   mcResult: ReturnType<typeof useMonteCarloResult>['data'];
   scheduleScales: GanttScaleData | null;
@@ -7450,6 +7465,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
             canLink={props.canLinkDependencies}
             closeFocusRef={props.legendTriggerRef}
             baselineShown={props.chartOptions?.showBaselineBars === true}
+            baselineSlipShown={props.baselineSlipShown}
           />
         ) : (
           props.shellV2LegendPlacement === 'timeline-header' && (
@@ -7461,6 +7477,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
                 <ScheduleLegendV2
                   placement="timeline-header"
                   baselineShown={props.chartOptions?.showBaselineBars === true}
+                  baselineSlipShown={props.baselineSlipShown}
                 />
               </div>
             </div>

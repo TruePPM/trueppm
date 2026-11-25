@@ -59,12 +59,15 @@ export function ScheduleModeChip({
   // gesture, so the words match the thing you will click. Visible text sits
   // inside the accessible name verbatim (WCAG 2.5.3, label in name).
   const primary = isRead ? 'Read only' : 'Author';
+  // Author: the baseline is what edits are measured against ("vs …"). Read: it is
+  // only the plan's reference, so the name rides plain (#3757) ahead of the hint
+  // that leads out of Read. Unsettled/absent => no name, and no "no baseline" claim.
   const secondary = isRead
     ? 'Switch to Author to edit'
     : baselineName
       ? `vs ${baselineName}`
       : null;
-
+  const readBaseline = isRead && baselineName ? baselineName : null;
   return (
     <ToolbarOverflowMenu
       triggerTestId="schedule-mode-chip"
@@ -78,7 +81,7 @@ export function ScheduleModeChip({
       // one-keystroke way out that the pointer path costs two interactions.
       triggerAriaLabel={
         isRead
-          ? `Mode: Read only — edits are blocked. Switch to Author to edit (${chord}).`
+          ? `Mode: Read only${readBaseline ? `, baseline ${readBaseline}` : ''} — edits are blocked. Switch to Author to edit (${chord}).`
           : baselineName
             ? `Mode: Author vs ${baselineName} — edits are allowed and show as differences from ${baselineName}. ${chord} switches to Read.`
             : `Mode: Author — edits are allowed. ${chord} switches to Read.`
@@ -91,6 +94,18 @@ export function ScheduleModeChip({
       triggerLabel={
         <>
           <span className="whitespace-nowrap">{primary}</span>
+          {readBaseline && (
+            // Width-capped, full value on `title` (rule 255). Visible text sits in
+            // the accessible name verbatim (WCAG 2.5.3).
+            <span
+              className="max-w-[10rem] truncate whitespace-nowrap font-normal"
+              title={readBaseline}
+              data-testid="schedule-mode-chip-baseline"
+            >
+              <span aria-hidden="true"> · </span>
+              {readBaseline}
+            </span>
+          )}
           {secondary && (
             // A baseline name is user-authored and unbounded, so the readout is
             // capped and truncated with the full value on `title` (rule 255); the

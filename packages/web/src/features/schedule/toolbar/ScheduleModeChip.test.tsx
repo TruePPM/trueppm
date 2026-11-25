@@ -64,9 +64,24 @@ describe('ScheduleModeChip', () => {
     );
   });
 
-  it('shows no baseline readout in Read, or when there is no baseline', () => {
+  it('names the active baseline plainly at rest in Read, in text and accessible name (#3757)', () => {
     renderChip('read', 'Baseline v1');
-    expect(screen.getByTestId('schedule-mode-chip')).not.toHaveTextContent('Baseline v1');
+    const chip = screen.getByTestId('schedule-mode-chip');
+    expect(chip).toHaveTextContent('Read only · Baseline v1 · Switch to Author to edit');
+    expect(chip).not.toHaveTextContent('vs Baseline v1');
+    expect(chip).toHaveAccessibleName(
+      'Mode: Read only, baseline Baseline v1 — edits are blocked. Switch to Author to edit (Alt+A).',
+    );
+    expect(screen.getByTestId('schedule-mode-chip-baseline')).toHaveAttribute(
+      'title',
+      'Baseline v1',
+    );
+  });
+
+  it('shows no baseline readout when there is none (or it is unsettled)', () => {
+    renderChip('read');
+    expect(screen.queryByTestId('schedule-mode-chip-baseline')).not.toBeInTheDocument();
+    expect(screen.getByTestId('schedule-mode-chip')).not.toHaveTextContent(/baseline/i);
     cleanup();
     renderChip('author');
     expect(screen.getByTestId('schedule-mode-chip')).toHaveTextContent(/^Author$/);
