@@ -598,6 +598,26 @@ email could not be sent. A `503` still writes the audit row, and retrying is saf
 | `member_has_no_email` | `409` | The account has no email address to send the link to |
 | `set_password_link_unavailable` | `409` | `TRUEPPM_FRONTEND_BASE_URL` is not set, so the email cannot carry a link |
 | `email_delivery_failed` | `503` | The mail transport refused the message; the body also carries `"sent": false` |
+| `commitment_slip_requires_acceptance` | `409` | Ships in 0.5. A date write would move committed active-sprint work past the sprint end and the caller cannot accept scope changes; not applied, recorded as a pending scope change (see [Commitment slips](#commitment-slips-commitment_slip_requires_acceptance)) | `scope_change_id`, `batch_id`, `sprint_id`, `sprint_name`, `proposed_start`, `proposed_finish` |
+
+#### Commitment slips (`commitment_slip_requires_acceptance`)
+
+Ships in 0.5. A date write (`planned_start`, `duration` or `planned_finish`) that would move a task committed in an active sprint past that sprint's end will return `409` when the caller cannot accept scope changes, and **the write will not be applied**. API tokens of every scope get this answer too. The server records a pending scope change holding the proposed dates:
+
+```json
+{
+  "code": "commitment_slip_requires_acceptance",
+  "detail": "This change moves committed work past the end of the active sprint. It is waiting for a decision from someone who can accept scope changes.",
+  "scope_change_id": "…",
+  "batch_id": "…",
+  "sprint_id": "…",
+  "sprint_name": "Sprint 4",
+  "proposed_start": "2026-01-05",
+  "proposed_finish": "2026-01-23"
+}
+```
+
+The bulk task endpoint will report the same code on the rejected row, and the sync push will report it as an entry in `conflicts.tasks`; keep the local edit pending. A caller who *can* accept scope changes and sends no `slip_reason` will get a field error keyed `slip_reason` (shape 1, no `code`).
 
 ### 413 — request body too large
 
