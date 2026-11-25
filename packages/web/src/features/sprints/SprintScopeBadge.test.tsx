@@ -56,4 +56,21 @@ describe('SprintScopeBadge', () => {
     fireEvent.click(btn);
     expect(screen.getByTestId('slip-row')).toBeInTheDocument();
   });
+
+  it('keeps the open drawer when its last pending slip is decided', () => {
+    const pending: SprintScopeChanges = {
+      summary: { points_added: 0, points_removed: 0, added_mid_sprint_count: 0, total: 0 },
+      events: [
+        { id: 's1', item_name: 'Pour slab', story_points: null, added_by_name: 'Sam', added_at: '2026-04-10T09:00:00Z', goal_impact: false, status: 'pending', kind: 'slip', proposed_start: null, proposed_finish: '2026-04-24', batch_id: null },
+      ],
+    };
+    mockHook.mockReturnValue({ data: pending, isLoading: false } as ReturnType<typeof useSprintScopeChanges>);
+    const { rerender } = render(<SprintScopeBadge sprintId="sp-1" projectId="p-1" />);
+    fireEvent.click(screen.getByRole('button', { name: /1 date change waiting/i }));
+    const decided = { ...pending, events: [{ ...pending.events[0], status: 'accepted' as const }] };
+    mockHook.mockReturnValue({ data: decided, isLoading: false } as ReturnType<typeof useSprintScopeChanges>);
+    rerender(<SprintScopeBadge sprintId="sp-1" projectId="p-1" />);
+    expect(screen.getByRole('dialog', { name: /Scope changes/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /date change waiting/i })).toBeNull();
+  });
 });
