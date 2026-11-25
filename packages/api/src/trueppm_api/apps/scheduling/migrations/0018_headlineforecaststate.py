@@ -9,7 +9,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("projects", "0184_baseline_changeset"),
-        ("scheduling", "0010_squashed_0016_release_0_4"),
+        ("scheduling", "0017_montecarlorun_engine_epoch"),
     ]
 
     operations = [
