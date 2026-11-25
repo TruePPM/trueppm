@@ -24,7 +24,7 @@ import logging
 import statistics
 import uuid
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
@@ -48,6 +48,12 @@ logger = logging.getLogger(__name__)
 # stable rolling average; below that the suggestion is noise and would erode
 # PM trust in the surface.
 MIN_CLOSED_SPRINTS_FOR_SUGGESTION = 3
+
+#: A DISPATCHED outbox row older than this is treated as dead, not in flight:
+#: ``recalculate_schedule``'s soft limit is 480 s, so ten minutes means any
+#: invocation has completed or timed out. Shared by the drain's orphan recovery and
+#: the enqueue-time coalescing check.
+RECALC_ORPHAN_AFTER = timedelta(minutes=10)
 
 # Rolling window for team_velocity_per_day. ADR-0065 picks six sprints as the
 # balance between responsiveness to a real velocity shift and smoothing of
@@ -94,6 +100,11 @@ def enqueue_recalculate(
     subsequent edit until ``drain_schedule_queue`` ran, which is the failure
     mode that produced #314.
 
+    The one exception (#4095): when the project already has a pending row *and* a
+    live dispatched one (a run is in flight), no further message is sent. The
+    message that created the pending row, or the drain, runs it after the current
+    pass, so K edits during a run cost one follow-up pass rather than up to K.
+
     If the broker is unavailable the row is left PENDING and
     ``drain_schedule_queue`` picks it up within 30 seconds.
     """
@@ -109,15 +120,30 @@ def enqueue_recalculate(
         # dispatch, e.g. broker outage) and every subsequent edit will pile up
         # on it. Re-dispatching it now coalesces all those edits into a single
         # CPM run with the latest data.
-        existing = ScheduleRequest.objects.filter(
-            project_id=project_id,
-            status=ScheduleRequestStatus.PENDING,
-        ).first()
+        # Row lock: a worker claiming this row (``claim_schedule_request``) waits
+        # for the lock, so a caller still inside its own transaction cannot have its
+        # request consumed by a run that read the data before that commit.
+        with transaction.atomic():
+            existing = (
+                ScheduleRequest.objects.select_for_update()
+                .filter(project_id=project_id, status=ScheduleRequestStatus.PENDING)
+                .first()
+            )
         if existing is None:
             # Race: row transitioned out of PENDING between insert + lookup.
-            # The other writer already dispatched it; nothing to do.
+            # Whoever moved it reads the data afterwards; nothing to do.
             return
         req = existing
+        if ScheduleRequest.objects.filter(
+            project_id=project_id,
+            status=ScheduleRequestStatus.DISPATCHED,
+            dispatched_at__gte=timezone.now() - RECALC_ORPHAN_AFTER,
+        ).exists():
+            # layering-ok: the OTel metric sink, a no-op unless telemetry is enabled
+            from trueppm_api.apps.observability.otel.metrics import record_recalc_coalesced
+
+            record_recalc_coalesced("dispatch_skipped")
+            return
 
     # Best-effort immediate dispatch — reduces recalculation latency when the
     # broker is healthy.  Failure here is not fatal; the row stays PENDING.
@@ -136,8 +162,6 @@ def enqueue_recalculate(
             project_id,
         )
         return
-
-    from django.utils import timezone
 
     # Guard the PENDING→DISPATCHED transition with a savepoint: another row for
     # this project may already be DISPATCHED (stranded by a missing worker — the
@@ -158,6 +182,46 @@ def enqueue_recalculate(
             "— leaving new request PENDING for drain_schedule_queue to coalesce",
             project_id,
         )
+
+
+def claim_schedule_request(project_id: str) -> bool:
+    """Take ownership of the project's outbox work before the recalc reads any data.
+
+    Without this a run only retired DISPATCHED rows, so a PENDING row left by an
+    edit during an earlier run stayed PENDING after the pass that had already read
+    that edit, and the drain ran it all over again (#4095).
+
+    The PENDING row is promoted to DISPATCHED and any older DISPATCHED row is
+    retired as DONE, since this pass supersedes it. Claiming happens *before* the
+    data is read, so an edit committed afterwards creates a fresh PENDING row and
+    is never swallowed. The claimed row stays DISPATCHED until the write-back
+    commits, so a crashed run is still recovered by the drain's orphan sweep.
+
+    Args:
+        project_id: UUID string of the project about to be recalculated.
+
+    Returns:
+        ``True`` when the project has an outbox row this run serves (claimed now,
+        or already DISPATCHED); ``False`` when none is outstanding.
+    """
+    from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
+
+    dispatched = ScheduleRequest.objects.filter(
+        project_id=project_id, status=ScheduleRequestStatus.DISPATCHED
+    )
+    with transaction.atomic():
+        pending = (
+            ScheduleRequest.objects.select_for_update()
+            .filter(project_id=project_id, status=ScheduleRequestStatus.PENDING)
+            .first()
+        )
+        if pending is None:
+            return dispatched.exists()
+        dispatched.update(status=ScheduleRequestStatus.DONE)
+        ScheduleRequest.objects.filter(id=pending.id).update(
+            status=ScheduleRequestStatus.DISPATCHED, dispatched_at=timezone.now()
+        )
+    return True
 
 
 def failed_task_is_actionable(failed_task_id: str) -> bool:

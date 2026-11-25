@@ -331,6 +331,7 @@ under the `trueppm.*` namespace.
 | `trueppm.broker.queue.depth` | gauge | Celery messages **waiting** in the broker (Valkey/Redis `LLEN`), downstream of the outboxes | `messaging.destination.name` (queue, e.g. `celery`) |
 | `trueppm.ws.connections.active` | up/down counter | Active WebSocket connections accepted by this process's Channels consumers | — |
 | `trueppm.ws.broadcast.count` | counter | WebSocket board-event broadcasts fanned out to a project group | — |
+| `trueppm.schedule.recalc.coalesced` | counter | Ships in 0.5. Redundant CPM recalculations avoided while a run was already covering the project | `trueppm.schedule.coalesce_outcome` (`dispatch_skipped` \| `run_bailed`) |
 | `trueppm.ratelimit.enabled` | gauge | `1` when API rate limiting is on, `0` when an operator has disabled it (ADR-0604) — alert on `0`, it means DoS/abuse protection is off instance-wide | — |
 
 The two `trueppm.outbox.*` metrics are the operational signal for TruePPM's durable

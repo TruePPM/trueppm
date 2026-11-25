@@ -109,6 +109,7 @@ BROKER_QUEUE_DEPTH = "trueppm.broker.queue.depth"
 WS_CONNECTIONS_ACTIVE = "trueppm.ws.connections.active"
 WS_BROADCAST_COUNT = "trueppm.ws.broadcast.count"
 TASK_DURATION_SECONDS = "trueppm.task.duration_seconds"
+SCHEDULE_RECALC_COALESCED = "trueppm.schedule.recalc.coalesced"
 RATELIMIT_ENABLED = "trueppm.ratelimit.enabled"
 
 # The gauges documented above as "Cluster-wide — aggregate with max/last, never
@@ -144,6 +145,7 @@ _installed = False
 # events recorded at the event site, not polled state.
 _ws_connections: UpDownCounter | None = None
 _ws_broadcasts: Counter | None = None
+_recalc_coalesced: Counter | None = None
 
 # The task-duration instrument, unlike the observable gauges above, is a plain
 # (synchronous) Histogram: there is no "current value" a callback can sample —
@@ -171,6 +173,7 @@ def install_metrics(context: OTelBootstrapContext, *, meter_provider: Any = None
             a test overrides it to read from an in-memory metric reader.
     """
     global _installed, _ws_connections, _ws_broadcasts, _task_duration_histogram
+    global _recalc_coalesced
     if _installed:
         return
     if not context.enabled or context.meter_provider is None:
@@ -223,6 +226,11 @@ def install_metrics(context: OTelBootstrapContext, *, meter_provider: Any = None
         unit="{broadcast}",
         description="WebSocket board-event broadcasts fanned out to a project group.",
     )
+    _recalc_coalesced = meter.create_counter(
+        SCHEDULE_RECALC_COALESCED,
+        unit="{run}",
+        description="Redundant CPM runs avoided: a dispatch skipped or a queued run bailed.",
+    )
     _task_duration_histogram = meter.create_histogram(
         TASK_DURATION_SECONDS,
         unit="s",
@@ -232,7 +240,7 @@ def install_metrics(context: OTelBootstrapContext, *, meter_provider: Any = None
         ),
     )
     _installed = True
-    logger.info("OpenTelemetry native metrics registered (8 instruments)")
+    logger.info("OpenTelemetry native metrics registered (9 instruments)")
 
 
 def _resolve_meter(meter_provider: Any) -> Meter:
@@ -568,6 +576,23 @@ def record_ws_broadcast() -> None:
         logger.debug("ws broadcast metric skipped", exc_info=True)
 
 
+def record_recalc_coalesced(outcome: str) -> None:
+    """Count one redundant CPM run avoided (#4095).
+
+    Args:
+        outcome: ``dispatch_skipped`` (an edit coalesced onto a pending request
+            while a run was in flight) or ``run_bailed`` (a queued task found its
+            request already served).
+    """
+    counter = _recalc_coalesced
+    if counter is None:
+        return
+    try:
+        counter.add(1, {attributes.SCHEDULE_COALESCE_OUTCOME: outcome})
+    except Exception:
+        logger.debug("recalc coalesced metric skipped", exc_info=True)
+
+
 def reset_for_testing() -> None:
     """Clear the idempotency guard so a test can re-register against a fresh reader.
 
@@ -579,7 +604,9 @@ def reset_for_testing() -> None:
     ``record_*`` helpers no-op in between).
     """
     global _installed, _ws_connections, _ws_broadcasts, _task_duration_histogram
+    global _recalc_coalesced
     _installed = False
     _ws_connections = None
     _ws_broadcasts = None
     _task_duration_histogram = None
+    _recalc_coalesced = None
