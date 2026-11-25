@@ -98,7 +98,9 @@ export function ScopeChangeDrawer({ sprintId, onClose }: Props) {
             className="shrink-0 rounded p-1 text-neutral-text-secondary hover:text-neutral-text-primary
               focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
           >
-            <span aria-hidden="true" className="text-lg leading-none">×</span>
+            <span aria-hidden="true" className="text-lg leading-none">
+              ×
+            </span>
           </button>
         </header>
 
@@ -132,9 +134,57 @@ const STATUS_LABEL: Record<ScopeChangeEvent['status'], string> = {
   rejected: 'Removed',
 };
 
+const SLIP_STATUS_LABEL: Record<ScopeChangeEvent['status'], string> = {
+  pending: 'Pending',
+  accepted: 'Accepted',
+  rejected: 'Not applied',
+};
+
+/**
+ * A commitment-slip row (ADR-1485 D1): a proposed date move on work already
+ * committed to the sprint. It adds and removes no scope, so it carries no ± points
+ * accent and is never labeled an addition.
+ */
+function SlipRow({ event }: { event: ScopeChangeEvent }) {
+  const { formatInstantDate } = useUserDateFormat();
+  const when = formatInstantDate(event.added_at, 'short');
+  return (
+    <li
+      className="px-4 py-2.5 flex items-start gap-3 border-b border-neutral-border/60 last:border-b-0"
+      data-testid="slip-row"
+    >
+      <span className="text-xs mt-0.5 shrink-0 text-neutral-text-secondary" aria-hidden="true">
+        →
+      </span>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm text-neutral-text-primary truncate" title={event.item_name}>
+          {event.item_name}
+        </p>
+        <p className="text-xs text-neutral-text-secondary">
+          Date slip
+          {event.proposed_finish ? (
+            <>
+              {' '}
+              to <span className="tppm-mono">{event.proposed_finish}</span>
+            </>
+          ) : null}{' '}
+          · {event.added_by_name ?? 'Someone'} · <span className="tppm-mono">{when}</span>
+        </p>
+        {event.decision_reason ? (
+          <p className="text-xs text-neutral-text-secondary">{event.decision_reason}</p>
+        ) : null}
+      </div>
+      <span className="text-xs px-1.5 py-0.5 rounded shrink-0 bg-neutral-surface-sunken text-neutral-text-secondary">
+        {SLIP_STATUS_LABEL[event.status]}
+      </span>
+    </li>
+  );
+}
+
 function ScopeChangeRow({ event }: { event: ScopeChangeEvent }) {
   const { formatInstantDate } = useUserDateFormat();
   const itl = useIterationLabel();
+  if (event.kind === 'slip') return <SlipRow event={event} />;
   const removed = event.status === 'rejected';
   const points = event.story_points ?? 0;
   const when = formatInstantDate(event.added_at, 'short');
@@ -153,7 +203,10 @@ function ScopeChangeRow({ event }: { event: ScopeChangeEvent }) {
         <p className="text-sm text-neutral-text-primary truncate" title={event.item_name}>
           {event.item_name}
           {event.goal_impact && (
-            <span className="ml-1.5 align-middle text-xs text-semantic-at-risk" title={`Affects the ${itl.lower} goal`}>
+            <span
+              className="ml-1.5 align-middle text-xs text-semantic-at-risk"
+              title={`Affects the ${itl.lower} goal`}
+            >
               <TargetIcon aria-hidden="true" className="inline-block h-3 w-3 align-[-0.125em]" />
             </span>
           )}
@@ -195,14 +248,14 @@ function DurationChangeRow({ event }: { event: SprintDurationChangeEvent }) {
       className="px-4 py-2.5 flex items-start gap-3 border-b border-neutral-border/60 last:border-b-0"
       data-testid="duration-change-row"
     >
-      <span
-        className="text-xs mt-0.5 shrink-0 text-brand-primary"
-        aria-label="duration changed"
-      >
+      <span className="text-xs mt-0.5 shrink-0 text-brand-primary" aria-label="duration changed">
         <RepeatIcon aria-hidden="true" className="inline-block h-3 w-3 align-[-0.125em]" />
       </span>
       <div className="flex-1 min-w-0">
-        <p className="text-sm text-neutral-text-primary truncate" title={event.task_name ?? undefined}>
+        <p
+          className="text-sm text-neutral-text-primary truncate"
+          title={event.task_name ?? undefined}
+        >
           {event.task_name ?? 'Task'}
           {' · '}
           <span className="tppm-mono text-neutral-text-secondary">

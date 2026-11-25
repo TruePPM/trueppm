@@ -7540,6 +7540,12 @@ class SprintScopeChange(models.Model):
     proposed_start = models.DateField(null=True, blank=True)
     proposed_finish = models.DateField(null=True, blank=True)
     proposed_duration = models.IntegerField(null=True, blank=True)
+    # The task's planned_start/duration when the slip was proposed. Accepting a
+    # PENDING slip replays the proposed dates only while the task still holds these
+    # values; anything else means the dates moved underneath it (an Admin edit, a
+    # later proposal) and replaying would silently revert that change.
+    base_start = models.DateField(null=True, blank=True)
+    base_duration = models.IntegerField(null=True, blank=True)
     # One id per request: every slip one write produced (a multi-select drag, a
     # bulk edit, one sync push) shares it, so accept/reject can act on the batch.
     batch_id = models.UUIDField(null=True, blank=True, db_index=True)

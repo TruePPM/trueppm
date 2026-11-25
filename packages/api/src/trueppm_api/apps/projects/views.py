@@ -68,6 +68,7 @@ from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.access.permissions import (
+    CommitmentSlipAuditMixin,
     IsNotTokenAuthenticated,
     IsNotTokenForScopeDecision,
     IsProgramAdmin,
@@ -220,6 +221,8 @@ from trueppm_api.apps.projects.serializers import (
     CalendarSerializer,
     CommentAcknowledgementSerializer,
     CommentReactionSerializer,
+    CommitmentSlipConflictSerializer,
+    CommitmentSlipStaleSerializer,
     CommitProjectResultSerializer,
     CrossProjectSlipConflictSerializer,
     CycleDetectedError,
@@ -880,10 +883,25 @@ class TaskBulkProblemEntrySerializer(serializers.Serializer[Any]):
             "`invalid`; it may succeed later for `unresolved_endpoint`, `conflict` and "
             "`forbidden`; and `tombstoned` / `milestone_gate` are documented no-ops "
             "rather than failures. `id_unavailable` is deliberately non-asserting — it "
-            "does not reveal whether the id exists in a project the caller cannot see."
+            "does not reveal whether the id exists in a project the caller cannot see. "
+            "`commitment_slip_requires_acceptance` means the row was recorded as a "
+            "PENDING commitment slip (ADR-1485 D1) instead of applied; the four slip "
+            "fields below are set only on that code."
         ),
     )
     message = serializers.CharField()
+    scope_change_id = serializers.UUIDField(
+        required=False, help_text="The PENDING slip row recorded for this op (slip code only)."
+    )
+    batch_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Shared by every slip this request recorded; decide them together.",
+    )
+    sprint_id = serializers.UUIDField(
+        required=False, help_text="The ACTIVE sprint the slip would move work past."
+    )
+    sprint_name = serializers.CharField(required=False)
 
 
 class TaskBulkDependencyAppliedSerializer(serializers.Serializer[Any]):
@@ -6804,6 +6822,14 @@ class _NumericWbsOrderingFilter(filters.OrderingFilter):
         return queryset.order_by(*terms)
 
 
+#: The two 409 bodies a task PUT/PATCH can answer with, discriminated by ``code``.
+_TASK_WRITE_CONFLICT = PolymorphicProxySerializer(
+    component_name="TaskWriteConflict",
+    serializers=[CommitmentSlipConflictSerializer, StructureRoleConflictSerializer],
+    resource_type_field_name=None,
+)
+
+
 @extend_schema_view(
     update=extend_schema(
         # TaskWriteResponse, not Task: a successful write can carry a ``warnings`` array
@@ -6814,9 +6840,17 @@ class _NumericWbsOrderingFilter(filters.OrderingFilter):
         responses={
             200: TaskWriteResponseSerializer,
             409: OpenApiResponse(
-                response=StructureRoleConflictSerializer,
+                response=_TASK_WRITE_CONFLICT,
                 description=(
-                    "The declared `structure_role` contradicts the tree (#2950, "
+                    "Either body, told apart by `code`. "
+                    "`commitment_slip_requires_acceptance` (ADR-1485 D1): the date "
+                    "write would move sprint-committed work past the ACTIVE sprint's "
+                    "end and the caller is not the accept authority (Admin+ or the "
+                    "team's SM/PO facet; every API token). The write was NOT applied; "
+                    "it is recorded as a PENDING slip (`scope_change_id`) for that "
+                    "authority to accept or reject.\n\n"
+                    "`structure_role_contradicted`: the declared `structure_role` "
+                    "contradicts the tree (#2950, "
                     "ADR-0844). Returned when a client declares `work` on a row that "
                     "has structural children: the derived fact wins for every "
                     "computation, so storing the declaration would leave the row "
@@ -6833,10 +6867,11 @@ class _NumericWbsOrderingFilter(filters.OrderingFilter):
         responses={
             200: TaskWriteResponseSerializer,
             409: OpenApiResponse(
-                response=StructureRoleConflictSerializer,
+                response=_TASK_WRITE_CONFLICT,
                 description=(
-                    "The declared `structure_role` contradicts the tree — see the note "
-                    "on `PUT`. This is the path the outline actually uses."
+                    "A commitment slip held for acceptance, or the declared "
+                    "`structure_role` contradicts the tree — see the note on `PUT`, "
+                    "told apart by `code`. This is the path the outline actually uses."
                 ),
             ),
         },
@@ -11539,7 +11574,7 @@ def _register_bulk_commit_hooks(
         responses={207: TaskBulkResponseSerializer},
     )
 )
-class TaskBulkView(IdempotencyMixin, APIView):
+class TaskBulkView(CommitmentSlipAuditMixin, IdempotencyMixin, APIView):
     """Create, update, and delete tasks per row in a single request (ADR-0772, #2723).
 
     POST /api/v1/projects/{pk}/tasks/bulk/
@@ -17950,6 +17985,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             SprintScopeChangeSerializer,
         )
         from trueppm_api.apps.projects.services import (
+            SLIP_STALE_ATTR,
             ScopeAcceptForbidden,
             assert_scope_gate_for_project,
             decide_scope_change_batch,
@@ -17994,9 +18030,15 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             )
 
         key = "accepted" if accept else "rejected"
+        # ADR-1485 D1: a batch accept applies every fresh row and refuses each stale
+        # slip on its own (closed REJECTED, dates untouched); the refused rows are
+        # listed under ``stale`` so one stale row never blocks the rest of the batch.
+        decided = [row for row in done if not getattr(row, SLIP_STALE_ATTR, None)]
+        stale = [row for row in done if getattr(row, SLIP_STALE_ATTR, None)]
         return Response(
             {
-                key: [SprintScopeChangeSerializer(row).data for row in done],
+                key: [SprintScopeChangeSerializer(row).data for row in decided],
+                "stale": [SprintScopeChangeSerializer(row).data for row in stale],
                 "pending_count": sprint_pending_count(sprint.pk),
             },
             status=status.HTTP_200_OK,
@@ -19005,6 +19047,8 @@ class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
             SprintScopeChangeSerializer,
         )
         from trueppm_api.apps.projects.services import (
+            COMMITMENT_SLIP_STALE_CODE,
+            SLIP_STALE_ATTR,
             ScopeAcceptForbidden,
             accept_scope_change,
             reject_scope_change,
@@ -19028,6 +19072,19 @@ class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
                 {"code": ScopeAcceptForbidden.code, "detail": ScopeAcceptForbidden.detail},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        stale = getattr(result, SLIP_STALE_ATTR, None)
+        if stale:
+            # ADR-1485 D1: the slip no longer applies (dates moved, task gone or out
+            # of the sprint, sprint not ACTIVE). A Response, not an APIException, so
+            # the row's REJECTED close commits instead of being rolled back.
+            return Response(
+                {
+                    "code": COMMITMENT_SLIP_STALE_CODE,
+                    "detail": f"This proposed change can no longer be applied. {stale}",
+                    "scope_change_id": str(result.pk),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
         data = SprintScopeChangeSerializer(result).data
         # The sprint may be null after a reject only on the task; the scope-change
         # row retains sprint_id, so pending_count resolves against it.
@@ -19044,6 +19101,16 @@ class SprintScopeChangeViewSet(IdempotencyMixin, viewsets.GenericViewSet[Any]):
             ),
             403: OpenApiResponse(
                 description="Accepting scope changes is team-owned (Admin or SM/PO facet)."
+            ),
+            409: OpenApiResponse(
+                response=CommitmentSlipStaleSerializer,
+                description=(
+                    "`commitment_slip_stale` (ADR-1485 D1): the slip no longer applies "
+                    "— the task's dates changed after it was proposed, the task was "
+                    "deleted or left the sprint, or the sprint is no longer active. The "
+                    "dates were left alone and the row is closed as rejected with the "
+                    "why in `decision_reason`."
+                ),
             ),
         },
     )

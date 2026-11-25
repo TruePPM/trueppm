@@ -232,6 +232,33 @@ class StructureRoleConflictSerializer(serializers.Serializer[dict[str, Any]]):
     )
 
 
+class CommitmentSlipConflictSerializer(serializers.Serializer[dict[str, Any]]):
+    """The ``409`` body of a date write held as a PENDING commitment slip (ADR-1485 D1).
+
+    The same body is a ``conflicts.tasks[]`` entry on the sync upload (plus the row
+    ``id``); the bulk route carries its id fields on the ``rejected[]`` entry.
+    """
+
+    code = serializers.CharField(help_text="Always `commitment_slip_requires_acceptance`.")
+    detail = serializers.CharField()
+    scope_change_id = serializers.UUIDField(help_text="The PENDING slip row.")
+    batch_id = serializers.UUIDField(
+        allow_null=True, help_text="Shared by every slip this request recorded."
+    )
+    sprint_id = serializers.UUIDField()
+    sprint_name = serializers.CharField()
+    proposed_start = serializers.DateField(allow_null=True)
+    proposed_finish = serializers.DateField(allow_null=True)
+
+
+class CommitmentSlipStaleSerializer(serializers.Serializer[dict[str, Any]]):
+    """The ``409`` body of a slip accept refused because the slip no longer applies."""
+
+    code = serializers.CharField(help_text="Always `commitment_slip_stale`.")
+    detail = serializers.CharField()
+    scope_change_id = serializers.UUIDField()
+
+
 class StructureRoleConflict(APIException):
     """A declared ``structure_role`` the tree already contradicts (#2950).
 
@@ -6911,6 +6938,11 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             from trueppm_api.apps.projects.models import SprintScopeChange
 
             rows = SprintScopeChange.objects.filter(task_id=obj.pk).select_related("added_by")
+        # A slip row (ADR-1485 D1) is a date decision on committed work, not a
+        # mid-sprint addition: the chip (and the board's pending-review target
+        # derived from it) lists injections only. Slips are read and decided from
+        # ``sprints/{id}/scope-changes/``, where each event carries its ``kind``.
+        rows = [r for r in rows if r.kind != "slip"]
         return [
             {
                 # ADR-0102: the row id lets the client target the single
@@ -7155,6 +7187,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         from trueppm_api.apps.projects.services import guard_commitment_slip
 
         reason = validated_data.pop("slip_reason", "") or ""
+        if self.context.get("commitment_slip_accepted"):
+            # ``_apply_accepted_slip`` replaying a decided slip: this IS the acceptance.
+            return
         new_start = validated_data.get("planned_start")
         new_duration = validated_data.get("duration")
         if "planned_start" in validated_data and new_start == instance.planned_start:
@@ -10951,6 +10986,14 @@ class SprintScopeChangeEventSerializer(serializers.Serializer[dict[str, Any]]):
     added_at = serializers.DateTimeField(read_only=True)
     goal_impact = serializers.BooleanField(read_only=True)
     status = serializers.CharField(read_only=True)
+    # ADR-1485 D1: ``injection`` (counted in the summary) or ``slip`` (a proposed
+    # date move on committed work; listed so it stays visible and decidable, never
+    # counted as scope). ``proposed_*`` and ``decision_reason`` are set on slips.
+    kind = serializers.CharField(read_only=True)
+    proposed_start = serializers.DateField(read_only=True, allow_null=True)
+    proposed_finish = serializers.DateField(read_only=True, allow_null=True)
+    batch_id = serializers.UUIDField(read_only=True, allow_null=True)
+    decision_reason = serializers.CharField(read_only=True)
 
 
 class SprintScopeChangeSummarySerializer(serializers.Serializer[dict[str, Any]]):
@@ -11330,6 +11373,8 @@ class SprintScopeChangeBulkResultSerializer(serializers.Serializer[dict[str, Any
 
     accepted = SprintScopeChangeSerializer(many=True, read_only=True, required=False)
     rejected = SprintScopeChangeSerializer(many=True, read_only=True, required=False)
+    # ADR-1485 D1: slips the accept refused as stale (closed REJECTED, dates kept).
+    stale = SprintScopeChangeSerializer(many=True, read_only=True, required=False)
     pending_count = serializers.IntegerField(read_only=True)
 
 

@@ -188,5 +188,13 @@ A **commitment slip** is a date change that moves committed work in the active s
 
 Every slip from one change, such as a bulk edit or one offline sync, shares a batch. People who can accept scope changes can decide the whole batch or one row at a time. API tokens and agents can cause pending slips, but only a signed-in person can decide them.
 
-A slip that comes from a schedule recalculation, after an earlier task moves, is not blocked. It is flagged as at risk instead.
+A slip that comes from a schedule recalculation, after an earlier task moves, is not blocked. Flagging those as at risk is separate work planned for a later 0.5 change (#5127); until it ships, nothing marks them.
+
+A pending slip can stop applying before anyone decides it:
+
+- **A newer proposal replaces it.** When someone proposes another slip for the same task, the older pending slip closes as *Not applied* ("Superseded by a newer proposed change to this task"). Only the newest proposal can be accepted.
+- **The task changed underneath it.** Accepting a slip applies its dates only while the task still has the start and duration it had when the slip was proposed, is still committed to that sprint, and the sprint is still active. Otherwise the accept is refused with `commitment_slip_stale`, the task keeps its current dates, and the slip closes as *Not applied* with the reason. Accepting a whole batch applies the slips that still fit and lists the refused ones separately.
+- **The sprint closes.** Closing the sprint closes every undecided slip as *Not applied*, whichever option you pick for pending scope changes. The task keeps its dates and stays where the close put it; a slip is never carried to the next sprint or counted as a pending scope change.
+
+Slips appear in the sprint's scope-change history marked as date slips. They never count toward the points added or removed there.
 

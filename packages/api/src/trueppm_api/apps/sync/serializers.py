@@ -678,12 +678,27 @@ class SyncUploadAppliedSerializer(serializers.Serializer):  # type: ignore[type-
 class SyncUploadConflictsSerializer(serializers.Serializer):  # type: ignore[type-arg]
     """The ``conflicts`` envelope of an upload response, keyed by collection name.
 
-    Each entry is the REST-parity 409 body (``conflict_fields`` / ``server_value``
-    / ``client_value`` / ``server_version``) plus the row ``id`` — free-form here
-    for the same reason as the applied-row buckets above.
+    Each entry is the REST-parity 409 body plus the row ``id`` — free-form here
+    for the same reason as the applied-row buckets above. Two shapes occur: a
+    lost-update conflict (``conflict_fields`` / ``server_value`` / ``client_value``
+    / ``server_version``), and a commitment slip held for acceptance (ADR-1485 D1:
+    ``code: commitment_slip_requires_acceptance`` with the ``CommitmentSlipConflict``
+    fields, ``scope_change_id`` / ``batch_id`` / ``sprint_id`` / ``sprint_name`` /
+    ``proposed_start`` / ``proposed_finish``).
     """
 
-    tasks = serializers.ListField(child=serializers.DictField(), read_only=True)
+    tasks = serializers.ListField(
+        child=serializers.DictField(),
+        read_only=True,
+        help_text=(
+            "Rows not applied. A lost-update entry carries `conflict_fields`, "
+            "`server_value`, `client_value` and `server_version`; a commitment-slip "
+            "entry carries `code: commitment_slip_requires_acceptance`, "
+            "`scope_change_id`, `batch_id`, `sprint_id`, `sprint_name`, "
+            "`proposed_start` and `proposed_finish` (the `CommitmentSlipConflict` "
+            "schema). Both carry the row `id`."
+        ),
+    )
 
 
 class SyncUploadResponseSerializer(serializers.Serializer):  # type: ignore[type-arg]

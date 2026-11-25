@@ -3657,6 +3657,30 @@ class AgentControlRefusalAuditMixin(APIView):
         return response
 
 
+class CommitmentSlipAuditMixin(APIView):
+    """Audit a token write that produced a PENDING commitment slip (ADR-1485 D10).
+
+    For the batch write views that do not carry :class:`McpReadableViewMixin`
+    (``tasks/bulk/`` and the sync upload), whose answer to a slip is a 200/207 with a
+    per-row refusal rather than a 409. Records only when the request was marked by
+    ``record_commitment_slip``; every other call on these views stays unaudited, as
+    their own contracts say. The recorder turns the mark into ``requires_approval``.
+    """
+
+    _mcp_refusal_classification = McpReadableViewMixin._mcp_refusal_classification
+    _mcp_audit_target = McpReadableViewMixin._mcp_audit_target
+
+    def finalize_response(self, request: Request, response: Any, *args: Any, **kwargs: Any) -> Any:
+        from trueppm_api.apps.projects.services import SLIP_PENDING_ATTR
+
+        response = super().finalize_response(request, response, *args, **kwargs)
+        if getattr(getattr(request, "_request", request), SLIP_PENDING_ATTR, False):
+            McpReadableViewMixin._record_mcp_agent_action(
+                cast("McpReadableViewMixin", self), request, response
+            )
+        return response
+
+
 def _set_agent_span_attributes(token: Any, verdict: str) -> None:
     """Attach agent attributes to the current span — best-effort (never breaks a read)."""
 

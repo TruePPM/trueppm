@@ -25,7 +25,11 @@ from rest_framework.throttling import BaseThrottle, ScopedRateThrottle
 from rest_framework.views import APIView
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
-from trueppm_api.apps.access.permissions import IsNotTokenAuthenticated, _membership_role
+from trueppm_api.apps.access.permissions import (
+    CommitmentSlipAuditMixin,
+    IsNotTokenAuthenticated,
+    _membership_role,
+)
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.integrations.models import TaskLink
 from trueppm_api.apps.projects.models import (
@@ -176,7 +180,7 @@ def _resync_required_response() -> Response:
     )
 
 
-class ProjectSyncView(IdempotencyMixin, APIView):
+class ProjectSyncView(CommitmentSlipAuditMixin, IdempotencyMixin, APIView):
     """Pull-only delta sync endpoint for the mobile offline store.
 
     Returns all rows (live and soft-deleted) whose ``sync_seq`` is strictly

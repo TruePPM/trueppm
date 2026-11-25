@@ -46020,6 +46020,16 @@
                     "403": {
                         "description": "Accepting scope changes is team-owned (Admin or SM/PO facet)."
                     },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CommitmentSlipStale"
+                                }
+                            }
+                        },
+                        "description": "`commitment_slip_stale` (ADR-1485 D1): the slip no longer applies — the task's dates changed after it was proposed, the task was deleted or left the sprint, or the sprint is no longer active. The dates were left alone and the row is closed as rejected with the why in `decision_reason`."
+                    },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
                         "content": {
@@ -54030,11 +54040,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/StructureRoleConflict"
+                                    "$ref": "#/components/schemas/TaskWriteConflict"
                                 }
                             }
                         },
-                        "description": "The declared `structure_role` contradicts the tree (#2950, ADR-0844). Returned when a client declares `work` on a row that has structural children: the derived fact wins for every computation, so storing the declaration would leave the row rendering as a task while every rollup treats it as a phase.\n\n`409` rather than `400` because the payload is valid — it is the current state of the tree that forbids it, and that state can change without the client doing anything wrong. The body carries the derived role so the refusal is recoverable in one round trip."
+                        "description": "Either body, told apart by `code`. `commitment_slip_requires_acceptance` (ADR-1485 D1): the date write would move sprint-committed work past the ACTIVE sprint's end and the caller is not the accept authority (Admin+ or the team's SM/PO facet; every API token). The write was NOT applied; it is recorded as a PENDING slip (`scope_change_id`) for that authority to accept or reject.\n\n`structure_role_contradicted`: the declared `structure_role` contradicts the tree (#2950, ADR-0844). Returned when a client declares `work` on a row that has structural children: the derived fact wins for every computation, so storing the declaration would leave the row rendering as a task while every rollup treats it as a phase.\n\n`409` rather than `400` because the payload is valid — it is the current state of the tree that forbids it, and that state can change without the client doing anything wrong. The body carries the derived role so the refusal is recoverable in one round trip."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -54173,11 +54183,11 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/StructureRoleConflict"
+                                    "$ref": "#/components/schemas/TaskWriteConflict"
                                 }
                             }
                         },
-                        "description": "The declared `structure_role` contradicts the tree — see the note on `PUT`. This is the path the outline actually uses."
+                        "description": "A commitment slip held for acceptance, or the declared `structure_role` contradicts the tree — see the note on `PUT`, told apart by `code`. This is the path the outline actually uses."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -64540,6 +64550,79 @@
                     "baseline_id",
                     "baseline_name",
                     "task_count"
+                ]
+            },
+            "CommitmentSlipConflict": {
+                "type": "object",
+                "description": "The ``409`` body of a date write held as a PENDING commitment slip (ADR-1485 D1).\n\nThe same body is a ``conflicts.tasks[]`` entry on the sync upload (plus the row\n``id``); the bulk route carries its id fields on the ``rejected[]`` entry.",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "Always `commitment_slip_requires_acceptance`."
+                    },
+                    "detail": {
+                        "type": "string"
+                    },
+                    "scope_change_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "The PENDING slip row."
+                    },
+                    "batch_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true,
+                        "description": "Shared by every slip this request recorded."
+                    },
+                    "sprint_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "sprint_name": {
+                        "type": "string"
+                    },
+                    "proposed_start": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "proposed_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "batch_id",
+                    "code",
+                    "detail",
+                    "proposed_finish",
+                    "proposed_start",
+                    "scope_change_id",
+                    "sprint_id",
+                    "sprint_name"
+                ]
+            },
+            "CommitmentSlipStale": {
+                "type": "object",
+                "description": "The ``409`` body of a slip accept refused because the slip no longer applies.",
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "Always `commitment_slip_stale`."
+                    },
+                    "detail": {
+                        "type": "string"
+                    },
+                    "scope_change_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                },
+                "required": [
+                    "code",
+                    "detail",
+                    "scope_change_id"
                 ]
             },
             "CommitmentSourceEnum": {
@@ -88255,6 +88338,13 @@
                         },
                         "readOnly": true
                     },
+                    "stale": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SprintScopeChange"
+                        },
+                        "readOnly": true
+                    },
                     "pending_count": {
                         "type": "integer",
                         "readOnly": true
@@ -88263,7 +88353,8 @@
                 "required": [
                     "accepted",
                     "pending_count",
-                    "rejected"
+                    "rejected",
+                    "stale"
                 ]
             },
             "SprintScopeChangeEvent": {
@@ -88301,14 +88392,45 @@
                     "status": {
                         "type": "string",
                         "readOnly": true
+                    },
+                    "kind": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "proposed_start": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "proposed_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "batch_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "decision_reason": {
+                        "type": "string",
+                        "readOnly": true
                     }
                 },
                 "required": [
                     "added_at",
                     "added_by_name",
+                    "batch_id",
+                    "decision_reason",
                     "goal_impact",
                     "id",
                     "item_name",
+                    "kind",
+                    "proposed_finish",
+                    "proposed_start",
                     "status",
                     "story_points"
                 ]
@@ -89494,7 +89616,7 @@
             },
             "SyncUploadConflicts": {
                 "type": "object",
-                "description": "The ``conflicts`` envelope of an upload response, keyed by collection name.\n\nEach entry is the REST-parity 409 body (``conflict_fields`` / ``server_value``\n/ ``client_value`` / ``server_version``) plus the row ``id`` — free-form here\nfor the same reason as the applied-row buckets above.",
+                "description": "The ``conflicts`` envelope of an upload response, keyed by collection name.\n\nEach entry is the REST-parity 409 body plus the row ``id`` — free-form here\nfor the same reason as the applied-row buckets above. Two shapes occur: a\nlost-update conflict (``conflict_fields`` / ``server_value`` / ``client_value``\n/ ``server_version``), and a commitment slip held for acceptance (ADR-1485 D1:\n``code: commitment_slip_requires_acceptance`` with the ``CommitmentSlipConflict``\nfields, ``scope_change_id`` / ``batch_id`` / ``sprint_id`` / ``sprint_name`` /\n``proposed_start`` / ``proposed_finish``).",
                 "properties": {
                     "tasks": {
                         "type": "array",
@@ -89502,7 +89624,8 @@
                             "type": "object",
                             "additionalProperties": {}
                         },
-                        "readOnly": true
+                        "readOnly": true,
+                        "description": "Rows not applied. A lost-update entry carries `conflict_fields`, `server_value`, `client_value` and `server_version`; a commitment-slip entry carries `code: commitment_slip_requires_acceptance`, `scope_change_id`, `batch_id`, `sprint_id`, `sprint_name`, `proposed_start` and `proposed_finish` (the `CommitmentSlipConflict` schema). Both carry the row `id`."
                     }
                 },
                 "required": [
@@ -90918,9 +91041,28 @@
                                 "$ref": "#/components/schemas/TaskBulkRefusalCodeEnum"
                             }
                         ],
-                        "description": "Stable machine code, from a closed set (#3037). Retrying the identical row is futile for `malformed_id`, `self_reference`, `cyclic_dependency` and `invalid`; it may succeed later for `unresolved_endpoint`, `conflict` and `forbidden`; and `tombstoned` / `milestone_gate` are documented no-ops rather than failures. `id_unavailable` is deliberately non-asserting — it does not reveal whether the id exists in a project the caller cannot see.\n\n* `malformed_id` - Malformed id\n* `id_unavailable` - Id unavailable\n* `not_found` - Not found\n* `forbidden` - Forbidden\n* `invalid` - Invalid\n* `conflict` - Conflict\n* `cyclic_dependency` - Cyclic dependency\n* `self_reference` - Self reference\n* `unresolved_endpoint` - Unresolved endpoint\n* `tombstoned` - Tombstoned\n* `milestone_gate` - Milestone gate"
+                        "description": "Stable machine code, from a closed set (#3037). Retrying the identical row is futile for `malformed_id`, `self_reference`, `cyclic_dependency` and `invalid`; it may succeed later for `unresolved_endpoint`, `conflict` and `forbidden`; and `tombstoned` / `milestone_gate` are documented no-ops rather than failures. `id_unavailable` is deliberately non-asserting — it does not reveal whether the id exists in a project the caller cannot see. `commitment_slip_requires_acceptance` means the row was recorded as a PENDING commitment slip (ADR-1485 D1) instead of applied; the four slip fields below are set only on that code.\n\n* `malformed_id` - Malformed id\n* `id_unavailable` - Id unavailable\n* `not_found` - Not found\n* `forbidden` - Forbidden\n* `invalid` - Invalid\n* `conflict` - Conflict\n* `cyclic_dependency` - Cyclic dependency\n* `self_reference` - Self reference\n* `unresolved_endpoint` - Unresolved endpoint\n* `tombstoned` - Tombstoned\n* `milestone_gate` - Milestone gate\n* `commitment_slip_requires_acceptance` - Commitment slip requires acceptance"
                     },
                     "message": {
+                        "type": "string"
+                    },
+                    "scope_change_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "The PENDING slip row recorded for this op (slip code only)."
+                    },
+                    "batch_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true,
+                        "description": "Shared by every slip this request recorded; decide them together."
+                    },
+                    "sprint_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "The ACTIVE sprint the slip would move work past."
+                    },
+                    "sprint_name": {
                         "type": "string"
                     }
                 },
@@ -90943,10 +91085,11 @@
                     "self_reference",
                     "unresolved_endpoint",
                     "tombstoned",
-                    "milestone_gate"
+                    "milestone_gate",
+                    "commitment_slip_requires_acceptance"
                 ],
                 "type": "string",
-                "description": "* `malformed_id` - Malformed id\n* `id_unavailable` - Id unavailable\n* `not_found` - Not found\n* `forbidden` - Forbidden\n* `invalid` - Invalid\n* `conflict` - Conflict\n* `cyclic_dependency` - Cyclic dependency\n* `self_reference` - Self reference\n* `unresolved_endpoint` - Unresolved endpoint\n* `tombstoned` - Tombstoned\n* `milestone_gate` - Milestone gate",
+                "description": "* `malformed_id` - Malformed id\n* `id_unavailable` - Id unavailable\n* `not_found` - Not found\n* `forbidden` - Forbidden\n* `invalid` - Invalid\n* `conflict` - Conflict\n* `cyclic_dependency` - Cyclic dependency\n* `self_reference` - Self reference\n* `unresolved_endpoint` - Unresolved endpoint\n* `tombstoned` - Tombstoned\n* `milestone_gate` - Milestone gate\n* `commitment_slip_requires_acceptance` - Commitment slip requires acceptance",
                 "x-trueppm-enum": "open"
             },
             "TaskBulkRequest": {
@@ -93304,6 +93447,16 @@
                     "removed_dependency_ids",
                     "updated",
                     "warning"
+                ]
+            },
+            "TaskWriteConflict": {
+                "oneOf": [
+                    {
+                        "$ref": "#/components/schemas/CommitmentSlipConflict"
+                    },
+                    {
+                        "$ref": "#/components/schemas/StructureRoleConflict"
+                    }
                 ]
             },
             "TaskWriteResponse": {

@@ -3596,6 +3596,13 @@ _SLIP_BATCH_ATTR = "_trueppm_commitment_slip_batch_id"
 SLIP_PENDING_ATTR = "_trueppm_commitment_slip_pending"
 #: Bound on the working-day walk, matching the serializer's ``MAX_TASK_SPAN_DAYS``.
 _SLIP_MAX_SPAN_DAYS = 36600
+#: Stable wire code for an accept refused because the slip no longer applies.
+COMMITMENT_SLIP_STALE_CODE = "commitment_slip_stale"
+#: ``decision_reason`` values the system writes when it closes a slip row itself.
+SLIP_SUPERSEDED_REASON = "Superseded by a newer proposed change to this task."
+SLIP_SPRINT_CLOSED_REASON = "The sprint closed before a decision; the committed dates were kept."
+#: Attribute set on a slip row whose accept was refused as stale (the why, as text).
+SLIP_STALE_ATTR = "_commitment_slip_stale"
 
 
 class CommitmentSlipDeferred(Exception):
@@ -3699,6 +3706,10 @@ def detect_commitment_slip(
         "proposed_start": new_start if new_start is not None else task.planned_start,
         "proposed_finish": proposed_finish,
         "proposed_duration": int(duration),
+        # The pre-write values, read before any helper touches the instance; the
+        # accept path refuses a row whose task no longer holds them.
+        "base_start": task.planned_start,
+        "base_duration": task.duration,
     }
 
 
@@ -3727,7 +3738,9 @@ def guard_commitment_slip(
       caller does NOT apply the write.
 
     Downstream slips from asynchronous CPM recalculation are out of reach here by
-    design (ADR-1485 D1 known limit); they surface as at-risk after recalculation.
+    design (ADR-1485 D1 known limit), as are writes that move the finish without
+    touching ``planned_start``/``duration`` (a calendar or constraint change). This
+    guard does not detect them; at-risk flagging is a separate surface.
     """
     from rest_framework.exceptions import ErrorDetail, ValidationError
 
@@ -3781,6 +3794,8 @@ def record_commitment_slip(
     proposed_start: date | None,
     proposed_finish: date,
     proposed_duration: int,
+    base_start: date | None = None,
+    base_duration: int | None = None,
     reason: str = "",
     batch_id: Any = None,
     status: str = "pending",
@@ -3793,6 +3808,11 @@ def record_commitment_slip(
     is marked so the agent-action audit records ``requires_approval`` for a token.
     Fires ``sprint_scope_changed`` through ``dispatch_extension_signal`` and a
     board ``sprint_scope_changed`` event on commit.
+
+    A new PENDING slip supersedes every older PENDING slip for the same task: only
+    the latest proposal is decidable, so accepting an old one can never replay
+    dates a later proposal (or a direct edit) already replaced. The older rows are
+    closed as REJECTED with :data:`SLIP_SUPERSEDED_REASON`, no decider.
     """
     from trueppm_api.apps.projects.models import (
         ScopeChangeKind,
@@ -3804,6 +3824,14 @@ def record_commitment_slip(
 
     actor = by if (by is not None and getattr(by, "is_authenticated", False)) else None
     accepted = status == ScopeChangeStatus.ACCEPTED
+    if not accepted:
+        SprintScopeChange.objects.filter(
+            task_id=task.pk, kind=ScopeChangeKind.SLIP, status=ScopeChangeStatus.PENDING
+        ).update(
+            status=ScopeChangeStatus.REJECTED,
+            decided_at=timezone.now(),
+            decision_reason=SLIP_SUPERSEDED_REASON,
+        )
     row = SprintScopeChange.objects.create(
         task=task,
         sprint=sprint,
@@ -3814,6 +3842,8 @@ def record_commitment_slip(
         proposed_start=proposed_start,
         proposed_finish=proposed_finish,
         proposed_duration=proposed_duration,
+        base_start=base_start,
+        base_duration=base_duration,
         batch_id=batch_id,
         reason=reason or "",
         decided_by=actor if accepted else None,
@@ -3898,52 +3928,84 @@ def _on_commit_scope_broadcast(row: Any) -> None:
     transaction.on_commit(_send)
 
 
+def _slip_stale_reason(locked: Any, task: Any) -> str | None:
+    """Why a PENDING slip can no longer be applied as proposed, or ``None``."""
+    from trueppm_api.apps.projects.models import SprintState
+
+    if task is None or task.is_deleted:
+        return "The task was deleted."
+    if task.sprint_id != locked.sprint_id or task.sprint_pending:
+        return "The task is no longer committed to this sprint."
+    if locked.sprint.state != SprintState.ACTIVE:
+        return "The sprint is no longer active."
+    if task.planned_start != locked.base_start or task.duration != locked.base_duration:
+        return "The task's dates changed after this was proposed."
+    return None
+
+
 def _apply_accepted_slip(locked: Any, by: Any, *, reason: str) -> None:
     """Replay a PENDING slip's stored dates onto its task (inside the caller's atomic).
 
-    Writes only ``planned_start``/``duration`` (plus the ``early_start`` reset the
-    task serializer applies on a start move, so the bar does not snap back before
-    CPM reruns), then recalculates and broadcasts on commit. The guard is not
-    re-run: this IS the acceptance.
-    """
-    from trueppm_api.apps.projects.models import ScopeChangeStatus, Task
-    from trueppm_api.apps.scheduling.services import enqueue_recalculate
-    from trueppm_api.apps.sync.broadcast import broadcast_task_updated
+    Refuses, leaving the task's dates alone, when the row is stale: the task was
+    deleted or left the sprint, the sprint is no longer ACTIVE, or the task no
+    longer holds the ``base_start``/``base_duration`` the proposal was made
+    against. Replaying stale dates would silently revert whatever moved them
+    (an Admin edit, a later proposal). A stale row is closed as REJECTED with the
+    why in ``decision_reason`` and tagged with :data:`SLIP_STALE_ATTR`, which the
+    decide routes turn into a 409 ``commitment_slip_stale``.
 
-    task = Task.objects.select_for_update().get(pk=locked.task_id)
-    fields: list[str] = []
+    A fresh row is applied through ``TaskSerializer`` (with the guard switched off:
+    this IS the acceptance), so it carries every side effect of an ordinary date
+    edit: the project start shift, the date-gated status transition, the
+    duration-change policy and its ``TaskDurationChangeEvent``, and the same
+    post-commit recalculation and broadcasts as a PATCH.
+    """
+    from types import SimpleNamespace
+
+    from trueppm_api.apps.projects.models import ScopeChangeStatus, Task
+    from trueppm_api.apps.projects.serializers import TaskSerializer
+    from trueppm_api.apps.projects.views import _defer_task_update_broadcasts
+
+    task = Task.objects.select_for_update().filter(pk=locked.task_id).first()
+    stale = _slip_stale_reason(locked, task)
+    if stale is not None:
+        locked.status = ScopeChangeStatus.REJECTED
+        locked.decided_by = None
+        locked.decided_at = timezone.now()
+        locked.decision_reason = f"Not applied: {stale}"
+        locked.save(update_fields=["status", "decided_by", "decided_at", "decision_reason"])
+        setattr(locked, SLIP_STALE_ATTR, stale)
+        if task is not None:
+            _on_commit_scope_broadcast(locked)
+        return
+    data: dict[str, Any] = {}
     if locked.proposed_start is not None and locked.proposed_start != task.planned_start:
-        task.planned_start = locked.proposed_start
-        task.early_start = locked.proposed_start
-        fields += ["planned_start", "early_start"]
+        data["planned_start"] = locked.proposed_start
     if locked.proposed_duration is not None and locked.proposed_duration != task.duration:
-        task.duration = locked.proposed_duration
-        fields.append("duration")
+        data["duration"] = locked.proposed_duration
     locked.status = ScopeChangeStatus.ACCEPTED
     _stamp_decision(locked, by, reason)
     locked.save(update_fields=["status", "decided_by", "decided_at", "decision_reason"])
-    if fields:
+    if data:
+        actor = by if (by is not None and getattr(by, "is_authenticated", False)) else None
+        serializer = TaskSerializer(
+            task,
+            data=data,
+            partial=True,
+            context={
+                "request": SimpleNamespace(user=actor, auth=None),
+                "commitment_slip_accepted": True,
+            },
+        )
+        serializer.is_valid(raise_exception=True)
         task._change_reason = "commitment slip accepted"  # type: ignore[attr-defined]
-        task.save(update_fields=fields)
-    project_id = str(task.project_id)
-    task_id = str(task.pk)
-    version = getattr(task, "server_version", None)
-    actor_id = str(by.pk) if getattr(by, "pk", None) is not None else None
-
-    def _after(
-        pid: str = project_id,
-        tid: str = task_id,
-        changed: list[str] = fields,
-        ver: Any = version,
-        aid: str | None = actor_id,
-    ) -> None:
-        if changed:
-            enqueue_recalculate(pid)
-            broadcast_task_updated(
-                pid, task_id=tid, changed_fields=changed, version=ver, actor_id=aid
-            )
-
-    transaction.on_commit(_after)
+        updated = serializer.save()
+        changed = set(data)
+        if "planned_start" in data:
+            changed.add("early_start")
+        _defer_task_update_broadcasts(
+            updated, changed, str(actor.pk) if actor is not None else None
+        )
     _on_commit_scope_broadcast(locked)
 
 
@@ -4001,11 +4063,19 @@ def pending_scope_advisory(sprint: Any) -> dict[str, Any] | None:
     close. Closing is NEVER blocked by this — the team owns its own close
     (sprint sovereignty). Returns None when there is nothing pending.
     """
-    from trueppm_api.apps.projects.models import ScopeChangeStatus, SprintScopeChange
+    from trueppm_api.apps.projects.models import (
+        ScopeChangeKind,
+        ScopeChangeStatus,
+        SprintScopeChange,
+    )
 
+    # Injections only: a PENDING slip is not an item pending acceptance into the
+    # sprint, and the close expires it rather than carrying or rejecting it.
     rows = list(
         SprintScopeChange.objects.filter(
-            sprint_id=sprint.pk, status=ScopeChangeStatus.PENDING
+            sprint_id=sprint.pk,
+            status=ScopeChangeStatus.PENDING,
+            kind=ScopeChangeKind.INJECTION,
         ).select_related("task")
     )
     if not rows:
@@ -4039,15 +4109,23 @@ def apply_pending_disposition(sprint: Any, disposition: str, by: Any = None) -> 
       (sprint=None) or to "none" have their pending flag cleared (no sprint to be
       pending in). The closing sprint's PENDING rows clear with all other rows on
       close.
+
+    PENDING ``slip`` rows (ADR-1485 D1) take neither path, under either
+    disposition: they are closed by :func:`_expire_pending_slips`, which never
+    touches the task's sprint, ``sprint_pending`` flag or dates.
     """
     from trueppm_api.apps.projects.models import (
+        ScopeChangeKind,
         ScopeChangeStatus,
         SprintScopeChange,
     )
 
+    _expire_pending_slips(sprint)
     pending_rows = list(
         SprintScopeChange.objects.filter(
-            sprint_id=sprint.pk, status=ScopeChangeStatus.PENDING
+            sprint_id=sprint.pk,
+            status=ScopeChangeStatus.PENDING,
+            kind=ScopeChangeKind.INJECTION,
         ).select_related("task")
     )
     if not pending_rows:
@@ -4057,6 +4135,32 @@ def apply_pending_disposition(sprint: Any, disposition: str, by: Any = None) -> 
         _reject_pending_rows(sprint, pending_rows)
         return
     _carry_pending_rows(sprint, pending_rows, by)
+
+
+def _expire_pending_slips(sprint: Any) -> int:
+    """Close the sprint's undecided slips at sprint close (ADR-1485 D1).
+
+    A slip proposes new dates for work committed to *this* sprint; once the sprint
+    closes there is no commitment left for it to slip, so it is closed REJECTED
+    with :data:`SLIP_SPRINT_CLOSED_REASON` and no decider. The task keeps its
+    committed dates, its sprint and its ``sprint_pending`` flag: a slip never
+    removes work from the sprint (that would drop a finished task out of velocity)
+    and is never carried, because carrying would re-gate it as an injection.
+    """
+    from trueppm_api.apps.projects.models import (
+        ScopeChangeKind,
+        ScopeChangeStatus,
+        SprintScopeChange,
+    )
+
+    return SprintScopeChange.objects.filter(
+        sprint_id=sprint.pk, status=ScopeChangeStatus.PENDING, kind=ScopeChangeKind.SLIP
+    ).update(
+        status=ScopeChangeStatus.REJECTED,
+        decided_by=None,
+        decided_at=timezone.now(),
+        decision_reason=SLIP_SPRINT_CLOSED_REASON,
+    )
 
 
 def _reject_pending_rows(sprint: Any, pending_rows: list[Any]) -> None:
@@ -4155,9 +4259,14 @@ def sprint_scope_change_payload(sprint: Any) -> dict[str, Any]:
     over rows still in the sprint (status pending or accepted); ``points_removed``
     sums over rejected rows. ``added_mid_sprint_count`` counts the still-in rows —
     the #543 badge number. Rows are cleared on sprint close, so this is the live
-    in-sprint picture, not a cross-sprint history.
+    in-sprint picture, not a cross-sprint history. ``slip`` rows (ADR-1485 D1) are
+    listed in ``events`` with their ``kind`` but excluded from every summary total.
     """
-    from trueppm_api.apps.projects.models import ScopeChangeStatus, SprintScopeChange
+    from trueppm_api.apps.projects.models import (
+        ScopeChangeKind,
+        ScopeChangeStatus,
+        SprintScopeChange,
+    )
 
     rows = (
         SprintScopeChange.objects.filter(sprint_id=sprint.pk)
@@ -4172,11 +4281,14 @@ def sprint_scope_change_payload(sprint: Any) -> dict[str, Any]:
     for r in rows:
         points = (r.task.story_points or 0) if r.task_id is not None else 0
         rejected = r.status == ScopeChangeStatus.REJECTED
-        if rejected:
-            points_removed += points
-        else:
-            points_added += points
-            added_mid_sprint_count += 1
+        # A slip row (ADR-1485 D1) moves dates on committed work; it adds and
+        # removes no scope, so it is listed but never counted.
+        if r.kind != ScopeChangeKind.SLIP:
+            if rejected:
+                points_removed += points
+            else:
+                points_added += points
+                added_mid_sprint_count += 1
         events.append(
             {
                 "id": str(r.pk),
@@ -4186,6 +4298,11 @@ def sprint_scope_change_payload(sprint: Any) -> dict[str, Any]:
                 "added_at": r.added_at.isoformat(),
                 "goal_impact": r.goal_impact,
                 "status": r.status,
+                "kind": r.kind,
+                "proposed_start": r.proposed_start.isoformat() if r.proposed_start else None,
+                "proposed_finish": r.proposed_finish.isoformat() if r.proposed_finish else None,
+                "batch_id": str(r.batch_id) if r.batch_id else None,
+                "decision_reason": r.decision_reason,
             }
         )
 

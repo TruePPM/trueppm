@@ -51,6 +51,21 @@ describe('ScopeChangeDrawer', () => {
     expect(screen.getByText('Removed')).toBeInTheDocument();
   });
 
+  it('renders a commitment slip as a date slip, never as signed points (ADR-1485 D1)', () => {
+    setScope({
+      summary: { points_added: 0, points_removed: 0, added_mid_sprint_count: 0, total: 1 },
+      events: [
+        { id: 's1', item_name: 'Committed thing', story_points: 5, added_by_name: 'Sam', added_at: '2026-04-10T09:00:00Z', goal_impact: false, status: 'rejected', kind: 'slip', proposed_start: '2026-04-10', proposed_finish: '2026-04-24', batch_id: null, decision_reason: 'Superseded by a newer proposed change to this task.' },
+      ],
+    });
+    render(<ScopeChangeDrawer sprintId="sp-1" onClose={() => {}} />);
+
+    expect(screen.getByTestId('slip-row')).toHaveTextContent(/Date slip to 2026-04-24/);
+    expect(screen.getByText('Not applied')).toBeInTheDocument();
+    expect(screen.queryByLabelText(/removed 5 points/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Removed')).not.toBeInTheDocument();
+  });
+
   it('shows an empty state when there are no changes of either kind', () => {
     setScope({
       summary: { points_added: 0, points_removed: 0, added_mid_sprint_count: 0, total: 0 },

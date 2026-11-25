@@ -91,6 +91,15 @@ class BulkRefusalCode(models.TextChoices):
     #: A cascade crossed a milestone, which is a gate rather than a failure (#2723 §4).
     MILESTONE_GATE = "milestone_gate", "Milestone gate"
 
+    #: The row's date write would move sprint-committed work past the ACTIVE sprint's
+    #: end and the caller is not the accept authority (ADR-1485 D1). Not applied: it
+    #: is recorded as a PENDING slip that the entry's ``scope_change_id`` names, and
+    #: retrying the same row only supersedes that proposal with an identical one.
+    COMMITMENT_SLIP_REQUIRES_ACCEPTANCE = (
+        "commitment_slip_requires_acceptance",
+        "Commitment slip requires acceptance",
+    )
+
 
 class StructuralUndoBlockedReason(models.TextChoices):
     """Why a structural operation cannot be undone — or that it can (ADR-0880).

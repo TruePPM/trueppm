@@ -698,6 +698,13 @@ export interface ScopeChangeEvent {
   added_at: string;
   goal_impact: boolean;
   status: 'pending' | 'accepted' | 'rejected';
+  /** ADR-1485 D1: `slip` rows are proposed date moves on committed work. They are
+   *  listed so they stay visible, but the server never counts them in `summary`. */
+  kind?: 'injection' | 'slip';
+  proposed_start?: string | null;
+  proposed_finish?: string | null;
+  batch_id?: string | null;
+  decision_reason?: string;
 }
 
 export interface SprintScopeChanges {

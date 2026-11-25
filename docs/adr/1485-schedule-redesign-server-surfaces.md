@@ -46,6 +46,8 @@ A **commitment slip** is a write that moves the finish of a task that is *commit
 
 **Known limit, stated:** the guard is synchronous and covers **direct** writes to committed tasks. A slip caused *downstream* by CPM recalculation (an upstream task moves, and the recalculation pushes a committed task past the end) cannot block, because recalculation is asynchronous (`enqueue_recalculate`). Downstream slips are detected after recalculation and surface as *at risk* in `commitment-status` (D3) plus a `sprint.commitment_at_risk` notice, never silently. The drag verdict (D2) warns about them *before* release, which is where the design puts the decision.
 
+*Note (2026-11-24, #2563 implementation):* the guard also does not cover writes that move a committed task's finish without changing its `planned_start` or `duration`. Three are known: changing the task's calendar, changing its constraint date alone, and deleting the last child of an auto-container, which restores `duration` from `own_estimate` in the model layer rather than through a date write. The definition of a slip above stays narrow on purpose: these surface through recalculation like any downstream slip, not through the guard.
+
 ### D2. `POST /api/v1/projects/{id}/schedule/whatif/`: read-only, two modes
 
 The verdict a drag shows has two parts with very different costs. They are split rather than paying full server CPM every 400 ms.
