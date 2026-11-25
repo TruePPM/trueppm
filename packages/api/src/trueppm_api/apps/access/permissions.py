@@ -2659,6 +2659,7 @@ class IsNotTokenForScopeDecision(IsNotTokenAuthenticated):
     message = "Accepting or rejecting sprint scope changes requires a person, not an API token."
 
     def has_permission(self, request: Request, view: APIView) -> bool:
+        # layering-ok: token-refusal audit (ADR-1485 D10), same edge as the MCP mixin
         from trueppm_api.apps.agents.models import RefusalConstraint
         from trueppm_api.apps.projects.models import ApiToken
 
@@ -2673,13 +2674,18 @@ class IsNotTokenForScopeDecision(IsNotTokenAuthenticated):
 
 def _queue_scope_decision_refusal(request: Request, view: APIView, token: Any) -> None:
     """Queue the ``refused``/``identity`` agent-action row for a token decision attempt."""
+    # layering-ok: token-refusal audit (ADR-1485 D10), same edge as the MCP mixin
     from trueppm_api.apps.agents.deferred import queue_agent_action
+
+    # layering-ok: token-refusal audit (ADR-1485 D10), same edge as the MCP mixin
     from trueppm_api.apps.agents.models import (
         AgentActionRefusalReason,
         AgentActionVerdict,
         AgentActorKind,
         RefusalConstraint,
     )
+
+    # layering-ok: token-refusal audit (ADR-1485 D10), same edge as the MCP mixin
     from trueppm_api.apps.agents.services import hash_request_payload
 
     match = getattr(request, "resolver_match", None)
