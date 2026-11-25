@@ -184,7 +184,7 @@ def enqueue_recalculate(
         )
 
 
-def claim_schedule_request(project_id: str) -> bool:
+def claim_schedule_request(project_id: str, task_id: str = "") -> list[uuid.UUID]:
     """Take ownership of the project's outbox work before the recalc reads any data.
 
     Without this a run only retired DISPATCHED rows, so a PENDING row left by an
@@ -192,23 +192,36 @@ def claim_schedule_request(project_id: str) -> bool:
     that edit, and the drain ran it all over again (#4095).
 
     The PENDING row is promoted to DISPATCHED and any older DISPATCHED row is
-    retired as DONE, since this pass supersedes it. Claiming happens *before* the
-    data is read, so an edit committed afterwards creates a fresh PENDING row and
-    is never swallowed. The claimed row stays DISPATCHED until the write-back
-    commits, so a crashed run is still recovered by the drain's orphan sweep.
+    retired as DONE, since this pass supersedes it. With no PENDING row, the
+    DISPATCHED row already there is the one this run serves. Claiming happens
+    *before* the data is read, so an edit committed afterwards creates a fresh row
+    that this run never retires. The claimed row stays DISPATCHED until the
+    write-back commits, so a crashed run is still recovered by the drain's orphan
+    sweep.
+
+    The run must retire only the ids returned here. A row that appears after the
+    claim carries an edit this run may not have read.
+
+    ``dispatched_at`` is refreshed so the orphan sweep cannot recycle a row whose
+    run has only just started: the sweep flips the same row back to PENDING, where
+    a new edit can adopt it, and this run would then retire that edit by id.
 
     Args:
         project_id: UUID string of the project about to be recalculated.
+        task_id: Celery id of the claiming message, stored on the claimed row so a
+            redelivery can recognize a request that was already served.
 
     Returns:
-        ``True`` when the project has an outbox row this run serves (claimed now,
-        or already DISPATCHED); ``False`` when none is outstanding.
+        Ids of the outbox rows this run serves; empty when none is outstanding.
     """
     from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
 
     dispatched = ScheduleRequest.objects.filter(
         project_id=project_id, status=ScheduleRequestStatus.DISPATCHED
     )
+    claim: dict[str, Any] = {"dispatched_at": timezone.now()}
+    if task_id:
+        claim["celery_task_id"] = task_id
     with transaction.atomic():
         pending = (
             ScheduleRequest.objects.select_for_update()
@@ -216,12 +229,76 @@ def claim_schedule_request(project_id: str) -> bool:
             .first()
         )
         if pending is None:
-            return dispatched.exists()
+            seen = list(dispatched.select_for_update().values_list("id", flat=True))
+            ScheduleRequest.objects.filter(id__in=seen).update(**claim)
+            return seen
         dispatched.update(status=ScheduleRequestStatus.DONE)
         ScheduleRequest.objects.filter(id=pending.id).update(
-            status=ScheduleRequestStatus.DISPATCHED, dispatched_at=timezone.now()
+            status=ScheduleRequestStatus.DISPATCHED, **claim
         )
-    return True
+    return [pending.id]
+
+
+def retire_schedule_requests(request_ids: Iterable[uuid.UUID]) -> None:
+    """Mark the rows a run claimed as DONE.
+
+    Scoped to ids, never to the project: a DISPATCHED row the run did not claim
+    belongs to a later edit. Filtering on DISPATCHED leaves a row the orphan sweep
+    has since reset to PENDING to be run again.
+    """
+    from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
+
+    ScheduleRequest.objects.filter(
+        id__in=list(request_ids), status=ScheduleRequestStatus.DISPATCHED
+    ).update(status=ScheduleRequestStatus.DONE)
+
+
+def release_schedule_requests(request_ids: Iterable[uuid.UUID]) -> None:
+    """Hand unserved DISPATCHED rows back to the drain.
+
+    Each row is retired and replaced by a fresh PENDING row rather than flipped
+    back in place: if a run still holds the old id, its retire cannot consume the
+    replacement, or an edit that adopted it. A PENDING row already waiting stands
+    in for the replacement.
+    """
+    from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
+
+    for request_id in request_ids:
+        with transaction.atomic():
+            row = (
+                ScheduleRequest.objects.select_for_update()
+                .filter(id=request_id, status=ScheduleRequestStatus.DISPATCHED)
+                .first()
+            )
+            if row is None:
+                continue
+            ScheduleRequest.objects.filter(id=row.id).update(
+                status=ScheduleRequestStatus.DONE, celery_task_id=""
+            )
+            try:
+                with transaction.atomic():
+                    ScheduleRequest.objects.create(project_id=row.project_id, reason=row.reason)
+            except IntegrityError:
+                pass  # a PENDING row already covers this project
+
+
+def release_dropped_schedule_request(project_id: str, task_id: str) -> None:
+    """Release the row a message was carrying when it is dropped without running.
+
+    Only the row still stamped with that message's id: once a run claims a row it
+    carries the run's id instead, and is that run's to settle.
+    """
+    from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
+
+    if not task_id:
+        return
+    release_schedule_requests(
+        ScheduleRequest.objects.filter(
+            project_id=project_id,
+            status=ScheduleRequestStatus.DISPATCHED,
+            celery_task_id=task_id,
+        ).values_list("id", flat=True)
+    )
 
 
 def failed_task_is_actionable(failed_task_id: str) -> bool:

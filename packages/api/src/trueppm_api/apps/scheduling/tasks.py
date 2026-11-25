@@ -36,12 +36,66 @@ logger = logging.getLogger(__name__)
 _RETRIABLE = (ConnectionError, redis_lib.ConnectionError, OperationalError)
 
 
+def _message_id(task: object) -> str:
+    """The id the outbox knows this message by.
+
+    A lock-contention re-queue gets a new Celery id, so the original travels in a
+    header (``core.idempotent``).
+    """
+    request = getattr(task, "request", None)
+    headers = getattr(request, "headers", None)
+    origin = headers.get("x-origin-task-id") if isinstance(headers, dict) else None
+    task_id = origin or getattr(request, "id", None)
+    return task_id if isinstance(task_id, str) else ""
+
+
+def _release_dropped_recalc(task: object, args: tuple[Any, ...]) -> None:
+    """A message dropped on lock contention must not leave its row DISPATCHED."""
+    from trueppm_api.apps.scheduling.services import release_dropped_schedule_request
+
+    release_dropped_schedule_request(str(args[0]), _message_id(task))
+
+
+def _settle_failed_recalc(
+    task: object, project_id: str, claimed_ids: list[uuid.UUID], exc: Exception
+) -> None:
+    """Settle the claimed outbox rows after an unexpected failure.
+
+    A row left DISPATCHED holds back every later recalculation of the project until
+    the orphan sweep. While Celery still has a retry to make, the row stays: the
+    retry serves it (retiring it here would make the retry, which keeps the task id,
+    bail as already served). Retries exhausted on a transient error hands the work
+    back to the drain. Any other failure would recur, so it is dead-lettered for an
+    operator and the rows are retired.
+    """
+    from trueppm_api.apps.scheduling.services import (
+        release_schedule_requests,
+        retire_schedule_requests,
+    )
+
+    try:
+        if isinstance(exc, _RETRIABLE):
+            request = task.request  # type: ignore[attr-defined]
+            max_retries = task.max_retries  # type: ignore[attr-defined]
+            if max_retries is not None and request.retries >= max_retries:
+                release_schedule_requests(claimed_ids)
+            return
+        _dead_letter_current(task, project_id, exc)
+        retire_schedule_requests(claimed_ids)
+    except Exception:
+        # The original failure must still propagate; the orphan sweep is the backstop.
+        logger.exception(
+            "recalculate_schedule: could not settle the outbox for project %s", project_id
+        )
+
+
 @idempotent_task(
     lock_key_template="schedule_lock:{0}",
     lock_ttl=300,
     on_contention="queue",
     queue_countdown=10,
     max_queue_attempts=5,
+    on_drop=_release_dropped_recalc,
     autoretry_for=_RETRIABLE,
     retry_backoff=30,
     retry_backoff_max=300,
@@ -76,11 +130,15 @@ def recalculate_schedule(
     Args:
         project_id: UUID string of the project to reschedule.
     """
-    from trueppm_api.apps.scheduling.services import claim_schedule_request
+    from trueppm_api.apps.scheduling.services import (
+        claim_schedule_request,
+        retire_schedule_requests,
+    )
     from trueppm_api.apps.taskruns.tracker import TaskRunProjectGone, TaskRunTracker
 
     # Claimed before any project data is read (see claim_schedule_request).
-    if not claim_schedule_request(project_id) and _request_already_served(self, project_id):
+    claimed_ids = claim_schedule_request(project_id, _message_id(self))
+    if not claimed_ids and _request_already_served(self, project_id):
         # layering-ok: the OTel metric sink, a no-op unless telemetry is enabled
         from trueppm_api.apps.observability.otel.metrics import record_recalc_coalesced
 
@@ -96,7 +154,7 @@ def recalculate_schedule(
             project_id=project_id,
             task_name="scheduling.recalculate",
         ) as tracker:
-            escalated = _run_schedule(project_id, tracker)
+            escalated = _run_schedule(project_id, tracker, claimed_ids)
         if escalated:
             return
         # Stamp the successful CPM completion so the web Schedule view can show
@@ -116,6 +174,7 @@ def recalculate_schedule(
         # The project was deleted while this message was queued (or held in the
         # lock-retry loop). Return normally: raising would dead-letter a task
         # that can never succeed, and it is not in autoretry_for (#4751).
+        retire_schedule_requests(claimed_ids)
         logger.info("recalculate_schedule: project %s no longer exists; skipping", project_id)
         return
     except SchedulerError as exc:
@@ -128,21 +187,17 @@ def recalculate_schedule(
         # alert each time). TaskRunTracker has already marked the run FAILED and
         # broadcast task_run_failed with the generic WS_FAILURE_MESSAGE (the engine's
         # message stays in the Admin-only error_detail) before we
-        # got here; retire the outbox row as DONE (the drain's own "retired" state;
+        # got here; retire the claimed outbox row as DONE (the drain's own "retired" state;
         # DEAD would turn the System Health outbox card CRIT over a data problem),
         # keep the dead-letter row so operators still see it, and end the task
-        # cleanly. Filtering on DISPATCHED leaves a newer PENDING row (a fresh edit)
-        # alone, so repairing the edge recovers the schedule on the next write.
+        # cleanly. Only the claimed ids are retired, so a newer row (a fresh edit)
+        # is left alone and repairing the edge recovers the schedule on the next write.
         logger.warning(
             "recalculate_schedule: project %s holds input the scheduler refuses: %s",
             project_id,
             exc,
         )
-        from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
-
-        ScheduleRequest.objects.filter(
-            project_id=project_id, status=ScheduleRequestStatus.DISPATCHED
-        ).update(status=ScheduleRequestStatus.DONE)
+        retire_schedule_requests(claimed_ids)
         _dead_letter_current(self, project_id, exc)
         return
     except SoftTimeLimitExceeded:
@@ -161,6 +216,7 @@ def recalculate_schedule(
             _dead_letter_current(
                 self, project_id, SoftTimeLimitExceeded("CPM computation timed out")
             )
+            retire_schedule_requests(claimed_ids)
 
             def _broadcast_error(pid: str = project_id) -> None:
                 broadcast_board_event(
@@ -168,6 +224,9 @@ def recalculate_schedule(
                 )
 
             transaction.on_commit(_broadcast_error)
+    except Exception as exc:
+        _settle_failed_recalc(self, project_id, claimed_ids, exc)
+        raise
 
 
 def _request_already_served(task: object, project_id: str) -> bool:
@@ -185,8 +244,8 @@ def _request_already_served(task: object, project_id: str) -> bool:
     headers = getattr(request, "headers", None)
     if isinstance(headers, dict) and headers.get("x-requeue-count"):
         return True
-    task_id = getattr(request, "id", None)
-    if not isinstance(task_id, str) or not task_id:
+    task_id = _message_id(task)
+    if not task_id:
         return False
     return ScheduleRequest.objects.filter(
         project_id=project_id,
@@ -1666,6 +1725,7 @@ def _schedule_backlog_flip_recompute(project_ids: set[Any]) -> None:
 def _run_schedule(
     project_id: str,
     tracker: object = None,
+    claimed_ids: Iterable[uuid.UUID] = (),
 ) -> bool:
     """Load tasks/dependencies, run CPM, bulk_update results, broadcast completion.
 
@@ -1681,6 +1741,8 @@ def _run_schedule(
     Args:
         project_id: UUID string of the project to schedule.
         tracker: Optional TaskRunTracker for progress reporting.
+        claimed_ids: Outbox rows the caller claimed before this read; only these
+            are retired. Empty retires nothing.
     """
     from django.utils import timezone as _tz
 
@@ -1708,6 +1770,7 @@ def _run_schedule(
         build_sched_graph,
         build_sched_tasks,
         resolve_cpm_status_date,
+        retire_schedule_requests,
         rollup_phase_statuses_detailed,
     )
     from trueppm_api.apps.scheduling.telemetry import cpm_span
@@ -1750,6 +1813,7 @@ def _run_schedule(
         )
     except Project.DoesNotExist:
         logger.warning("recalculate_schedule: project %s not found, skipping", project_id)
+        retire_schedule_requests(claimed_ids)
         _settle_empty()
         return False
 
@@ -1808,6 +1872,7 @@ def _run_schedule(
         # paths, where the program run is the sole writer and clears the whole
         # program's project set itself.
         _clear_output_of_fully_groomed_project(project_id)
+        retire_schedule_requests(claimed_ids)
         _settle_empty()
         return False
 
@@ -1935,8 +2000,6 @@ def _run_schedule(
 
     from django.db import transaction
 
-    from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
-
     cpm_payload: dict[str, object] = {
         "project_finish": result.project_finish.isoformat(),
         "critical_path": result.critical_path,
@@ -2033,12 +2096,8 @@ def _run_schedule(
         # user edit, and must not trigger a mobile-sync pull (same rationale as Task).
         _persist_driving_flags_and_shift_events(db_deps, schedule_shift_events)
 
-        # Mark the outbox row done so the drain task knows this project is clean.
-        # Filter on status=dispatched to avoid racing with the drain during orphan
-        # recovery (which resets rows back to pending).
-        ScheduleRequest.objects.filter(
-            project_id=project_id, status=ScheduleRequestStatus.DISPATCHED
-        ).update(status=ScheduleRequestStatus.DONE)
+        # Mark the claimed outbox rows done so the drain knows they are served.
+        retire_schedule_requests(claimed_ids)
 
         # ADR-0752 §4/§7: persist the one-shot arming flag (if this is the
         # first use of the floor) and register the on-commit broadcasts,
