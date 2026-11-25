@@ -18,6 +18,7 @@
  * Module state, not React state, on purpose: the interceptor runs outside the
  * tree, and there is one active surface per tab.
  */
+import { toApiRelativePath } from '../api/pagination';
 
 /** The surfaces the server accepts; anything else it records as `api`. */
 export type ChangesetSurface = 'grid' | 'gantt' | 'board' | 'outline' | 'api';
@@ -69,10 +70,7 @@ const STRUCTURAL: Array<{ method: string; path: RegExp }> = [
 export function isStructuralWrite(method: string | undefined, url: string | undefined): boolean {
   if (!method || !url) return false;
   const m = method.toLowerCase();
-  const path = url
-    .split('?')[0]
-    .replace(/^https?:\/\/[^/]+/, '')
-    .replace(/^\/api\/v1/, '');
+  const path = toApiRelativePath(url.split('?')[0].replace(/^https?:\/\/[^/]+/, ''));
   return STRUCTURAL.some((r) => r.method === m && r.path.test(path));
 }
 
