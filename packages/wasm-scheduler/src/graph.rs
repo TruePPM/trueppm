@@ -298,8 +298,9 @@ pub fn build_graph(project: &Project) -> Result<ProjectGraph, GraphBuildError> {
 /// `(early_start, id)` (#909).
 ///
 /// Filtering any topological order already keeps a predecessor ahead of its
-/// successor, but petgraph's `toposort` tie-break differs from networkx's, so a
-/// plain filtered `topo_order` is cross-engine non-deterministic. Sorting the
+/// successor, but petgraph's `toposort` tie-break differs from the Python engine's
+/// `_topological_order`, so a plain filtered `topo_order` is cross-engine
+/// non-deterministic. Sorting the
 /// filtered list by `(early_start, id)` *value* restores determinism but can
 /// invert an edge-connected critical pair that shares an `early_start` (e.g. an
 /// SS-lag-0 link, where the successor starts the same day as its predecessor).
@@ -307,14 +308,16 @@ pub fn build_graph(project: &Project) -> Result<ProjectGraph, GraphBuildError> {
 /// is simultaneously deterministic AND a valid topological order. Because task
 /// ids are unique the key never ties, so the result depends only on
 /// `(early_start, id)` and is identical to the Python engine's
-/// `networkx.lexicographical_topological_sort(g, key=(early_start, id))`.
+/// `_topological_order(g, key=(early_start, id))`
+/// (`trueppm_scheduler/engine/digraph.py`).
 ///
 /// Dense-index Kahn (#1535): indegree is a `Vec<u32>` indexed by node position
 /// and the ready set is a min-heap over node indices. The heap key stays
 /// `(early_start, id)` — the id is the task's *string* id, not its node index —
 /// so the tie-break is identical to the Python engine's
-/// `networkx.lexicographical_topological_sort(g, key=(early_start, id))`. Keying
-/// the heap by node index instead would break cross-engine determinism whenever
+/// `_topological_order(g, key=(early_start, id))`
+/// (`trueppm_scheduler/engine/digraph.py`). Keying the heap by node index
+/// instead would break cross-engine determinism whenever
 /// two ready tasks share an `early_start` but sit in a different insertion order
 /// than their ids sort (#909), so the id string is retained — borrowed from
 /// `tasks`, never cloned. Returns node indices; the caller maps to ids.

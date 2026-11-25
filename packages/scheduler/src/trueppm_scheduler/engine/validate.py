@@ -261,8 +261,9 @@ def _validate_project_shape(project: Project) -> None:
         raise InvalidScheduleInput(
             f"Project tasks must be a list of Task, got {_short_repr(project.tasks)}."
         )
-    # Task.id keys every lookup; a non-str id is unhashable (TypeError), None (a bare
-    # ValueError from the graph build), or an int the Rust String serde rejects (#4130).
+    # Task.id keys every lookup; a non-str id is unhashable (TypeError), None (which
+    # the graph accepts silently, sorting it as 'None'), or an int the Rust String
+    # serde rejects (#4130).
     # Task.name is likewise a Rust ``String``; Python never reads it during a pass,
     # so without this guard a non-str name schedules silently here and fails in Rust.
     for t in project.tasks:

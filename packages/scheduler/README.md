@@ -814,7 +814,9 @@ scheduling results do not change.
   surface above).
 - `from trueppm_scheduler.engine import X` for every name importable today,
   including underscore-prefixed helpers. `engine/__init__.py` re-exports them
-  for the whole 0.5 line.
+  for the whole 0.5 line. The one exception is `nx`, the `networkx` module
+  alias, which is removed with the `networkx` dependency
+  ([#4163](https://gitlab.com/trueppm/trueppm/-/issues/4163)).
 - Result objects pickled by 0.4 will still unpickle on 0.5.
 
 **Will need a change on your side:**
