@@ -20,7 +20,7 @@ vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => 'proj-1' }));
 const sprintsState = vi.hoisted(() => ({ sprints: [] as unknown[] }));
 vi.mock('@/hooks/useSprints', () => ({ useSprints: () => ({ sprints: sprintsState.sprints }) }));
 const myResourceState = vi.hoisted(() => ({
-  resourceId: 'r-me' as string | null,
+  resourceIds: new Set<string>(['r-me']),
   isLoading: false,
 }));
 vi.mock('@/hooks/useCurrentUserResourceId', () => ({
@@ -150,7 +150,7 @@ beforeEach(() => {
   calFilterMock.setGroupByAssignee = vi.fn();
   calFilterMock.setCalView = vi.fn();
   sprintsState.sprints = [];
-  myResourceState.resourceId = 'r-me';
+  myResourceState.resourceIds = new Set(['r-me']);
   myResourceState.isLoading = false;
   workingTimeState.layoutSettling = false;
   workingTimeState.incomplete = false;
@@ -600,6 +600,14 @@ describe('CalendarView toolbar filters and sprint header (#3169, #3170, #3171)',
     expect(calFilterMock.setMineOnly).toHaveBeenCalledWith(true);
   });
 
+  it('keeps tasks on either roster row when the user is split across two', () => {
+    calFilterMock.state.mineOnly = true;
+    myResourceState.resourceIds = new Set(['r-me', 'r-other']);
+    withTasks([mine, theirs]);
+    render();
+    expect(screen.getByTestId('calendar-grid')).toHaveAttribute('data-task-ids', 'mine,theirs');
+  });
+
   it('does not apply the filter while the roster lookup is in flight', () => {
     calFilterMock.state.mineOnly = true;
     myResourceState.isLoading = true;
@@ -610,7 +618,7 @@ describe('CalendarView toolbar filters and sprint header (#3169, #3170, #3171)',
 
   it('says nothing is assigned to you, with a way out, when the filter empties a populated window', async () => {
     calFilterMock.state.mineOnly = true;
-    myResourceState.resourceId = null; // no roster row linked to this user
+    myResourceState.resourceIds = new Set(); // no roster row linked to this user
     withTasks([theirs]);
     render();
     expect(screen.getByText('Nothing assigned to you')).toBeInTheDocument();

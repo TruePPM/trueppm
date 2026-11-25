@@ -1225,6 +1225,19 @@ describe('CalendarGrid swimlanes (#3169)', () => {
     expect(screen.getByRole('columnheader', { name: 'Assignee' })).toBeInTheDocument();
   });
 
+  it('counts a milestone-only assignee as one task, not zero', () => {
+    renderGrouped(true, [
+      milestoneTask({
+        id: 'm1',
+        name: 'Gate',
+        start: '2026-04-29',
+        finish: '2026-04-29',
+        assignees: [ben],
+      }),
+    ]);
+    expect(screen.getAllByRole('rowheader').map((h) => h.textContent)).toEqual(['Ben1 task']);
+  });
+
   it("puts a multi-assignee task in each assignee lane, and a lane's cells name the person", () => {
     renderGrouped();
     expect(screen.getAllByRole('button', { name: /Shared Work/ })).toHaveLength(2);

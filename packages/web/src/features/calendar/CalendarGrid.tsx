@@ -654,6 +654,14 @@ export function CalendarGrid({
               const days = weekDays(ws, weekStartDay);
               const weekChips = row.chips;
               const laneMap = assignLanes(weekChips);
+              // A lane can hold only a milestone diamond (lanes are built from chips
+              // and marks), so the header counts distinct tasks across both.
+              const laneTaskCount = new Set([
+                ...weekChips.map((c) => c.taskId),
+                ...allMarks
+                  .filter((m) => row.laneKey !== null && inAssigneeLane(m, row.laneKey))
+                  .map((m) => m.taskId),
+              ]).size;
 
               const overflowByDay = new Map<number, CalendarChipData[]>();
               weekChips.forEach((chip, idx) => {
@@ -719,7 +727,7 @@ export function CalendarGrid({
                         {row.laneLabel}
                       </div>
                       <div className="text-xs text-neutral-text-secondary">
-                        {weekChips.length} {weekChips.length === 1 ? 'task' : 'tasks'}
+                        {laneTaskCount} {laneTaskCount === 1 ? 'task' : 'tasks'}
                       </div>
                     </div>
                   )}

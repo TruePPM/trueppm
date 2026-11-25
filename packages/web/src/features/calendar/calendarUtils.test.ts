@@ -749,8 +749,15 @@ describe('filterTasksByResource (#3171)', () => {
     ({ id, assignees: rid ? [{ resourceId: rid, name: rid, units: 100 }] : [] }) as never;
   it('keeps only tasks assigned to the resource; null resource keeps none', () => {
     const tasks = [t('1', 'r-me'), t('2', 'r-x'), t('3', null)];
-    expect(filterTasksByResource(tasks, 'r-me').map((x) => x.id)).toEqual(['1']);
-    expect(filterTasksByResource(tasks, null)).toEqual([]);
+    expect(filterTasksByResource(tasks, new Set(['r-me'])).map((x) => x.id)).toEqual(['1']);
+    expect(filterTasksByResource(tasks, new Set())).toEqual([]);
+  });
+  it('matches a task on any of several roster rows for the same user', () => {
+    const tasks = [t('1', 'r-me'), t('2', 'r-me-2'), t('3', 'r-x')];
+    expect(filterTasksByResource(tasks, new Set(['r-me', 'r-me-2'])).map((x) => x.id)).toEqual([
+      '1',
+      '2',
+    ]);
   });
 });
 

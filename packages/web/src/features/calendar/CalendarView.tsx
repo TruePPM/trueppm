@@ -390,10 +390,10 @@ export function CalendarView() {
   // and the server's own `is_me` flag (not a user-id comparison here) names the
   // current user's roster resource. While that lookup is in flight the filter is
   // not applied, so a slow roster never flashes an empty calendar.
-  const { resourceId: myResourceId, isLoading: myResourceLoading } =
+  const { resourceIds: myResourceIds, isLoading: myResourceLoading } =
     useCurrentUserResourceId(projectId);
   const applyMine = mineOnly && !myResourceLoading;
-  const tasks = applyMine ? filterTasksByResource(allTasks, myResourceId) : allTasks;
+  const tasks = applyMine ? filterTasksByResource(allTasks, myResourceIds) : allTasks;
   const mineOnlyEmpty = applyMine && allTasks.length > 0 && tasks.length === 0;
   // Swimlanes are a Week-grid concept; the phone agenda has no row to split.
   const showGroupToggle = calView === 'week' && breakpoint !== 'sm';

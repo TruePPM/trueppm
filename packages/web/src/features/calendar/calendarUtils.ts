@@ -564,10 +564,10 @@ export function inAssigneeLane(item: { assignees?: ChipAssignee[] }, laneKey: st
     : list.some((a) => a.resourceId === laneKey);
 }
 
-/** Tasks assigned to `resourceId` — the "My tasks only" filter. */
-export function filterTasksByResource(tasks: Task[], resourceId: string | null): Task[] {
-  if (resourceId === null) return [];
-  return tasks.filter((t) => t.assignees.some((a) => a.resourceId === resourceId));
+/** Tasks assigned to any of `resourceIds` — the "My tasks only" filter. */
+export function filterTasksByResource(tasks: Task[], resourceIds: ReadonlySet<string>): Task[] {
+  if (resourceIds.size === 0) return [];
+  return tasks.filter((t) => t.assignees.some((a) => resourceIds.has(a.resourceId)));
 }
 
 interface SprintWindowLike {
