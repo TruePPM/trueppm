@@ -105,7 +105,7 @@ New events on the existing webhook model and delivery path: `schedule.finish_cha
 ### D8. Notifications
 
 `sprint.scope_change_requested` and `sprint.commitment_at_risk` notify every member holding the accept authority:
-- **In-app notice: unmutable**, so a commitment change cannot pass silently. **This needs a new mechanism.** The nearest existing one, `DND_BYPASS_EVENTS`, only bypasses do-not-disturb, not a user's mute, so child 8 adds a non-mutable flag for these two in-app event types.
+- **In-app notice: unmutable**, so a commitment change cannot pass silently. **This needs a new mechanism.** The nearest existing one, `DND_BYPASS_EVENTS`, only bypasses do-not-disturb, not a user's mute, so child 8 adds a non-mutable flag for these two in-app event types. First it confirms whether any per-event in-app mute exists at all: the comment on the `DND_BYPASS_EVENTS` model calls them "signals a muted bell must never swallow", but `notifications/services.py` uses the set only for DND. If no per-event mute exists, the flag reduces to adding these events to the bypass set.
 - Email and other channels follow each member's preferences.
 - Everyone else, including the requester when the decision lands, follows their preferences, with in-app as the default.
 - One batch produces one notice.
