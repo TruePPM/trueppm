@@ -100,7 +100,7 @@ def notify_amend(task: Task, *, actor: Any, reason: str | None) -> None:
     rows: list[tuple[Any, str, str, str | None]] = [
         (rid, "A committed plan changed", body, str(task.pk)) for rid in recipient_ids
     ]
-    transaction.on_commit(partial(_emit_amend_notifications, str(task.project_id), rows, task.pk))
+    _defer_amend_notifications(str(task.project_id), rows, task.pk)
 
 
 def _amend_body(actor_name: str, task_name: str, reason: str | None) -> str:
@@ -115,6 +115,20 @@ def _amend_body(actor_name: str, task_name: str, reason: str | None) -> str:
     if text:
         return f"{actor_name} changed “{label}” on a committed plan — {text}"
     return f"{actor_name} changed “{label}” on a committed plan. No reason was given."
+
+
+def _defer_amend_notifications(
+    project_id: str,
+    rows: list[tuple[Any, str, str, str | None]],
+    key: Any,
+) -> None:
+    """The one ``on_commit`` site for every plan-amended notice.
+
+    Both the per-task field-edit path (:func:`notify_amend`) and the changeset
+    path (:func:`_notify_entry`) defer through here, so the best-effort emit has
+    a single callsite to audit rather than one per caller.
+    """
+    transaction.on_commit(partial(_emit_amend_notifications, project_id, rows, key))
 
 
 def _emit_amend_notifications(
@@ -361,7 +375,7 @@ def _notify_entry(entry: Any, task_ids: list[str], *, actor: Any) -> None:
     if not rows:
         return
     entry.save(update_fields=["notified_user_ids"])
-    transaction.on_commit(partial(_emit_amend_notifications, str(entry.project_id), rows, entry.pk))
+    _defer_amend_notifications(str(entry.project_id), rows, entry.pk)
 
 
 def notify_downstream(entries: list[Any], moved: dict[Any, dict[str, str]]) -> int:
