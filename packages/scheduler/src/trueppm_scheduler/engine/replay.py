@@ -11,10 +11,12 @@ from datetime import (
     date,
 )
 
-import networkx as nx
-
 from trueppm_scheduler.engine.backward import (
     _backward_pass,
+)
+from trueppm_scheduler.engine.digraph import (
+    _GraphHasCycle,
+    _topological_order,
 )
 from trueppm_scheduler.engine.forward import (
     _forward_pass,
@@ -119,8 +121,8 @@ def _milestone_instants(
     # Reached from derive_value with a caller-supplied result and no validation, so
     # a project that gained a cycle since the result was computed lands here.
     try:
-        topo_order: list[str] = list(nx.topological_sort(g))
-    except nx.NetworkXUnfeasible:
+        topo_order = _topological_order(g)
+    except _GraphHasCycle:
         _raise_cycle_error(g)
     task_map = {t.id: copy.copy(t) for t in project.tasks}
     task_calendars = _resolve_task_calendars(project)
@@ -163,7 +165,7 @@ def _project_free_instants(
     g = _build_graph(project)
     task_calendars = _resolve_task_calendars(project)
     return _milestone_free_instants(
-        list(nx.topological_sort(g)),
+        _topological_order(g),
         g,
         {t.id: t for t in scheduled},
         instants,

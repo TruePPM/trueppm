@@ -606,8 +606,7 @@ class TestFindCycle:
     def test_two_cycle_returned_in_order(self) -> None:
         result = find_cycle([("A", "B"), ("B", "A")]).cycle
         assert result is not None
-        # Cycle wraps back to start; networkx may begin at any node but the
-        # path must close on its first node.
+        # Cycle wraps back to start: the path must close on its first node.
         assert result[0] == result[-1]
         assert set(result) == {"A", "B"}
         assert len(result) == 3
@@ -946,10 +945,10 @@ class TestMonteCarlo:
     def test_seeded_percentiles_independent_of_task_order(self) -> None:
         """Seeded P50/P80/P95 must not depend on task insertion order (#774).
 
-        The RNG is consumed in lexicographical_topological_sort order keyed on the
+        The RNG is consumed in lexicographic topological order keyed on the
         stable task id, so durations are bound to task ids — not to column
         position. Shuffling the task (and dependency) insertion order must leave
-        the seeded percentiles unchanged. With a plain nx.topological_sort the
+        the seeded percentiles unchanged. With an order-dependent topological sort the
         tie-break could follow insertion order and silently shift the result.
         """
         tasks = self._parallel_pert_tasks()
@@ -3022,9 +3021,7 @@ class TestCompletedNoActualsIsPinned:
         and the simulated finish is driven by A alone (C, after the pinned B, is
         fixed at 03-06), so no percentile can sit below A's own sampled finish
         or the deterministic finish."""
-        import networkx as nx
-
-        from trueppm_scheduler.engine import _completed_dates
+        from trueppm_scheduler.engine import _completed_dates, _DiGraph, _topological_order
 
         def build(a_days: int) -> Project:
             return make_project(
@@ -3051,13 +3048,12 @@ class TestCompletedNoActualsIsPinned:
         assert windows == {(date(2026, 3, 2), date(2026, 3, 4))}
 
         p = build(10)
-        g: nx.DiGraph[str] = nx.DiGraph()
-        g.add_nodes_from(t.id for t in p.tasks)
+        g = _DiGraph()
+        for t in p.tasks:
+            g.add_node(t.id)
         for d in p.dependencies:
             g.add_edge(d.predecessor_id, d.successor_id, dep=d)
-        dates, _ = _completed_dates(
-            p, {t.id: t for t in p.tasks}, list(nx.topological_sort(g)), g, None
-        )
+        dates, _ = _completed_dates(p, {t.id: t for t in p.tasks}, _topological_order(g), g, None)
         assert dates == {"B": (date(2026, 3, 2), date(2026, 3, 4))}
 
         mc = monte_carlo(p, runs=2000, seed=3)

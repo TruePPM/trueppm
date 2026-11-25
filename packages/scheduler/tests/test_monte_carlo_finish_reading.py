@@ -13,7 +13,6 @@ from __future__ import annotations
 from datetime import date, timedelta
 from unittest.mock import patch
 
-import networkx as nx
 import numpy as np
 import pytest
 from hypothesis import example, given
@@ -829,7 +828,7 @@ class TestIndexOverrunIsRefused:
 def _horizon(project: Project) -> date:
     """``engine._mc_horizon`` for a single-calendar ``project``."""
     g = engine._build_graph(project)
-    topo = list(nx.lexicographical_topological_sort(g, key=str))
+    topo = engine._topological_order(g)
     return engine._mc_horizon(
         project, {t.id: t for t in project.tasks}, g, topo, {t: project.calendar for t in topo}
     )

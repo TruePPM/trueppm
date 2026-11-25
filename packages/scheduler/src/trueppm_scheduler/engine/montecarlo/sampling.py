@@ -445,7 +445,7 @@ def _average_ranks(a: np.ndarray) -> np.ndarray:
     """Return the average (tie-corrected) ranks of a 1-D array.
 
     This is the ranking convention `scipy.stats.rankdata(method="average")` uses,
-    reimplemented with numpy so the scheduler keeps its networkx+numpy-only
+    reimplemented with numpy so the scheduler keeps its numpy-only
     dependency footprint. Ties share the mean of the ranks they span — required
     for a correct Spearman correlation when the data has repeated values (common
     here: completion offsets and sampled durations are discrete working-day

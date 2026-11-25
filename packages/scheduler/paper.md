@@ -29,8 +29,7 @@ critical-path flags — and it forecasts delivery risk with a Monte Carlo
 simulation that turns three-point (optimistic / most-likely / pessimistic)
 estimates into P50/P80/P95 completion dates.
 
-The library depends only on `networkx` [@networkx] for graph handling and
-`numpy` [@numpy] for vectorized sampling. It has no web framework, database, or
+The library depends only on `numpy` [@numpy], for vectorized sampling. It has no web framework, database, or
 GUI dependency, so it embeds equally well in a backend service, a data pipeline,
 a Jupyter notebook, or a command-line tool. It is the standalone, Apache-2.0
 scheduling core of the TruePPM project-management platform, published
@@ -110,7 +109,7 @@ permissively licensed Python import.
 
 # Acknowledgements
 
-We thank the maintainers of `networkx` and `numpy`, on which this library
+We thank the maintainers of `numpy`, on which this library
 builds, and the contributors to the broader TruePPM platform.
 
 # References

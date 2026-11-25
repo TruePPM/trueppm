@@ -178,7 +178,7 @@ Solid arrows are dependencies that exist today (the arrow points at what is depe
 
 ### packages/scheduler
 
-Pure-Python. Dependencies: `networkx` (graph), `numpy` (Monte Carlo). Ships on PyPI as `trueppm-scheduler`. See [Scheduling as a separate package](#scheduling-as-a-separate-package) above — this page does not document the engine's internals.
+Pure-Python. Dependencies: `networkx` (graph), `numpy` (Monte Carlo); the `networkx` dependency is planned for removal in 0.5. Ships on PyPI as `trueppm-scheduler`. See [Scheduling as a separate package](#scheduling-as-a-separate-package) above — this page does not document the engine's internals.
 
 ### packages/wasm-scheduler
 

@@ -10,8 +10,6 @@ from datetime import (
     timedelta,
 )
 
-import networkx as nx
-
 from trueppm_scheduler.engine.calendar_math import (
     _advance_calendar_days,
     _effective_duration_days,
@@ -24,6 +22,9 @@ from trueppm_scheduler.engine.calendar_math import (
     _start_from_finish,
     _working_days_between,
     _WorkingDayCounter,
+)
+from trueppm_scheduler.engine.digraph import (
+    _DiGraph,
 )
 from trueppm_scheduler.engine.milestones import (
     _ONE_DAY,
@@ -64,7 +65,7 @@ from trueppm_scheduler.models import (
 def _backward_pass(
     task_map: dict[str, Task],
     topo_order: list[str],
-    g: nx.DiGraph[str],
+    g: _DiGraph,
     project_finish: date,
     calendar: Calendar,
     task_calendars: dict[str, Calendar] | None = None,
@@ -255,7 +256,7 @@ def _apply_milestone_late_date(
     node_id: str,
     task: Task,
     early_pair: tuple[_Instant, _Instant],
-    g: nx.DiGraph[str],
+    g: _DiGraph,
     task_map: dict[str, Task],
     node_cal: Calendar,
     finish: tuple[date, date],
@@ -327,7 +328,7 @@ def _apply_milestone_late_date(
 
 def _collect_backward_constraints(
     node_id: str,
-    g: nx.DiGraph[str],
+    g: _DiGraph,
     task_map: dict[str, Task],
     node_cal: Calendar,
     finish: tuple[date, date],
@@ -511,7 +512,7 @@ def _apply_late_dates(
 def _compute_floats(
     task_map: dict[str, Task],
     topo_order: list[str],
-    g: nx.DiGraph[str],
+    g: _DiGraph,
     calendar: Calendar,
     wd_counter: _WorkingDayCounter | None = None,
     task_calendars: dict[str, Calendar] | None = None,
@@ -686,7 +687,7 @@ def _wd_span(
 def _free_float_days(
     node_id: str,
     task: Task,
-    g: nx.DiGraph[str],
+    g: _DiGraph,
     task_map: dict[str, Task],
     node_cal: Calendar,
     tf_days: int,

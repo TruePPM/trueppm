@@ -16,8 +16,6 @@ from datetime import (
     timedelta,
 )
 
-import networkx as nx
-
 from trueppm_scheduler.engine.calendar_math import (
     _elapsed_working_days,
     _finish_from_start,
@@ -27,6 +25,9 @@ from trueppm_scheduler.engine.calendar_math import (
     _retreat_calendar_days,
     _safe_offset,
     _scan_for_working_day,
+)
+from trueppm_scheduler.engine.digraph import (
+    _DiGraph,
 )
 from trueppm_scheduler.models import (
     Calendar,
@@ -397,7 +398,7 @@ def _milestone_refs(instant: date) -> tuple[date, date]:
 
 def _milestone_free_instants(
     topo_order: list[str],
-    g: nx.DiGraph[str],
+    g: _DiGraph,
     task_map: dict[str, Task],
     instants: dict[str, _Instant],
     cal_for: Callable[[str], Calendar],
@@ -1036,7 +1037,7 @@ def _finish_instant(task_map: dict[str, Task], instants: dict[str, _Instant]) ->
 def _place_milestone(
     node_id: str,
     task_map: dict[str, Task],
-    g: nx.DiGraph[str],
+    g: _DiGraph,
     cal: Calendar,
     es_floors: list[date],
     links: dict[str, _Instant],
@@ -1176,7 +1177,7 @@ def _link_proposal(
     pred_id: str,
     node_id: str,
     task_map: dict[str, Task],
-    g: nx.DiGraph[str],
+    g: _DiGraph,
     cal: Calendar,
     links: dict[str, _Instant],
     cal_for: Callable[[str], Calendar],
@@ -1264,7 +1265,7 @@ def _equivalent_link(
 def _closed_milestone_link(
     node_id: str,
     task_map: dict[str, Task],
-    g: nx.DiGraph[str],
+    g: _DiGraph,
     cal: Calendar,
     links: dict[str, _Instant],
     cal_for: Callable[[str], Calendar],

@@ -18,7 +18,7 @@ a future field addition or refactor that reopens one of these gaps fails a test
 instead of shipping silently.
 
 ``Task.id`` is excluded from the Task sweep: ``Task.id=None``/``[]`` surfaces
-``TypeError: None cannot be a node`` from networkx and is tracked separately under
+``TypeError: None cannot be a node`` from the pre-0.5 graph library and is tracked separately under
 **#2463** (0.5, ``release::stretch``) — a deliberate scope boundary, not an
 oversight. Fixing it here would silently absorb #2463's scope into this issue.
 """

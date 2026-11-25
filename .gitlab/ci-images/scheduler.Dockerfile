@@ -1,7 +1,7 @@
 # Custom CI image for the .scheduler job template in .gitlab-ci.yml.
 #
 # Pre-installs the full editable-install dev-deps tree of packages/scheduler
-# (numpy, networkx, scipy, numba, pytest, pytest-benchmark, jupyter for the
+# (numpy, scipy, numba, pytest, pytest-benchmark, jupyter for the
 # notebooks job, mypy, ruff, etc.) so the five scheduler:* CI jobs skip the
 # cold pip install on every run.
 #

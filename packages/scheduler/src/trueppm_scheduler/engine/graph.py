@@ -10,9 +10,12 @@ from typing import (
     NoReturn,
 )
 
-import networkx as nx
-
 from trueppm_scheduler._slots import pickle_as_field_dict
+from trueppm_scheduler.engine.digraph import (
+    _DiGraph,
+    _pairs_are_acyclic,
+    _strongly_connected_components,
+)
 from trueppm_scheduler.engine.errors import (
     CyclicDependencyError,
     InvalidScheduleInput,
@@ -77,9 +80,9 @@ def _resolve_task_calendars(project: Project) -> dict[str, Calendar] | None:
 # ---------------------------------------------------------------------------
 
 
-def _build_graph(project: Project) -> nx.DiGraph[str]:
+def _build_graph(project: Project) -> _DiGraph:
     """Build a directed graph from project tasks and dependencies."""
-    g: nx.DiGraph[str] = nx.DiGraph()
+    g = _DiGraph()
     task_ids = {t.id for t in project.tasks}
     for task in project.tasks:
         g.add_node(task.id)
@@ -101,10 +104,10 @@ def _build_graph(project: Project) -> nx.DiGraph[str]:
     return g
 
 
-def _raise_cycle_error(g: nx.DiGraph[str]) -> NoReturn:
+def _raise_cycle_error(g: _DiGraph) -> NoReturn:
     """Reconstruct and raise the cycle from a graph a topological sort rejected.
 
-    Called only from the ``NetworkXUnfeasible`` handler of a topological sort:
+    Called only from the ``_GraphHasCycle`` handler of a topological sort:
     the sort has already proved the graph cyclic in ~3ms, so the SCC pass and
     BFS in :func:`_canonical_cycle` run only on this error path to reconstruct
     the user-facing cycle (#1526) — never on the happy path,
@@ -118,7 +121,7 @@ def _node_key(node: object) -> tuple[str, str]:
     return (str(node), repr(node))
 
 
-def _canonical_cycle(g: nx.DiGraph[str]) -> list[str]:
+def _canonical_cycle(g: _DiGraph) -> list[str]:
     """Return one cycle of ``g`` independent of edge/node insertion order.
 
     Picks the non-trivial strongly connected component holding the smallest id,
@@ -128,7 +131,7 @@ def _canonical_cycle(g: nx.DiGraph[str]) -> list[str]:
     """
     sccs = [
         c
-        for c in nx.strongly_connected_components(g)
+        for c in _strongly_connected_components(g)
         if len(c) > 1 or any(g.has_edge(n, n) for n in c)
     ]
     start = min((min(c, key=_node_key) for c in sccs), key=_node_key)
@@ -239,10 +242,11 @@ def find_cycle(
 
     if children_map:
         edge_list = _expand_edges_for_cycle_check(edge_list, children_map)
-    g: nx.DiGraph[str] = nx.DiGraph()
-    g.add_edges_from(edge_list)
-    if nx.is_directed_acyclic_graph(g):
+    if _pairs_are_acyclic(edge_list):
         return CycleCheck(cycle=None)
+    g = _DiGraph()
+    for u, v in edge_list:
+        g.add_edge(u, v)
     return CycleCheck(cycle=_canonical_cycle(g))
 
 
@@ -250,8 +254,8 @@ def _validate_edge_list(edges: list[tuple[str, str]]) -> list[tuple[str, str]]:
     """Validate the raw edge input shape for the public :func:`find_cycle` API.
 
     Checked up front so a malformed call raises the documented
-    ``InvalidScheduleInput`` rather than a bare ``NetworkXError``/``TypeError``
-    from deep inside networkx or ``_collect_leaves`` (#1209).
+    ``InvalidScheduleInput`` rather than a bare ``TypeError``/``ValueError``
+    from deep inside the graph build or ``_collect_leaves`` (#1209).
     """
     try:
         edge_list = list(edges)

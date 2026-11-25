@@ -9,7 +9,8 @@ a pickle naming ``trueppm_scheduler.engine.<Class>`` still loads.
 before the split, dunders excluded. It is a frozen snapshot, not a mirror of the
 package: never regenerate it from the current tree, which would make this test pass by
 construction. A name is only removed from it as part of an announced removal of that
-re-export.
+re-export. ``nx`` was removed that way in 0.5, when the ``networkx`` dependency was
+dropped (#4163).
 """
 
 from __future__ import annotations
@@ -262,7 +263,6 @@ _ENGINE_04_NAMES = (
     "math",
     "monte_carlo",
     "np",
-    "nx",
     "overload",
     "perturb_task_duration",
     "replace",
@@ -326,7 +326,7 @@ def test_every_04_name_is_still_importable(name: str) -> None:
 
 def test_the_snapshot_is_the_whole_04_surface() -> None:
     """A guard on the guard: the snapshot has not been trimmed to what happens to exist."""
-    assert len(_ENGINE_04_NAMES) == 245
+    assert len(_ENGINE_04_NAMES) == 244
     assert len(set(_ENGINE_04_NAMES)) == len(_ENGINE_04_NAMES)
 
 

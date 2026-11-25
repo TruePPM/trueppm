@@ -13,7 +13,6 @@ from datetime import (
     timedelta,
 )
 
-import networkx as nx
 import numpy as np
 
 from trueppm_scheduler.engine.calendar_math import (
@@ -22,6 +21,10 @@ from trueppm_scheduler.engine.calendar_math import (
     _nth_working_day,
     _prev_working_day,
     _safe_offset,
+)
+from trueppm_scheduler.engine.digraph import (
+    _GraphHasCycle,
+    _topological_order,
 )
 from trueppm_scheduler.engine.errors import (
     InvalidScheduleInput,
@@ -929,21 +932,16 @@ def monte_carlo(
 
     g = _build_graph(project)
     # Detect cycles via the topological sort itself (#1526), the same happy-path
-    # optimization as schedule(): the lexicographic sort raises NetworkXUnfeasible
-    # on a cycle in ~3ms, so the eager cycle search (~148ms) is replaced by the
-    # SCC + BFS in _canonical_cycle, which runs only on the error path, in
-    # _raise_cycle_error.
+    # optimization as schedule(): the cycle reconstruction in _canonical_cycle
+    # runs only on the error path, in _raise_cycle_error.
     #
-    # Use a lexicographically-keyed topological sort so the RNG is consumed in a
-    # deterministic, version-independent order. Plain ``nx.topological_sort`` only
-    # guarantees *a* valid topological order; its tie-breaking is an implementation
-    # detail that can shift between networkx versions (dep cap is wide:
-    # networkx>=3.0,<4) and with task insertion order. Because durations are sampled
-    # column-by-column in this order from a single seeded RNG, any reordering would
-    # silently change seeded P50/P80/P95. Keying on the stable task id pins the order.
+    # The sort is lexicographic on the task id so the RNG is consumed in a
+    # deterministic order that does not depend on task insertion order. Because
+    # durations are sampled column-by-column in this order from a single seeded
+    # RNG, any reordering would silently change seeded P50/P80/P95.
     try:
-        topo_order: list[str] = list(nx.lexicographical_topological_sort(g, key=str))
-    except nx.NetworkXUnfeasible:
+        topo_order = _topological_order(g)
+    except _GraphHasCycle:
         _raise_cycle_error(g)
     n_tasks = len(topo_order)
     task_idx = {tid: i for i, tid in enumerate(topo_order)}
@@ -1124,7 +1122,7 @@ def monte_carlo(
     )
     edge_lag_delta: dict[tuple[str, str], np.ndarray | None] = {
         (u, v): delta_by_key[(data["dep"].dep_type, data["dep"].lag, cal_key_of[u], cal_key_of[v])]
-        for u, v, data in g.edges(data=True)
+        for u, v, data in g.edges()
         if u not in milestone_ids
     }
 

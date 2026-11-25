@@ -8,14 +8,16 @@ from datetime import (
     date,
 )
 
-import networkx as nx
-
 from trueppm_scheduler.engine.backward import (
     _backward_pass,
     _compute_floats,
 )
 from trueppm_scheduler.engine.calendar_math import (
     _WorkingDayCounter,
+)
+from trueppm_scheduler.engine.digraph import (
+    _GraphHasCycle,
+    _topological_order,
 )
 from trueppm_scheduler.engine.errors import (
     InvalidScheduleInput,
@@ -123,13 +125,12 @@ def schedule(project: Project) -> ScheduleResult:
 
     g = _build_graph(project)
 
-    # Detect cycles via the topological sort itself: it raises NetworkXUnfeasible
-    # on a cycle in ~3ms, versus ~148ms for an eager cycle search on every
-    # happy-path call at 5K tasks (#1526). The SCC + BFS in _canonical_cycle
-    # runs only on the error path, inside _raise_cycle_error.
+    # Detect cycles via the topological sort itself: it raises _GraphHasCycle,
+    # so the happy path never pays for a separate cycle search (#1526). The SCC and BFS
+    # in _canonical_cycle run only on the error path, inside _raise_cycle_error.
     try:
-        topo_order: list[str] = list(nx.topological_sort(g))
-    except nx.NetworkXUnfeasible:
+        topo_order = _topological_order(g)
+    except _GraphHasCycle:
         _raise_cycle_error(g)
 
     # Isolate the caller's input (schedule() must not mutate project.tasks) with
@@ -218,21 +219,16 @@ def schedule(project: Project) -> ScheduleResult:
     )
 
     # Order the critical path deterministically AND topologically. Filtering a
-    # topological order keeps every predecessor ahead of its successor; the catch
-    # is that plain ``nx.topological_sort`` resolves ties by a networkx-internal
-    # rule that the Rust engine's petgraph does not share, so the order would be
-    # non-deterministic and cross-engine divergent (#909). A *lexicographic*
-    # topological sort keyed by ``(early_start, id)`` is deterministic and
-    # engine-agnostic — and, unlike sorting the filtered list by ``(early_start,
-    # id)`` directly, it can never place a successor before its predecessor when
-    # the two share an equal early_start (e.g. an SS-lag-0 or FF-lag-0 critical
-    # pair, where a value-sort would invert them). The Rust engine runs the
-    # identical lexicographic Kahn ordering (lib.rs / incremental.rs).
+    # topological order keeps every predecessor ahead of its successor. A
+    # *lexicographic* sort keyed by ``(early_start, id)`` is engine-agnostic (#909)
+    # and, unlike sorting the filtered list by ``(early_start, id)`` directly, can
+    # never place a successor before its predecessor when the two share an equal
+    # early_start (e.g. an SS-lag-0 or FF-lag-0 critical pair, where a value-sort
+    # would invert them). The Rust engine runs the identical lexicographic Kahn
+    # ordering (lib.rs / incremental.rs).
     critical_path = [
         tid
-        for tid in nx.lexicographical_topological_sort(
-            g, key=lambda tid: (task_map[tid].early_start, tid)
-        )
+        for tid in _topological_order(g, key=lambda tid: (task_map[tid].early_start, tid))
         if task_map[tid].is_critical
     ]
 
