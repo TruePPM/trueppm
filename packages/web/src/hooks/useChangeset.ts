@@ -35,6 +35,8 @@ export interface ApiChangeset {
   last_kept_at: string | null;
   entries_since_kept: number;
   entries: ApiChangesetEntry[];
+  /** When the read was computed: the phone card's as-of stamp (Pass 5 4A-a). */
+  _provenance?: { computed_at?: string };
 }
 
 export type RebaselineReasonCode =

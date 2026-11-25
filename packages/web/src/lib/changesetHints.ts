@@ -56,7 +56,10 @@ const STRUCTURAL: Array<{ method: string; path: RegExp }> = [
   { method: 'post', path: /^(\/projects\/[^/]+)?\/tasks\/$/ },
   { method: 'delete', path: /^(\/projects\/[^/]+)?\/tasks\/[^/]+\/$/ },
   { method: 'post', path: /^\/projects\/[^/]+\/tasks\/(reorder|bulk|group|ungroup)\/$/ },
-  { method: 'post', path: /^(\/projects\/[^/]+)?\/tasks\/[^/]+\/(indent|outdent|reparent|split)\/$/ },
+  {
+    method: 'post',
+    path: /^(\/projects\/[^/]+)?\/tasks\/[^/]+\/(indent|outdent|reparent|split)\/$/,
+  },
   { method: 'post', path: /^\/projects\/[^/]+\/phases\/$/ },
   { method: 'delete', path: /^\/projects\/[^/]+\/phases\/[^/]+\/$/ },
 ];
@@ -65,7 +68,10 @@ const STRUCTURAL: Array<{ method: string; path: RegExp }> = [
 export function isStructuralWrite(method: string | undefined, url: string | undefined): boolean {
   if (!method || !url) return false;
   const m = method.toLowerCase();
-  const path = url.split('?')[0].replace(/^https?:\/\/[^/]+/, '').replace(/^\/api\/v1/, '');
+  const path = url
+    .split('?')[0]
+    .replace(/^https?:\/\/[^/]+/, '')
+    .replace(/^\/api\/v1/, '');
   return STRUCTURAL.some((r) => r.method === m && r.path.test(path));
 }
 
@@ -84,7 +90,7 @@ export function withChangesetHints<T extends { method?: string; url?: string; da
 ): T {
   if (!isStructuralWrite(config.method, config.url)) return config;
   if (config.data !== undefined && !isPlainObject(config.data)) return config;
-  const body: Record<string, unknown> = { ...(config.data) };
+  const body: Record<string, unknown> = { ...config.data };
   if (body.surface === undefined) body.surface = surface;
   if (closePending && body.amend_group === undefined) body.amend_group = 'new';
   closePending = false;

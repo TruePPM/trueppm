@@ -318,6 +318,7 @@ These rules are enforced at review time. Violations block merge.
 462. **On shell v2 the settings save bar appears only when dirty, names the dirty sections, saves on Cmd/Ctrl+S and guards exits with `ConfirmDiscardDialog`; archiving a project is confirmed by typing its code.** → [rule](../../docs/design/invariants/462-shell-v2-settings-save-bar-and-archive-confirmation.md)
 467. **On shell v2 the critical and near-critical bands are also glyphs: `▲ 0d` / `◆ Nd` in the Total float cell, a `◆` on near-critical bars, and solid red critical-to-critical arrows; all from `isNearCriticalByFloat`.** → [rule](../../docs/design/invariants/467-shell-v2-band-glyphs-in-the-float-column-and-on-canvas-bars.md)
 468. **On the shell v2 phone Board a card moves by a per-card 44px `Move to…` disclosure through the page's one `move`; a board that says moves are queued must mount `useBoardOffline`.** → [rule](../../docs/design/invariants/468-shell-v2-phone-board-moves-by-a-per-card-move-to-and-mounts-the-offline-driver.md)
+470. **A phone surface that withholds a desktop capability renders a named `role="note"` saying what is desktop-only and what the phone can still do, with a 44px Copy link and an Email it to me addressed to the signed-in user only.** → [rule](../../docs/design/invariants/470-a-phone-surface-that-withholds-a-desktop-capability-says-so-and-hands-off.md)
 
 ---
 

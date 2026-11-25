@@ -346,4 +346,81 @@ test.describe('Baseline changeset on a phone', () => {
     await expect(sheet.getByRole('button', { name: 'Take baseline v2' })).toBeDisabled();
     await expect(sheet.getByRole('button', { name: 'Keep v1 instead' })).toBeEnabled();
   });
+
+  test('the Plan card: count, since, finish against v1 as of the run, and Review', async ({
+    page,
+  }) => {
+    await gotoCommittedSchedule(page, freshStore([entry()]));
+    const card = page.getByTestId('changeset-phone-card');
+    const summary = card.getByRole('region', { name: 'Open changeset' });
+    await expect(summary).toContainText(/◷ 1 change open since v1 · \S/);
+    await expect(summary).toContainText(/Finish .+ → .+ · \+3 wd vs v1 · as of \S/);
+    // The desktop header row is not rendered on a phone: one surface, not two.
+    await expect(page.getByTestId('changeset-reason-line')).toHaveCount(0);
+
+    // Pin 2: no dead end. Says what is desktop-only and hands off two ways;
+    // the email goes to the signed-in user's own address only.
+    const note = card.getByRole('note', { name: 'Desktop-only edits' });
+    await expect(note).toContainText('Adding, moving or deleting tasks is on desktop');
+    await expect(note.getByRole('button', { name: 'Copy link' })).toBeVisible();
+    const email = note.getByRole('link', { name: 'Email it to me' });
+    await expect(email).toHaveAttribute('href', /^mailto:pm%40example\.com\?/);
+
+    await summary.getByRole('button', { name: 'Review 1 change' }).click();
+    await expect(page.getByRole('dialog', { name: '1 change since Baseline v1' })).toBeVisible();
+  });
+
+  test('answers a missing reason inline in the sheet', async ({ page }) => {
+    const store = freshStore([entry()]);
+    await gotoCommittedSchedule(page, store);
+    await page.getByRole('button', { name: 'Review 1 change' }).click();
+    const sheet = page.getByRole('dialog', { name: '1 change since Baseline v1' });
+    const why = sheet.getByRole('textbox', { name: '◌ Needs a reason' });
+    await why.fill('Crane on site after Apr 24');
+    await sheet.getByRole('button', { name: 'Save' }).click();
+    // The stateful mock serves the answered entry back on the refetch.
+    await expect(sheet.getByText('“Crane on site after Apr 24”')).toBeVisible();
+    expect(store.entries[0].reason).toBe('Crane on site after Apr 24');
+  });
+
+  test('offline: both exits read "Reconnect to decide" and the reason stays on the device', async ({
+    page,
+    context,
+  }) => {
+    await gotoCommittedSchedule(
+      page,
+      freshStore([entry({ reason: 'Crane on site after Apr 24', reason_state: 'reasoned' })]),
+    );
+    await page.getByRole('button', { name: 'Review 1 change' }).click();
+    const sheet = page.getByRole('dialog', { name: '1 change since Baseline v1' });
+    await sheet
+      .getByTestId('changeset-sheet-footer')
+      .getByRole('button', { name: 'Take v2…' })
+      .click();
+    await sheet.getByLabel(/Why re-baseline/).fill('Customer approved the new date');
+
+    await context.setOffline(true);
+    const footer = sheet.getByTestId('changeset-sheet-footer');
+    const exits = footer.getByRole('button', { name: 'Reconnect to decide' });
+    await expect(exits).toHaveCount(2);
+    for (const b of await exits.all()) await expect(b).toBeDisabled();
+    await expect(
+      sheet.getByText('Reconnect to decide. Your reason is kept on this device.'),
+    ).toBeVisible();
+
+    // Close and reopen: the typed reason survived on this device.
+    await sheet.getByRole('button', { name: 'Close without deciding' }).click();
+    await page.getByRole('button', { name: 'Review 1 change' }).click();
+    await expect(
+      page
+        .getByTestId('changeset-sheet-footer')
+        .getByRole('button', { name: 'Reconnect to decide' }),
+    ).toHaveCount(2);
+    await context.setOffline(false);
+    await page
+      .getByTestId('changeset-sheet-footer')
+      .getByRole('button', { name: 'Take v2…' })
+      .click();
+    await expect(page.getByLabel(/Why re-baseline/)).toHaveValue('Customer approved the new date');
+  });
 });

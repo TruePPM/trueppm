@@ -154,7 +154,10 @@ set of changes made since the active baseline, each with room for one line of *w
   structural edit joins the changeset too, and the plan owner answers it.
 - **Related acts group.** Acts of the same kind, on the same surface, by the same person,
   within two minutes of each other share one entry and one reason. One multi-select action
-  is one entry. Answering an entry closes it, so a later act opens a new one.
+  is one entry. Answering an entry closes it, so a later act opens a new one. In the app,
+  the Grid, Outline, Timeline and Board are separate surfaces, so a Board drag never joins
+  a Grid restructure. Switching view or mode, opening the review, or leaving or reloading
+  the page also closes the open entry, so the next act starts a new one.
 - **A reason is set once.** It cannot be rewritten afterwards.
 - **Undo retracts.** Undoing an act removes it from its entry, and undoing the last act in
   an entry deletes the entry.
@@ -194,10 +197,16 @@ changeset, and the plan owner answers them.
   to answer it in place. Below the list are the net effect on the finish and the two exits
   as equal cards. Neither is the default: Enter chooses nothing, and **Esc** or **✕**
   closes the sheet without deciding.
-- **On a phone.** The sheet fills the screen, and the two exits sit in a sticky footer as
-  equal buttons. **Take v2…** opens a step for the reason code and the reason. **Keep v1**
-  takes one tap and shows an **Undo** for 10 seconds before the decision is recorded.
-  Adding, moving and deleting tasks stays on the desktop.
+- **On a phone.** Instead of the header, a card at the top of the Schedule shows
+  **◷ N changes open since v1** with the date of the first open change, the finish against
+  v1 (*Finish Nov 14 → Nov 19 · +3 wd vs v1 · as of 15:22*), and **Review N changes**.
+  Under it, a note says that adding, moving and deleting tasks is on desktop and what the
+  phone can still do (update status, % complete and dates, review the changeset, and give
+  a missing reason). **Copy link** copies the page's address, and **Email it to me** opens
+  a draft in your mail app addressed to your own account's email only. The sheet fills the
+  screen, and the two exits sit in a sticky footer as equal buttons. **Take v2…** opens a
+  step for the reason code and the reason. **Keep v1** takes one tap and shows an **Undo**
+  for 10 seconds before the decision is recorded.
 - **Offline.** Both exits are disabled with **Reconnect to decide**, and the reason you
   typed is kept on the device.
 - **If the changes moved.** If someone else changed the plan after you opened the sheet,
