@@ -109,3 +109,41 @@ connections the waiting requests hold.
 `400` with `code: "simulation_cap_exceeded"`; the `tier` key is gone and the caps are
 operator-configurable (`TRUEPPM_MC_SIMULATION_CAP`, `TRUEPPM_MC_TASK_CAP`). Where this
 record says 402 for those refusals, read 400. The queue-first sequencing is unchanged.
+
+---
+
+**Addendum 2026-11-25 (#5067): the what-if stays synchronous, outside the request
+transaction.** The consequence above left `GET /projects/{id}/monte-carlo/whatif/`
+simulating inline. Two ways to fix it were on the table: queue it like the forecast
+(202 + a polled `TaskRun`), or keep it synchronous and stop it holding the database.
+The second was chosen.
+
+- **Why not queue it.** The forecast run is a `POST` whose result already has a read
+  path (`latest/`). The what-if is a `GET` with no stored result, backing the read-only
+  MCP `whatif` tool (ADR-0186), and its only consumers are that tool and direct API
+  clients — the web app does not call it. Queueing would make a read mint a `TaskRun`
+  for every `mcp:read` token call and broadcast `task_run_*` to every connected member
+  for one caller's private question; it would need the project task-run detail made
+  MCP-readable (a new ADR-0678 scope surface) and the full response stored in
+  `result_summary`; and every caller, the MCP server included, would poll — waiting
+  just as long for an answer that arrives in seconds. That is a breaking contract
+  change on an existing `GET` bought to move one bounded compute between processes.
+- **What changes.** The view opts out of `ATOMIC_REQUESTS`
+  (`transaction.non_atomic_requests`) and closes its database connection once every
+  input is loaded, before the first engine call. The harm this record names — "every
+  in-flight run also holds … an open database transaction", pinning the connection
+  pool — no longer applies to the what-if: no transaction is open and no connection is
+  held while it simulates. Safe because the view writes nothing and queues nothing, so
+  it needs neither the request transaction's rollback nor its `on_commit` deferral.
+- **What does not change.** The response contract (200 with the result), the
+  `monte_carlo_whatif` throttle, the MCP compute throttle, the size and run caps, the
+  archived and membership gates, and `MC_MAX_CONCURRENT`, which still binds the what-if
+  in the API process and is now the only Monte Carlo path it binds.
+- **What remains.** The simulation still occupies a web worker for its duration,
+  bounded per process by `MC_MAX_CONCURRENT` (a request waits up to 10 seconds for a
+  slot — with its connection already released — then answers `503 simulation_busy`)
+  and per caller by the throttle — the same posture as the other compute-on-read endpoints (`forecast`,
+  `sprint-forecast`, `schedule/derivation`) that #2839 bounded the same way. Moving it
+  to a worker is reopened only if a consumer appears that needs the what-if
+  asynchronously, or if web-worker occupancy, not connections, is observed to be the
+  constraint.

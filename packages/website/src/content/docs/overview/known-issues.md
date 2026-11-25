@@ -56,8 +56,16 @@ this way.
   endpoint will answer `202` with a task-run id for the client to poll, and the web app
   will do that polling for you. API clients that read the forecast from the `POST`
   response will need to read `GET /projects/{id}/monte-carlo/latest/` once the run
-  succeeds. The what-if keeps its tighter `monte_carlo_whatif` throttle and is not
-  moved.
+  succeeds.
+- **The what-if will stay synchronous, and stop holding the database** — in 0.5
+  [#5067](https://gitlab.com/trueppm/trueppm/-/issues/5067) <!-- known-issues-ack:closed -->
+  will run it outside the request transaction and release its database connection
+  before simulating, so a slow what-if will no longer pin a database connection. It will
+  keep its `200` response, its tighter `monte_carlo_whatif` throttle and its
+  `MC_MAX_CONCURRENT` slot; what remains is the web worker it occupies while it runs,
+  which that slot bounds per process. Moving it to a worker as well was considered and
+  declined ([ADR-1430](/architecture/decisions/), 2026-11-25 addendum): it would turn a
+  read into a queued job every caller has to poll.
 
 ### Program-scoped Monte Carlo is not exposed — stretch goal for 0.5
 

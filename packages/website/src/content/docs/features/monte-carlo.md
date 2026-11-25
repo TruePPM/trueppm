@@ -142,6 +142,12 @@ mid-run, a sweep that runs every five minutes will mark the run `failed` with
 `{error: simulation_abandoned, status_code: 503}` once it is older than the task's
 time limit plus `TRUEPPM_TASK_RUN_REAP_MARGIN_SECONDS` (default 120), so it stops
 counting as active.
+
+The what-if (`GET .../monte-carlo/whatif/`) will not move to a worker: it will keep
+answering `200` with its result, as in 0.4. From 0.5 it will run outside the request's
+database transaction and release its database connection before simulating, so a slow
+what-if occupies only the web worker serving it
+([ADR-1430](/architecture/decisions/), 2026-11-25 addendum).
 :::
 
 The endpoint also enforces a **task cap** (`MC_TASK_CAP`, 5,000 on OSS): a project

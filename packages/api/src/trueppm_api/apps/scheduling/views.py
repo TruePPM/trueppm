@@ -15,10 +15,11 @@ from typing import Any, TypedDict, cast
 from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import models, transaction
+from django.db import connection, models, transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
+from django.utils.decorators import method_decorator
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
@@ -1541,6 +1542,31 @@ def _target_kind_refusal(task: Task) -> Response | None:
     )
 
 
+def _release_db_connection_before_simulating() -> None:
+    """Hand the request's database connection back before a long in-memory compute.
+
+    The what-if is the one Monte Carlo path still simulated in the API process
+    (ADR-1430 addendum, #5067). Its view opts out of ``ATOMIC_REQUESTS`` so no
+    transaction stays open across the simulations; closing the connection as well
+    means the request holds no database connection at all while the engine runs,
+    whatever the pooler mode or ``CONN_MAX_AGE``. Django reconnects lazily if a later
+    step (a response middleware) needs one, at the cost of one connect — small
+    against a multi-second simulation.
+
+    Skipped inside an atomic block: closing there would mark the block for rollback
+    and break the caller's transaction. A request only reaches this inside one when
+    something outside the view opened it — the test client's per-test transaction.
+    """
+    if not connection.in_atomic_block:
+        connection.close()
+
+
+# Opted out of ATOMIC_REQUESTS (#5067): the view is a pure read — it writes no row and
+# queues nothing, so it needs neither the request transaction's rollback nor its
+# on_commit deferral — and the transaction would otherwise stay open for both
+# simulations, pinning a connection (and, under a transaction pooler, a server
+# connection) for their whole duration. See ADR-1430's 2026-11-25 addendum.
+@method_decorator(transaction.non_atomic_requests, name="dispatch")
 class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
     """Non-mutating Monte Carlo what-if: perturb one task's duration, recompute (#993).
 
@@ -1565,6 +1591,14 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
 
     Permission: Member (any role >= Viewer), the same project-read gate as the
     ``run_monte_carlo`` / latest / history forecast endpoints.
+
+    Execution (ADR-1430 addendum, #5067): unlike the forecast run, the what-if is
+    still answered synchronously — it is a GET backing a read MCP tool, and queueing
+    it would make a read mint a ``TaskRun`` and push every caller into a poll loop.
+    It runs outside ``ATOMIC_REQUESTS`` and releases its database connection once
+    every input is loaded, so the only shared resource a simulation occupies is the
+    web worker, bounded per process by ``MC_MAX_CONCURRENT`` and per caller by the
+    ``monte_carlo_whatif`` throttle.
     """
 
     # ADR-0678 (#2482): projects/<pk>/monte-carlo/whatif/
@@ -1579,6 +1613,21 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "monte_carlo_whatif"
+
+    def dispatch(self, request: Any, *args: Any, **kwargs: Any) -> Any:
+        """Give the request its own savepoint only when a caller already opened a transaction.
+
+        Served over HTTP this view is outside any transaction (the class decorator), so
+        nothing happens here. An outer atomic block exists only when the caller opened
+        one — the test client inside a per-test transaction. DRF's ``set_rollback()``
+        marks the *innermost* block on every refusal, so without a savepoint a 4xx from
+        this view would poison the caller's transaction; the savepoint keeps the
+        isolation ``ATOMIC_REQUESTS`` used to give it.
+        """
+        if connection.in_atomic_block:
+            with transaction.atomic():
+                return super().dispatch(request, *args, **kwargs)
+        return super().dispatch(request, *args, **kwargs)
 
     @extend_schema(
         summary="Non-mutating Monte Carlo what-if for a single task duration change",
@@ -1825,6 +1874,9 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                 velocity_samples=velocity_samples or None,
                 sprint_length_days=sprint_length_days,
             )
+
+        # Every database read is done; nothing below touches the ORM (#5067).
+        _release_db_connection_before_simulating()
 
         try:
             # One shared Monte Carlo span (#709) over the full what-if computation —
