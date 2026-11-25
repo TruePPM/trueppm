@@ -165,6 +165,10 @@ test.describe('Schedule resize gesture cascades to the successor (#4237)', () =>
 
     await resizeGesture(page, 'up', startX, startY, dx);
     await expect(page.getByRole('dialog', { name: /Resize task/ })).toBeVisible({ timeout: 5_000 });
+    // The popover states the cascade the preview showed (#4314).
+    await expect(page.getByTestId('commit-popover-cascade')).toHaveText(
+      /^1 downstream task moves; finish /,
+    );
   });
 
   test('an empty resize (no pointer travel) previews no slip', async ({ page }) => {

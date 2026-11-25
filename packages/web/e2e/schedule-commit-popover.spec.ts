@@ -132,7 +132,7 @@ test.describe('Schedule pull-to-commit popover (#492)', () => {
     // open the popover and must not fire a PATCH. The 4 px FSM threshold
     // (rule 64) holds for both the legacy direct-PATCH path and the new
     // pull-to-commit gate.
-    await page.mouse.click(box!.x + 10, box!.y + 42);
+    await page.mouse.click(box!.x + 10, box!.y + 28 + 18 + 14);
     await expect(page.getByRole('dialog', { name: 'Reschedule task?' })).toHaveCount(0);
     expect(patchCalls).toHaveLength(0);
   });

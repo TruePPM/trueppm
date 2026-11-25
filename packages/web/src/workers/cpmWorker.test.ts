@@ -19,6 +19,7 @@ import type {
 
 // Importing the module registers `self.onmessage` as a side effect.
 import './cpmWorker';
+import { runCpmForwardPass } from './cpmEngine';
 
 // --- fixtures --------------------------------------------------------------
 
@@ -306,5 +307,72 @@ describe('cpmWorker calendar threading (#4170)', () => {
     expect(finishOf('A')).toBe('2025-01-14');
     send({ type: 'RESIZE_MOVE', seq: 6, newDurationDays: 6 });
     expect(finishOf('A')).toBe('2025-01-14');
+  });
+});
+
+describe('cpmWorker cascade summary (#4314)', () => {
+  /** Dragged task A feeds a chain of `n` one-day FS successors S1..Sn. */
+  function chain(n: number): { tasks: CpmTask[]; edges: CpmEdge[] } {
+    const tasks: CpmTask[] = [TASK_A];
+    const edges: CpmEdge[] = [];
+    let prev = 'A';
+    // Consecutive working days after A's Fri 01-10 finish, so an undragged
+    // chain already sits where the forward pass would put it (delta 0).
+    const day = new Date(Date.UTC(2025, 0, 13));
+    for (let i = 1; i <= n; i++) {
+      const id = `S${i}`;
+      const iso = day.toISOString().slice(0, 10);
+      do day.setUTCDate(day.getUTCDate() + 1);
+      while (day.getUTCDay() === 0 || day.getUTCDay() === 6);
+      tasks.push({
+        ...TASK_A,
+        id,
+        name: id,
+        earlyStart: iso,
+        earlyFinish: iso,
+        lateFinish: iso,
+        durationDays: 1,
+      });
+      edges.push({ sourceId: prev, targetId: id, type: 'FS', lag: 0 } as CpmEdge);
+      prev = id;
+    }
+    return { tasks, edges };
+  }
+
+  it('counts every moved downstream task past the 10-bar cap and reports the latest finish', () => {
+    send({
+      type: 'RECALC',
+      seq: 1,
+      draggedTaskId: 'A',
+      newStartIso: '2025-01-20',
+      subgraph: chain(14),
+    });
+    const r = lastResult();
+    expect(r?.results).toHaveLength(10);
+    expect(r?.overflowCount).toBeGreaterThan(0);
+    // Dragged task excluded: 14 successors, all shifted a week.
+    expect(r?.movedCount).toBe(14);
+    expect(r?.movedCount).toBeGreaterThan(10);
+    // The last link of the chain finishes latest; the preview carries only 10
+    // results, so maxFinish must have been summarized before the cap.
+    const all = runCpmForwardPass(chain(14).tasks, chain(14).edges, 'A', '2025-01-20');
+    const latest = all.results.map((x) => x.earlyFinish).sort().at(-1);
+    expect(all.results.filter((x) => x.taskId !== 'A' && x.deltaDays !== 0)).toHaveLength(14);
+    expect(r?.maxFinish).toBe(latest);
+    expect(r?.results.map((x) => x.earlyFinish).sort().at(-1)).not.toBe(latest);
+  });
+
+  it('does not count a task whose deltaDays is 0', () => {
+    // Drag A to its own start: nothing downstream moves.
+    send({
+      type: 'RECALC',
+      seq: 2,
+      draggedTaskId: 'A',
+      newStartIso: '2025-01-06',
+      subgraph: chain(3),
+    });
+    const r = lastResult();
+    expect(r?.movedCount).toBe(0);
+    expect(r?.maxFinish).not.toBeNull();
   });
 });

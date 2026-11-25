@@ -33,10 +33,16 @@ import type {
 } from '@/workers/cpmWorker.types';
 import { useDragStore } from '@/stores/dragStore';
 import { buildSubgraph } from '@/features/schedule/buildSubgraph';
-import { isPinnedByActuals, PINNED_DRAG_EXPLANATION } from '@/features/schedule/pinnedByActuals';
+import {
+  isPinnedByActuals,
+  PINNED_DRAG_EXPLANATION,
+} from '@/features/schedule/pinnedByActuals';
 import { milestoneDeltaAnnouncement } from '@/features/schedule/milestoneDeltaAnnouncement';
 import { MON_FRI_MASK, resizeMoveFinishIso } from '@/features/schedule/useScheduleCommit';
-import { countWorkingDaysInclusive, resolveWorkingDayPredicate } from '@/workers/workingCalendar';
+import {
+  countWorkingDaysInclusive,
+  resolveWorkingDayPredicate,
+} from '@/workers/workingCalendar';
 import { createCpmWorker } from '@/workers/createCpmWorker';
 import { isTypingInInput } from '@/hooks/useGlobalShortcut';
 
@@ -141,24 +147,16 @@ export function useDragCpm({
   // Stable refs to avoid stale closures in engine event callbacks
   const tasksRef = useRef(tasks);
   const linksRef = useRef(links);
-  useEffect(() => {
-    tasksRef.current = tasks;
-  }, [tasks]);
-  useEffect(() => {
-    linksRef.current = links;
-  }, [links]);
+  useEffect(() => { tasksRef.current = tasks; }, [tasks]);
+  useEffect(() => { linksRef.current = links; }, [links]);
   // Same treatment: read inside the drag-start callback, and a status-date
   // change must not resubscribe the engine listeners mid-drag.
   const statusDateRef = useRef(statusDate ?? null);
-  useEffect(() => {
-    statusDateRef.current = statusDate ?? null;
-  }, [statusDate]);
+  useEffect(() => { statusDateRef.current = statusDate ?? null; }, [statusDate]);
   // Same treatment: the calendar arrives with the project detail fetch, after the
   // engine listeners subscribe, and must not resubscribe them when it lands.
   const calendarRef = useRef(calendar ?? null);
-  useEffect(() => {
-    calendarRef.current = calendar ?? null;
-  }, [calendar]);
+  useEffect(() => { calendarRef.current = calendar ?? null; }, [calendar]);
   // Same treatment for the resize preview's mask (#4237) — the mask arrives
   // with the project detail fetch, after the engine listeners are subscribed.
   const workingDaysMaskRef = useRef(workingDaysMask ?? MON_FRI_MASK);
@@ -428,14 +426,5 @@ export function useDragCpm({
       offResizeEnd();
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [
-    engine,
-    startDrag,
-    updatePreview,
-    commitDrag,
-    cancelDrag,
-    setError,
-    ariaLiveRef,
-    keyboardModeRef,
-  ]);
+  }, [engine, startDrag, updatePreview, commitDrag, cancelDrag, setError, ariaLiveRef, keyboardModeRef]);
 }
