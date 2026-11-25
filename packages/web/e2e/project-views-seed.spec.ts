@@ -1,6 +1,7 @@
 import type { Page, Route } from '@playwright/test';
 import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
+import { DEFAULT_USER } from './fixtures/api-mocks';
 
 /**
  * Role-seeded views in the shell v2 project header (ADR-1478, Redesign Pass 5 §1).
@@ -131,7 +132,7 @@ async function setup(page: Page, initial: () => Record<string, unknown> | null) 
       }),
     });
   });
-  return { writes };
+  return { writes, state };
 }
 
 const tabs = (page: Page) => page.getByRole('navigation', { name: 'Views' });
@@ -197,9 +198,42 @@ test.describe('Role-seeded project views (ADR-1478)', () => {
   test('a lens change offers suggestions and applies only after the diff confirm', async ({
     page,
   }) => {
-    const { writes } = await setup(page, () => viewSet({}, { lens_offer: 'scrum_master' }));
+    // Stateful like the server: no offer until the lens actually changes, then the
+    // offer the resolver raises for the new lens (ADR-1478 Q5.2).
+    const { writes, state } = await setup(page, () => viewSet({}));
+    let lens = 'unified';
+    await page.route('**/api/v1/auth/me/', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...DEFAULT_USER, role_context: lens }),
+      }),
+    );
+    await page.route('**/api/v1/auth/me/profile/', async (route) => {
+      const body = route.request().postDataJSON() as { role_context?: string };
+      if (body.role_context && body.role_context !== lens) {
+        lens = body.role_context;
+        if (state.current) state.current = { ...state.current, lens_offer: lens };
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ default_landing: 'my_work', hidden_views: [], role_context: lens }),
+      });
+    });
     await page.goto(`/projects/${PROJECT_ID}/grid`);
-    await page.getByRole('button', { name: 'Apply Scrum Master suggestions…' }).click();
+    await expect(tabs(page).getByRole('link', { name: 'Plan' })).toBeVisible();
+    const offer = page.getByRole('button', { name: 'Apply Scrum Master suggestions…' });
+    await expect(offer).toHaveCount(0);
+    // Switch the lens with the real switcher; the header is still mounted.
+    await page.getByRole('button', { name: /^Account/ }).click();
+    await page
+      .getByRole('dialog', { name: 'User menu' })
+      .getByRole('group', { name: 'View focus' })
+      .getByRole('button', { name: 'Scrum Master' })
+      .click();
+    await page.keyboard.press('Escape');
+    await offer.click();
     await expect(page.getByRole('button', { name: 'Apply 3 changes' })).toBeVisible();
     expect(writes).toEqual([{ lens: 'scrum_master', dry_run: true }]);
     await page.getByRole('button', { name: 'Apply 3 changes' }).click();
@@ -275,9 +309,26 @@ test.describe('Role-seeded project views (ADR-1478)', () => {
   test('a seed error fails open to every view and shows no seed line', async ({ page }) => {
     await setup(page, () => null);
     await page.goto(`/projects/${PROJECT_ID}/schedule`);
-    await expect(
-      page.getByRole('navigation', { name: 'Plan layout' }).getByRole('link', { name: 'Schedule' }),
-    ).toBeVisible();
+    const layouts = page.getByRole('navigation', { name: 'Plan layout' });
+    // The unseeded composition, whole: every tab, every Plan layout, and every view
+    // that lives in More — none of the seed's three (Schedule, Calendar, Team) missing.
+    await expect(layouts.getByRole('link')).toHaveText(['Schedule', 'Grid', 'Calendar']);
+    await expect(tabs(page).getByRole('link')).toHaveText([
+      'Overview',
+      'Plan',
+      'Deliver',
+      'Risks',
+      'People',
+    ]);
+    await tabs(page).getByRole('button', { name: 'More' }).click();
+    await expect(page.getByRole('menuitem')).toHaveText([
+      'Today',
+      'Reports',
+      'Activity',
+      'Assets',
+      'Settings',
+    ]);
+    await expect(page.getByRole('group', { name: 'Hidden from your tabs' })).toHaveCount(0);
     await expect(page.getByTestId('views-seed-line')).toHaveCount(0);
   });
 });
