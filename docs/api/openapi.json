@@ -90413,7 +90413,7 @@
                         ],
                         "nullable": true,
                         "readOnly": true,
-                        "description": "A date change held for acceptance, or null. When more than one requester has one pending, the newest; `GET sprints/{id}/scope-changes/` lists all."
+                        "description": "A date change held for acceptance in the sprint the task is in now, or null. When more than one requester has one pending, the newest; `GET sprints/{id}/scope-changes/` lists all."
                     },
                     "milestone_rollup": {
                         "type": "object",
@@ -94129,7 +94129,7 @@
                         ],
                         "nullable": true,
                         "readOnly": true,
-                        "description": "A date change held for acceptance, or null. When more than one requester has one pending, the newest; `GET sprints/{id}/scope-changes/` lists all."
+                        "description": "A date change held for acceptance in the sprint the task is in now, or null. When more than one requester has one pending, the newest; `GET sprints/{id}/scope-changes/` lists all."
                     },
                     "milestone_rollup": {
                         "type": "object",

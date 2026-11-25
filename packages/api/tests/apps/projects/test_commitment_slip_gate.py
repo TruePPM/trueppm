@@ -1061,29 +1061,83 @@ def closures() -> Any:
     sprint_scope_changed.disconnect(_receiver)
 
 
-def test_another_requester_is_not_superseded_and_the_loser_goes_stale(
-    project: Project, sprint: Sprint, member: Any, admin: Any, closures: Any
-) -> None:
-    from trueppm_api.apps.projects.services import COMMITMENT_SLIP_STALE_CODE
-
+def _two_requesters(project: Project, sprint: Sprint, member: Any, admin: Any) -> Any:
+    """The Member asks for 15 days, then the Admin's agent token asks for 20."""
     task = _committed(project, sprint)
     first = _patch(_client(member), task, {"duration": 15})
     second = _patch(_bearer(_personal_token(admin)), task, {"duration": 20})
     assert first.status_code == second.status_code == 409, (first.data, second.data)
-    ids = [first.data["scope_change_id"], second.data["scope_change_id"]]
-    rows = SprintScopeChange.objects.filter(pk__in=ids)
-    assert {r.status for r in rows} == {ScopeChangeStatus.PENDING}
-    assert [c[1] for c in closures] == [ScopeChangeStatus.PENDING] * 2
+    return task, first.data["scope_change_id"], second.data["scope_change_id"]
 
-    res = _client(admin).post(f"/api/v1/scope-changes/{ids[0]}/accept/", {}, format="json")
+
+def test_accepting_one_requesters_slip_closes_the_others(
+    project: Project, sprint: Sprint, member: Any, admin: Any, closures: Any
+) -> None:
+    from trueppm_api.apps.projects.services import SLIP_OTHER_ACCEPTED_REASON
+
+    task, older, newest = _two_requesters(project, sprint, member, admin)
+    assert {r.status for r in SprintScopeChange.objects.filter(pk__in=[older, newest])} == {
+        ScopeChangeStatus.PENDING
+    }
+    closures.clear()
+
+    res = _client(admin).post(f"/api/v1/scope-changes/{newest}/accept/", {}, format="json")
     assert res.status_code == 200, res.data
-    res = _client(admin).post(f"/api/v1/scope-changes/{ids[1]}/accept/", {}, format="json")
-    assert res.status_code == 409, res.data
-    assert res.data["code"] == COMMITMENT_SLIP_STALE_CODE
+    assert closures == [
+        (newest, ScopeChangeStatus.ACCEPTED, ""),
+        (older, ScopeChangeStatus.REJECTED, SLIP_OTHER_ACCEPTED_REASON),
+    ]
+    assert SprintScopeChange.objects.get(pk=older).status == ScopeChangeStatus.REJECTED
+    assert _client(admin).get(f"/api/v1/tasks/{task.pk}/").data["pending_commitment_slip"] is None
+    payload = _client(admin).get(f"/api/v1/sprints/{sprint.pk}/scope-changes/").data
+    assert payload["summary"]["pending_slip_count"] == 0
     task.refresh_from_db()
-    assert task.duration == 15
-    assert closures[-1][:2] == (ids[1], ScopeChangeStatus.REJECTED)
-    assert closures[-1][2].startswith("Not applied:")
+    assert task.duration == 20
+
+
+def test_accept_all_applies_the_newest_proposal_and_lists_the_older_as_stale(
+    project: Project, sprint: Sprint, member: Any, admin: Any
+) -> None:
+    task, older, newest = _two_requesters(project, sprint, member, admin)
+    res = _client(admin).post(
+        f"/api/v1/sprints/{sprint.pk}/scope-changes/accept/", {}, format="json"
+    )
+    assert res.status_code == 200, res.data
+    assert [r["id"] for r in res.data["accepted"]] == [newest]
+    assert [r["id"] for r in res.data["stale"]] == [older]
+    assert res.data["failed"] == []
+    task.refresh_from_db()
+    assert task.duration == 20
+
+
+def test_a_slip_left_behind_in_another_sprint_is_not_reported_on_the_task(
+    project: Project, sprint: Sprint, member: Any
+) -> None:
+    task, _row = _pending_slip(project, sprint, member)
+    Task.objects.filter(pk=task.pk).update(sprint=None)
+    assert _client(member).get(f"/api/v1/tasks/{task.pk}/").data["pending_commitment_slip"] is None
+
+
+@pytest.mark.parametrize(
+    ("verb", "outcome"),
+    [("accept", ScopeChangeStatus.ACCEPTED), ("reject", ScopeChangeStatus.REJECTED)],
+)
+def test_a_persons_decision_on_a_slip_is_signalled(
+    project: Project,
+    sprint: Sprint,
+    member: Any,
+    admin: Any,
+    closures: Any,
+    verb: str,
+    outcome: str,
+) -> None:
+    _task, row = _pending_slip(project, sprint, member)
+    closures.clear()
+    res = _client(admin).post(
+        f"/api/v1/scope-changes/{row.pk}/{verb}/", {"reason": "Seen"}, format="json"
+    )
+    assert res.status_code == 200, res.data
+    assert closures == [(str(row.pk), outcome, "Seen")]
 
 
 def test_a_requester_supersedes_only_their_own_rows_and_the_closure_is_signalled(

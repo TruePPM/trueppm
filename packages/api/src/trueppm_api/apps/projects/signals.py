@@ -57,12 +57,14 @@ task_status_changed = django.dispatch.Signal()
 # Keyword arguments:
 #   sender          — the SprintScopeChange class
 #   scope_change    — the SprintScopeChange instance (post-save)
-#
-# Also sent again when the SYSTEM closes a pending commitment-slip row (ADR-1485
-# D1): superseded by its requester's newer proposal, expired at sprint close, or
-# refused as stale on accept. The row then arrives REJECTED with no decider, so a
-# receiver must read ``scope_change.status`` rather than assume a new pending row.
 #   task            — the Task whose sprint membership changed (the injected item)
+#
+# Also sent again when a commitment-slip row (ADR-1485 D1) leaves PENDING: a
+# person accepts or rejects it, or the system closes it (superseded by its
+# requester's newer proposal, another proposal for the task accepted, expired at
+# sprint close, or refused as stale on accept; those carry no decider). A receiver
+# must read ``scope_change.status`` rather than assume a new pending row.
+# Accepting or rejecting an *injection* row does not send it.
 #
 # OSS only emits; Enterprise registers receivers via AppConfig.ready().
 # Receivers that perform I/O must use transaction.on_commit() to avoid

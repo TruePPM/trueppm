@@ -3551,6 +3551,7 @@ def reject_scope_change(
             _stamp_decision(locked, by, reason)
             locked.save(update_fields=["status", "decided_by", "decided_at", "decision_reason"])
             _on_commit_scope_broadcast(locked)
+            _signal_slip_decided(locked, locked.task)
             return locked
         task = Task.objects.select_for_update().get(pk=locked.task_id)
         sprint = locked.sprint
@@ -3601,6 +3602,9 @@ COMMITMENT_SLIP_STALE_CODE = "commitment_slip_stale"
 #: ``decision_reason`` values the system writes when it closes a slip row itself.
 SLIP_SUPERSEDED_REASON = "Superseded by a newer proposed change to this task."
 SLIP_SPRINT_CLOSED_REASON = "The sprint closed before a decision; the committed dates were kept."
+SLIP_OTHER_ACCEPTED_REASON = "Not applied: another proposed change to this task was accepted."
+#: Attribute on an accepted slip row listing the other slips that accept closed.
+SLIP_CLOSED_SIBLINGS_ATTR = "_commitment_slip_closed_siblings"
 #: Attribute set on a slip row whose accept was refused as stale (the why, as text).
 SLIP_STALE_ATTR = "_commitment_slip_stale"
 #: Transient attribute carrying the task's pre-write finish to the refusal body.
@@ -3876,8 +3880,7 @@ def record_commitment_slip(
     requester's pending row is left alone, so one person (or one person's token)
     can never silently reject someone else's request; a row with no requester
     supersedes nothing. Two pending rows on one task are safe: accepting either
-    moves the dates the other was proposed against, so the other is then refused
-    as stale (:func:`_slip_stale_reason`).
+    closes the others (:func:`_apply_accepted_slip`).
 
     ``current_finish`` is not stored; it is carried on the returned instance for
     :func:`commitment_slip_conflict_body`.
@@ -3927,8 +3930,10 @@ def record_commitment_slip(
     return row
 
 
-def _signal_slip_closed(row: Any, task: Any) -> None:
-    """Tell ``sprint_scope_changed`` receivers the system closed a slip row.
+def _signal_slip_decided(row: Any, task: Any) -> None:
+    """Tell ``sprint_scope_changed`` receivers a slip row left PENDING.
+
+    Covers both a person's accept or reject and a closure the system makes.
 
     Without this an audit receiver sees the row open and never sees it close.
     """
@@ -3941,12 +3946,18 @@ def _signal_slip_closed(row: Any, task: Any) -> None:
     )
 
 
-def _close_pending_slips(queryset: Any, decision_reason: str) -> int:
+def _close_pending_slips(
+    queryset: Any, decision_reason: str, *, skip_locked: bool = False
+) -> list[Any]:
     """Close the PENDING slips in ``queryset`` as REJECTED, with no decider.
 
     One locking read and one update however many rows match; the rows are locked
     so a concurrent accept cannot be overwritten, and each closed row is then
-    signalled with its post-close state.
+    signalled with its post-close state. Returns the closed rows.
+
+    ``skip_locked`` is for the accept path, which already holds a row and the
+    task: waiting on a sibling another decision holds would deadlock, and that
+    decision finds the dates moved and refuses its row as stale anyway.
     """
     from trueppm_api.apps.projects.models import (
         ScopeChangeKind,
@@ -3958,10 +3969,10 @@ def _close_pending_slips(queryset: Any, decision_reason: str) -> int:
         rows = list(
             queryset.filter(kind=ScopeChangeKind.SLIP, status=ScopeChangeStatus.PENDING)
             .select_related("task", "sprint")
-            .select_for_update(of=("self",))
+            .select_for_update(of=("self",), skip_locked=skip_locked)
         )
         if not rows:
-            return 0
+            return []
         now = timezone.now()
         SprintScopeChange.objects.filter(pk__in=[r.pk for r in rows]).update(
             status=ScopeChangeStatus.REJECTED,
@@ -3974,8 +3985,8 @@ def _close_pending_slips(queryset: Any, decision_reason: str) -> int:
         row.decided_by = None
         row.decided_at = now
         row.decision_reason = decision_reason
-        _signal_slip_closed(row, row.task)
-    return len(rows)
+        _signal_slip_decided(row, row.task)
+    return rows
 
 
 def commitment_slip_conflict_body(row: Any) -> dict[str, Any]:
@@ -4086,6 +4097,11 @@ def _apply_accepted_slip(locked: Any, by: Any, *, reason: str) -> None:
     why in ``decision_reason`` and tagged with :data:`SLIP_STALE_ATTR`, which the
     decide routes turn into a 409 ``commitment_slip_stale``.
 
+    Accepting also closes every other PENDING slip on the task (REJECTED,
+    :data:`SLIP_OTHER_ACCEPTED_REASON`): their proposals were made against dates
+    that no longer hold. They are attached to ``locked`` under
+    :data:`SLIP_CLOSED_SIBLINGS_ATTR` so the batch decide can report them.
+
     A fresh row is applied through ``TaskSerializer`` (with the guard switched off:
     this IS the acceptance), so it carries every side effect of an ordinary date
     edit: the project start shift, the date-gated status transition, the
@@ -4094,7 +4110,7 @@ def _apply_accepted_slip(locked: Any, by: Any, *, reason: str) -> None:
     """
     from types import SimpleNamespace
 
-    from trueppm_api.apps.projects.models import ScopeChangeStatus, Task
+    from trueppm_api.apps.projects.models import ScopeChangeStatus, SprintScopeChange, Task
     from trueppm_api.apps.projects.serializers import TaskSerializer
     from trueppm_api.apps.projects.views import _defer_task_update_broadcasts
 
@@ -4109,7 +4125,7 @@ def _apply_accepted_slip(locked: Any, by: Any, *, reason: str) -> None:
         setattr(locked, SLIP_STALE_ATTR, stale or "The task was deleted.")
         if task is not None:
             _on_commit_scope_broadcast(locked)
-        _signal_slip_closed(locked, task if task is not None else locked.task)
+        _signal_slip_decided(locked, task if task is not None else locked.task)
         return
     data: dict[str, Any] = {}
     if locked.proposed_start is not None and locked.proposed_start != task.planned_start:
@@ -4140,6 +4156,17 @@ def _apply_accepted_slip(locked: Any, by: Any, *, reason: str) -> None:
             updated, changed, str(actor.pk) if actor is not None else None
         )
     _on_commit_scope_broadcast(locked)
+    _signal_slip_decided(locked, task)
+    siblings = _close_pending_slips(
+        SprintScopeChange.objects.filter(task_id=task.pk).exclude(pk=locked.pk),
+        SLIP_OTHER_ACCEPTED_REASON,
+        skip_locked=True,
+    )
+    for sibling in siblings:
+        setattr(sibling, SLIP_STALE_ATTR, SLIP_OTHER_ACCEPTED_REASON)
+        if sibling.sprint_id != locked.sprint_id:
+            _on_commit_scope_broadcast(sibling)
+    setattr(locked, SLIP_CLOSED_SIBLINGS_ATTR, siblings)
 
 
 def decide_scope_change_batch(
@@ -4156,7 +4183,10 @@ def decide_scope_change_batch(
 
     The bulk decision service behind ``sprints/{id}/scope-changes/accept|reject/``
     (ADR-0102 §5, ADR-1485 D1). ``batch_id`` narrows to one slip batch; ``ids`` to
-    explicit rows; neither means every PENDING row. Each row is locked and
+    explicit rows; neither means every PENDING row. Rows are decided newest first,
+    so accepting several slips for one task applies the proposal the task read
+    reports; the older ones that accept closes are returned too, tagged with
+    :data:`SLIP_STALE_ATTR`. Each row is locked and
     re-checked PENDING in its own savepoint, so a double accept is a no-op and a
     row decided concurrently is skipped. The caller has already run the gate.
 
@@ -4176,7 +4206,8 @@ def decide_scope_change_batch(
         qs = qs.filter(batch_id=batch_id)
     service = accept_scope_change if accept else reject_scope_change
     done: list[Any] = []
-    for sc_id in list(qs.values_list("pk", flat=True)):
+    scanned = list(qs.order_by("-added_at").values_list("pk", flat=True))
+    for sc_id in scanned:
         try:
             with transaction.atomic():
                 sc = (
@@ -4184,9 +4215,15 @@ def decide_scope_change_batch(
                     .select_related("task")
                     .get(pk=sc_id, status=ScopeChangeStatus.PENDING)
                 )
-                done.append(
-                    service(sc, by, gate_verified_for_project=sprint.project_id, reason=reason)
+                decided = service(
+                    sc, by, gate_verified_for_project=sprint.project_id, reason=reason
                 )
+                done.append(decided)
+            # Rows this accept closed were in the request: report them, since the
+            # lookup above will now skip them as no longer PENDING.
+            done.extend(
+                row for row in getattr(decided, SLIP_CLOSED_SIBLINGS_ATTR, []) if row.pk in scanned
+            )
         except SprintScopeChange.DoesNotExist:
             continue  # decided by a concurrent call between the scan and the lock
         except ScopeAcceptForbidden:
@@ -4310,8 +4347,10 @@ def _expire_pending_slips(sprint: Any) -> int:
     """
     from trueppm_api.apps.projects.models import SprintScopeChange
 
-    return _close_pending_slips(
-        SprintScopeChange.objects.filter(sprint_id=sprint.pk), SLIP_SPRINT_CLOSED_REASON
+    return len(
+        _close_pending_slips(
+            SprintScopeChange.objects.filter(sprint_id=sprint.pk), SLIP_SPRINT_CLOSED_REASON
+        )
     )
 
 

@@ -4565,8 +4565,9 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # from the same prefetched rows, so it costs a list read no extra query.
     pending_commitment_slip = serializers.SerializerMethodField(
         help_text=(
-            "A date change held for acceptance, or null. When more than one requester "
-            "has one pending, the newest; `GET sprints/{id}/scope-changes/` lists all."
+            "A date change held for acceptance in the sprint the task is in now, or null. "
+            "When more than one requester has one pending, the newest; "
+            "`GET sprints/{id}/scope-changes/` lists all."
         )
     )
 
@@ -7029,9 +7030,12 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
 
     @extend_schema_field(PendingCommitmentSlipSerializer(allow_null=True))
     def get_pending_commitment_slip(self, obj: Task) -> dict[str, Any] | None:
-        """The newest PENDING commitment slip on the task, or ``None``."""
+        """The newest PENDING commitment slip for the task's sprint, or ``None``."""
         pending = [
-            r for r in self._scope_change_rows(obj) if r.kind == "slip" and r.status == "pending"
+            r
+            for r in self._scope_change_rows(obj)
+            # A row left behind by a move to another sprint can only be refused.
+            if r.kind == "slip" and r.status == "pending" and r.sprint_id == obj.sprint_id
         ]
         if not pending:
             return None
@@ -11486,7 +11490,8 @@ class SprintScopeChangeBulkResultSerializer(serializers.Serializer[dict[str, Any
 
     accepted = SprintScopeChangeSerializer(many=True, read_only=True, required=False)
     rejected = SprintScopeChangeSerializer(many=True, read_only=True, required=False)
-    # ADR-1485 D1: slips the accept refused as stale (closed REJECTED, dates kept).
+    # ADR-1485 D1: slips closed without applying (REJECTED, dates kept): refused as
+    # stale, or superseded by another row for the same task accepted in this call.
     stale = SprintScopeChangeSerializer(many=True, read_only=True, required=False)
     # Rows whose decision raised (e.g. an accepted slip's replay failed validation);
     # they were left PENDING.
