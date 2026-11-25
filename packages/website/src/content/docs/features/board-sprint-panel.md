@@ -194,7 +194,7 @@ Every slip from one change, such as a bulk edit or one offline sync, shares a ba
 
 ### Deciding a pending slip
 
-When the active sprint has a pending slip, the sprint panel's badge reads "N date changes waiting", even if no tasks were added mid-sprint. Select it to open the scope-change drawer. If you can accept scope changes, each pending slip there shows:
+When the active sprint has a pending slip, the sprint panel's badge reads "N date changes waiting", even if no tasks were added mid-sprint. Select it to open the scope-change drawer. Each slip will show the requester's reason, when they gave one. If you can accept scope changes, each pending slip there shows:
 
 - **Accept**, which applies the proposed dates, and **Reject**, which keeps the task's dates.
 - An optional **Reason** box. Whatever you type is saved as the reason for your decision.
@@ -206,7 +206,7 @@ A slip that comes from a schedule recalculation, after an earlier task moves, is
 
 A pending slip can stop applying before anyone decides it:
 
-- **A newer proposal replaces it.** When someone proposes another slip for the same task, the older pending slip closes as *Not applied* ("Superseded by a newer proposed change to this task"). Only the newest proposal can be accepted.
+- **The same person proposes again.** When whoever proposed a slip proposes another for the same task, their older pending slip closes as *Not applied* ("Superseded by a newer proposed change to this task"). A request made with their API token counts as theirs. Someone else's pending slip on the task is left alone, so a task can have more than one waiting. Accepting one changes the task's dates, so the others are then refused as no longer fitting (next item).
 - **The task changed underneath it.** Accepting a slip applies its dates only while the task still has the start and duration it had when the slip was proposed, is still committed to that sprint, and the sprint is still active. Otherwise the accept is refused with `commitment_slip_stale`, the task keeps its current dates, and the slip closes as *Not applied* with the reason. Accepting a whole batch applies the slips that still fit and lists the refused ones separately.
 - **The sprint closes.** Closing the sprint closes every undecided slip as *Not applied*, whichever option you pick for pending scope changes. The task keeps its dates and stays where the close put it; a slip is never carried to the next sprint or counted as a pending scope change.
 

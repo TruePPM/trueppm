@@ -23,11 +23,9 @@ export function SprintScopeBadge({ sprintId, projectId }: Props) {
   const itl = useIterationLabel();
   const [open, setOpen] = useState(false);
   const count = data?.summary.added_mid_sprint_count ?? 0;
-  // ADR-1485 D1: a pending commitment slip is not counted in `summary` (it adds
-  // no scope), but it is waiting on a decision only the drawer offers, so it
-  // must open the drawer too.
-  const pendingSlips =
-    data?.events.filter((e) => e.kind === 'slip' && e.status === 'pending').length ?? 0;
+  // ADR-1485 D1: a pending commitment slip adds no scope, but it is waiting on a
+  // decision only the drawer offers, so it must open the drawer too.
+  const pendingSlips = data?.summary.pending_slip_count ?? 0;
   const hasSignal = count > 0 || pendingSlips > 0;
   // Keep an open drawer mounted when its last pending row is decided: the badge
   // has nothing left to say, but the user is still reading the drawer.

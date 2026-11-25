@@ -217,6 +217,12 @@ function SlipRow({ event, decision }: { event: ScopeChangeEvent; decision?: Slip
           ) : null}{' '}
           · {event.added_by_name ?? 'Someone'} · <span className="tppm-mono">{when}</span>
         </p>
+        {/* A direct slip stores one reason as both; say it once. */}
+        {event.reason && event.reason !== event.decision_reason ? (
+          <p className="text-xs text-neutral-text-secondary break-words">
+            Requester&apos;s reason: {event.reason}
+          </p>
+        ) : null}
         {event.decision_reason ? (
           <p className="text-xs text-neutral-text-secondary">{event.decision_reason}</p>
         ) : null}

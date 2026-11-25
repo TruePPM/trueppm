@@ -3603,6 +3603,8 @@ SLIP_SUPERSEDED_REASON = "Superseded by a newer proposed change to this task."
 SLIP_SPRINT_CLOSED_REASON = "The sprint closed before a decision; the committed dates were kept."
 #: Attribute set on a slip row whose accept was refused as stale (the why, as text).
 SLIP_STALE_ATTR = "_commitment_slip_stale"
+#: Transient attribute carrying the task's pre-write finish to the refusal body.
+_SLIP_CURRENT_FINISH_ATTR = "_commitment_slip_current_finish"
 
 
 class CommitmentSlipDeferred(Exception):
@@ -3744,9 +3746,10 @@ def detect_commitment_slip(
     proposed_finish = _slip_finish(task, cal, new_start=new_start, new_duration=new_duration)
     if proposed_finish is None or proposed_finish <= sprint.finish_date:
         return None
-    old_finish = task.early_finish
-    if old_finish is None:
-        old_finish = _slip_finish(task, cal, new_start=None, new_duration=None)
+    # Computed before any helper touches the instance: the refusal body reports it
+    # beside the proposal so a decider can see what is being moved, and from where.
+    current_finish = _slip_finish(task, cal, new_start=None, new_duration=None)
+    old_finish = task.early_finish if task.early_finish is not None else current_finish
     if old_finish is not None and proposed_finish <= old_finish:
         return None
     duration = new_duration if new_duration is not None else (task.duration or 0)
@@ -3756,6 +3759,7 @@ def detect_commitment_slip(
         "proposed_start": new_start if new_start is not None else task.planned_start,
         "proposed_finish": proposed_finish,
         "proposed_duration": int(duration),
+        "current_finish": current_finish,
         # The pre-write values, read before any helper touches the instance; the
         # accept path refuses a row whose task no longer holds them.
         "base_start": task.planned_start,
@@ -3852,6 +3856,7 @@ def record_commitment_slip(
     proposed_duration: int,
     base_start: date | None = None,
     base_duration: int | None = None,
+    current_finish: date | None = None,
     reason: str = "",
     batch_id: Any = None,
     status: str = "pending",
@@ -3865,10 +3870,17 @@ def record_commitment_slip(
     Fires ``sprint_scope_changed`` through ``dispatch_extension_signal`` and a
     board ``sprint_scope_changed`` event on commit.
 
-    A new PENDING slip supersedes every older PENDING slip for the same task: only
-    the latest proposal is decidable, so accepting an old one can never replay
-    dates a later proposal (or a direct edit) already replaced. The older rows are
-    closed as REJECTED with :data:`SLIP_SUPERSEDED_REASON`, no decider.
+    A new PENDING slip supersedes the older PENDING slips **the same requester**
+    left on the task: only their latest proposal is decidable. Those rows are
+    closed as REJECTED with :data:`SLIP_SUPERSEDED_REASON`, no decider. Another
+    requester's pending row is left alone, so one person (or one person's token)
+    can never silently reject someone else's request; a row with no requester
+    supersedes nothing. Two pending rows on one task are safe: accepting either
+    moves the dates the other was proposed against, so the other is then refused
+    as stale (:func:`_slip_stale_reason`).
+
+    ``current_finish`` is not stored; it is carried on the returned instance for
+    :func:`commitment_slip_conflict_body`.
     """
     from trueppm_api.apps.projects.models import (
         ScopeChangeKind,
@@ -3880,13 +3892,10 @@ def record_commitment_slip(
 
     actor = by if (by is not None and getattr(by, "is_authenticated", False)) else None
     accepted = status == ScopeChangeStatus.ACCEPTED
-    if not accepted:
-        SprintScopeChange.objects.filter(
-            task_id=task.pk, kind=ScopeChangeKind.SLIP, status=ScopeChangeStatus.PENDING
-        ).update(
-            status=ScopeChangeStatus.REJECTED,
-            decided_at=timezone.now(),
-            decision_reason=SLIP_SUPERSEDED_REASON,
+    if not accepted and actor is not None:
+        _close_pending_slips(
+            SprintScopeChange.objects.filter(task_id=task.pk, added_by_id=actor.pk),
+            SLIP_SUPERSEDED_REASON,
         )
     row = SprintScopeChange.objects.create(
         task=task,
@@ -3906,6 +3915,7 @@ def record_commitment_slip(
         decided_at=timezone.now() if accepted else None,
         decision_reason=(reason or "") if accepted else "",
     )
+    setattr(row, _SLIP_CURRENT_FINISH_ATTR, current_finish)
     if accepted:
         _record_decision_note(row, actor, reason)
     if request is not None and not accepted:
@@ -3915,6 +3925,57 @@ def record_commitment_slip(
         sprint_scope_changed, sender=SprintScopeChange, scope_change=row, task=task
     )
     return row
+
+
+def _signal_slip_closed(row: Any, task: Any) -> None:
+    """Tell ``sprint_scope_changed`` receivers the system closed a slip row.
+
+    Without this an audit receiver sees the row open and never sees it close.
+    """
+    from trueppm_api.apps.projects.models import SprintScopeChange
+    from trueppm_api.apps.projects.signals import sprint_scope_changed
+    from trueppm_api.core.extension_signals import dispatch_extension_signal
+
+    dispatch_extension_signal(
+        sprint_scope_changed, sender=SprintScopeChange, scope_change=row, task=task
+    )
+
+
+def _close_pending_slips(queryset: Any, decision_reason: str) -> int:
+    """Close the PENDING slips in ``queryset`` as REJECTED, with no decider.
+
+    One locking read and one update however many rows match; the rows are locked
+    so a concurrent accept cannot be overwritten, and each closed row is then
+    signalled with its post-close state.
+    """
+    from trueppm_api.apps.projects.models import (
+        ScopeChangeKind,
+        ScopeChangeStatus,
+        SprintScopeChange,
+    )
+
+    with transaction.atomic():
+        rows = list(
+            queryset.filter(kind=ScopeChangeKind.SLIP, status=ScopeChangeStatus.PENDING)
+            .select_related("task", "sprint")
+            .select_for_update(of=("self",))
+        )
+        if not rows:
+            return 0
+        now = timezone.now()
+        SprintScopeChange.objects.filter(pk__in=[r.pk for r in rows]).update(
+            status=ScopeChangeStatus.REJECTED,
+            decided_by=None,
+            decided_at=now,
+            decision_reason=decision_reason,
+        )
+    for row in rows:
+        row.status = ScopeChangeStatus.REJECTED
+        row.decided_by = None
+        row.decided_at = now
+        row.decision_reason = decision_reason
+        _signal_slip_closed(row, row.task)
+    return len(rows)
 
 
 def commitment_slip_conflict_body(row: Any) -> dict[str, Any]:
@@ -3938,7 +3999,15 @@ def commitment_slip_conflict_body(row: Any) -> dict[str, Any]:
         "sprint_name": row.sprint.name,
         "proposed_start": row.proposed_start.isoformat() if row.proposed_start else None,
         "proposed_finish": row.proposed_finish.isoformat() if row.proposed_finish else None,
+        # What the proposal is measured against, so the answer explains itself.
+        "sprint_finish_date": row.sprint.finish_date.isoformat(),
+        "current_start": _iso_or_none(row.base_start),
+        "current_finish": _iso_or_none(getattr(row, _SLIP_CURRENT_FINISH_ATTR, None)),
     }
+
+
+def _iso_or_none(value: date | None) -> str | None:
+    return value.isoformat() if value else None
 
 
 def record_deferred_slip(exc: CommitmentSlipDeferred, request: Any) -> Any:
@@ -4040,6 +4109,7 @@ def _apply_accepted_slip(locked: Any, by: Any, *, reason: str) -> None:
         setattr(locked, SLIP_STALE_ATTR, stale or "The task was deleted.")
         if task is not None:
             _on_commit_scope_broadcast(locked)
+        _signal_slip_closed(locked, task if task is not None else locked.task)
         return
     data: dict[str, Any] = {}
     if locked.proposed_start is not None and locked.proposed_start != task.planned_start:
@@ -4238,19 +4308,10 @@ def _expire_pending_slips(sprint: Any) -> int:
     removes work from the sprint (that would drop a finished task out of velocity)
     and is never carried, because carrying would re-gate it as an injection.
     """
-    from trueppm_api.apps.projects.models import (
-        ScopeChangeKind,
-        ScopeChangeStatus,
-        SprintScopeChange,
-    )
+    from trueppm_api.apps.projects.models import SprintScopeChange
 
-    return SprintScopeChange.objects.filter(
-        sprint_id=sprint.pk, status=ScopeChangeStatus.PENDING, kind=ScopeChangeKind.SLIP
-    ).update(
-        status=ScopeChangeStatus.REJECTED,
-        decided_by=None,
-        decided_at=timezone.now(),
-        decision_reason=SLIP_SPRINT_CLOSED_REASON,
+    return _close_pending_slips(
+        SprintScopeChange.objects.filter(sprint_id=sprint.pk), SLIP_SPRINT_CLOSED_REASON
     )
 
 
@@ -4351,7 +4412,12 @@ def sprint_scope_change_payload(sprint: Any) -> dict[str, Any]:
     sums over rejected rows. ``added_mid_sprint_count`` counts the still-in rows —
     the #543 badge number. Rows are cleared on sprint close, so this is the live
     in-sprint picture, not a cross-sprint history. ``slip`` rows (ADR-1485 D1) are
-    listed in ``events`` with their ``kind`` but excluded from every summary total.
+    listed in ``events`` with their ``kind`` but excluded from every scope total;
+    ``pending_slip_count`` counts the ones awaiting a decision.
+
+    A slip event also carries what it is measured against: the sprint end date and
+    the task's dates **as they are now** (not as they were when it was proposed),
+    the finish from the same :func:`_slip_finish` the detector uses.
     """
     from trueppm_api.apps.projects.models import (
         ScopeChangeKind,
@@ -4361,7 +4427,7 @@ def sprint_scope_change_payload(sprint: Any) -> dict[str, Any]:
 
     rows = (
         SprintScopeChange.objects.filter(sprint_id=sprint.pk)
-        .select_related("task", "added_by")
+        .select_related("task", "added_by", "decided_by")
         .order_by("-added_at")
     )
 
@@ -4369,12 +4435,25 @@ def sprint_scope_change_payload(sprint: Any) -> dict[str, Any]:
     points_added = 0
     points_removed = 0
     added_mid_sprint_count = 0
+    pending_slip_count = 0
+    calendar: Any = None
     for r in rows:
         points = (r.task.story_points or 0) if r.task_id is not None else 0
         rejected = r.status == ScopeChangeStatus.REJECTED
         # A slip row (ADR-1485 D1) moves dates on committed work; it adds and
         # removes no scope, so it is listed but never counted.
-        if r.kind != ScopeChangeKind.SLIP:
+        is_slip = r.kind == ScopeChangeKind.SLIP
+        current_start = current_finish = None
+        if is_slip:
+            if r.status == ScopeChangeStatus.PENDING:
+                pending_slip_count += 1
+            if calendar is None:
+                from trueppm_api.apps.scheduling.calendars import compose_project_calendar
+
+                calendar = compose_project_calendar(sprint.project)
+            current_start = r.task.planned_start
+            current_finish = _slip_finish(r.task, calendar, new_start=None, new_duration=None)
+        else:
             if rejected:
                 points_removed += points
             else:
@@ -4383,6 +4462,7 @@ def sprint_scope_change_payload(sprint: Any) -> dict[str, Any]:
         events.append(
             {
                 "id": str(r.pk),
+                "task_id": str(r.task_id),
                 "item_name": r.item_name,
                 "story_points": (r.task.story_points if r.task_id is not None else None),
                 "added_by_name": r.added_by.get_full_name() if r.added_by else None,
@@ -4393,6 +4473,12 @@ def sprint_scope_change_payload(sprint: Any) -> dict[str, Any]:
                 "proposed_start": r.proposed_start.isoformat() if r.proposed_start else None,
                 "proposed_finish": r.proposed_finish.isoformat() if r.proposed_finish else None,
                 "batch_id": str(r.batch_id) if r.batch_id else None,
+                "sprint_finish_date": sprint.finish_date.isoformat() if is_slip else None,
+                "current_start": _iso_or_none(current_start),
+                "current_finish": _iso_or_none(current_finish),
+                "reason": r.reason,
+                "decided_by_name": (r.decided_by.get_full_name() if r.decided_by else None),
+                "decided_at": r.decided_at.isoformat() if r.decided_at else None,
                 "decision_reason": r.decision_reason,
             }
         )
@@ -4402,6 +4488,7 @@ def sprint_scope_change_payload(sprint: Any) -> dict[str, Any]:
             "points_added": points_added,
             "points_removed": points_removed,
             "added_mid_sprint_count": added_mid_sprint_count,
+            "pending_slip_count": pending_slip_count,
             "total": len(events),
         },
         "events": events,

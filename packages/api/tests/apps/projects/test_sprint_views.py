@@ -1880,6 +1880,7 @@ def test_scope_changes_returns_audit_and_delta(
         "points_added": 8,
         "points_removed": 8,
         "added_mid_sprint_count": 2,
+        "pending_slip_count": 0,
         "total": 3,
     }
     assert len(body["events"]) == 3

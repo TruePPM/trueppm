@@ -684,7 +684,8 @@ class SyncUploadConflictsSerializer(serializers.Serializer):  # type: ignore[typ
     / ``server_version``), and a commitment slip held for acceptance (ADR-1485 D1:
     ``code: commitment_slip_requires_acceptance`` with the slip fields of
     ``StructureRoleConflict``, ``scope_change_id`` / ``batch_id`` / ``sprint_id`` /
-    ``sprint_name`` / ``proposed_start`` / ``proposed_finish``).
+    ``sprint_name`` / ``proposed_start`` / ``proposed_finish`` /
+    ``sprint_finish_date`` / ``current_start`` / ``current_finish``).
     """
 
     tasks = serializers.ListField(
@@ -695,7 +696,8 @@ class SyncUploadConflictsSerializer(serializers.Serializer):  # type: ignore[typ
             "`server_value`, `client_value` and `server_version`; a commitment-slip "
             "entry carries `code: commitment_slip_requires_acceptance`, `structure_role`, "
             "`scope_change_id`, `batch_id`, `sprint_id`, `sprint_name`, "
-            "`proposed_start` and `proposed_finish` (the slip fields of the "
+            "`proposed_start`, `proposed_finish`, `sprint_finish_date`, `current_start` "
+            "and `current_finish` (the slip fields of the "
             "`StructureRoleConflict` schema). Both carry the row `id`."
         ),
     )

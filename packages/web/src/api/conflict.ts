@@ -79,6 +79,11 @@ export interface CommitmentSlipConflict {
   sprint_name: string;
   proposed_start: string | null;
   proposed_finish: string | null;
+  /** The end date of the sprint the move would pass. */
+  sprint_finish_date?: string;
+  /** The task's planned start and finish, which this request left unchanged. */
+  current_start?: string | null;
+  current_finish?: string | null;
 }
 
 /** Narrow an unknown mutation error to a {@link CommitmentSlipConflict} 409, or null. */

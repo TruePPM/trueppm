@@ -277,6 +277,9 @@ class TestConflictIsInTheContract:
             "sprint_name",
             "proposed_start",
             "proposed_finish",
+            "sprint_finish_date",
+            "current_start",
+            "current_finish",
         }
         assert set(schema["properties"]) == {"detail", "code", "structure_role"} | slip
         # The commitment-slip 409 shares this component, without the slip fields being required.

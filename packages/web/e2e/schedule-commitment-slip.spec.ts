@@ -78,6 +78,9 @@ test.describe('Commitment slip on reschedule (ADR-1485 D1)', () => {
           sprint_name: 'Sprint 4',
           proposed_start: '2026-04-13',
           proposed_finish: '2026-04-17',
+          sprint_finish_date: '2026-04-14',
+          current_start: '2026-04-06',
+          current_finish: '2026-04-10',
         }),
       });
     });
@@ -188,6 +191,13 @@ function slipEvent(status: 'pending' | 'accepted') {
     proposed_start: '2026-04-06',
     proposed_finish: '2026-04-17',
     batch_id: null,
+    task_id: '7d1f2c3a-0000-4000-8000-000000000003',
+    sprint_finish_date: '2026-04-14',
+    current_start: '2026-04-06',
+    current_finish: '2026-04-10',
+    reason: 'Crane is late',
+    decided_by_name: status === 'accepted' ? 'Ada Admin' : null,
+    decided_at: status === 'accepted' ? '2026-04-08T10:00:00Z' : null,
     decision_reason: status === 'accepted' ? 'Vendor late' : '',
   };
 }
@@ -253,7 +263,13 @@ test.describe('Deciding a commitment slip from the drawer (ADR-1485 D1)', () => 
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          summary: { points_added: 0, points_removed: 0, added_mid_sprint_count: 0, total: 0 },
+          summary: {
+            points_added: 0,
+            points_removed: 0,
+            added_mid_sprint_count: 0,
+            pending_slip_count: accepted ? 0 : 1,
+            total: 1,
+          },
           events: [slipEvent(accepted ? 'accepted' : 'pending')],
         }),
       }),
@@ -288,6 +304,7 @@ test.describe('Deciding a commitment slip from the drawer (ADR-1485 D1)', () => 
     await page.getByRole('button', { name: /1 date change waiting/ }).click();
     const drawer = page.getByRole('dialog', { name: 'Scope changes' });
     await expect(drawer).toBeVisible();
+    await expect(drawer.getByTestId('slip-row')).toContainText('Crane is late');
     await drawer.getByLabel(/Reason for the decision on Committed work/).fill('Vendor late');
     await drawer.getByRole('button', { name: 'Accept the date change for Committed work' }).click();
 

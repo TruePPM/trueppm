@@ -187,6 +187,15 @@ export interface ApiTask {
     // ADR-0102 §5 — decision status; lowercase wire string. Absent on legacy rows.
     status?: 'pending' | 'accepted' | 'rejected';
   }>;
+  // ADR-1485 D1 — the newest date change on this task waiting for a decision.
+  pending_commitment_slip?: {
+    scope_change_id: string;
+    sprint_id: string;
+    proposed_start: string | null;
+    proposed_finish: string | null;
+    batch_id: string | null;
+    reason: string;
+  } | null;
   // Sprint→milestone rollup payload (ADR-0074) — non-null only on milestone tasks with linked sprints.
   milestone_rollup?: {
     percent_complete: number | null;

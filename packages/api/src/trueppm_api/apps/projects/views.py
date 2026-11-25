@@ -6837,7 +6837,8 @@ class _NumericWbsOrderingFilter(filters.OrderingFilter):
                     "`structure_role`. "
                     "`commitment_slip_requires_acceptance` (ADR-1485 D1; also "
                     "`scope_change_id`, `batch_id`, `sprint_id`, `sprint_name`, "
-                    "`proposed_start`, `proposed_finish`): the date "
+                    "`proposed_start`, `proposed_finish`, `sprint_finish_date`, "
+                    "`current_start`, `current_finish`): the date "
                     "write would move sprint-committed work past the ACTIVE sprint's "
                     "end and the caller is not the accept authority (Admin+ or the "
                     "team's SM/PO facet; every API token). The write was NOT applied; "
@@ -6866,7 +6867,8 @@ class _NumericWbsOrderingFilter(filters.OrderingFilter):
                 description=(
                     "A commitment slip held for acceptance (`scope_change_id`, "
                     "`batch_id`, `sprint_id`, `sprint_name`, `proposed_start`, "
-                    "`proposed_finish`), or the declared `structure_role` contradicts "
+                    "`proposed_finish`, `sprint_finish_date`, `current_start`, "
+                    "`current_finish`), or the declared `structure_role` contradicts "
                     "the tree (`structure_role`) — told apart by `code`; see the note "
                     "on `PUT`. This is the path the outline actually uses."
                 ),

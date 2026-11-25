@@ -954,3 +954,175 @@ def test_a_committed_container_slip_states_its_container_role(
     assert res.status_code == 409, res.data
     assert res.data["code"] == COMMITMENT_SLIP_CODE
     assert res.data["structure_role"] == "container"
+
+
+# --------------------------------------------------------------------------- #
+# Machine-readable pending state, provenance and decision memory
+# --------------------------------------------------------------------------- #
+
+
+def test_refusal_body_and_events_carry_what_the_proposal_is_measured_against(
+    project: Project, sprint: Sprint, member: Any, admin: Any
+) -> None:
+    admin.first_name, admin.last_name = "Ada", "Admin"
+    admin.save()
+    task = _committed(project, sprint)
+    res = _patch(_client(member), task, {"duration": 15, "slip_reason": "Crane is late"})
+    assert res.status_code == 409, res.data
+    assert res.data["sprint_finish_date"] == SPRINT_END.isoformat()
+    assert res.data["current_start"] == SPRINT_START.isoformat()
+    # Three working days from Monday: the pre-write finish, not the proposed one.
+    assert res.data["current_finish"] == "2026-01-07"
+
+    url = f"/api/v1/sprints/{sprint.pk}/scope-changes/"
+    payload = _client(member).get(url).data
+    (event,) = payload["events"]
+    assert payload["summary"]["pending_slip_count"] == 1
+    assert event["task_id"] == str(task.pk)
+    assert event["sprint_finish_date"] == SPRINT_END.isoformat()
+    assert (event["current_start"], event["current_finish"]) == (
+        SPRINT_START.isoformat(),
+        "2026-01-07",
+    )
+    assert event["reason"] == "Crane is late"
+    assert (event["decided_by_name"], event["decided_at"]) == (None, None)
+
+    reject_scope_change(SprintScopeChange.objects.get(pk=event["id"]), admin, reason="No")
+    payload = _client(member).get(url).data
+    (event,) = payload["events"]
+    assert payload["summary"]["pending_slip_count"] == 0
+    assert event["decided_by_name"] == "Ada Admin"
+    assert event["decided_at"] is not None
+    assert (event["reason"], event["decision_reason"]) == ("Crane is late", "No")
+
+
+def test_task_read_exposes_the_newest_pending_slip(
+    project: Project, sprint: Sprint, member: Any, admin: Any
+) -> None:
+    task = _committed(project, sprint)
+    url = f"/api/v1/tasks/{task.pk}/"
+    assert _client(member).get(url).data["pending_commitment_slip"] is None
+
+    assert _patch(_client(member), task, {"duration": 15}).status_code == 409
+    # A second requester: an agent token, which only ever causes PENDING rows.
+    agent = _bearer(_personal_token(admin))
+    second = _patch(agent, task, {"duration": 20, "slip_reason": "Rework"})
+    assert second.status_code == 409, second.data
+
+    pending = _client(member).get(url).data["pending_commitment_slip"]
+    assert pending["scope_change_id"] == second.data["scope_change_id"]
+    assert pending["sprint_id"] == str(sprint.pk)
+    assert pending["proposed_finish"] == second.data["proposed_finish"]
+    assert pending["batch_id"] == second.data["batch_id"]
+    assert pending["reason"] == "Rework"
+    listed = _client(member).get(f"/api/v1/tasks/?project={project.pk}").data["results"]
+    assert listed[0]["pending_commitment_slip"] == pending
+    assert listed[0]["sprint_scope_changes"] == []
+
+
+def test_pending_slips_add_no_query_per_task_to_the_task_list(
+    project: Project, sprint: Sprint, member: Any
+) -> None:
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    client = _client(member)
+    for i in range(4):
+        task = _committed(project, sprint, f"T{i}")
+        assert _patch(client, task, {"duration": 15}).status_code == 409
+    with CaptureQueriesContext(connection) as ctx:
+        res = client.get(f"/api/v1/tasks/?project={project.pk}")
+    assert len(res.data["results"]) == 4
+    assert all(row["pending_commitment_slip"] for row in res.data["results"])
+    # Both fields that read the rows share the list's one prefetch.
+    reads = [
+        q["sql"] for q in ctx.captured_queries if 'FROM "projects_sprintscopechange"' in q["sql"]
+    ]
+    assert len(reads) == 1, reads
+
+
+# --------------------------------------------------------------------------- #
+# Supersede is per requester; every system closure is signalled
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture
+def closures() -> Any:
+    """Every ``sprint_scope_changed`` dispatch as ``(row id, status, decision_reason)``."""
+    from trueppm_api.apps.projects.signals import sprint_scope_changed
+
+    seen: list[tuple[str, str, str]] = []
+
+    def _receiver(sender: Any, scope_change: Any, **kwargs: Any) -> None:
+        seen.append((str(scope_change.pk), scope_change.status, scope_change.decision_reason))
+
+    sprint_scope_changed.connect(_receiver, weak=False)
+    yield seen
+    sprint_scope_changed.disconnect(_receiver)
+
+
+def test_another_requester_is_not_superseded_and_the_loser_goes_stale(
+    project: Project, sprint: Sprint, member: Any, admin: Any, closures: Any
+) -> None:
+    from trueppm_api.apps.projects.services import COMMITMENT_SLIP_STALE_CODE
+
+    task = _committed(project, sprint)
+    first = _patch(_client(member), task, {"duration": 15})
+    second = _patch(_bearer(_personal_token(admin)), task, {"duration": 20})
+    assert first.status_code == second.status_code == 409, (first.data, second.data)
+    ids = [first.data["scope_change_id"], second.data["scope_change_id"]]
+    rows = SprintScopeChange.objects.filter(pk__in=ids)
+    assert {r.status for r in rows} == {ScopeChangeStatus.PENDING}
+    assert [c[1] for c in closures] == [ScopeChangeStatus.PENDING] * 2
+
+    res = _client(admin).post(f"/api/v1/scope-changes/{ids[0]}/accept/", {}, format="json")
+    assert res.status_code == 200, res.data
+    res = _client(admin).post(f"/api/v1/scope-changes/{ids[1]}/accept/", {}, format="json")
+    assert res.status_code == 409, res.data
+    assert res.data["code"] == COMMITMENT_SLIP_STALE_CODE
+    task.refresh_from_db()
+    assert task.duration == 15
+    assert closures[-1][:2] == (ids[1], ScopeChangeStatus.REJECTED)
+    assert closures[-1][2].startswith("Not applied:")
+
+
+def test_a_requester_supersedes_only_their_own_rows_and_the_closure_is_signalled(
+    project: Project, sprint: Sprint, member: Any, closures: Any
+) -> None:
+    from trueppm_api.apps.projects.services import SLIP_SUPERSEDED_REASON, record_commitment_slip
+
+    task = _committed(project, sprint)
+    # A row with no requester is nobody's, so nothing supersedes it or is superseded by it.
+    orphans = [
+        record_commitment_slip(
+            task=task,
+            sprint=sprint,
+            by=None,
+            proposed_start=None,
+            proposed_finish=date(2026, 2, 1),
+            proposed_duration=20,
+        )
+        for _ in range(2)
+    ]
+    first = _patch(_client(member), task, {"duration": 15}).data["scope_change_id"]
+    closures.clear()
+    second = _patch(_client(member), task, {"duration": 20}).data["scope_change_id"]
+
+    assert closures == [
+        (first, ScopeChangeStatus.REJECTED, SLIP_SUPERSEDED_REASON),
+        (second, ScopeChangeStatus.PENDING, ""),
+    ]
+    for row in orphans:
+        row.refresh_from_db()
+        assert row.status == ScopeChangeStatus.PENDING
+
+
+def test_sprint_close_signals_each_expired_slip(
+    project: Project, sprint: Sprint, member: Any, closures: Any
+) -> None:
+    from trueppm_api.apps.projects.services import SLIP_SPRINT_CLOSED_REASON, _expire_pending_slips
+
+    _task, row = _pending_slip(project, sprint, member)
+    closures.clear()
+    assert _expire_pending_slips(sprint) == 1
+    assert closures == [(str(row.pk), ScopeChangeStatus.REJECTED, SLIP_SPRINT_CLOSED_REASON)]

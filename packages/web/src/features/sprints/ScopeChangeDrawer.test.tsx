@@ -45,11 +45,41 @@ beforeEach(() => {
 describe('ScopeChangeDrawer', () => {
   it('renders the +N / −M summary header and a row per event with signed points', () => {
     setScope({
-      summary: { points_added: 8, points_removed: 3, added_mid_sprint_count: 2, total: 3 },
+      summary: {
+        points_added: 8,
+        points_removed: 3,
+        added_mid_sprint_count: 2,
+        pending_slip_count: 0,
+        total: 3,
+      },
       events: [
-        { id: 'e1', item_name: 'Added thing', story_points: 5, added_by_name: 'Sam', added_at: '2026-04-10T09:00:00Z', goal_impact: false, status: 'accepted' },
-        { id: 'e2', item_name: 'Pending thing', story_points: 3, added_by_name: 'Ada', added_at: '2026-04-11T09:00:00Z', goal_impact: true, status: 'pending' },
-        { id: 'e3', item_name: 'Removed thing', story_points: 3, added_by_name: 'Ada', added_at: '2026-04-12T09:00:00Z', goal_impact: false, status: 'rejected' },
+        {
+          id: 'e1',
+          item_name: 'Added thing',
+          story_points: 5,
+          added_by_name: 'Sam',
+          added_at: '2026-04-10T09:00:00Z',
+          goal_impact: false,
+          status: 'accepted',
+        },
+        {
+          id: 'e2',
+          item_name: 'Pending thing',
+          story_points: 3,
+          added_by_name: 'Ada',
+          added_at: '2026-04-11T09:00:00Z',
+          goal_impact: true,
+          status: 'pending',
+        },
+        {
+          id: 'e3',
+          item_name: 'Removed thing',
+          story_points: 3,
+          added_by_name: 'Ada',
+          added_at: '2026-04-12T09:00:00Z',
+          goal_impact: false,
+          status: 'rejected',
+        },
       ],
     });
     render(<ScopeChangeDrawer sprintId="sp-1" onClose={() => {}} />);
@@ -65,9 +95,28 @@ describe('ScopeChangeDrawer', () => {
 
   it('renders a commitment slip as a date slip, never as signed points (ADR-1485 D1)', () => {
     setScope({
-      summary: { points_added: 0, points_removed: 0, added_mid_sprint_count: 0, total: 1 },
+      summary: {
+        points_added: 0,
+        points_removed: 0,
+        added_mid_sprint_count: 0,
+        pending_slip_count: 0,
+        total: 1,
+      },
       events: [
-        { id: 's1', item_name: 'Committed thing', story_points: 5, added_by_name: 'Sam', added_at: '2026-04-10T09:00:00Z', goal_impact: false, status: 'rejected', kind: 'slip', proposed_start: '2026-04-10', proposed_finish: '2026-04-24', batch_id: null, decision_reason: 'Superseded by a newer proposed change to this task.' },
+        {
+          id: 's1',
+          item_name: 'Committed thing',
+          story_points: 5,
+          added_by_name: 'Sam',
+          added_at: '2026-04-10T09:00:00Z',
+          goal_impact: false,
+          status: 'rejected',
+          kind: 'slip',
+          proposed_start: '2026-04-10',
+          proposed_finish: '2026-04-24',
+          batch_id: null,
+          decision_reason: 'Superseded by a newer proposed change to this task.',
+        },
       ],
     });
     render(<ScopeChangeDrawer sprintId="sp-1" onClose={() => {}} />);
@@ -80,9 +129,48 @@ describe('ScopeChangeDrawer', () => {
     expect(screen.queryByText('Removed')).not.toBeInTheDocument();
   });
 
+  it("shows the requester's reason on a slip, once when it is also the decision reason", () => {
+    const row = (id: string, reason: string, decision_reason: string) => ({
+      id,
+      item_name: id,
+      story_points: null,
+      added_by_name: 'Sam',
+      added_at: '2026-04-10T09:00:00Z',
+      goal_impact: false,
+      status: 'pending' as const,
+      kind: 'slip' as const,
+      proposed_start: null,
+      proposed_finish: '2026-04-24',
+      batch_id: null,
+      reason,
+      decision_reason,
+    });
+    setScope({
+      summary: {
+        points_added: 0,
+        points_removed: 0,
+        added_mid_sprint_count: 0,
+        pending_slip_count: 2,
+        total: 2,
+      },
+      events: [row('asked', 'Crane is late', ''), row('direct', 'Weather', 'Weather')],
+    });
+    setDuration({ events: [] });
+    render(<ScopeChangeDrawer sprintId="sp-1" onClose={() => {}} />);
+    expect(screen.getByText(/Requester.s reason: Crane is late/)).toBeInTheDocument();
+    expect(screen.queryByText(/Requester.s reason: Weather/)).toBeNull();
+    expect(screen.getByText('Weather')).toBeInTheDocument();
+  });
+
   it('shows an empty state when there are no changes of either kind', () => {
     setScope({
-      summary: { points_added: 0, points_removed: 0, added_mid_sprint_count: 0, total: 0 },
+      summary: {
+        points_added: 0,
+        points_removed: 0,
+        added_mid_sprint_count: 0,
+        pending_slip_count: 0,
+        total: 0,
+      },
       events: [],
     });
     render(<ScopeChangeDrawer sprintId="sp-1" onClose={() => {}} />);
@@ -91,7 +179,13 @@ describe('ScopeChangeDrawer', () => {
 
   it('renders a duration-change row with the day delta and recalculated %', () => {
     setScope({
-      summary: { points_added: 0, points_removed: 0, added_mid_sprint_count: 0, total: 0 },
+      summary: {
+        points_added: 0,
+        points_removed: 0,
+        added_mid_sprint_count: 0,
+        pending_slip_count: 0,
+        total: 0,
+      },
       events: [],
     });
     setDuration({
@@ -122,7 +216,13 @@ describe('ScopeChangeDrawer', () => {
 
   it('omits the recalculated line when the policy kept % (no percent_complete_after)', () => {
     setScope({
-      summary: { points_added: 0, points_removed: 0, added_mid_sprint_count: 0, total: 0 },
+      summary: {
+        points_added: 0,
+        points_removed: 0,
+        added_mid_sprint_count: 0,
+        pending_slip_count: 0,
+        total: 0,
+      },
       events: [],
     });
     setDuration({
@@ -150,9 +250,23 @@ describe('ScopeChangeDrawer', () => {
 
   it('merges scope and duration events into one newest-first feed', () => {
     setScope({
-      summary: { points_added: 5, points_removed: 0, added_mid_sprint_count: 1, total: 1 },
+      summary: {
+        points_added: 5,
+        points_removed: 0,
+        added_mid_sprint_count: 1,
+        pending_slip_count: 0,
+        total: 1,
+      },
       events: [
-        { id: 'e1', item_name: 'Scoped item', story_points: 5, added_by_name: 'Sam', added_at: '2026-04-10T09:00:00Z', goal_impact: false, status: 'accepted' },
+        {
+          id: 'e1',
+          item_name: 'Scoped item',
+          story_points: 5,
+          added_by_name: 'Sam',
+          added_at: '2026-04-10T09:00:00Z',
+          goal_impact: false,
+          status: 'accepted',
+        },
       ],
     });
     setDuration({
@@ -194,7 +308,13 @@ describe('ScopeChangeDrawer', () => {
       proposed_finish: '2026-04-24',
       batch_id: batch,
     });
-    const summary = { points_added: 0, points_removed: 0, added_mid_sprint_count: 0, total: 0 };
+    const summary = {
+      points_added: 0,
+      points_removed: 0,
+      added_mid_sprint_count: 0,
+      pending_slip_count: 0,
+      total: 0,
+    };
 
     it('offers no decision controls without the accept capability', () => {
       setScope({ summary, events: [slip('s1', null)] });
