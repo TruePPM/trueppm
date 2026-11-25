@@ -30,6 +30,8 @@ import {
   drawSprintBands,
   drawCadenceRail,
   drawBaselineGhostBar,
+  drawBaselineSummarySlip,
+  drawBaselineMilestoneGhost,
   prepareDependencyLayout,
   SPRINT_BAND_FADE_MS,
 } from './GanttRenderer';
@@ -57,6 +59,8 @@ vi.mock('./GanttRenderer', async (importOriginal) => {
     drawMilestone: vi.fn(actual.drawMilestone),
     drawSummaryBar: vi.fn(actual.drawSummaryBar),
     drawActualDateBar: vi.fn(actual.drawActualDateBar),
+    drawBaselineSummarySlip: vi.fn(actual.drawBaselineSummarySlip),
+    drawBaselineMilestoneGhost: vi.fn(actual.drawBaselineMilestoneGhost),
     // #2738 — the sprint-band seam: these specs assert WHICH bands the engine
     // hands the renderer and at what alpha, without needing pixels.
     drawSprintBands: vi.fn(actual.drawSprintBands),
@@ -2651,5 +2655,33 @@ describe('GanttEngineImpl — baseline ghost bars (#3821)', () => {
 
   it('draws nothing when there is no date map (no baseline / still loading)', () => {
     expect(paint({ show: true, dates: null })).toEqual([]);
+  });
+
+  // Draw order (#5065): the summary bar's fill covers the row centerline, so the
+  // slip whisker must come AFTER it or only the ticks and label survive; the
+  // hollow baseline diamond must come BEFORE the filled live diamond.
+  it('draws the summary slip after the bar and the milestone ghost before the diamond', () => {
+    const { engine, flushFrame } = setup();
+    const slip = vi.mocked(drawBaselineSummarySlip);
+    const ghost = vi.mocked(drawBaselineMilestoneGhost);
+    const bar = vi.mocked(drawSummaryBar);
+    const diamond = vi.mocked(drawMilestone);
+    for (const f of [slip, ghost, bar, diamond]) f.mockClear();
+    engine.setChartOptions({ ...OPTS, showBaselineBars: true });
+    engine.setBaselineDates(
+      new Map([
+        ['s', { start: '2026-04-01', finish: '2026-04-20' }],
+        ['m', { start: '2026-04-01', finish: '2026-04-01' }],
+      ]),
+    );
+    engine.setTasks([
+      { ...makeTask('s', '2026-04-01', '2026-04-30'), isSummary: true },
+      { ...makeTask('m', '2026-04-05', '2026-04-05'), isMilestone: true },
+    ]);
+    flushFrame();
+    expect(slip).toHaveBeenCalledTimes(1);
+    expect(ghost).toHaveBeenCalledTimes(1);
+    expect(slip.mock.invocationCallOrder[0]).toBeGreaterThan(bar.mock.invocationCallOrder[0]);
+    expect(ghost.mock.invocationCallOrder[0]).toBeLessThan(diamond.mock.invocationCallOrder[0]);
   });
 });

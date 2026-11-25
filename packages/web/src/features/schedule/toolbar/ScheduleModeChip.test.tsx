@@ -51,7 +51,7 @@ describe('ScheduleModeChip', () => {
     // costs two clicks. The visible text sits inside the name verbatim (2.5.3).
     renderChip('read');
     expect(screen.getByTestId('schedule-mode-chip')).toHaveAccessibleName(
-      'Mode: Read only — edits are blocked. Switch to Author to edit (Alt+A).',
+      'Read only · Switch to Author to edit — edits are blocked (Alt+A).',
     );
   });
 
@@ -70,7 +70,7 @@ describe('ScheduleModeChip', () => {
     expect(chip).toHaveTextContent('Read only · Baseline v1 · Switch to Author to edit');
     expect(chip).not.toHaveTextContent('vs Baseline v1');
     expect(chip).toHaveAccessibleName(
-      'Mode: Read only, baseline Baseline v1 — edits are blocked. Switch to Author to edit (Alt+A).',
+      'Read only · Baseline v1 · Switch to Author to edit — edits are blocked (Alt+A).',
     );
     expect(screen.getByTestId('schedule-mode-chip-baseline')).toHaveAttribute(
       'title',

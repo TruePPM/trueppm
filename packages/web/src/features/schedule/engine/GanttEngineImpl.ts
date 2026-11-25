@@ -1602,9 +1602,7 @@ export class GanttEngineImpl implements GanttEngine {
       if (baseline) {
         if (task.isMilestone) {
           drawBaselineMilestoneGhost(ctx, task, baseline, rowIndex, this._scales, this._scrollLeft);
-        } else if (task.isSummary) {
-          drawBaselineSummarySlip(ctx, task, baseline, rowIndex, this._scales, this._scrollLeft);
-        } else {
+        } else if (!task.isSummary) {
           drawBaselineGhostBar(ctx, baseline, rowIndex, this._scales, this._scrollLeft);
         }
       }
@@ -1614,6 +1612,12 @@ export class GanttEngineImpl implements GanttEngine {
       drawMilestone(ctx, task, rowIndex, this._scales, this._scrollLeft, isSelected);
     } else if (task.isSummary) {
       drawSummaryBar(ctx, task, rowIndex, this._scales, this._scrollLeft, isSelected);
+      // After the bar: the fill would otherwise paint over the slip whisker (#5065).
+      const slipBaseline =
+        this._chartOptions.showBaselineBars && this._baselineDates?.get(task.id);
+      if (slipBaseline) {
+        drawBaselineSummarySlip(ctx, task, slipBaseline, rowIndex, this._scales, this._scrollLeft);
+      }
     } else {
       drawTaskBar(
         ctx,

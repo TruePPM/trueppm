@@ -278,7 +278,7 @@ moved away from the plan, so you can see which work moved across the whole sched
   project has an active baseline, and the choice is remembered in your browser.
 - The legend names it as **Baseline (planned)** while it is drawn.
 - Only the active baseline is drawn.
-- Phases (summary rows) and milestones are marked only where they moved by a day or more. A
+- Phases (summary rows) and milestones are marked only where they moved by a day or more (calendar days). A
   phase gets a thin whisker from its baseline finish to its current finish and a signed label
   such as `+5d` (later than planned) or `−3d` (earlier). It is not outlined, so on-plan phases
   stay clean. A milestone gets a hollow diamond at its baseline date, joined by a whisker to

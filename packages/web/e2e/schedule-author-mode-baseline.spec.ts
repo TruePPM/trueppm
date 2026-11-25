@@ -167,7 +167,9 @@ test.describe('Schedule mode chip and baselined Author (#3748)', () => {
     await expect(modeChip(page)).toHaveText(
       /Read only\s*·\s*Baseline v1\s*·\s*Switch to Author to edit/,
     );
-    await expect(modeChip(page)).toHaveAccessibleName(/Read only, baseline Baseline v1/);
+    await expect(modeChip(page)).toHaveAccessibleName(
+      /^Read only · Baseline v1 · Switch to Author to edit/,
+    );
     await expect(modeChip(page)).not.toContainText('vs Baseline v1');
   });
 

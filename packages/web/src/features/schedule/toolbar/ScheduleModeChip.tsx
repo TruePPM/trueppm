@@ -68,6 +68,7 @@ export function ScheduleModeChip({
       ? `vs ${baselineName}`
       : null;
   const readBaseline = isRead && baselineName ? baselineName : null;
+
   return (
     <ToolbarOverflowMenu
       triggerTestId="schedule-mode-chip"
@@ -81,7 +82,7 @@ export function ScheduleModeChip({
       // one-keystroke way out that the pointer path costs two interactions.
       triggerAriaLabel={
         isRead
-          ? `Mode: Read only${readBaseline ? `, baseline ${readBaseline}` : ''} — edits are blocked. Switch to Author to edit (${chord}).`
+          ? `Read only${readBaseline ? ` · ${readBaseline}` : ''} · Switch to Author to edit — edits are blocked (${chord}).`
           : baselineName
             ? `Mode: Author vs ${baselineName} — edits are allowed and show as differences from ${baselineName}. ${chord} switches to Read.`
             : `Mode: Author — edits are allowed. ${chord} switches to Read.`
@@ -98,7 +99,7 @@ export function ScheduleModeChip({
             // Width-capped, full value on `title` (rule 255). Visible text sits in
             // the accessible name verbatim (WCAG 2.5.3).
             <span
-              className="max-w-[10rem] truncate whitespace-nowrap font-normal"
+              className="max-w-[6rem] min-[1280px]:max-w-[10rem] truncate whitespace-nowrap font-normal"
               title={readBaseline}
               data-testid="schedule-mode-chip-baseline"
             >
@@ -110,8 +111,15 @@ export function ScheduleModeChip({
             // A baseline name is user-authored and unbounded, so the readout is
             // capped and truncated with the full value on `title` (rule 255); the
             // accessible name above already carries it whole.
+            // With a baseline named on a Read chip the hint is the first thing to go
+            // below 1280px: the ladder is already exhausted at 1024 and the chip is
+            // shrink-0, so the name (up to 10rem) plus the hint overflowed the bar
+            // (#3757, rule 343/366). The hint stays in the accessible name.
             <span
-              className="max-w-[14rem] truncate whitespace-nowrap font-normal"
+              className={[
+                'max-w-[14rem] truncate whitespace-nowrap font-normal',
+                readBaseline ? 'hidden min-[1280px]:inline' : '',
+              ].join(' ')}
               title={isRead ? undefined : secondary}
             >
               {/* Leading space collapses visually at the flex item's line start

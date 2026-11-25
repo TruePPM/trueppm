@@ -133,6 +133,14 @@ describe('hasBaselineSlipMarks (#5065)', () => {
     ['s', { start: '2026-04-06', finish: '2026-04-10' }],
     ['m', { start: '2026-04-10', finish: '2026-04-10' }],
   ]);
+  it('does not count a slipped milestone that is uncommitted (it draws nothing)', () => {
+    const uncommitted = { ...milestone('2026-04-15'), plannedStart: null, sprintId: null } as Task;
+    expect(hasBaselineSlipMarks([uncommitted], dates)).toBe(false);
+    const ctx = fakeCtx();
+    drawBaselineMilestoneGhost(ctx, uncommitted, dates.get('m')!, 0, scales, 0);
+    expect(ctx.save).not.toHaveBeenCalled();
+  });
+
   it('is true only while some summary/milestone moved', () => {
     expect(hasBaselineSlipMarks([summary('2026-04-15')], dates)).toBe(true);
     expect(hasBaselineSlipMarks([summary('2026-04-10'), milestone('2026-04-10')], dates)).toBe(

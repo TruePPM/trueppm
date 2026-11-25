@@ -1523,11 +1523,12 @@ export function ScheduleView() {
   );
 
   // A summary row or milestone is drawing a baseline slip mark (#5065): the
-  // legend names "Baseline slip" only while one is on screen (rule 460).
+  // legend names "Baseline slip" only while one is on screen (rule 460) — so it reads
+  // visibleTasks (filtered/collapsed rows draw nothing), the array the engine gets.
   const baselineSlipShown = useMemo(
     () =>
-      chartOptions.showBaselineBars === true && hasBaselineSlipMarks(allTasks, activeBaselineDates),
-    [chartOptions.showBaselineBars, allTasks, activeBaselineDates],
+      chartOptions.showBaselineBars === true && hasBaselineSlipMarks(visibleTasks, activeBaselineDates),
+    [chartOptions.showBaselineBars, visibleTasks, activeBaselineDates],
   );
 
   // Tracks tasks created but not yet scheduled (null dates filtered from Gantt).

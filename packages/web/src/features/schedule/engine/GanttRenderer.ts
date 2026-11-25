@@ -2442,6 +2442,24 @@ export function baselineSlipDays(
   return Math.abs(delta) >= minDays ? delta : null;
 }
 
+/**
+ * The one predicate for "this row draws a baseline slip mark", shared by the draw
+ * path and the legend gate so the legend can never name a mark the canvas skips.
+ * A milestone is additionally gated like drawMilestone: an uncommitted one draws
+ * nothing to anchor to.
+ */
+export function baselineMarkDrawable(
+  task: Pick<
+    Task,
+    'start' | 'finish' | 'isSummary' | 'isMilestone' | 'plannedStart' | 'sprintId'
+  >,
+  baseline: BaselineDates | undefined,
+  minDays: number = BASELINE_MARK_MIN_DAYS,
+): boolean {
+  if (task.isMilestone && !task.plannedStart && !task.sprintId) return false;
+  return baselineSlipDays(task, baseline, minDays) !== null;
+}
+
 /** "+5d" / "−3d" (a true minus sign, so the sign survives a monospace face). */
 export function formatSlipLabel(days: number): string {
   return `${days > 0 ? '+' : '\u2212'}${Math.abs(days)}d`;
@@ -2451,8 +2469,9 @@ export function formatSlipLabel(days: number): string {
  * Summary row slip mark (#5065, ADR-1485): a whisker along the row centerline from
  * the baseline finish edge to the live finish edge, an end tick at the baseline
  * end, and a signed day label. Deliberately NOT a hollow outline of the summary
- * bar: outlining every phase doubles the ink on on-plan phases. Call BEFORE the
- * summary bar; callers must translate(0, -scrollTop) first. The label uses the
+ * bar: outlining every phase doubles the ink on on-plan phases. Call AFTER the
+ * summary bar: the bar's fill covers the row centerline, so drawn first it would
+ * swallow the whisker and leave only the end ticks and label. Callers must translate(0, -scrollTop) first. The label uses the
  * secondary text token (>= 4.5:1), the line the ghost-border token (non-text
  * 3:1); the sign and the length carry the meaning, never hue alone (WCAG 1.4.1).
  */
@@ -2507,10 +2526,9 @@ export function drawBaselineMilestoneGhost(
   scrollLeft: number,
   minDays: number = BASELINE_MARK_MIN_DAYS,
 ): void {
-  if (!task.start) return;
-  // Same gate as drawMilestone: an uncommitted milestone draws nothing to anchor to.
-  if (!task.plannedStart && !task.sprintId) return;
-  if (baselineSlipDays(task, baseline, minDays) === null) return;
+  if (!task.start || !baselineMarkDrawable(task, baseline, minDays)) return;
+  // BaselineDates carries no baseline-side flag, so the baseline diamond reuses the
+  // live milestone's milestoneAtDayEnd.
   const baseX = milestoneX(baseline.start, task.milestoneAtDayEnd, scales) - scrollLeft;
   const liveX = milestoneX(task.start, task.milestoneAtDayEnd, scales) - scrollLeft;
   const y = rowIndex * ROW_HEIGHT + CHART_HEADER_HEIGHT + ROW_HEIGHT / 2;
@@ -2535,12 +2553,15 @@ export function drawBaselineMilestoneGhost(
  * "Baseline slip" row is gated on this (rule 460: name a mark only while drawn).
  */
 export function hasBaselineSlipMarks(
-  tasks: readonly Pick<Task, 'id' | 'start' | 'finish' | 'isSummary' | 'isMilestone'>[],
+  tasks: readonly Pick<
+    Task,
+    'id' | 'start' | 'finish' | 'isSummary' | 'isMilestone' | 'plannedStart' | 'sprintId'
+  >[],
   dates: ReadonlyMap<string, BaselineDates> | null,
   minDays: number = BASELINE_MARK_MIN_DAYS,
 ): boolean {
   if (!dates) return false;
-  return tasks.some((t) => baselineSlipDays(t, dates.get(t.id), minDays) !== null);
+  return tasks.some((t) => baselineMarkDrawable(t, dates.get(t.id), minDays));
 }
 
 /**
