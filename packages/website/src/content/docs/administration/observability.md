@@ -1,6 +1,7 @@
 ---
 title: OpenTelemetry & OTLP Export
 description: How to export TruePPM's traces and metrics to your own OpenTelemetry collector over OTLP — an opt-in, off-by-default integration configured with environment variables or Helm values.
+documentedFor: "0.5"
 ---
 
 
@@ -318,6 +319,11 @@ With a collector configured, TruePPM exports these metrics over OTLP on a period
 interval. The HTTP and Celery families follow OpenTelemetry's semantic conventions;
 the outbox, database, broker, and WebSocket families are TruePPM-specific instruments
 under the `trueppm.*` namespace.
+
+:::note[Ships in 0.5]
+The `trueppm.schedule.recalc.coalesced` counter and the workflow outbox's `retrying`
+state ship in 0.5; 0.4 exports neither.
+:::
 
 | Metric | Type | What it measures | Dimensions |
 |---|---|---|---|
