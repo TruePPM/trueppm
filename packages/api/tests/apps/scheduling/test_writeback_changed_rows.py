@@ -104,6 +104,29 @@ def test_duration_change_writes_only_the_affected_rows() -> None:
 
 
 @pytest.mark.django_db
+def test_mid_chain_edit_writes_the_task_and_its_successors_only() -> None:
+    """Lengthening a middle task moves it and everything after it, not its predecessors.
+
+    Every row whose persisted values changed must have been written, so a write
+    count equal to the changed-row count means no unchanged row was written.
+    """
+    project, tasks = _chain(5)
+    sched_tasks._run_schedule(str(project.pk))
+    before = {t.pk: _cpm_values(t.pk) for t in tasks}
+
+    middle = Task.objects.get(pk=tasks[2].pk)
+    middle.duration = 5
+    middle.save()
+    with _writeback_rows() as counts:
+        sched_tasks._run_schedule(str(project.pk))
+
+    changed = {pk for pk, values in before.items() if _cpm_values(pk) != values}
+    # T2 and its successors T3, T4 move; the side task's float grows with the finish.
+    assert changed == {tasks[2].pk, tasks[3].pk, tasks[4].pk, tasks[5].pk}
+    assert sum(counts) == len(changed)
+
+
+@pytest.mark.django_db
 def test_summary_duration_still_persists() -> None:
     """A summary row whose rolled-up duration changes is written (#3530)."""
     calendar = Calendar.objects.create(name="Standard")
