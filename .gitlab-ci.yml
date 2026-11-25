@@ -3273,7 +3273,7 @@ scheduler:test:
     # this checkout and never creates origin/main, which the test reads (#5087).
     - 'git fetch origin "+refs/heads/main:refs/remotes/origin/main" || echo "warning: could not fetch origin/main; the stability fragment check may fail on a missing merge base"'
     - cd packages/scheduler
-    - pytest --cov=trueppm_scheduler --cov-report=term-missing --cov-report=xml --cov-fail-under=80
+    - pytest --cov=trueppm_scheduler --cov-report=term-missing --cov-report=xml --cov-fail-under=95
   coverage: '/TOTAL.*\s(\d+%)/'
   artifacts:
     paths:

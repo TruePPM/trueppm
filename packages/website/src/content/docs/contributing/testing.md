@@ -239,8 +239,8 @@ The quality gates that run on every merge request:
 - **`lint`** — ruff (Python) and eslint (TypeScript), including `ruff format --check`
   and the design-system token checks.
 - **`typecheck`** — `mypy --strict` and `tsc --noEmit`.
-- **Per-package coverage floors** — pytest `--cov-fail-under=80` for the scheduler,
-  MCP, and API packages; a web coverage floor enforced when the vitest shards are
+- **Per-package coverage floors** — pytest `--cov-fail-under=95` for the scheduler,
+  an 80% floor for the MCP and API packages; a web coverage floor enforced when the vitest shards are
   stitched.
 - **Diff-coverage** — new and changed lines in the MR must be covered
   (`api:diff-coverage`, `web:diff-coverage`), and a check fails the pipeline if a

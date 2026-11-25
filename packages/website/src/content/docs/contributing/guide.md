@@ -110,7 +110,7 @@ cd packages/api && pytest
 cd packages/web && npm test
 ```
 
-- **Scheduler:** pytest, coverage >= 80%
+- **Scheduler:** pytest, coverage >= 95%
 - **API:** pytest with testcontainers PostgreSQL, coverage >= 80%
 - **Web:** vitest, coverage >= 75%
 
