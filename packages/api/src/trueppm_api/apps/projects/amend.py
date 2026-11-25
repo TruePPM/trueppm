@@ -25,6 +25,7 @@ import logging
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
+from celery.exceptions import SoftTimeLimitExceeded
 from django.db import transaction
 
 if TYPE_CHECKING:
@@ -418,6 +419,8 @@ def notify_downstream(entries: list[Any], moved: dict[Any, dict[str, str]]) -> i
                     rows=rows,
                 )
                 entry.save(update_fields=["notified_user_ids"])
+        except SoftTimeLimitExceeded:
+            raise
         except Exception:
             logger.exception("notify_downstream: emit failed for entry %s", entry.pk)
     return written
