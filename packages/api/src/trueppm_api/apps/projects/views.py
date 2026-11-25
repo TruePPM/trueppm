@@ -14414,6 +14414,7 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
                 "taken_at",
                 "diagnostic",
                 "plan_version",
+                "engine_epoch",
                 # The edge-of-day readings the premium is measured in working time
                 # from (#4204); omitting them here would be one deferred query each.
                 "p80_at_day_start",

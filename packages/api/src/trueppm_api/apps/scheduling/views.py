@@ -15,10 +15,11 @@ from typing import Any, TypedDict, cast
 from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import models, transaction
+from django.db import connection, models, transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
+from django.utils.decorators import method_decorator
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
@@ -74,6 +75,7 @@ from trueppm_api.apps.scheduling.finish_reading import (
     task_finish_at_day_start,
 )
 from trueppm_api.apps.scheduling.forecast_staleness import (
+    MC_ENGINE_EPOCH,
     forecast_staleness_for_payload,
     forecast_staleness_from_run,
 )
@@ -1271,6 +1273,11 @@ def simulate_and_record_monte_carlo(
         # cache entry is the only place this observation exists. Unlike the
         # risk-premium family, this is not derivable at read time from anything.
         "plan_version": plan_version,
+        # The correctness epoch this run was computed under (#5064), carried on the
+        # cache entry for the same reason as `plan_version`: a Member's run exists only
+        # here. An entry written before #5064 has no key and reads as unknown on this
+        # axis, never as superseded.
+        "engine_epoch": MC_ENGINE_EPOCH,
         # The data date this run was actually computed against (ADR-0132, #2638):
         # the project's explicit status_date, or today when unset. Carried on the
         # cache entry too (it is part of ``result_dict``) so a cached read states
@@ -1348,9 +1355,13 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
                     "no stored distribution return empty "
                     "confidence_curve/histogram_buckets/sensitivity arrays. "
                     "Plus the forecast-staleness family (#3140): forecast_staleness "
-                    "(current|project_changed|aged|unknown — never null; only `current` "
-                    "means the forecast still describes the plan, and a client keeps the "
-                    "recompute action reachable on the other three), plan_version (the "
+                    "(current|project_changed|aged|unknown|engine_superseded — never null; "
+                    "only `current` means the forecast still describes the plan, and a "
+                    "client keeps the recompute action reachable on the others; "
+                    "`engine_superseded` (#5064) means the run was computed before a "
+                    "forecast correctness fix and is decided before the plan terms — a "
+                    "run recorded before #5064 carries no engine epoch and is never "
+                    "classified this way), plan_version (the "
                     "project's sync version this run was computed against — unlike the "
                     "risk_premium family this one IS carried on the cache entry and the "
                     "persisted row, because it is a run-time observation that cannot be "
@@ -1394,7 +1405,8 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
             # `stale`) would be wrong by the time it is read back.
             return Response(
                 {
-                    **cached,
+                    # `engine_epoch` is the classifier's input, not part of the response.
+                    **{k: v for k, v in cached.items() if k != "engine_epoch"},
                     # An entry written before #4663 carries only `runs`.
                     "n_simulations": cached.get("n_simulations", cached.get("runs")),
                     **risk_premium_for_forecast_payload(
@@ -1541,6 +1553,31 @@ def _target_kind_refusal(task: Task) -> Response | None:
     )
 
 
+def _release_db_connection_before_simulating() -> None:
+    """Hand the request's database connection back before a long in-memory compute.
+
+    The what-if is the one Monte Carlo path still simulated in the API process
+    (ADR-1430 addendum, #5067). Its view opts out of ``ATOMIC_REQUESTS`` so no
+    transaction stays open across the simulations; closing the connection as well
+    means the request holds no database connection at all while the engine runs,
+    whatever the pooler mode or ``CONN_MAX_AGE``. Django reconnects lazily if a later
+    step (a response middleware) needs one, at the cost of one connect — small
+    against a multi-second simulation.
+
+    Skipped inside an atomic block: closing there would mark the block for rollback
+    and break the caller's transaction. A request only reaches this inside one when
+    something outside the view opened it — the test client's per-test transaction.
+    """
+    if not connection.in_atomic_block:
+        connection.close()
+
+
+# Opted out of ATOMIC_REQUESTS (#5067): the view is a pure read — it writes no row and
+# queues nothing, so it needs neither the request transaction's rollback nor its
+# on_commit deferral — and the transaction would otherwise stay open for both
+# simulations, pinning a connection (and, under a transaction pooler, a server
+# connection) for their whole duration. See ADR-1430's 2026-11-25 addendum.
+@method_decorator(transaction.non_atomic_requests, name="dispatch")
 class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
     """Non-mutating Monte Carlo what-if: perturb one task's duration, recompute (#993).
 
@@ -1565,6 +1602,14 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
 
     Permission: Member (any role >= Viewer), the same project-read gate as the
     ``run_monte_carlo`` / latest / history forecast endpoints.
+
+    Execution (ADR-1430 addendum, #5067): unlike the forecast run, the what-if is
+    still answered synchronously — it is a GET backing a read MCP tool, and queueing
+    it would make a read mint a ``TaskRun`` and push every caller into a poll loop.
+    It runs outside ``ATOMIC_REQUESTS`` and releases its database connection once
+    every input is loaded, so the only shared resource a simulation occupies is the
+    web worker, bounded per process by ``MC_MAX_CONCURRENT`` and per caller by the
+    ``monte_carlo_whatif`` throttle.
     """
 
     # ADR-0678 (#2482): projects/<pk>/monte-carlo/whatif/
@@ -1579,6 +1624,21 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "monte_carlo_whatif"
+
+    def dispatch(self, request: Any, *args: Any, **kwargs: Any) -> Any:
+        """Give the request its own savepoint only when a caller already opened a transaction.
+
+        Served over HTTP this view is outside any transaction (the class decorator), so
+        nothing happens here. An outer atomic block exists only when the caller opened
+        one — the test client inside a per-test transaction. DRF's ``set_rollback()``
+        marks the *innermost* block on every refusal, so without a savepoint a 4xx from
+        this view would poison the caller's transaction; the savepoint keeps the
+        isolation ``ATOMIC_REQUESTS`` used to give it.
+        """
+        if connection.in_atomic_block:
+            with transaction.atomic():
+                return super().dispatch(request, *args, **kwargs)
+        return super().dispatch(request, *args, **kwargs)
 
     @extend_schema(
         summary="Non-mutating Monte Carlo what-if for a single task duration change",
@@ -1825,6 +1885,9 @@ class MonteCarloWhatIfView(McpReadableViewMixin, APIView):
                 velocity_samples=velocity_samples or None,
                 sprint_length_days=sprint_length_days,
             )
+
+        # Every database read is done; nothing below touches the ORM (#5067).
+        _release_db_connection_before_simulating()
 
         try:
             # One shared Monte Carlo span (#709) over the full what-if computation —
@@ -3029,7 +3092,7 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
                     "ScheduleCpmDerivationResponse; a Monte Carlo percentile "
                     "(p50/p80/p95) returns ScheduleMonteCarloDerivationResponse, which "
                     "additionally carries forecast_staleness "
-                    "(current|project_changed|aged|unknown), plan_version and "
+                    "(current|project_changed|aged|unknown|engine_superseded), plan_version and "
                     "plan_version_current (#3140), so a cited percentile states whether "
                     "the run it comes from still describes the current plan rather than "
                     "presenting a superseded value with full derivation confidence. "

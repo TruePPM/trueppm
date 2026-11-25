@@ -524,6 +524,8 @@ describe('useMonteCarloResult risk premium', () => {
     ['project_changed', 'projectChanged'],
     ['aged', 'aged'],
     ['unknown', 'unknown'],
+    // A since-corrected engine (#5064): Rerun stays reachable, no plan-drift claim.
+    ['engine_superseded', 'unknown'],
   ])('maps forecast_staleness %s to %s', async (wire, mapped) => {
     getMock.mockResolvedValueOnce({
       data: { ...WIRE, forecast_staleness: wire, plan_version: 412, plan_version_current: 419 },

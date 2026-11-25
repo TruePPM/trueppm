@@ -948,6 +948,30 @@ async def test_monte_carlo_why_explains_an_unplaceable_run_rather_than_dropping_
     assert "predates plan-version recording" in result["why"]["explanation"]
 
 
+async def test_monte_carlo_why_names_a_superseded_engine(settings: Settings) -> None:
+    """``engine_superseded`` (#5064) gets its own sentence, not the neutral fallback.
+
+    The fallback would tell the agent only that the run is "not current"; the server
+    knows more — a correctness fix landed since — and the sentence carries that.
+    """
+    routes: Routes = {
+        "projects/p-1/monte-carlo/latest/": _json(
+            {
+                "p50": "2026-09-01",
+                "p80": "2026-09-15",
+                "cpm_finish": "2026-08-20",
+                "delta_vs_cpm": {"p80": 18},
+                "forecast_staleness": "engine_superseded",
+                "plan_version": 7,
+                "plan_version_current": 7,
+            }
+        )
+    }
+    async with _client(settings, routes) as client:
+        result = await _get_monte_carlo_forecast(client, "p-1")
+    assert "correctness fix to the forecast engine" in result["why"]["explanation"]
+
+
 async def test_monte_carlo_why_does_not_interpolate_an_unrecognized_verdict(
     settings: Settings,
 ) -> None:

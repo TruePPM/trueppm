@@ -13849,7 +13849,8 @@ class ProjectOverviewSerializer(serializers.Serializer[dict[str, Any]]):
     risk_premium_cpm_finish = serializers.CharField(read_only=True, allow_null=True)
     risk_premium_p80 = serializers.CharField(read_only=True, allow_null=True)
     forecast_staleness = serializers.ChoiceField(
-        choices=["current", "project_changed", "aged", "unknown"], read_only=True
+        choices=["current", "project_changed", "aged", "unknown", "engine_superseded"],
+        read_only=True,
     )
     plan_version = serializers.IntegerField(read_only=True, allow_null=True)
     plan_version_current = serializers.IntegerField(read_only=True, allow_null=True)

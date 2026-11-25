@@ -77,7 +77,7 @@ interface OverviewData extends AddedTimeFacts {
    * Whether the forecast behind the added-time card still describes the plan (#3140,
    * #5063). Optional for an API that predates it; absence renders no marker.
    */
-  forecast_staleness?: 'current' | 'project_changed' | 'aged' | 'unknown';
+  forecast_staleness?: 'current' | 'project_changed' | 'aged' | 'unknown' | 'engine_superseded';
   // Risk summary used by the "Open risks" KPI card and risk register summary section.
   open_risk_count?: number;
   high_risk_count?: number;

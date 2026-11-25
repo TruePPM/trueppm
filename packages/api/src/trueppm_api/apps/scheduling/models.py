@@ -430,6 +430,21 @@ class MonteCarloRun(models.Model):
     # as ``unknown`` rather than a guessed ``current``. No index — this model is only ever
     # read as "newest row for this project", which ``mcrun_project_recent_idx`` covers.
     plan_version = models.BigIntegerField(null=True, blank=True)
+    # The forecast correctness epoch the run was computed under —
+    # :data:`.forecast_staleness.MC_ENGINE_EPOCH` at write time (#5064). Lets "stale"
+    # also mean "computed by an engine since corrected": once the epoch is bumped, every
+    # run stamped with an earlier one classifies as ``engine_superseded``.
+    #
+    # An epoch, not the ``trueppm-scheduler`` package version: the package version moves
+    # on every release, correctness fix or not, so it would mark the whole fleet's
+    # forecasts stale on each upgrade; and the forecast's inputs are shaped API-side
+    # (leaf-only graph, calendar composition, velocity signal), where a fix changes the
+    # answer without touching the package at all.
+    #
+    # Nullable with NO backfill, like the columns above: a run recorded before #5064 has
+    # no epoch and reads as unknown on this axis — never as superseded, since nothing
+    # says which engine produced it.
+    engine_epoch = models.PositiveIntegerField(null=True, blank=True)
 
     class Meta:
         db_table = "scheduling_montecarlorun"

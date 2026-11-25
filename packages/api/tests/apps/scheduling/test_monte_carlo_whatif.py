@@ -723,3 +723,59 @@ class TestWhatIfThrottle:
             for _ in range(3)
         ]
         assert statuses == [200, 200, 429]
+
+
+# ---------------------------------------------------------------------------
+# No transaction or connection held across the simulations (#5067)
+# ---------------------------------------------------------------------------
+
+
+class TestWhatIfHoldsNoConnection:
+    def test_view_is_opted_out_of_atomic_requests(self) -> None:
+        """The resolved view callback carries Django's non-atomic marker.
+
+        ``make_view_atomic`` reads ``_non_atomic_requests`` off the URL callback, so a
+        decorator that lands on ``dispatch`` but is not copied onto the ``as_view()``
+        function would leave the view atomic while reading as opted out.
+        """
+        from django.urls import resolve
+
+        match = resolve("/api/v1/projects/00000000-0000-0000-0000-000000000000/monte-carlo/whatif/")
+        assert "default" in getattr(match.func, "_non_atomic_requests", set())
+
+    @pytest.mark.django_db(transaction=True)
+    def test_simulations_run_with_no_transaction_and_no_connection(
+        self,
+        member_client: APIClient,
+        project: Project,
+        long_task: Task,
+        short_task: Task,
+    ) -> None:
+        """Both engine calls run outside any transaction with the connection closed.
+
+        Transactional test: the request is not wrapped in a per-test atomic block, so
+        what the engine observes is what production observes. The response still
+        reads correctly afterwards, which proves nothing after the release needed the
+        database the view had handed back.
+        """
+        from unittest import mock
+
+        from django.db import connection
+        from trueppm_scheduler import engine
+
+        observed: list[tuple[bool, bool]] = []
+        real = engine.monte_carlo
+
+        def _spy(*args: object, **kwargs: object) -> object:
+            observed.append((connection.in_atomic_block, connection.connection is None))
+            return real(*args, **kwargs)
+
+        with mock.patch.object(engine, "monte_carlo", _spy):
+            r = member_client.get(
+                _url(project),
+                {"task_id": str(short_task.pk), "duration_delta": 2, "n_simulations": 50},
+            )
+        assert r.status_code == 200, r.data
+        assert observed == [(False, True), (False, True)]
+        # Still a pure read: nothing was persisted.
+        assert not MonteCarloRun.objects.filter(project=project).exists()

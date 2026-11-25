@@ -142,6 +142,12 @@ mid-run, a sweep that runs every five minutes will mark the run `failed` with
 `{error: simulation_abandoned, status_code: 503}` once it is older than the task's
 time limit plus `TRUEPPM_TASK_RUN_REAP_MARGIN_SECONDS` (default 120), so it stops
 counting as active.
+
+The what-if (`GET .../monte-carlo/whatif/`) stays on the API process and keeps
+answering `200` with its result. From 0.5 it will run outside the request's
+database transaction and release its database connection before simulating, so a slow
+what-if occupies only the web worker serving it
+([ADR-1430](/architecture/decisions/), 2026-11-25 addendum).
 :::
 
 The endpoint also enforces a **task cap** (`MC_TASK_CAP`, 5,000 on OSS): a project
@@ -982,6 +988,20 @@ answer:
 | `project_changed` | The project has been written to, or its schedule recomputed, since the run. |
 | `aged` | Nothing has changed, but the run is over a week old, so the data date has moved under it. |
 | `unknown` | The run predates this field and cannot be placed against the plan. |
+| `engine_superseded` | From 0.5: the run was computed before a correctness fix to the forecast, so the same plan would now forecast differently. |
+
+:::note[Ships in 0.5]
+From 0.5 every forecast run will record the forecast's correctness epoch — a
+number TruePPM raises only in a release that changes what a forecast computes for
+an unchanged plan (an engine fix, or a change to how the plan is fed to it). A run
+recorded under an earlier epoch will read `engine_superseded`, whatever the plan
+did since. Runs recorded before 0.5 carry no epoch and keep reading as they do
+today — `unknown` on this question, never `engine_superseded`. The Schedule view
+will treat `engine_superseded` like `unknown`: it offers **Rerun** without a claim.
+The epoch is not the scheduler package version, which moves on every release
+whether or not forecasts change. It is not sent on the forecast payload; only
+`forecast_staleness` reports it.
+:::
 
 On the Schedule view's forecast bar, anything other than `current` offers the
 **Rerun** button. The bar also says *Edited since this run* for

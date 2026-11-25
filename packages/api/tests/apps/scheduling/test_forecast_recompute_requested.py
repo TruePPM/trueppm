@@ -10,6 +10,7 @@ import pytest
 from django.core.cache import cache
 
 from trueppm_api.apps.projects.models import Calendar, Project
+from trueppm_api.apps.scheduling import forecast_staleness as staleness_module
 from trueppm_api.apps.scheduling.forecast_recompute import notify_if_forecast_stale
 from trueppm_api.apps.scheduling.models import MonteCarloRun
 from trueppm_api.apps.scheduling.signals import forecast_recompute_requested
@@ -75,6 +76,24 @@ def test_silent_when_forecast_is_current(project: Project, received: list[dict[s
     project.refresh_from_db()
     assert notify_if_forecast_stale(project.pk) is False
     assert received == []
+
+
+def test_epoch_bump_does_not_hide_plan_staleness_from_the_signal(
+    project: Project, received: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A superseded run still signals on plan drift; the bump alone does not (#5064)."""
+    run = _run(project, project.last_sync_version)
+    epoch = staleness_module.MC_ENGINE_EPOCH
+    MonteCarloRun.objects.filter(pk=run.pk).update(engine_epoch=epoch)
+    monkeypatch.setattr(staleness_module, "MC_ENGINE_EPOCH", epoch + 1)
+    project.refresh_from_db()
+
+    assert notify_if_forecast_stale(project.pk) is False
+    assert received == []
+
+    _bump_plan(project)
+    assert notify_if_forecast_stale(project.pk) is True
+    assert received[0]["staleness"] == "project_changed"
 
 
 def test_silent_for_unknown_legacy_run_and_no_run(

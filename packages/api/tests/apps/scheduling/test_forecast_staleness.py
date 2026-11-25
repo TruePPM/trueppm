@@ -36,7 +36,9 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Dependency, Project, Task
+from trueppm_api.apps.scheduling import forecast_staleness as staleness_module
 from trueppm_api.apps.scheduling.forecast_staleness import (
+    MC_ENGINE_EPOCH,
     classify_forecast_staleness,
     forecast_staleness_facts,
     forecast_staleness_for_payload,
@@ -609,3 +611,129 @@ class TestPermissions:
     def test_anonymous_is_rejected(self, project: Project) -> None:
         res = APIClient().get(latest_url(project.pk))
         assert res.status_code in (401, 403)
+
+
+# ---------------------------------------------------------------------------
+# Engine correctness epoch (#5064)
+# ---------------------------------------------------------------------------
+
+
+class TestEngineEpochClassifier:
+    def _classify(self, **overrides: object) -> str:
+        kwargs: dict[str, object] = {
+            "plan_version": 7,
+            "plan_version_current": 7,
+            "age_days": 0,
+            "engine_epoch_current": 2,
+        }
+        kwargs.update(overrides)
+        return classify_forecast_staleness(**kwargs)  # type: ignore[arg-type]
+
+    def test_an_earlier_epoch_is_engine_superseded_even_on_a_current_plan(self) -> None:
+        assert self._classify(engine_epoch=1) == "engine_superseded"
+
+    def test_the_running_epoch_changes_nothing(self) -> None:
+        assert self._classify(engine_epoch=2) == "current"
+
+    def test_a_run_with_no_epoch_is_never_superseded(self) -> None:
+        """Pre-#5064 rows carry no epoch: they classify exactly as before the column."""
+        assert self._classify(engine_epoch=None) == "current"
+        assert self._classify(engine_epoch=None, plan_version=None) == "unknown"
+        assert self._classify(engine_epoch=None, plan_version=6) == "project_changed"
+
+    def test_a_later_epoch_from_a_rolled_back_deploy_is_also_superseded(self) -> None:
+        assert self._classify(engine_epoch=3) == "engine_superseded"
+
+    def test_superseded_is_decided_before_the_plan_terms(self) -> None:
+        assert self._classify(engine_epoch=1, plan_version=6) == "engine_superseded"
+        assert self._classify(engine_epoch=1, plan_version=None) == "engine_superseded"
+        assert self._classify(engine_epoch=1, age_days=STALE_AFTER_DAYS + 5) == (
+            "engine_superseded"
+        )
+
+    def test_the_default_reads_the_module_epoch_at_call_time(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(staleness_module, "MC_ENGINE_EPOCH", MC_ENGINE_EPOCH + 1)
+        assert (
+            classify_forecast_staleness(
+                plan_version=7, plan_version_current=7, age_days=0, engine_epoch=MC_ENGINE_EPOCH
+            )
+            == "engine_superseded"
+        )
+
+    def test_payload_adapter_reads_the_epoch_and_tolerates_its_absence(self) -> None:
+        today = date(2026, 11, 25)
+        base = {"plan_version": 7, "last_run_at": _aware(2026, 11, 25).isoformat()}
+        legacy = forecast_staleness_for_payload(
+            base, plan_version_current=7, recalculated_at=None, today=today
+        )
+        assert legacy["forecast_staleness"] == "current"
+        older = forecast_staleness_for_payload(
+            {**base, "engine_epoch": MC_ENGINE_EPOCH - 1},
+            plan_version_current=7,
+            recalculated_at=None,
+            today=today,
+        )
+        assert older["forecast_staleness"] == "engine_superseded"
+        not_an_int = forecast_staleness_for_payload(
+            {**base, "engine_epoch": True},
+            plan_version_current=7,
+            recalculated_at=None,
+            today=today,
+        )
+        assert not_an_int["forecast_staleness"] == "current"
+
+
+@pytest.mark.django_db
+class TestEngineEpochIsRecorded:
+    def test_a_run_stamps_the_epoch_on_the_row_and_the_cache_entry(
+        self, admin_client: APIClient, project: Project, pert_task: Task
+    ) -> None:
+        from trueppm_api.apps.scheduling.views import mc_latest_cache_key
+
+        res = admin_client.post(run_url(project.pk), {"n_simulations": 100}, format="json")
+        assert res.status_code == 200
+        run = MonteCarloRun.objects.filter(project=project).first()
+        assert run is not None
+        assert run.engine_epoch == MC_ENGINE_EPOCH
+        assert cache.get(mc_latest_cache_key(project.pk))["engine_epoch"] == MC_ENGINE_EPOCH
+
+    def test_a_bumped_epoch_marks_the_earlier_run_superseded_on_every_read(
+        self,
+        admin_client: APIClient,
+        project: Project,
+        pert_task: Task,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        res = admin_client.post(run_url(project.pk), {"n_simulations": 100}, format="json")
+        assert res.status_code == 200
+        monkeypatch.setattr(staleness_module, "MC_ENGINE_EPOCH", MC_ENGINE_EPOCH + 1)
+
+        cached = admin_client.get(latest_url(project.pk))
+        assert cached.status_code == 200
+        assert cached.data["forecast_staleness"] == "engine_superseded"
+        # The epoch is a cache-entry fact only; the response never carries it.
+        assert "engine_epoch" not in cached.data
+
+        cache.clear()  # the from-history branch reads the persisted row's epoch
+        from_history = admin_client.get(latest_url(project.pk))
+        assert from_history.status_code == 200
+        assert from_history.data["from_history"] is True
+        assert from_history.data["forecast_staleness"] == "engine_superseded"
+
+        overview = admin_client.get(f"/api/v1/projects/{project.pk}/overview/")
+        assert overview.status_code == 200
+        assert overview.data["forecast_staleness"] == "engine_superseded"
+
+    def test_a_pre_epoch_row_reads_as_it_did_before(
+        self, admin_client: APIClient, project: Project, pert_task: Task
+    ) -> None:
+        """No backfill: a row with a null epoch is unknown on this axis, not stale."""
+        res = admin_client.post(run_url(project.pk), {"n_simulations": 100}, format="json")
+        assert res.status_code == 200
+        MonteCarloRun.objects.filter(project=project).update(engine_epoch=None)
+        cache.clear()
+        latest = admin_client.get(latest_url(project.pk))
+        assert latest.status_code == 200
+        assert latest.data["forecast_staleness"] == "current"

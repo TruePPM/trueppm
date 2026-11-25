@@ -254,6 +254,12 @@ def _staleness_segment(staleness: str, payload: Mapping[str, Any]) -> str:
             "underneath it and the percentiles describe different remaining work — "
             "rerun before relying on the dates"
         )
+    if staleness == "engine_superseded":
+        return (
+            "this forecast was computed before a correctness fix to the forecast engine, "
+            "so the same plan would now forecast differently — rerun before relying on "
+            "the dates"
+        )
     if staleness == "unknown":
         return (
             "this forecast predates plan-version recording, so whether it still "
@@ -1029,10 +1035,11 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         for the full per-driver breakdown.
 
         ``forecast_staleness`` states whether the run still describes the current plan
-        (``current``/``project_changed``/``aged``/``unknown``); anything but ``current``
-        is also spelled out in ``why.explanation``. Note that ``project_changed`` means
-        the project was written to since the run — the counter behind it moves on any
-        edit, so it is grounds for rerunning, NOT evidence that a schedule date changed.
+        (``current``/``project_changed``/``aged``/``unknown``/``engine_superseded``);
+        anything but ``current`` is also spelled out in ``why.explanation``. Note that
+        ``project_changed`` means the project was written to since the run — the counter
+        behind it moves on any edit, so it is grounds for rerunning, NOT evidence that a
+        schedule date changed.
 
         Args:
             project_id: The project's UUID.

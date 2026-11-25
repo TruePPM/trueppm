@@ -276,7 +276,7 @@ class ForecastStalenessFieldsSerializer(serializers.Serializer[dict[str, Any]]):
     """
 
     forecast_staleness = serializers.ChoiceField(
-        choices=["current", "project_changed", "aged", "unknown"]
+        choices=["current", "project_changed", "aged", "unknown", "engine_superseded"]
     )
     plan_version = serializers.IntegerField(allow_null=True)
     plan_version_current = serializers.IntegerField(allow_null=True)
