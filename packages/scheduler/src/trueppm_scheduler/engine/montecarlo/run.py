@@ -1440,6 +1440,7 @@ def monte_carlo(
                 tid: (ef_date, tid in completed_start_ids)
                 for tid, (_es_date, ef_date) in completed_dates.items()
             },
+            percentiles,
         )
     )
 

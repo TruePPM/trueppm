@@ -312,7 +312,9 @@ class TargetForecast:
     an order statistic over the task's own per-run working-time finish, shown on a
     day the way :attr:`ScheduleResult.project_finish` is. Because the project
     finish is the maximum over every task in each run, a target's date at a level is
-    never later than the project's at the same level. A completed task reports its
+    never later than the project's at the same level: a reading that would be shown
+    later takes the project's, and can then sit ahead of ``distribution``'s own
+    quantile. A completed task reports its
     recorded finish at every level; an in-progress one is read from its
     remaining-work window, exactly as the deterministic pass places it.
 

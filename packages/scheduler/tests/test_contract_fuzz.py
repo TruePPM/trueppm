@@ -1435,6 +1435,13 @@ def _check_targets(project: Project, runs: int) -> None:
                 f"project's {mc.percentiles[q]}"
             )
         assert len(forecast.distribution) == runs
+        # The percentiles above are capped at the project's, so they cannot show a
+        # target that really runs past it. The per-run days are not capped: each is
+        # at or before its run's project finish, so the sorted lists compare in order.
+        late = [
+            (t, p) for t, p in zip(forecast.distribution, mc.distribution, strict=True) if t > p
+        ]
+        assert not late, f"target {tid} runs end after the project's: {late[:3]}"
 
 
 @given(project=_plausible_projects() | _plausible_projects(per_task_calendars=True))

@@ -16,6 +16,7 @@ import pytest
 from trueppm_scheduler import (
     MC_TARGET_CAP,
     Dependency,
+    DependencyType,
     InvalidScheduleInput,
     Project,
     TargetForecast,
@@ -189,6 +190,46 @@ class TestVerbatimNonWorkingDay:
         assert (forecast.p50, forecast.p80, forecast.p95) == (saturday,) * 3
         assert set(forecast.distribution) == {saturday}
         assert forecast.percentiles[50] == result.percentiles[50]
+
+
+class TestNeverLaterThanProject:
+    """A target is never shown later than the project at the same level (#4135)."""
+
+    def test_same_instant_start_of_day_reading_is_capped_at_the_project(self) -> None:
+        # A start-of-day milestone and day-end work tie in working time: without the
+        # cap, ``join`` P95 read the start of Mon 23rd and the project the end of
+        # Fri 20th.
+        day = timedelta(days=1)
+        project = Project(
+            id="p",
+            name="p",
+            start_date=date(2026, 3, 2),
+            tasks=[
+                Task(id="gate", name="gate", duration=timedelta(0)),
+                Task(
+                    id="spread",
+                    name="spread",
+                    duration=timedelta(0),
+                    optimistic_duration=timedelta(0),
+                    most_likely_duration=timedelta(0),
+                    pessimistic_duration=23 * day,
+                ),
+                Task(id="work", name="work", duration=day),
+                Task(id="join", name="join", duration=timedelta(0)),
+            ],
+            dependencies=[
+                _fs("gate", "spread"),
+                _fs("spread", "work", lag=4 * day),
+                _fs("gate", "work"),
+                Dependency("gate", "join", DependencyType.SS),
+                _fs("spread", "join", lag=5 * day),
+            ],
+        )
+        result = monte_carlo(project, runs=24, seed=7, targets=["join"])
+        assert result.targets is not None
+        for level, reading in result.targets["join"].percentiles.items():
+            bound = result.percentiles[level]
+            assert (reading.date, not reading.at_day_start) <= (bound.date, not bound.at_day_start)
 
 
 class TestTargetValidation:

@@ -86,6 +86,7 @@ class _TargetCollector:
         percentiles: Callable[[np.ndarray, np.ndarray, date | None], list[tuple[date, bool]]],
         to_date: Callable[[float, date | None], date],
         completed: dict[str, tuple[date, bool]],
+        project: list[tuple[date, bool]],
     ) -> dict[str, TargetForecast]:
         """One :class:`TargetForecast` per target, in request order.
 
@@ -95,6 +96,18 @@ class _TargetCollector:
         completed target to its recorded finish and edge-of-day reading, reported
         verbatim at every level: the offset ruler cannot hold a recorded finish on a
         non-working day.
+
+        ``project`` is the project's P50/P80/P95 reading, which caps each open
+        target's. In every run the target's working-time position and shown day are at
+        or before the project's, but the reader picks a shown day from the runs *at*
+        the percentile's position, and that set differs between one column and the
+        maximum over all of them. So a target could read the start of a Monday while
+        the project reads the end of the Friday before it: one working instant, and a
+        later date. The capped reading is still at or after the target's own position,
+        but it can sit ahead of ``distribution``'s own quantile. On mixed calendars the
+        project's reading can be a gap day no run reports (the "Limit" on
+        :func:`_mc_percentiles`); a capped target then shows that day, even one its
+        own calendar does not work.
         """
         out: dict[str, TargetForecast] = {}
         runs = self.shown.shape[0]
@@ -111,6 +124,11 @@ class _TargetCollector:
             ordinal = self._verbatim.get(int(self.cols[j]))
             floor = None if ordinal is None else date.fromordinal(ordinal)
             levels = percentiles(self.position[:, j], self.shown[:, j], floor)
+            # The start of a day precedes its end: order by (date, not at_day_start).
+            levels = [
+                min(own, cap, key=lambda r: (r[0], not r[1]))
+                for own, cap in zip(levels, project, strict=True)
+            ]
             uniq, counts = np.unique(self.shown[:, j], return_counts=True)
             distribution: list[date] = []
             for offset, count in zip(uniq.tolist(), counts.tolist(), strict=True):

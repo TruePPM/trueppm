@@ -251,8 +251,12 @@ design.percentiles[95].date                  # the same mapping, by level
 `targets` names up to `MC_TARGET_CAP` (50) task ids. Each comes back on
 `result.targets` as a `TargetForecast` (`task_id`, `percentiles`, `distribution`),
 read from the same per-run finishes the project finish is the maximum of. So at
-every level a target is never later than the project. A completed target reports
-its recorded finish at every level. A task on its own calendar is read through its
+every level a target is never later than the project. Where a target's own reading
+would be shown later than the project's (a start-of-day milestone on the Monday,
+the project at the end of the Friday before it), it takes the project's, and that
+level can then sit ahead of the target's own `distribution`. With mixed calendars
+the day it takes can be one the target's own week does not work. A completed target
+reports its recorded finish at every level. A task on its own calendar is read through its
 own working week ([#4135](https://gitlab.com/trueppm/trueppm/-/issues/4135)).
 
 `percentiles` is the extensible `dict[int, Percentile]` mapping, the same form as
