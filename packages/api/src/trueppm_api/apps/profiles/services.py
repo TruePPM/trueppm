@@ -1183,7 +1183,7 @@ def fan_out_hidden_views(user: Any, keys: list[str]) -> None:
     user's explicit "keep shown" entries are untouched. Rows that do not exist yet are
     created with only those hides and an empty ``seeded_lens`` ("not resolved yet"), so
     the project's first open still applies the lens seed around them
-    (``_complete_pending_seed``). One locked read, one bulk update and one bulk insert,
+    (``_complete_pending_seed``). One bulk insert, one locked read and one bulk update,
     O(memberships).
 
     A list that hides every Plan layout is accepted, not refused with
@@ -1197,12 +1197,20 @@ def fan_out_hidden_views(user: Any, keys: list[str]) -> None:
     now = timezone.now().isoformat()
     project_ids = set(_live_member_project_ids(user))
     with transaction.atomic():
-        existing = list(
+        # Insert the missing rows empty first, then lock and rewrite every row. Rows
+        # inserted with their hides after a locked read would lose them to a first
+        # resolve that created the same row in between: ``ignore_conflicts`` skips the
+        # insert silently, and that row was never in the locked set.
+        ProjectViewState.objects.bulk_create(
+            [ProjectViewState(user=user, project_id=pid) for pid in project_ids],
+            ignore_conflicts=True,
+        )
+        rows = list(
             ProjectViewState.objects.select_for_update().filter(
                 user=user, project_id__in=project_ids
             )
         )
-        for state in existing:
+        for state in rows:
             kept = [
                 e
                 for e in _by_view(state.hides).values()
@@ -1211,19 +1219,4 @@ def fan_out_hidden_views(user: Any, keys: list[str]) -> None:
             state.hides = kept + [
                 _entry(k, source="user", hidden=True, lens=None, at=now) for k in sorted(wanted)
             ]
-        ProjectViewState.objects.bulk_update(existing, ["hides"])
-        missing = project_ids - {s.project_id for s in existing}
-        ProjectViewState.objects.bulk_create(
-            [
-                ProjectViewState(
-                    user=user,
-                    project_id=pid,
-                    hides=[
-                        _entry(k, source="user", hidden=True, lens=None, at=now)
-                        for k in sorted(wanted)
-                    ],
-                )
-                for pid in missing
-            ],
-            ignore_conflicts=True,
-        )
+        ProjectViewState.objects.bulk_update(rows, ["hides"])

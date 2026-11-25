@@ -560,6 +560,24 @@ def test_fan_out_hides_survive_the_first_open_seed(cal: Calendar) -> None:
     assert c.get("/api/v1/auth/me/profile/").data["hidden_views"] == ["grid", "risk"]
 
 
+def test_fan_out_reaches_a_row_a_concurrent_first_open_created(cal: Calendar) -> None:
+    """A resolve that creates the row just before the fan-out's insert keeps the hides."""
+    p = _project(cal)
+    user = _member(p, "scrum_master", name="race")
+    manager_cls = type(ProjectViewState.objects)
+    original = manager_cls.bulk_create
+
+    def racing_bulk_create(self: Any, objs: Any, *args: Any, **kwargs: Any) -> Any:
+        services.resolve_project_views(user, p)  # the other request's first open
+        return original(self, objs, *args, **kwargs)
+
+    with mock.patch.object(manager_cls, "bulk_create", racing_bulk_create):
+        services.fan_out_hidden_views(user, ["risk"])
+    views = _views(_client(user).get(_url(p)).json())
+    assert views["risk"] == {**views["risk"], "visible": False, "source": "user"}
+    assert views["resources"]["source"] == "seed"  # the racing seed is kept around it
+
+
 def test_show_all_on_a_fanned_out_row_does_not_reseed_later(cal: Calendar) -> None:
     p = _project(cal)
     user = _member(p, "scrum_master", name="showall")
