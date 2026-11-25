@@ -4,7 +4,8 @@
  * Starlight cascade:
  *   :root                       dark (Starlight default)
  *   :root[data-theme="light"]   light
- * The theme follows the visitor's OS preference unless they pick one.
+ * New visitors get the theme their OS asks for. Visitors from before #5144
+ * keep the stored light theme until they choose Auto in the theme menu.
  *
  * Layer note: Starlight's own styles are in @layer starlight.*. Unlayered styles
  * (this file) always win over layered ones regardless of specificity, so every
@@ -36,7 +37,7 @@
   --tp-docs-active-text: #E9EDF3;
   --tp-docs-mark-node: #E9EDF3;    /* mark-reversed nodes */
   --tp-docs-diagram-bg: #15223C;
-  --tp-docs-diagram-line: #8194B5; /* navy-300 */
+  --tp-docs-diagram-line: #6B7585; /* slate-500: 3:1 on navy and on pale author fills */
   --tp-docs-diagram-title: #B0BDD3;
 
   --tp-docs-hero-bg: #15223C;
@@ -831,6 +832,12 @@ svg[id^="mermaid-"] .cluster rect {
 svg[id^="mermaid-"] .cluster-label :is(span, p, div, text) {
   color: var(--tp-docs-diagram-title) !important;
   fill: var(--tp-docs-diagram-title) !important;
+}
+/* A subgraph the author filled (`style x fill:...`) is pale in both themes, so
+   its title needs dark ink rather than the per-theme title color. */
+svg[id^="mermaid-"] .cluster:has(> rect[style*="fill"]) .cluster-label :is(span, p, div, text) {
+  color: #141413 !important;
+  fill: #141413 !important;
 }
 
 /* ==========================================================================

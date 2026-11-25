@@ -150,4 +150,3 @@ JavaScript. Two details of it moved.
   ADR already carried. The baked colors remain the fallback. Each diagram also
   sits in a framed panel. The Arial metric stack stays, since it is a correctness
   constraint.
-
