@@ -121,17 +121,17 @@ ADR-0067's status gains an "Amended by ADR-1485 (hybrid commit)" note when this 
 
 ### D10. AI-readiness additions (ai-review, 2026-11-24, after acceptance)
 
-These come from the `ai-review` gate run on #5125 after acceptance. There is no new endpoint shape, so architect was not re-invoked. `enterprise-check` on the same day classified all 18 child issues OSS. Both results are recorded on #5125.
+These come from the `ai-review` gate run on #5125 after acceptance. There is no new endpoint shape, so architect was not re-invoked. `enterprise-check` on the same day classified all 18 child issues as OSS: the 14 rows below, plus 4 pre-existing issues that each cover part of a row (#2991, #5065, #4314, #481). Both results are recorded on #5125.
 
 1. **The commit classification is a server field.** The what-if response (D2) carries `commit_mode: "apply" | "review"` and `review_reasons: ["critical_path_change" | "over_allocation" | "commitment_slip" | "people_load_unchecked"]`. The canvas chip and D9's routing read it, with no client threshold logic, so an agent learns the same answer from the same call. Child: #5128.
-2. **Provenance on rows.** Variance rows (D3) and commitment-status at-risk rows carry `cause` (the server's one-line derivation summary, the same text the steering export prints) and `derivation_ref` (task id plus baseline id, for `get_schedule_derivation`). Children: #5129, #5127.
+2. **Provenance on rows.** Variance rows (D3) and commitment-status at-risk rows carry `cause` (the server's one-line derivation summary, the same text the steering export prints) and `derivation_ref: {task_id, quantity: "early_finish"}`, which are exactly the existing arguments of `get_schedule_derivation(project_id, quantity, task_id)`. The derivation explains the task's *current* finish. The baseline side of the Δ is already on the variance row itself, so the tool needs no baseline argument. Children: #5129, #5127.
 3. **Agent writes are audited.** Token-originated activity lands in the hash-chained `AgentAction` audit (ADR-0112 §1.3):
    - a token-caused slip records `requires_approval`;
    - a token calling accept or reject records `refused` with reason `identity`;
    - a token placement (D5) records one entry per batch, with per-task outcomes.
 
    Children: #2563, #5132.
-4. **Decision memory.** Slip accept and reject reasons, direct-with-reason slips, and PM re-estimate notes feed the project Decisions view (ADR-0167), and the structured store (#1059) when it lands. Visibility follows `can_read_decisions`. Child: #2563.
+4. **Decision memory.** Slip accept and reject reasons, direct-with-reason slips, and PM re-estimate notes feed the project Decisions view (ADR-0167), and the structured store (#1059) when it lands. **Mechanism:** the ADR-0167 view is built from task notes flagged `decision=True`, so each decided slip, and each direct-with-reason slip, writes a task note with `decision=True` on the affected task. Its author is the decider (or the actor, for direct-with-reason), and its body states the outcome and the reason. A batch writes one note per task. Visibility follows the existing `can_read_decisions`. The exact note wording is settled in the child. Child: #2563.
 5. **AI boundary.** Single-approver gate, ephemeral what-if and single-project webhooks are all OSS. The Enterprise counterpart is **multi-approver chains or delegated authority for commitment slips**. It is not built here, and nothing in OSS anticipates it beyond the existing notify-only `sprint_scope_changed` signal.
 
 ## Alternatives Considered
