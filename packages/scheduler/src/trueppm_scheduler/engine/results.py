@@ -217,7 +217,7 @@ class ScheduleResult:
         # ScheduleResult. The Task objects are already CPM-field copies.
         self.tasks = list(self.tasks)
         self.critical_path = list(self.critical_path)
-        # Sort for a deterministic, engine-agnostic order (petgraph vs networkx
+        # Sort for a deterministic, engine-agnostic order (petgraph vs this engine's graph
         # visit order differs) so conformance snapshots match (#2095).
         self.driving_edges = sorted(
             self.driving_edges,

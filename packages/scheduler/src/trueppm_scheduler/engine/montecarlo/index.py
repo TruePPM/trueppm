@@ -15,7 +15,6 @@ from typing import (
     NoReturn,
 )
 
-import networkx as nx
 import numpy as np
 
 from trueppm_scheduler.engine.calendar_math import (
@@ -25,6 +24,9 @@ from trueppm_scheduler.engine.calendar_math import (
     _safe_offset,
     _start_from_finish,
     _working_days_between,
+)
+from trueppm_scheduler.engine.digraph import (
+    _DiGraph,
 )
 from trueppm_scheduler.engine.errors import (
     InvalidScheduleInput,
@@ -61,7 +63,7 @@ from trueppm_scheduler.models import (
 def _mc_horizon(
     project: Project,
     task_map: dict[str, Task],
-    g: nx.DiGraph[str],
+    g: _DiGraph,
     topo_order: list[str],
     cal_of: dict[str, Calendar],
     capacity_end: date | None = None,
@@ -193,7 +195,7 @@ def _mc_pre_start_pad_days(
     project: Project,
     task_map: dict[str, Task],
     topo_order: list[str],
-    g: nx.DiGraph[str],
+    g: _DiGraph,
     cal_of: dict[str, Calendar],
 ) -> tuple[int, frozenset[str]]:
     """``(pad_days, sf_linked_ids)``: how far before the project start the index must reach.
@@ -318,7 +320,7 @@ def _mc_pre_start_pad_days(
 
 
 def _link_lower_bound(
-    g: nx.DiGraph[str], tid: str, lo: dict[str, date], cal_of: dict[str, Calendar]
+    g: _DiGraph, tid: str, lo: dict[str, date], cal_of: dict[str, Calendar]
 ) -> Iterator[date]:
     """A lower bound on the instant each incoming link proposes to milestone ``tid``.
 
@@ -440,7 +442,7 @@ def _build_lag_delta(
 
 
 def _build_lag_delta_table(
-    g: nx.DiGraph[str],
+    g: _DiGraph,
     wd_ord_by_cal: dict[int, np.ndarray],
     index_size: int,
     cal_key_of: dict[str, int],
@@ -510,7 +512,7 @@ def _build_lag_delta_table(
             prev_ord_of(pred_key) if dep_type == DependencyType.SF else 0,
         )
 
-    for u, v, data in g.edges(data=True):
+    for u, v, data in g.edges():
         d = data["dep"]
         pred_key = cal_key_of[u]
         succ_key = cal_key_of[v]

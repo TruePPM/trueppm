@@ -37,7 +37,7 @@ fails any of these cannot merge, because GitLab is configured with
 | **Lint / format** | ruff (incl. `ruff format --check`) and eslint across every package. |
 | **Type check** | `mypy --strict` on all Python, `tsc --noEmit` on all TypeScript. No `any`. |
 | **Test suites** | pytest (API, scheduler, MCP), vitest, Playwright — all must pass. |
-| **Per-package coverage floors** | 80% on the scheduler, MCP, and API packages. |
+| **Per-package coverage floors** | 95% on the scheduler package; 80% on the MCP and API packages. |
 | **Diff coverage** | New and changed lines in the MR must be covered — not just the package average. |
 | **New-file coverage presence** | A file added in the MR must appear in the coverage report at all, closing the "brand-new untested file" dodge. |
 | **Test-collection integrity** | Every test file on disk must actually be collected by the command CI runs. |

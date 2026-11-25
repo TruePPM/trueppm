@@ -18,7 +18,7 @@ a future field addition or refactor that reopens one of these gaps fails a test
 instead of shipping silently.
 
 ``Task.id`` is excluded from the Task sweep: ``Task.id=None``/``[]`` surfaces
-``TypeError: None cannot be a node`` from networkx and is tracked separately under
+``TypeError: None cannot be a node`` from the pre-0.5 graph library and is tracked separately under
 **#2463** (0.5, ``release::stretch``) — a deliberate scope boundary, not an
 oversight. Fixing it here would silently absorb #2463's scope into this issue.
 """
@@ -305,7 +305,7 @@ _CHILDREN_MAP_MALFORMED_CHILDREN: tuple[Any, ...] = (None, 1, [], {}, ["x"])
 @pytest.mark.parametrize("bad_child", _CHILDREN_MAP_MALFORMED_CHILDREN)
 def test_find_cycle_rejects_malformed_child_id(bad_child: Any) -> None:
     """find_cycle refuses a non-string child id in children_map with a
-    SchedulerError, never a bare ValueError/TypeError from networkx/dict.get,
+    SchedulerError, never a bare ValueError/TypeError from dict.get(),
     and never silently schedules a None/non-string leaf (#4522)."""
     with pytest.raises(SchedulerError):
         find_cycle([("a", "b")], children_map={"a": [bad_child]})

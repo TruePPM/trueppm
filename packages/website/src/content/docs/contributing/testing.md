@@ -129,14 +129,14 @@ the fraction of mutants the suite killed, excluding mutants on lines no test cov
 assertion-strength gap).
 
 In CI this runs as **`scheduler:mutation`**. The nightly run is **gating**:
-`MUTATION_MIN` is `0.92`, set from the observed nightly baseline of 93.0–93.1%
-under mutmut 3.7 (the measured readings under the pinned mutmut 3.8.0 are
-recorded in the `scheduler:mutation` job comment in `.gitlab-ci.yml`), and a
+`MUTATION_MIN` is `0.95`, one point under the lowest score in the nightly record
+under the pinned mutmut 3.8.0 (96.1–97.2%, 2026-11-14 to 2026-11-25; the details
+are in the `scheduler:mutation` job comment in `.gitlab-ci.yml`), and a
 nightly that scores below it goes red and stays red until the survivor is
 killed. Unlike the fuzz jobs it does *not* carry job-level `allow_failure`,
 because a mutation score crossing a fixed floor is one deterministic number
-rather than an open-ended stochastic finding. Ratchet the floor down as the
-score improves; never up to quiet a red.
+rather than an open-ended stochastic finding. Raise the floor from a new
+multi-night record as the score improves; never lower it to quiet a red.
 
 It also runs on two merge request shapes, not only on the nightly schedule.
 An MR that changes the measuring instrument (`packages/scheduler/pyproject.toml`
@@ -239,8 +239,8 @@ The quality gates that run on every merge request:
 - **`lint`** — ruff (Python) and eslint (TypeScript), including `ruff format --check`
   and the design-system token checks.
 - **`typecheck`** — `mypy --strict` and `tsc --noEmit`.
-- **Per-package coverage floors** — pytest `--cov-fail-under=80` for the scheduler,
-  MCP, and API packages; a web coverage floor enforced when the vitest shards are
+- **Per-package coverage floors** — pytest `--cov-fail-under=95` for the scheduler,
+  an 80% floor for the MCP and API packages; a web coverage floor enforced when the vitest shards are
   stitched.
 - **Diff-coverage** — new and changed lines in the MR must be covered
   (`api:diff-coverage`, `web:diff-coverage`), and a check fails the pipeline if a

@@ -219,7 +219,6 @@ from typing import (
     overload as overload,
 )
 
-import networkx as nx  # noqa: F401
 import numpy as np  # noqa: F401
 
 from trueppm_scheduler.engine.backward import (
@@ -320,6 +319,21 @@ from trueppm_scheduler.engine.cpm import (
 )
 from trueppm_scheduler.engine.cpm import (
     schedule as schedule,
+)
+from trueppm_scheduler.engine.digraph import (
+    _DiGraph as _DiGraph,
+)
+from trueppm_scheduler.engine.digraph import (
+    _GraphHasCycle as _GraphHasCycle,
+)
+from trueppm_scheduler.engine.digraph import (
+    _pairs_are_acyclic as _pairs_are_acyclic,
+)
+from trueppm_scheduler.engine.digraph import (
+    _strongly_connected_components as _strongly_connected_components,
+)
+from trueppm_scheduler.engine.digraph import (
+    _topological_order as _topological_order,
 )
 from trueppm_scheduler.engine.errors import (
     _CYCLE_MSG_ID_CHARS as _CYCLE_MSG_ID_CHARS,

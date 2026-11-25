@@ -51,7 +51,7 @@ MAX_PROJECT_WORK_DAYS = MAX_PROJECT_SPAN_DAYS * 10
 # dependencies for cycle detection (#357). A summary→summary edge fans out to the
 # full cross product of the two summaries' leaves — len(L(pred)) * len(L(succ))
 # tuples — so a single top-of-WBS edge on a 5,000-leaf project can demand 6.25M
-# tuples before networkx ever runs, stalling every subsequent dep-create. Typical
+# tuples before the graph is ever built, stalling every subsequent dep-create. Typical
 # projects never approach this (a 100k ceiling allows e.g. a 300-leaf → 300-leaf
 # edge); a graph that exceeds it is pathological or hostile and is rejected with an
 # actionable error rather than allowed to spin. The cost is checked from leaf

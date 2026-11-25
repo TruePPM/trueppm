@@ -1668,9 +1668,9 @@ def derive_value(
 
     # Only the <= degree(task_id) edges incident to the target are ever read, so a
     # single filtering scan of the dependency list suffices — rebuilding the full
-    # nx.DiGraph here cost O(V + E) time plus a transient whole-adjacency
+    # graph here cost O(V + E) time plus a transient whole-adjacency
     # allocation per explained value (#1859). The dicts keyed by the far endpoint
-    # mirror nx.DiGraph adjacency semantics exactly: insertion-ordered, and the
+    # mirror the engine graph's adjacency semantics exactly: insertion-ordered, and the
     # last duplicate (predecessor, successor) pair wins. (schedule() rejects such
     # duplicates outright, so the tiebreak only matters for a caller passing a
     # prebuilt ``result`` for input the engine would refuse.)

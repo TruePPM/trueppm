@@ -17,11 +17,8 @@ repos:
     rev: v1.14.1
     hooks:
       - id: mypy
-        # types-networkx (the modern stub package) supports DiGraph[T]; the older
-        # networkx-stubs package does not, and the trueppm_scheduler.engine package uses
-        # the generic form throughout. Match the dev-extras
-        # pin in packages/scheduler/pyproject.toml so pre-commit and dev runs agree.
-        additional_dependencies: ["types-networkx>=3.0", numpy]
+        # numpy ships its own types; the scheduler has no other runtime dependency.
+        additional_dependencies: [numpy]
         args: [--config-file=packages/scheduler/pyproject.toml]
         # The mypy config declares `packages = ["trueppm_scheduler"]` — i.e. src
         # only. Match that here; tests are checked by the pytest run, not mypy.

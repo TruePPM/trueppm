@@ -261,8 +261,9 @@ def _validate_project_shape(project: Project) -> None:
         raise InvalidScheduleInput(
             f"Project tasks must be a list of Task, got {_short_repr(project.tasks)}."
         )
-    # Task.id keys every lookup; a non-str id is unhashable (TypeError), None (bare
-    # networkx ValueError), or an int the Rust engine's String serde rejects (#4130).
+    # Task.id keys every lookup; a non-str id is unhashable (TypeError), None (which
+    # the graph accepts silently, sorting it as 'None'), or an int the Rust String
+    # serde rejects (#4130).
     # Task.name is likewise a Rust ``String``; Python never reads it during a pass,
     # so without this guard a non-str name schedules silently here and fails in Rust.
     for t in project.tasks:
@@ -741,7 +742,7 @@ def _validate_dependencies(project: Project) -> None:
                 f"Invalid dependency type {_short_repr(dep.dep_type)}; must be one of: {allowed}."
             )
         # Duplicate (predecessor, successor) edges diverge between engines (#1817):
-        # ``_build_graph`` uses ``nx.DiGraph``, which *overwrites* the edge attribute
+        # ``_build_graph`` uses :class:`_DiGraph`, which *overwrites* the edge attribute
         # so only the last dependency on a pair survives, while the Rust engine keeps
         # parallel edges and applies *all* of them (a different schedule, floats, and
         # critical path). Rather than silently drop or silently merge, both engines

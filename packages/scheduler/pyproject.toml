@@ -29,7 +29,6 @@ keywords = [
     "schedule-risk",
     "risk-analysis",
     "gantt",
-    "networkx",
 ]
 classifiers = [
     # 4 - Beta from 0.4.0b1 (#2605). The version said beta while the trove
@@ -57,7 +56,6 @@ classifiers = [
 # compatibility — but each dep is still capped below its next major to keep an
 # unpinned install from silently pulling a breaking release (e.g. numpy 3.0).
 dependencies = [
-    "networkx>=3.0,<4",
     "numpy>=1.26,<3",
 ]
 
@@ -90,7 +88,6 @@ dev = [
     "mutmut==3.8.0",
     "mypy>=1.0,<2.0",
     "ruff>=0.8,<1.0",
-    "types-networkx>=3.0,<4",
 ]
 
 [project.scripts]

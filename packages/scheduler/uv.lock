@@ -539,15 +539,6 @@ wheels = [
 ]
 
 [[package]]
-name = "networkx"
-version = "3.6.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/6a/51/63fe664f3908c97be9d2e4f1158eb633317598cfa6e1fc14af5383f17512/networkx-3.6.1.tar.gz", hash = "sha256:26b7c357accc0c8cde558ad486283728b65b6a95d85ee1cd66bafab4c8168509", size = 2517025, upload-time = "2025-12-08T17:02:39.908Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/9e/c9/b2622292ea83fbb4ec318f5b9ab867d0a28ab43c5717bb85b0a5f6b3b0a4/networkx-3.6.1-py3-none-any.whl", hash = "sha256:d47fbf302e7d9cbbb9e2555a0d267983d2aa476bac30e90dfbe5669bd57f3762", size = 2068504, upload-time = "2025-12-08T17:02:38.159Z" },
-]
-
-[[package]]
 name = "numpy"
 version = "2.4.6"
 source = { registry = "https://pypi.org/simple" }
@@ -1056,7 +1047,6 @@ name = "trueppm-scheduler"
 version = "0.4.0"
 source = { editable = "." }
 dependencies = [
-    { name = "networkx" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
@@ -1071,7 +1061,6 @@ dev = [
     { name = "pytest-benchmark" },
     { name = "pytest-cov" },
     { name = "ruff" },
-    { name = "types-networkx" },
 ]
 
 [package.metadata]
@@ -1080,28 +1069,13 @@ requires-dist = [
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.0,<7.0" },
     { name = "mutmut", marker = "extra == 'dev'", specifier = "==3.8.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0,<2.0" },
-    { name = "networkx", specifier = ">=3.0,<4" },
     { name = "numpy", specifier = ">=1.26,<3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0,<9.2" },
     { name = "pytest-benchmark", marker = "extra == 'dev'", specifier = ">=4.0,<6.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0,<8.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8,<1.0" },
-    { name = "types-networkx", marker = "extra == 'dev'", specifier = ">=3.0,<4" },
 ]
 provides-extras = ["dev"]
-
-[[package]]
-name = "types-networkx"
-version = "3.6.1.20260612"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
-    { name = "numpy", version = "2.5.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/6a/d6/86483526df18c9936cb321b33f6df929db20414378f536972c5e9ee20789/types_networkx-3.6.1.20260612.tar.gz", hash = "sha256:9a28345fb3ad985e460667ef2b9c0879920761c8000cd07b424c0bf1b24ca778", size = 73974, upload-time = "2026-06-12T06:22:35.097Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/6e/1d/4694309c774f552a0dad8d357bc8c2b152120c9744dad4f21fdc3e819c37/types_networkx-3.6.1.20260612-py3-none-any.whl", hash = "sha256:829cdad128c10e072aacadd0421d7ebd64cee9731110e9d6b3f22b575fe0bbfd", size = 162459, upload-time = "2026-06-12T06:22:33.875Z" },
-]
 
 [[package]]
 name = "typing-extensions"

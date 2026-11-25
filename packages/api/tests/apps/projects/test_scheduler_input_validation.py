@@ -33,7 +33,7 @@ class TestBoundParity:
         """The API bounds must stay in lockstep with the engine's exported values.
 
         They are duplicated (not imported) so loading models doesn't pull
-        numpy/networkx in via the engine; this test is the anti-drift guard.
+        numpy in via the engine; this test is the anti-drift guard.
         """
         from trueppm_scheduler.engine import (
             MAX_DURATION_DAYS,

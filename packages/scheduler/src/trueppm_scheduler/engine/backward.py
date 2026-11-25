@@ -10,8 +10,6 @@ from datetime import (
     timedelta,
 )
 
-import networkx as nx
-
 from trueppm_scheduler.engine.calendar_math import (
     _advance_calendar_days,
     _effective_duration_days,
@@ -24,6 +22,9 @@ from trueppm_scheduler.engine.calendar_math import (
     _start_from_finish,
     _working_days_between,
     _WorkingDayCounter,
+)
+from trueppm_scheduler.engine.digraph import (
+    _DiGraph,
 )
 from trueppm_scheduler.engine.milestones import (
     _ONE_DAY,
@@ -64,7 +65,7 @@ from trueppm_scheduler.models import (
 def _backward_pass(
     task_map: dict[str, Task],
     topo_order: list[str],
-    g: nx.DiGraph[str],
+    g: _DiGraph,
     project_finish: date,
     calendar: Calendar,
     task_calendars: dict[str, Calendar] | None = None,
@@ -86,11 +87,13 @@ def _backward_pass(
     uses its *own* calendar for its own arithmetic, because that arithmetic must
     land on a day the node itself can work — every successor-derived constraint
     here also snaps to a working day on **this task's own** calendar (``node_cal``),
-    never the successor's. (The successor's calendar governs lag arithmetic and the
-    free-float mirror in :func:`_compute_floats`, which simulates what the forward
-    pass would impose *on the successor* — a different node, a different question.
-    Using the successor's calendar here instead was issue #1490: it could snap a
-    predecessor's own late date to a day before its early date.) With
+    never the successor's. (The successor's calendar governs lag arithmetic on the
+    *successor's own* forward constraint. The free-float mirror in
+    :func:`_compute_floats` also snaps its inverse constraint on **this task's own**
+    calendar: it derives the latest date this task could finish or start, so that
+    date must be one this task can work, and the slip is counted in this task's
+    working days. Using the successor's calendar here was issue #1490: it could snap
+    a predecessor's own late date to a day before its early date.) With
     ``task_calendars=None`` every lookup resolves to ``calendar`` and the pass is
     identical to before.
 
@@ -255,7 +258,7 @@ def _apply_milestone_late_date(
     node_id: str,
     task: Task,
     early_pair: tuple[_Instant, _Instant],
-    g: nx.DiGraph[str],
+    g: _DiGraph,
     task_map: dict[str, Task],
     node_cal: Calendar,
     finish: tuple[date, date],
@@ -327,7 +330,7 @@ def _apply_milestone_late_date(
 
 def _collect_backward_constraints(
     node_id: str,
-    g: nx.DiGraph[str],
+    g: _DiGraph,
     task_map: dict[str, Task],
     node_cal: Calendar,
     finish: tuple[date, date],
@@ -511,7 +514,7 @@ def _apply_late_dates(
 def _compute_floats(
     task_map: dict[str, Task],
     topo_order: list[str],
-    g: nx.DiGraph[str],
+    g: _DiGraph,
     calendar: Calendar,
     wd_counter: _WorkingDayCounter | None = None,
     task_calendars: dict[str, Calendar] | None = None,
@@ -686,7 +689,7 @@ def _wd_span(
 def _free_float_days(
     node_id: str,
     task: Task,
-    g: nx.DiGraph[str],
+    g: _DiGraph,
     task_map: dict[str, Task],
     node_cal: Calendar,
     tf_days: int,

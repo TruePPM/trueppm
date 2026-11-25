@@ -6,7 +6,6 @@ import random
 from dataclasses import replace
 from datetime import date, timedelta
 
-import networkx as nx
 import numpy as np
 import pytest
 
@@ -128,14 +127,14 @@ def _critical_worst_case_days(project: Project) -> int:
         for t in project.tasks
     }
     best: dict[str, int] = {}
-    for tid in nx.topological_sort(g):
+    for tid in engine._topological_order(g):
         best[tid] = weight[tid] + max((best[p] for p in g.predecessors(tid)), default=0)
     return max(best.values())
 
 
 def _horizon(project: Project) -> date:
     g = engine._build_graph(project)
-    topo = list(nx.lexicographical_topological_sort(g, key=str))
+    topo = engine._topological_order(g)
     cal_of = {tid: project.calendar for tid in topo}
     return engine._mc_horizon(project, {t.id: t for t in project.tasks}, g, topo, cal_of)
 
@@ -284,7 +283,7 @@ def test_horizon_clears_every_run_on_mixed_inputs(seed: int) -> None:
     result = monte_carlo(project, runs=300, seed=seed)
     task_calendars = engine._resolve_task_calendars(project)
     g = engine._build_graph(project)
-    topo = list(nx.lexicographical_topological_sort(g, key=str))
+    topo = engine._topological_order(g)
     cal_of = {
         tid: (
             project.calendar

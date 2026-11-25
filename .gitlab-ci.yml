@@ -94,14 +94,14 @@ variables:
   #
   # Bump by running `bash scripts/check-ci-api-tag.sh`, which prints the value
   # the current inputs require. Enforced by api:ci-api-tag.
-  CI_API_TAG: "py3.11-0b846e4a639c"
+  CI_API_TAG: "py3.11-c6919af23648"
 
   # Same mechanism for the ci-scheduler image (#4791): `py3.11-<digest>` over
   # scheduler.Dockerfile plus packages/scheduler/pyproject.toml. A fixed tag let
   # dell-03 and nuc-03 run one SHA against different cached pytest versions
   # (#4787). Bump with `bash scripts/check-ci-api-tag.sh --image scheduler
   # --print-expected`; enforced by api:ci-api-tag. See contributing/ci-images.
-  CI_SCHEDULER_TAG: "py3.11-847ebbb3fd1d"
+  CI_SCHEDULER_TAG: "py3.11-6940d2936841"
 
 # ---------------------------------------------------------------------------
 # retry() — surgical command-level retry for flaky network steps (#1212).
@@ -368,7 +368,7 @@ workflow:
     - pip install -e "packages/scheduler[dev]" --quiet
     # Print the toolchain actually resolved on THIS runner, so a future split
     # between runners is diagnosable from the trace alone (#4791).
-    - pip freeze | grep -iE '^(pytest|mutmut|hypothesis|numpy|networkx|scipy|numba|mypy|ruff|trueppm)' || true
+    - pip freeze | grep -iE '^(pytest|mutmut|hypothesis|numpy|scipy|numba|mypy|ruff|trueppm)' || true
 
 # Full API template — postgres + valkey services, used by api:test only.
 # Valkey is the BSD-licensed Redis fork; wire-compatible, REDIS_URL unchanged.
@@ -3273,7 +3273,7 @@ scheduler:test:
     # this checkout and never creates origin/main, which the test reads (#5087).
     - 'git fetch origin "+refs/heads/main:refs/remotes/origin/main" || echo "warning: could not fetch origin/main; the stability fragment check may fail on a missing merge base"'
     - cd packages/scheduler
-    - pytest --cov=trueppm_scheduler --cov-report=term-missing --cov-report=xml --cov-fail-under=80
+    - pytest --cov=trueppm_scheduler --cov-report=term-missing --cov-report=xml --cov-fail-under=95
   coverage: '/TOTAL.*\s(\d+%)/'
   artifacts:
     paths:
@@ -3325,10 +3325,10 @@ scheduler:test:compat:
     - cd packages/scheduler
     - pytest
 
-# Dependency-floor leg (#4473). The wheel's Requires-Dist floors (networkx>=3.0,
-# numpy>=1.26) are immutable once published, yet every other scheduler:* job runs on
-# the locked set and api:wheel-install-probe's `lowest` leg tests the API, where
-# networkx/numpy are transitive and resolve to their newest versions. This leg
+# Dependency-floor leg (#4473). The wheel's Requires-Dist floor (numpy>=1.26) is
+# immutable once published, yet every other scheduler:* job runs on the locked set
+# and api:wheel-install-probe's `lowest` leg tests the API, where numpy is
+# transitive and resolves to its newest version. This leg
 # resolves the scheduler's OWN direct dependencies at their declared floors
 # (`--resolution lowest-direct`) on the 3.11 floor interpreter, then runs the
 # non-fuzz suite, so lowering a floor below what the code needs goes red here and
@@ -3359,15 +3359,14 @@ scheduler:test-lowest:
     - uv venv /tmp/lowest-venv
     - uv pip install --python /tmp/lowest-venv/bin/python --resolution lowest-direct -e packages/scheduler
     - uv pip install --python /tmp/lowest-venv/bin/python -e "packages/scheduler[dev]"
-    # Assert the floors were really used: a silently-ignored flag would make
-    # this a second scheduler:test. Floors mirror the lower bounds of
-    # networkx/numpy in packages/scheduler/pyproject.toml (keep in sync).
+    # Assert the floor was really used: a silently-ignored flag would make
+    # this a second scheduler:test. It mirrors numpy's lower bound in
+    # packages/scheduler/pyproject.toml (keep in sync).
     - |
       /tmp/lowest-venv/bin/python - <<'PY'
       from importlib.metadata import version
-      nx, np = version("networkx"), version("numpy")
-      print("networkx", nx, "numpy", np)
-      assert nx == "3.0", f"networkx resolved to {nx}, expected floor 3.0"
+      np = version("numpy")
+      print("numpy", np)
       assert np.startswith("1.26.0"), f"numpy resolved to {np}, expected floor 1.26.0"
       PY
     - cd packages/scheduler
@@ -3626,12 +3625,14 @@ scheduler:mutation:
   # nightly score 96.6% -> 90.6% against the 92.0% floor, redding main for a
   # day once the nightly caught up (#4146).
   #
-  # WHERE MUTATION_MIN COMES FROM. Observed, not chosen: 1042-1043 killed of 1120
-  # considered — 93.0%-93.1% — on every nightly artifact from 2026-08-11 to
-  # 2026-08-17 under mutmut 3.6/3.7, and 1042/1120 reproduced locally on
-  # 2026-08-30. The floor sits one point under the low end, which absorbs the
-  # +/-1 mutant of run-to-run jitter in that record and nothing larger. RATCHET
-  # DOWN, NEVER UP: raising the floor to quiet a red is deleting the finding.
+  # WHERE MUTATION_MIN COMES FROM. Observed, not chosen: 96.1%-97.2% on every
+  # nightly that produced a score from 2026-11-14 to 2026-11-25 under mutmut 3.8.0
+  # (~3,200-3,390 mutants; the low end is job 18352249719, 3263 killed or timed
+  # out against 131 survivors). The floor sits one point under the low end, which
+  # absorbs the run-to-run jitter in that record and nothing larger (#3721). Runs
+  # that measured nothing (2026-11-19 and 11-20) or hit the job timeout (one on
+  # 2026-11-25) are not readings. RATCHET UP FROM A NEW MULTI-NIGHT RECORD ONLY,
+  # AND NEVER LOWER IT TO QUIET A RED: that is deleting the finding.
   #
   # THE INSTRUMENT CHANGED ONCE, AND THAT IS WHY IT IS PINNED (#3720). mutmut
   # 3.8.0 floated in under `>=3.6,<4` on 2026-09-12 and started mutating
@@ -3642,7 +3643,7 @@ scheduler:mutation:
   # two equivalent-mutant sources in derive.py were removed, for 1523/1573 =
   # 96.8% measured locally on 2026-09-13. The floor was NOT moved on
   # that one reading — a single run is not the multi-night record the paragraph
-  # above requires. Restate it from the 3.8.0 nightly artifacts once they exist.
+  # above requires. It was restated from the 3.8.0 nightlies later (#3721).
   #
   # The 2026-11-01 nightly read 92.4% (2780 killed + 1 timeout of 3010, 229
   # survivors), 0.4 points above the floor (#4794). Kill tests asserting exact
@@ -3651,7 +3652,8 @@ scheduler:mutation:
   # (survivors 246 -> 58; the rest are equivalent mutants or the derive.py ones
   # test_derive_mutation_hardening.py already catalogs). Three redundant
   # `if s < e else 0` guards, a dead `first` offset, a no-op conditional and a
-  # no-op `default=None` were deleted rather than excluded. The floor stays at 0.92.
+  # no-op `default=None` were deleted rather than excluded. The floor was left at
+  # 0.92 at the time.
   #
   # THE no_tests CEILING (#5032). The score excludes no_tests mutants, so deleting
   # the test that covers a function leaves it unchanged. check_mutation_score.py
@@ -3709,7 +3711,7 @@ scheduler:mutation:
   # again (#4793).
   timeout: 1h 30m
   variables:
-    MUTATION_MIN: "0.92"
+    MUTATION_MIN: "0.95"
     # mutmut's stats pass runs the whole suite with `-x`, including
     # test_result_stability's merge-base rule, which FAILS (not skips) in CI when
     # origin/main is unreachable. A shallow clone therefore killed the stats pass
@@ -5763,7 +5765,7 @@ scheduler:sbom:
   # base) is a fast no-op when the resident copy is present and supplies the
   # tool when the cached image is stale — making the job robust to image churn.
   #
-  # The SBOM describes the RUNTIME closure only (networkx + numpy), not dev
+  # The SBOM describes the RUNTIME closure only (numpy), not dev
   # tooling. It is materialized from the committed packages/scheduler/uv.lock
   # via `uv sync --frozen` — the SAME lockfile security:osv audits — so the SBOM
   # records the exact, hash-verified resolved versions rather than whatever a

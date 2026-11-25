@@ -33,7 +33,7 @@ class CyclicDependencyError(SchedulerError):
     """Raised when the dependency graph contains a cycle.
 
     The offending cycle is provided so callers can surface it to users
-    without parsing a raw networkx exception. ``cycle`` is the full, canonical
+    without parsing an exception message. ``cycle`` is the full, canonical
     path (first id repeated at the end); the message is a bounded, escaped
     rendering of it: each id is ``repr()``-formatted (control characters cannot
     forge log lines), ids longer than ``_CYCLE_MSG_ID_CHARS`` are cut, and

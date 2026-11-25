@@ -25,7 +25,6 @@ from __future__ import annotations
 import random
 from datetime import date, timedelta
 
-import networkx as nx
 import pytest
 
 from trueppm_scheduler import (
@@ -316,7 +315,7 @@ def test_sf_from_a_milestone_sf_linked_to_a_pre_start_floor_matches_cpm(
 def _pad_days(project: Project) -> int:
     """``engine._mc_pre_start_pad_days`` for a single-calendar project."""
     g = engine._build_graph(project)
-    topo = list(nx.lexicographical_topological_sort(g, key=str))
+    topo = engine._topological_order(g)
     task_map = {t.id: t for t in project.tasks}
     return engine._mc_pre_start_pad_days(
         project, task_map, topo, g, {tid: project.calendar for tid in topo}

@@ -10,8 +10,6 @@ from datetime import (
     timedelta,
 )
 
-import networkx as nx
-
 from trueppm_scheduler.engine.calendar_math import (
     _advance_calendar_days,
     _effective_duration_days,
@@ -22,6 +20,9 @@ from trueppm_scheduler.engine.calendar_math import (
     _prev_working_day,
     _safe_offset,
     _start_from_finish,
+)
+from trueppm_scheduler.engine.digraph import (
+    _DiGraph,
 )
 from trueppm_scheduler.engine.milestones import (
     _ONE_DAY,
@@ -50,7 +51,7 @@ from trueppm_scheduler.models import (
 def _forward_pass(
     task_map: dict[str, Task],
     topo_order: list[str],
-    g: nx.DiGraph[str],
+    g: _DiGraph,
     project_start: date,
     calendar: Calendar,
     status_date: date | None = None,
@@ -230,7 +231,7 @@ def _forward_pass(
     return instants
 
 
-def _sf_linked(node_id: str, g: nx.DiGraph[str]) -> bool:
+def _sf_linked(node_id: str, g: _DiGraph) -> bool:
     """Whether ``node_id`` has at least one incoming SF link (#4218, #4220).
 
     Such a task is not floored at the project start (see "An SF-linked task may
@@ -509,7 +510,7 @@ def _pinned_placement(
 def _live_milestone_edge(
     node_id: str,
     task_map: dict[str, Task],
-    g: nx.DiGraph[str],
+    g: _DiGraph,
     cal: Calendar,
     links: dict[str, _Instant],
     cal_for: Callable[[str], Calendar],
@@ -620,7 +621,7 @@ def _pinned_milestone_instant(
 def _forward_edge_constraints(
     node_id: str,
     task_map: dict[str, Task],
-    g: nx.DiGraph[str],
+    g: _DiGraph,
     cal: Calendar,
     instants: dict[str, _Instant],
     cal_for: Callable[[str], Calendar],

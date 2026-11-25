@@ -15,7 +15,6 @@ from datetime import (
     timedelta,
 )
 
-import networkx as nx
 import numpy as np
 
 from trueppm_scheduler.engine.calendar_math import (
@@ -27,6 +26,7 @@ from trueppm_scheduler.engine.calendar_math import (
     _safe_offset,
     _start_from_finish,
 )
+from trueppm_scheduler.engine.digraph import _DiGraph
 from trueppm_scheduler.engine.forward import (
     _floor_above_start,
     _forward_pass,
@@ -74,7 +74,7 @@ def _completed_dates(
     project: Project,
     task_map: dict[str, Task],
     topo_order: list[str],
-    g: nx.DiGraph[str],
+    g: _DiGraph,
     task_calendars: dict[str, Calendar] | None,
 ) -> tuple[dict[str, tuple[date, date]], dict[str, _Instant]]:
     """The VERBATIM ``(early_start, early_finish)`` ``schedule()`` gives each completed task.
@@ -217,7 +217,7 @@ _FixedEdge = tuple[bool, float, int, bool]
 
 
 def _completed_edge_constraints(
-    g: nx.DiGraph[str],
+    g: _DiGraph,
     completed_dates: dict[str, tuple[date, date]],
     completed_instants: dict[str, _Instant],
     cal_of: dict[str, Calendar],
@@ -263,7 +263,7 @@ def _completed_edge_constraints(
     """
     constraints: dict[tuple[str, str], _FixedEdge] = {}
     tasks = task_map or {}
-    for u, v, data in g.edges(data=True):
+    for u, v, data in g.edges():
         if v in completed_dates:
             # A completed successor is pinned and skips network logic entirely
             # (mirroring _forward_pass), so an edge into one imposes nothing.
@@ -579,7 +579,7 @@ def _mc_progress_state(
     project: Project,
     task_map: dict[str, Task],
     topo_order: list[str],
-    g: nx.DiGraph[str],
+    g: _DiGraph,
     task_calendars: dict[str, Calendar] | None,
     cal_of: dict[str, Calendar],
     cal_key_of: dict[str, int],
@@ -740,7 +740,7 @@ class _McIndex:
 def _mc_forward_pass(
     topo_order: list[str],
     runs: int,
-    g: nx.DiGraph[str],
+    g: _DiGraph,
     task_idx: dict[str, int],
     edge_lag_delta: dict[tuple[str, str], np.ndarray | None],
     dur_matrix: np.ndarray,
@@ -1158,7 +1158,7 @@ def _mc_work_proposal(
 def _mc_milestone_bounds(
     tid: str,
     col: int,
-    g: nx.DiGraph[str],
+    g: _DiGraph,
     task_idx: dict[str, int],
     mats: tuple[np.ndarray, np.ndarray, _InstantColumns],
     floors: _MilestoneFloors,
@@ -1342,7 +1342,7 @@ def _mc_instant_edge_bound(
 
 def _mc_edge_constraints(
     tid: str,
-    g: nx.DiGraph[str],
+    g: _DiGraph,
     task_idx: dict[str, int],
     edge_lag_delta: dict[tuple[str, str], np.ndarray | None],
     es_mat: np.ndarray,

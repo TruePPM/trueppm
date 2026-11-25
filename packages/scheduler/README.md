@@ -12,7 +12,7 @@ Answer the two questions every plan has to answer:
 - **"What's the earliest this can finish, and which tasks can't slip?"** — a full forward/backward critical-path pass computes early/late dates, total and free float, and flags the tasks on the critical path.
 - **"How confident are we in that date?"** — Monte Carlo simulation turns three-point estimates into a P50/P80/P95 forecast, so you can commit to a date you'll actually hit instead of the best-case one.
 
-It's pure Python with just `networkx` and `numpy` underneath — no Django, no web server, no GUI. Drop it into a backend, a data pipeline, a Jupyter notebook, or a CLI and get the same engine that powers the [TruePPM](https://trueppm.com) platform.
+It's pure Python with just `numpy` underneath — no Django, no web server, no GUI. Drop it into a backend, a data pipeline, a Jupyter notebook, or a CLI and get the same engine that powers the [TruePPM](https://trueppm.com) platform.
 
 ### Why reach for this
 
@@ -814,7 +814,9 @@ scheduling results do not change.
   surface above).
 - `from trueppm_scheduler.engine import X` for every name importable today,
   including underscore-prefixed helpers. `engine/__init__.py` re-exports them
-  for the whole 0.5 line.
+  for the whole 0.5 line. The one exception is `nx`, the `networkx` module
+  alias, which is removed with the `networkx` dependency
+  ([#4163](https://gitlab.com/trueppm/trueppm/-/issues/4163)).
 - Result objects pickled by 0.4 will still unpickle on 0.5.
 
 **Will need a change on your side:**
@@ -844,6 +846,7 @@ Where things will live in 0.5 (every name stays importable from
 |---|---|
 | `engine.errors`, `engine.limits`, `engine.results` | the exceptions, the `MAX_*`/`MC_*` caps, the result types |
 | `engine.calendar_math`, `engine.milestones` | working-day arithmetic, zero-duration milestones as instants |
+| `engine.digraph` | the in-package dependency graph: topological sort, strongly connected components, cycle selection |
 | `engine.graph`, `engine.summary`, `engine.validate` | graph building and `find_cycle`, summary expansion, input validation |
 | `engine.forward`, `engine.backward`, `engine.cpm` | the CPM passes and floats, and `schedule()` |
 | `engine.replay` | the milestone state `derive_value` reads back from a `ScheduleResult` |

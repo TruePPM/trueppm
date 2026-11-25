@@ -1348,7 +1348,7 @@ def test_derive_value_with_result_conforms(
     """derive_value(project, ..., result=<result computed for another project>) raises
     only a SchedulerError. A caller-supplied ``result`` skips the schedule() that would
     validate ``project``, so a project that has drifted from it (a dependency on an
-    unknown task, a new cycle) used to leak a bare KeyError/NetworkXUnfeasible."""
+    unknown task, a new cycle) used to leak a bare KeyError or sort error."""
     _assert_conforms(
         "derive_value(result=...)",
         lambda: derive_value(project, task_id, quantity, result=_BASELINE_RESULT),
