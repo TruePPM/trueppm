@@ -67,6 +67,7 @@ from trueppm_api.apps.projects.models import (
     three_point_estimates_ordered,
 )
 from trueppm_api.apps.scheduling.calendars import compose_project_calendar
+from trueppm_api.apps.scheduling.cpm_admission import cpm_busy_response, cpm_slot
 from trueppm_api.apps.scheduling.finish_reading import (
     finish_shift_days,
     latest_finish,
@@ -3107,6 +3108,12 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
             404: OpenApiResponse(
                 description="Unknown project or task, or no simulation available."
             ),
+            503: OpenApiResponse(
+                description=(
+                    "No free CPM slot in this API process (CPM_ON_READ_MAX_CONCURRENT, "
+                    "#4657). Body {code: schedule_busy, detail}; retry after Retry-After."
+                )
+            ),
         },
     )
     def get(self, request: Request, pk: str) -> Response:
@@ -3162,7 +3169,11 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
                     {"detail": "Project has no committed tasks to schedule."},
                     status=status.HTTP_404_NOT_FOUND,
                 )
-            derivation = derive_value(sched_project, task_id, quantity)
+            # derive_value runs a full schedule() pass on this thread (#4657).
+            with cpm_slot() as admitted:
+                if not admitted:
+                    return cpm_busy_response()
+                derivation = derive_value(sched_project, task_id, quantity)
         except UnknownTaskError:
             return Response(
                 {"detail": f"Task {task_id!r} is not in the scheduled network."},
@@ -3318,6 +3329,12 @@ class ScheduleDrivingChainView(McpReadableViewMixin, APIView):
             ),
         ],
         responses={
+            503: OpenApiResponse(
+                description=(
+                    "No free CPM slot in this API process (CPM_ON_READ_MAX_CONCURRENT, "
+                    "#4657). Body {code: schedule_busy, detail}; retry after Retry-After."
+                )
+            ),
             200: OpenApiResponse(
                 response=ScheduleDrivingChainSerializer,
                 description=(
@@ -3427,7 +3444,10 @@ class ScheduleDrivingChainView(McpReadableViewMixin, APIView):
                 }
                 return Response(stamp_answer(payload, engine_inputs=sched_project.to_dict()))
 
-            result = schedule(sched_project)
+            with cpm_slot() as admitted:
+                if not admitted:
+                    return cpm_busy_response()
+                result = schedule(sched_project)
             chain = build_driving_chain(
                 result=result,
                 expanded_deps=graph.dependencies,

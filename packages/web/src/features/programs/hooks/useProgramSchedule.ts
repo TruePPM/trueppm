@@ -130,7 +130,8 @@ export interface ProgramSchedule {
  *   runs a merged CPM pass on the server, so it is bounded (#2839). Transient: the
  *   page keeps the last schedule it loaded and the next live update (or a manual
  *   refresh) retries. Not auto-retried, since an immediate retry would hit the
- *   same full bucket.
+ *   same full bucket. A 503 `schedule_busy` — every CPM slot in the API process
+ *   is taken (#4657) — is handled the same way.
  * - `unknown`: network / 5xx — render a retryable inline error.
  */
 export type ProgramScheduleErrorKind =
@@ -140,6 +141,12 @@ export type ProgramScheduleErrorKind =
   | 'forbidden'
   | 'throttled'
   | 'unknown';
+
+/** True for a 429, or the 503 the server sends when its CPM slots are full (#4657). */
+function isThrottledResponse(status: number | undefined, data: unknown): boolean {
+  if (status === 429) return true;
+  return status === 503 && (data as { code?: string } | undefined)?.code === 'schedule_busy';
+}
 
 /** Machine-readable body shape of a `program_schedule_invalid_input` 422 (#1981). */
 export interface ProgramScheduleInvalidInputDetail {
@@ -158,6 +165,7 @@ export interface ProgramScheduleInvalidInputDetail {
 /** Map a TanStack Query error from {@link useProgramSchedule} to its kind. */
 export function classifyProgramScheduleError(error: unknown): ProgramScheduleErrorKind {
   if (isAxiosError(error)) {
+    if (isThrottledResponse(error.response?.status, error.response?.data)) return 'throttled';
     switch (error.response?.status) {
       case 409:
         return 'not-computed';
@@ -171,8 +179,6 @@ export function classifyProgramScheduleError(error: unknown): ProgramScheduleErr
           : 'too-large';
       case 403:
         return 'forbidden';
-      case 429:
-        return 'throttled';
       default:
         return 'unknown';
     }
@@ -188,8 +194,8 @@ export function classifyProgramScheduleError(error: unknown): ProgramScheduleErr
 export const THROTTLED_REFETCH_MAX_MS = 60_000;
 
 /**
- * Milliseconds to wait before the one automatic refetch after a throttled (429)
- * read (#2839), or `null` when `error` is not a 429.
+ * Milliseconds to wait before the one automatic refetch after a throttled (429 or
+ * busy 503) read (#2839, #4657), or `null` when `error` is neither.
  *
  * A 429 is not retried by the query (an immediate retry hits the same full
  * bucket), and DRF's sliding window does not count refused requests, so once a
@@ -198,8 +204,10 @@ export const THROTTLED_REFETCH_MAX_MS = 60_000;
  * {@link THROTTLED_REFETCH_MAX_MS}; an absent or unparseable header waits the cap.
  */
 export function throttledRefetchDelayMs(error: unknown): number | null {
-  if (!isAxiosError(error) || error.response?.status !== 429) return null;
-  const headers = error.response.headers as Record<string, unknown> | undefined;
+  if (!isAxiosError(error) || !isThrottledResponse(error.response?.status, error.response?.data)) {
+    return null;
+  }
+  const headers = error.response?.headers as Record<string, unknown> | undefined;
   const raw = headers?.['retry-after'];
   const seconds = typeof raw === 'string' || typeof raw === 'number' ? Number(raw) : Number.NaN;
   if (!Number.isFinite(seconds) || seconds < 0) return THROTTLED_REFETCH_MAX_MS;

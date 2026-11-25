@@ -39,6 +39,18 @@ describe('classifyProgramScheduleError', () => {
   it('maps 403 to forbidden', () => {
     expect(classifyProgramScheduleError(axiosError(403))).toBe('forbidden');
   });
+  it('maps a busy 503 to throttled and honors its Retry-After (#4657)', () => {
+    const busy = {
+      isAxiosError: true,
+      response: { status: 503, data: { code: 'schedule_busy' }, headers: { 'retry-after': '2' } },
+    };
+    expect(classifyProgramScheduleError(busy)).toBe('throttled');
+    expect(throttledRefetchDelayMs(busy)).toBe(2_000);
+    // Any other 503 stays a retryable failure.
+    expect(classifyProgramScheduleError(axiosError(503))).toBe('unknown');
+    expect(throttledRefetchDelayMs(axiosError(503))).toBeNull();
+  });
+
   it('maps 429 to throttled', () => {
     expect(classifyProgramScheduleError(axiosError(429))).toBe('throttled');
   });
