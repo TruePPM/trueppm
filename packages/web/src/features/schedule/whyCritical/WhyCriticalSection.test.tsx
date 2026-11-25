@@ -79,8 +79,8 @@ function ok(body: unknown) {
   return Promise.resolve({ data: body } as AxiosResponse);
 }
 
-function throttled(seconds: string) {
-  const err = axiosRefusal(429, { detail: 'throttled' });
+function throttled(seconds: string, status = 429, body: unknown = { detail: 'throttled' }) {
+  const err = axiosRefusal(status, body);
   (err.response as AxiosResponse).headers = { 'retry-after': seconds };
   return err;
 }
@@ -132,6 +132,28 @@ describe('WhyCriticalSection states (#4892)', () => {
     getMock.mockImplementation(() => ok(chain()));
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     await waitFor(() => expect(getMock).toHaveBeenCalledTimes(2));
+  });
+
+  it('503 schedule_busy: counts down from Retry-After like a 429 (#4657)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    getMock.mockRejectedValue(
+      throttled('2', 503, { code: 'schedule_busy', detail: 'The schedule is busy.' }),
+    );
+    renderSection();
+    expect(await screen.findByRole('button', { name: 'Try again in 2 s' })).toBeDisabled();
+    expect(screen.getByText('No automatic retry.')).toBeInTheDocument();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2100);
+    });
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeEnabled();
+    expect(getMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('a 503 that is not schedule_busy shows no countdown', async () => {
+    getMock.mockRejectedValue(throttled('2', 503, { detail: 'Service unavailable' }));
+    renderSection();
+    expect(await screen.findByRole('button', { name: 'Try again' })).toBeEnabled();
+    expect(screen.queryByText('No automatic retry.')).not.toBeInTheDocument();
   });
 
   it('offline: says a connection is needed', async () => {

@@ -142,8 +142,12 @@ export type ProgramScheduleErrorKind =
   | 'throttled'
   | 'unknown';
 
-/** True for a 429, or the 503 the server sends when its CPM slots are full (#4657). */
-function isThrottledResponse(status: number | undefined, data: unknown): boolean {
+/**
+ * True for a 429, or the 503 `schedule_busy` the server sends when every CPM slot
+ * in the API process is taken (#4657). Both mean "wait `Retry-After`, then retry",
+ * so every CPM-backed read treats them alike.
+ */
+export function isThrottledResponse(status: number | undefined, data: unknown): boolean {
   if (status === 429) return true;
   return status === 503 && (data as { code?: string } | undefined)?.code === 'schedule_busy';
 }
