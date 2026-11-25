@@ -844,6 +844,7 @@ Where things will live in 0.5 (every name stays importable from
 |---|---|
 | `engine.errors`, `engine.limits`, `engine.results` | the exceptions, the `MAX_*`/`MC_*` caps, the result types |
 | `engine.calendar_math`, `engine.milestones` | working-day arithmetic, zero-duration milestones as instants |
+| `engine.digraph` | the in-package dependency graph: topological sort, strongly connected components, cycle selection |
 | `engine.graph`, `engine.summary`, `engine.validate` | graph building and `find_cycle`, summary expansion, input validation |
 | `engine.forward`, `engine.backward`, `engine.cpm` | the CPM passes and floats, and `schedule()` |
 | `engine.replay` | the milestone state `derive_value` reads back from a `ScheduleResult` |

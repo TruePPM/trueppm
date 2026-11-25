@@ -31,7 +31,7 @@ _PROGRAM_MODEL = "projects.Program"
 
 # Engine input bounds — mirror of trueppm_scheduler.engine.MAX_DURATION_DAYS /
 # MAX_LAG_DAYS (~100 years). Kept as local constants so loading models does not
-# pull numpy/networkx in through the scheduler engine (the engine is imported
+# pull numpy in through the scheduler engine (the engine is imported
 # lazily inside the views). test_scheduler_bound_parity asserts these stay in
 # lockstep with the engine's exported values. See issue #749.
 MAX_TASK_DURATION_DAYS = 36_525

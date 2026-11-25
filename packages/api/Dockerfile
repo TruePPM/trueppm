@@ -125,14 +125,16 @@ ARG PSYCOPG_EXTRA=c
 # this exact commit's code, not whatever release the lock happened to record
 # trueppm-scheduler at (packages/api/uv.lock resolves it against the PyPI
 # registry, not this checkout — see scripts/check-api-scheduler-lock.sh for
-# why that pin is allowed to trail). Its own dependencies (networkx, numpy)
-# are NOT excluded: they stay pinned to the exact versions the lock resolved,
-# so the locally-built scheduler still runs against the same numeric stack CI
-# tested, rather than whatever its own unpinned pyproject ranges would
-# resolve fresh. That claim IS enforced: scripts/check-api-scheduler-lock.sh's
+# why that pin is allowed to trail). Its own dependencies (numpy) are NOT
+# excluded: they stay pinned to the exact versions the lock resolved, so the
+# locally-built scheduler still runs against the same numeric stack CI tested,
+# rather than whatever its own unpinned pyproject ranges would resolve fresh.
+# The local source no longer depends on networkx; it remains in the API lock
+# only because the published trueppm-scheduler 0.4.0 the lock records declares
+# it. The numeric-stack claim IS enforced: scripts/check-api-scheduler-lock.sh's
 # check_scheduler_deps() fails, naming the mismatching requirement, if the
-# lock's pinned networkx/numpy (or any future scheduler dependency) does not
-# satisfy the LOCAL scheduler's declared floors in
+# lock's pinned version of any scheduler dependency does not satisfy the LOCAL
+# scheduler's declared floors in
 # packages/scheduler/pyproject.toml — both installs use --no-deps, so pip
 # cannot catch a mismatch either (#4185).
 #

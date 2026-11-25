@@ -8963,7 +8963,7 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
         project the caller cannot read is withheld as an all-blank placeholder
         (#4588).
         """
-        # Self-loop short-circuits the full graph check — networkx would catch
+        # Self-loop short-circuits the full graph check — find_cycle would catch
         # it but doing it here saves a DB roundtrip for the common typo case.
         if predecessor.id == successor.id:
             self._raise_cycle_error([predecessor, predecessor])
@@ -9012,9 +9012,9 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
         # One fetch serves both checks: cycle detection reads the pairs, the
         # type-collision check reads the type and lag too.
         existing_rows = list(existing_qs)
-        # Sorted so the graph's node insertion order — which decides where
-        # networkx starts its search, and therefore which cycle is reported and
-        # where the path begins — does not depend on the unordered DB row order.
+        # Sorted so the edge list handed to the engine does not depend on the
+        # unordered DB row order. The reported cycle and where its path begins
+        # do not rely on this: find_cycle is independent of edge order.
         edges: list[tuple[str, str]] = sorted((str(p), str(s)) for p, s, _t, _lag in existing_rows)
         edges.append((str(predecessor.id), str(successor.id)))
 
