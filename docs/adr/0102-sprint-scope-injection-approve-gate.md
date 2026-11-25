@@ -3,6 +3,8 @@
 ## Status
 Accepted (2026-05-31) — the three 🔴 blocking questions resolved by Kelly on 2026-05-31: (1) pending tasks **show** in My Work with a muted chip; (2) sprint close **warns + offers carry-over** to the next sprint (no hard block); (3) ADR-0101 §5's scope-change write-path generalization is folded into the #881 implementation. Implementation may begin.
 
+> **Amended by ADR-1485 D1 (2026-11-24, #5125):** (1) the accept gate gains a `slip` kind for date writes that push committed work past an ACTIVE sprint's end, enforced in the task date-write service; (2) accept and reject become **human-only**: they will refuse `ApiToken` authentication of any scope. This ADR forbade *auto*-accept but said nothing about tokens, so this is a breaking change. Not built yet: as of 2026-11-24, the four accept/reject routes are still on `packages/api/tests/apps/access/token_write_surface.txt`.
+
 ## Context
 
 ADR-0101 shipped mid-sprint scope-injection as **notify-after**: any task linked to an
