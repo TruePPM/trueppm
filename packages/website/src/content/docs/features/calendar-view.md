@@ -54,7 +54,17 @@ Two things change besides the row count:
 - **A task that began before the week still shows its name.** Month mode labels a task only on the fragment where it starts, except that a task starting before the grid's first visible day is named in the first row, behind the same `◂` marker (there is no earlier row to carry the name). A week has no row above it to carry the label either, so a task continuing in from an earlier week is named on its first visible day, behind a `◂` continuation marker. A task in progress is drawn across its whole span (its scheduled start to its finish), not only the work remaining.
 - **Nothing is dimmed for being out of month.** Every day in a week row is inside the window by definition, so the out-of-month graying is a month-mode concept only. The non-working fills and the Today tint still apply.
 
+The heading is followed by the **sprint the week sits inside**, for example `Sprint 7 · 2 days left`. When today is inside the sprint it counts the calendar days remaining (`ends today` on the last day); for any other week it names the sprint alone. A week that straddles two sprints names both, in start order, and a canceled sprint is never named. Month mode has no single week to name, so it shows no sprint.
+
 A week with nothing scheduled in it says **"No tasks in the week of Aug 24 – 30, 2026."** across the row — a tall empty row would otherwise read as a failed render rather than as an empty week.
+
+### Group by assignee
+
+The **Group by assignee** button, shown only in week mode on a desktop-width screen, redraws the week as **one swimlane per person**: a full seven-day row for each assignee, labeled in a name column with how many tasks they carry that week, with **Unassigned** last. Lanes are packed within each person, so a row's height reflects that person's load rather than the whole team's, which makes "is Aisha overbooked this week" a glance instead of a count. A task with two assignees appears in both lanes, because it is load on both. Only people with something in the week get a lane. Turning it off, or switching to month mode, returns the ordinary single row.
+
+## Showing only your tasks
+
+**My tasks only** narrows the Calendar, in either mode and on the phone agenda, to tasks assigned to you. It matches on your roster entry in the project, so if you are not on the project's resource roster the Calendar tells you **"Nothing assigned to you"** and offers **Show all tasks** rather than showing a blank grid. Your own work across every project lives in [My Work](/features/my-work/); this is the same lens applied to one project's calendar.
 
 ## Non-working days and the week start
 
@@ -114,12 +124,16 @@ Both pieces of state live in the URL, so a calendar you are looking at is a link
 | --- | --- | --- |
 | `calView` | `month` or `week` | `month` |
 | `calAnchor` | A date, `YYYY-MM-DD` | Today |
+| `calGroup` | `assignee` (week mode only) | Off |
+| `calMine` | `1` | Off |
 
 `…/calendar?calView=week&calAnchor=2026-08-26` opens the week of August 24th on a Monday–Friday calendar, for whoever you send it to. Both parameters are bookmarkable and survive navigating away and back. A link with a value the calendar can't read (a truncated or mistyped date, or an unknown mode) still opens: an unparseable `calAnchor` opens on today, and an unknown `calView` opens the month view.
 
 Switching mode or stepping the window replaces the grid without moving focus, so both are announced to screen readers — *"Week view, Aug 24 – 30, 2026"* — and the grid itself is a labeled region naming the mode and window.
 
 ### From the keyboard
+
+The **Month | Week** control is a single tab stop: <kbd>Tab</kbd> lands on the selected mode, and the arrow keys move to the other mode and select it immediately, wrapping at the ends, with <kbd>Home</kbd> and <kbd>End</kbd> jumping to the first and last.
 
 The date grid is a real grid, not a stack of boxes that happens to look like one: it carries the standard grid semantics, every day cell is named with its full date — *"Wednesday, March 11, 2026"*, and *"…, today"* on today — and you move around it with the arrow keys.
 
@@ -169,4 +183,5 @@ The list follows whichever mode you are in, so week mode narrows the agenda to t
 - [Schedule view](/features/schedule/) — the dependency-aware plan the Calendar's dates come from
 - [Calendars](/features/calendars/) — a different thing with a similar name: the **working-day calendars** that decide which days count toward a duration
 - [Methodology presets](/features/methodology-preset/) — which views each preset shows
-- [Sprints](/features/sprints/) — the cadence the sprint-boundary dots come from
+- [Sprints](/features/sprints/) — the cadence the sprint-boundary dots and the week header come from
+- [My Work](/features/my-work/) — your assigned tasks across every project

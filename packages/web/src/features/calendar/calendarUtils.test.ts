@@ -18,6 +18,11 @@ import {
   formatDayLabel,
   formatDayCellLabel,
   formatWeekRangeLabel,
+  buildAssigneeLanes,
+  inAssigneeLane,
+  filterTasksByResource,
+  describeWeekSprints,
+  UNASSIGNED_LANE,
   formatViewLabel,
   formatWindowNoun,
   deriveWeekStartDay,
@@ -684,5 +689,112 @@ describe('viewWindowBounds (#3244)', () => {
       start: '2026-03-16',
       end: '2026-03-22',
     });
+  });
+});
+
+describe('assignee swimlanes (#3169)', () => {
+  const a = { resourceId: 'r-a', name: 'Aisha' };
+  const b = { resourceId: 'r-b', name: 'Ben' };
+
+  it('makes one lane per assignee sorted by name, Unassigned last', () => {
+    const lanes = buildAssigneeLanes([
+      { assignees: [b] },
+      { assignees: [] },
+      { assignees: [a] },
+      {},
+    ]);
+    expect(lanes.map((l) => l.label)).toEqual(['Aisha', 'Ben', 'Unassigned']);
+    expect(lanes[2].key).toBe(UNASSIGNED_LANE);
+  });
+
+  it("puts a multi-assignee task in each assignee's lane", () => {
+    const item = { assignees: [a, b] };
+    expect(inAssigneeLane(item, 'r-a')).toBe(true);
+    expect(inAssigneeLane(item, 'r-b')).toBe(true);
+    expect(inAssigneeLane(item, UNASSIGNED_LANE)).toBe(false);
+    expect(inAssigneeLane({}, UNASSIGNED_LANE)).toBe(true);
+  });
+
+  it('always returns at least one lane so an empty week keeps a row', () => {
+    expect(buildAssigneeLanes([]).map((l) => l.key)).toEqual([UNASSIGNED_LANE]);
+  });
+
+  it('carries assignees onto chips and milestone marks', () => {
+    const base = {
+      id: 't',
+      wbs: '1',
+      name: 'T',
+      start: '2026-05-05',
+      finish: '2026-05-06',
+      duration: 2,
+      progress: 0,
+      parentId: null,
+      isCritical: false,
+      isComplete: false,
+      isSummary: false,
+      isMilestone: false,
+      status: 'NOT_STARTED' as const,
+      notes: '',
+      assignees: [{ resourceId: 'r-a', name: 'Aisha', units: 50 }],
+    };
+    const anchor = parseUTCDate('2026-05-05');
+    expect(buildChips([base], anchor, 'week')[0].assignees).toEqual([a]);
+    const ms = { ...base, isMilestone: true, finish: base.start };
+    expect(buildMilestoneMarks([ms], anchor, 'week')[0].assignees).toEqual([a]);
+  });
+});
+
+describe('filterTasksByResource (#3171)', () => {
+  const t = (id: string, rid: string | null) =>
+    ({ id, assignees: rid ? [{ resourceId: rid, name: rid, units: 100 }] : [] }) as never;
+  it('keeps only tasks assigned to the resource; null resource keeps none', () => {
+    const tasks = [t('1', 'r-me'), t('2', 'r-x'), t('3', null)];
+    expect(filterTasksByResource(tasks, 'r-me').map((x) => x.id)).toEqual(['1']);
+    expect(filterTasksByResource(tasks, null)).toEqual([]);
+  });
+});
+
+describe('describeWeekSprints (#3170)', () => {
+  const sprint = (name: string, start_date: string, finish_date: string, state = 'ACTIVE') => ({
+    name,
+    start_date,
+    finish_date,
+    state,
+  });
+  const week = parseUTCDate('2026-05-06'); // Mon May 4 – Sun May 10 (Monday start = 1)
+
+  it('names the sprint and the days left when today is inside it', () => {
+    expect(
+      describeWeekSprints([sprint('Sprint 7', '2026-04-27', '2026-05-08')], week, 1, '2026-05-06'),
+    ).toBe('Sprint 7 · 2 days left');
+    expect(
+      describeWeekSprints([sprint('Sprint 7', '2026-04-27', '2026-05-08')], week, 1, '2026-05-07'),
+    ).toBe('Sprint 7 · 1 day left');
+    expect(
+      describeWeekSprints([sprint('Sprint 7', '2026-04-27', '2026-05-08')], week, 1, '2026-05-08'),
+    ).toBe('Sprint 7 · ends today');
+  });
+
+  it('gives only the name for a week that is not today', () => {
+    expect(
+      describeWeekSprints([sprint('Sprint 7', '2026-04-27', '2026-05-08')], week, 1, '2026-03-01'),
+    ).toBe('Sprint 7');
+  });
+
+  it('lists every sprint the week touches, in start order, skipping cancelled and non-overlapping', () => {
+    const sprints = [
+      sprint('Later', '2026-05-09', '2026-05-22'),
+      sprint('Earlier', '2026-04-27', '2026-05-08'),
+      sprint('Gone', '2026-05-04', '2026-05-08', 'CANCELLED'),
+      sprint('Far', '2026-07-01', '2026-07-14'),
+    ];
+    expect(describeWeekSprints(sprints, week, 1, '2026-03-01')).toBe('Earlier / Later');
+  });
+
+  it('returns null when no sprint overlaps the week', () => {
+    expect(
+      describeWeekSprints([sprint('Far', '2026-07-01', '2026-07-14')], week, 1, '2026-05-06'),
+    ).toBeNull();
+    expect(describeWeekSprints([], week, 1, '2026-05-06')).toBeNull();
   });
 });

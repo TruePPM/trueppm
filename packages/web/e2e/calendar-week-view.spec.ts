@@ -142,8 +142,8 @@ test.describe('Calendar week view (#3167)', () => {
     });
 
     await page
-      .getByRole('group', { name: 'Calendar view mode' })
-      .getByRole('button', { name: 'week' })
+      .getByRole('radiogroup', { name: 'Calendar view mode' })
+      .getByRole('radio', { name: 'Week' })
       .click();
 
     await expect(page.getByRole('heading', { level: 2, name: 'Mar 9 – 15, 2026' })).toBeVisible();

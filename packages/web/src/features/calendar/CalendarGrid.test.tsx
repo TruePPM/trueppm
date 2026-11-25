@@ -1164,3 +1164,120 @@ describe('CalendarGrid', () => {
     expect(screen.getByText('Critical path')).toBeInTheDocument();
   });
 });
+
+describe('CalendarGrid swimlanes (#3169)', () => {
+  const aisha = { resourceId: 'r-a', name: 'Aisha', units: 100 };
+  const ben = { resourceId: 'r-b', name: 'Ben', units: 100 };
+  // ANCHOR (2026-05-01, a Friday) → the week of Apr 27 – May 3.
+  const tasks = [
+    baseTask({
+      id: 'a1',
+      name: 'Aisha One',
+      start: '2026-04-28',
+      finish: '2026-04-30',
+      assignees: [aisha],
+    }),
+    baseTask({
+      id: 'a2',
+      name: 'Aisha Two',
+      start: '2026-04-28',
+      finish: '2026-04-29',
+      assignees: [aisha],
+    }),
+    baseTask({
+      id: 'b1',
+      name: 'Ben One',
+      start: '2026-04-28',
+      finish: '2026-04-30',
+      assignees: [ben],
+    }),
+    baseTask({
+      id: 'u1',
+      name: 'Nobody One',
+      start: '2026-04-29',
+      finish: '2026-04-29',
+      assignees: [],
+    }),
+    baseTask({
+      id: 'both',
+      name: 'Shared Work',
+      start: '2026-04-30',
+      finish: '2026-05-01',
+      assignees: [aisha, ben],
+    }),
+  ];
+  const renderGrouped = (grouped = true, t = tasks) =>
+    render(
+      <CalendarGrid
+        anchorIso={ANCHOR}
+        calView="week"
+        tasks={t}
+        onTaskClick={vi.fn()}
+        groupByAssignee={grouped}
+      />,
+    );
+
+  it('draws one full 7-day row per assignee, named, with Unassigned last', () => {
+    renderGrouped();
+    const headers = screen.getAllByRole('rowheader').map((h) => h.textContent);
+    expect(headers).toEqual(['Aisha3 tasks', 'Ben2 tasks', 'Unassigned1 task']);
+    expect(screen.getAllByRole('gridcell')).toHaveLength(21);
+    expect(screen.getByRole('columnheader', { name: 'Assignee' })).toBeInTheDocument();
+  });
+
+  it("puts a multi-assignee task in each assignee lane, and a lane's cells name the person", () => {
+    renderGrouped();
+    expect(screen.getAllByRole('button', { name: /Shared Work/ })).toHaveLength(2);
+    expect(
+      screen.getAllByRole('gridcell', { name: /^Tuesday, April 28, 2026.*, Aisha$/ }),
+    ).toHaveLength(1);
+  });
+
+  it('packs lanes within an assignee, not across the whole team', () => {
+    // Aisha and Ben each need 2 lanes (5 tasks overlap overall, so a
+    // team-wide packing would need more).
+    const { container } = renderGrouped();
+    const rows = container.querySelectorAll('[role="rowgroup"] > [role="row"]');
+    const chipTops = (row: Element) =>
+      [...row.querySelectorAll('[data-cal-chip]')].map((c) => (c as HTMLElement).style.top);
+    expect(new Set(chipTops(rows[0])).size).toBe(2); // a1 + a2 stack; Shared Work reuses a2's lane
+    expect(new Set(chipTops(rows[1])).size).toBe(2);
+    expect(chipTops(rows[2])).toHaveLength(1);
+  });
+
+  it('is off by default and in month mode', () => {
+    const { unmount } = renderGrouped(false);
+    expect(screen.queryAllByRole('rowheader')).toHaveLength(0);
+    expect(screen.getAllByRole('gridcell')).toHaveLength(7);
+    unmount();
+    render(
+      <CalendarGrid
+        anchorIso={ANCHOR}
+        calView="month"
+        tasks={tasks}
+        onTaskClick={vi.fn()}
+        groupByAssignee
+      />,
+    );
+    expect(screen.queryAllByRole('rowheader')).toHaveLength(0);
+  });
+
+  it("roving tab stop: one tabbable cell, arrow-down moves to the next lane's cell", async () => {
+    renderGrouped();
+    const stops = screen.getAllByRole('gridcell').filter((c) => c.getAttribute('tabindex') === '0');
+    expect(stops).toHaveLength(1);
+    stops[0].focus();
+    await userEvent.keyboard('{ArrowDown}');
+    const next = screen.getAllByRole('gridcell').filter((c) => c.getAttribute('tabindex') === '0');
+    expect(next).toHaveLength(1);
+    expect(next[0]).toHaveFocus();
+    expect(next[0].getAttribute('aria-label')).toMatch(/, Ben$/);
+  });
+
+  it('keeps a lane for an empty week so the grid still has a row', () => {
+    renderGrouped(true, []);
+    expect(screen.getAllByRole('rowheader').map((h) => h.textContent)).toEqual([
+      'Unassigned0 tasks',
+    ]);
+  });
+});

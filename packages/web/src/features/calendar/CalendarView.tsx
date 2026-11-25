@@ -24,6 +24,7 @@ import type { Methodology, Task, TaskStatus } from '@/types';
 import { useCalendarFilter } from './useCalendarFilter';
 import { useCalendarWorkingTime } from './useCalendarWorkingTime';
 import { CalendarGrid } from './CalendarGrid';
+import { CalendarViewModeToggle } from './CalendarViewModeToggle';
 import {
   parseUTCDate,
   formatViewLabel,
@@ -31,6 +32,8 @@ import {
   buildChips,
   buildMilestoneMarks,
   viewWindowBounds,
+  filterTasksByResource,
+  describeWeekSprints,
   type WeekStartDay,
   type WorkingTimeInputs,
 } from './calendarUtils';
@@ -42,6 +45,8 @@ import { useSprints } from '@/hooks/useSprints';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
+import { useCurrentUserResourceId } from '@/hooks/useCurrentUserResourceId';
+import { todayLocalIso } from '@/features/schedule/scheduleUtils';
 import { ROLE_MEMBER } from '@/lib/roles';
 import { QueryErrorState } from '@/components/QueryErrorState';
 import { EmptyState } from '@/components/EmptyState';
@@ -108,7 +113,9 @@ export function TaskDetailBanner({ task, projectId, onClose }: TaskDetailBannerP
 
       <span className="inline-flex items-center gap-1.5 text-xs text-neutral-text-secondary">
         {task.statusSource === 'none' ? (
-          <span>—<span className="sr-only">no status</span></span>
+          <span>
+            —<span className="sr-only">no status</span>
+          </span>
         ) : task.statusSource === 'derived' ? (
           <span>{statusRollupPhrase(task.status, task.statusRollupCount ?? 0)}</span>
         ) : (
@@ -179,6 +186,9 @@ function CalendarGridArea({
   anchorIso,
   onTaskClick,
   sprintBoundaries,
+  groupByAssignee,
+  mineOnlyEmpty,
+  onClearMineOnly,
 }: {
   error: ReturnType<typeof useCalendarTasks>['error'];
   isLoading: boolean;
@@ -196,6 +206,10 @@ function CalendarGridArea({
   anchorIso: string;
   onTaskClick: (taskId: string) => void;
   sprintBoundaries: Set<string>;
+  groupByAssignee: boolean;
+  /** "My tasks only" is on and removed every task — not the same as an empty project. */
+  mineOnlyEmpty: boolean;
+  onClearMineOnly: () => void;
 }) {
   if (error) {
     return <QueryErrorState message="Couldn't load the calendar." onRetry={onRetry} />;
@@ -215,6 +229,21 @@ function CalendarGridArea({
           />
         ))}
       </div>
+    );
+  }
+  if (mineOnlyEmpty) {
+    return (
+      <EmptyState
+        className="h-full bg-neutral-surface"
+        icon={CalendarIcon}
+        title="Nothing assigned to you"
+        description={`None of the tasks in this ${calView} are assigned to you.`}
+        action={
+          <Button variant="secondary" onClick={onClearMineOnly}>
+            Show all tasks
+          </Button>
+        }
+      />
     );
   }
   if (tasks.length === 0 && effectiveMethodology === 'AGILE') {
@@ -258,12 +287,55 @@ function CalendarGridArea({
       tasks={tasks}
       onTaskClick={onTaskClick}
       sprintBoundaries={sprintBoundaries}
+      groupByAssignee={groupByAssignee}
     />
   );
 }
 
+/** A toolbar on/off filter: an `aria-pressed` toggle button with the rule-4 ring. */
+function FilterToggle({
+  label,
+  pressed,
+  onToggle,
+}: {
+  label: string;
+  pressed: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      onClick={onToggle}
+      className={`
+        border rounded h-7 px-3 text-xs font-medium whitespace-nowrap flex-shrink-0
+        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
+        focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface-raised
+        ${
+          pressed
+            ? 'border-brand-primary bg-brand-primary text-neutral-text-inverse'
+            : 'border-neutral-border bg-neutral-surface text-neutral-text-secondary hover:bg-neutral-surface-raised'
+        }
+      `}
+    >
+      {label}
+    </button>
+  );
+}
+
 export function CalendarView() {
-  const { calView, anchorIso, setCalView, goToToday, goNext, goPrev } = useCalendarFilter();
+  const {
+    calView,
+    anchorIso,
+    setCalView,
+    groupByAssignee,
+    setGroupByAssignee,
+    mineOnly,
+    setMineOnly,
+    goToToday,
+    goNext,
+    goPrev,
+  } = useCalendarFilter();
   const projectId = useProjectId();
   const itl = useIterationLabel(projectId);
   // Server-resolved preset (web-rule 196) — AGILE hides this view's nav entry
@@ -304,10 +376,29 @@ export function CalendarView() {
   // adjacent months included); the API's start__gte/finish__lte are overlap
   // filters on early_finish and the span start (scheduled_start ?? early_start). Mobile list and grid share this window.
   const bounds = viewWindowBounds(anchor, calView, weekStartDay);
-  const { tasks, isLoading, error, refetch } = useCalendarTasks({
+  const {
+    tasks: allTasks,
+    isLoading,
+    error,
+    refetch,
+  } = useCalendarTasks({
     startGte: bounds.start,
     finishLte: bounds.end,
   });
+
+  // "My tasks only" (#3171) is client-side: assignments are already on each task,
+  // and the server's own `is_me` flag (not a user-id comparison here) names the
+  // current user's roster resource. While that lookup is in flight the filter is
+  // not applied, so a slow roster never flashes an empty calendar.
+  const { resourceId: myResourceId, isLoading: myResourceLoading } =
+    useCurrentUserResourceId(projectId);
+  const applyMine = mineOnly && !myResourceLoading;
+  const tasks = applyMine ? filterTasksByResource(allTasks, myResourceId) : allTasks;
+  const mineOnlyEmpty = applyMine && allTasks.length > 0 && tasks.length === 0;
+  // Swimlanes are a Week-grid concept; the phone agenda has no row to split.
+  const showGroupToggle = calView === 'week' && breakpoint !== 'sm';
+  const sprintHeader =
+    calView === 'week' ? describeWeekSprints(sprints, anchor, weekStartDay, todayLocalIso()) : null;
 
   // WCAG 4.1.3 — switching mode or stepping the window swaps grid content with
   // no focus change, so a screen-reader user gets nothing. The region is mounted
@@ -414,31 +505,35 @@ export function CalendarView() {
           {label}
         </h2>
 
+        {/* The sprint(s) this week sits inside (#3170). Plain text beside the
+            heading, not part of it, so the heading's name stays the date range. */}
+        {sprintHeader && (
+          <span
+            data-testid="calendar-week-sprint"
+            title={sprintHeader}
+            className="min-w-0 truncate text-xs text-neutral-text-secondary"
+          >
+            {sprintHeader}
+          </span>
+        )}
+
         <div className="flex-1" />
 
+        <FilterToggle
+          label="My tasks only"
+          pressed={mineOnly}
+          onToggle={() => setMineOnly(!mineOnly)}
+        />
+        {showGroupToggle && (
+          <FilterToggle
+            label="Group by assignee"
+            pressed={groupByAssignee}
+            onToggle={() => setGroupByAssignee(!groupByAssignee)}
+          />
+        )}
+
         {/* View mode toggle: Month | Week */}
-        <div role="group" aria-label="Calendar view mode" className="flex items-center gap-1">
-          {(['month', 'week'] as const).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              aria-pressed={calView === mode}
-              onClick={() => setCalView(mode)}
-              className={`
-                border rounded h-7 px-3 text-xs font-medium capitalize
-                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary
-                focus-visible:ring-offset-1 focus-visible:ring-offset-neutral-surface-raised
-                ${
-                  calView === mode
-                    ? 'border-brand-primary bg-brand-primary text-neutral-text-inverse'
-                    : 'border-neutral-border bg-neutral-surface text-neutral-text-secondary hover:bg-neutral-surface-raised'
-                }
-              `}
-            >
-              {mode}
-            </button>
-          ))}
-        </div>
+        <CalendarViewModeToggle value={calView} onChange={setCalView} />
       </div>
 
       {/* Mode/window announcements (WCAG 4.1.3) — permanently mounted, empty
@@ -496,6 +591,9 @@ export function CalendarView() {
           anchorIso={anchorIso}
           onTaskClick={handleTaskClick}
           sprintBoundaries={sprintBoundaries}
+          groupByAssignee={groupByAssignee}
+          mineOnlyEmpty={mineOnlyEmpty}
+          onClearMineOnly={() => setMineOnly(false)}
         />
       </div>
 

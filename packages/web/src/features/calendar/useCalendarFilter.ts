@@ -4,6 +4,7 @@
  *
  * State is stored in the URL so it survives navigation and can be bookmarked:
  *   ?view=calendar&calView=month&calAnchor=2026-03-01
+ * plus the optional `calGroup=assignee` and `calMine=1` filters.
  */
 
 import { useCallback } from 'react';
@@ -26,6 +27,12 @@ interface UseCalendarFilterReturn {
   calView: CalViewMode;
   anchorIso: string;
   setCalView: (mode: CalViewMode) => void;
+  /** Week view only: one swimlane per assignee (`?calGroup=assignee`, #3169). */
+  groupByAssignee: boolean;
+  setGroupByAssignee: (on: boolean) => void;
+  /** Show only tasks assigned to the current user (`?calMine=1`, #3171). */
+  mineOnly: boolean;
+  setMineOnly: (on: boolean) => void;
   goToToday: () => void;
   goNext: () => void;
   goPrev: () => void;
@@ -41,12 +48,19 @@ export function useCalendarFilter(): UseCalendarFilterReturn {
   const rawAnchor = searchParams.get('calAnchor');
   const anchorIso = isValidISODate(rawAnchor) ? rawAnchor : todayLocalIso();
 
+  const groupByAssignee = searchParams.get('calGroup') === 'assignee';
+  const mineOnly = searchParams.get('calMine') === '1';
+
+  // A null value deletes the param, so an "off" filter leaves the URL clean.
   const updateParams = useCallback(
-    (patch: Record<string, string>) => {
+    (patch: Record<string, string | null>) => {
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
-          for (const [k, v] of Object.entries(patch)) next.set(k, v);
+          for (const [k, v] of Object.entries(patch)) {
+            if (v === null) next.delete(k);
+            else next.set(k, v);
+          }
           return next;
         },
         { replace: true },
@@ -57,6 +71,16 @@ export function useCalendarFilter(): UseCalendarFilterReturn {
 
   const setCalView = useCallback(
     (mode: CalViewMode) => updateParams({ calView: mode }),
+    [updateParams],
+  );
+
+  const setGroupByAssignee = useCallback(
+    (on: boolean) => updateParams({ calGroup: on ? 'assignee' : null }),
+    [updateParams],
+  );
+
+  const setMineOnly = useCallback(
+    (on: boolean) => updateParams({ calMine: on ? '1' : null }),
     [updateParams],
   );
 
@@ -74,5 +98,16 @@ export function useCalendarFilter(): UseCalendarFilterReturn {
     updateParams({ calAnchor: prev.toISOString().slice(0, 10) });
   }, [anchorIso, calView, updateParams]);
 
-  return { calView, anchorIso, setCalView, goToToday, goNext, goPrev };
+  return {
+    calView,
+    anchorIso,
+    setCalView,
+    groupByAssignee,
+    setGroupByAssignee,
+    mineOnly,
+    setMineOnly,
+    goToToday,
+    goNext,
+    goPrev,
+  };
 }

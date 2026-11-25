@@ -366,7 +366,7 @@ test.describe('Marketing snapshots — desktop', () => {
   test('05 — Calendar', async ({ page }) => {
     // Anchor to May 2026 so the in-progress procurement tasks are on-screen.
     await page.goto(`/projects/${PROJECT_ID}/calendar?calAnchor=2026-05-01`);
-    await expect(page.getByRole('group', { name: 'Calendar view mode' })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('radiogroup', { name: 'Calendar view mode' })).toBeVisible({ timeout: 15_000 });
     await page.waitForTimeout(700);
     await page.screenshot({ path: path.join(OUT, 'trueppm-05-calendar.png'), fullPage: false });
   });
