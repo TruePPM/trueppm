@@ -103,6 +103,7 @@ describe('changeset hints on structural writes', () => {
     expect(isStructuralWrite('delete', '/projects/p/phases/x/')).toBe(true);
     expect(isStructuralWrite('get', '/projects/p/tasks/')).toBe(false);
     expect(isStructuralWrite('post', '/projects/p/phases/reorder/')).toBe(false);
+    expect(isStructuralWrite('patch', '/projects/p/phases/reorder/')).toBe(true);
     expect(isStructuralWrite('post', '/tasks/t/restore/')).toBe(false);
   });
 });

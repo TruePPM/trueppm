@@ -216,3 +216,27 @@ def test_stamp_honors_the_run_snapshot_and_runs_when_nothing_moved(
     assert amend.stamp_finish_after([committed.pk], snapshot_at=timezone.now(), moved_tasks=[])
     entry.refresh_from_db()
     assert entry.finish_after == date(2026, 3, 11)
+
+
+def test_phase_reorder_on_a_committed_plan_records_one_move(committed: Project, owner: Any) -> None:
+    """Reordering phases is a move of the plan's shape (ADR-1477 §2): one entry
+    for the whole reorder, carrying the client's surface hint."""
+    roots = list(Task.objects.filter(project=committed).order_by("wbs_path"))
+    c = APIClient()
+    c.force_authenticate(owner)
+    res = c.patch(
+        f"/api/v1/projects/{committed.pk}/phases/reorder/",
+        {
+            "phases": [
+                {"id": str(t.pk), "server_version": t.server_version} for t in reversed(roots)
+            ],
+            "surface": "board",
+        },
+        format="json",
+    )
+    assert res.status_code == 200, res.content
+    entries = list(ChangesetEntry.objects.filter(project=committed))
+    assert len(entries) == 1
+    assert entries[0].kind == "move"
+    assert entries[0].surface == "board"
+    assert set(entries[0].task_ids) == {str(t.pk) for t in roots}

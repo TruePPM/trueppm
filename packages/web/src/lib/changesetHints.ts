@@ -62,6 +62,7 @@ const STRUCTURAL: Array<{ method: string; path: RegExp }> = [
   },
   { method: 'post', path: /^\/projects\/[^/]+\/phases\/$/ },
   { method: 'delete', path: /^\/projects\/[^/]+\/phases\/[^/]+\/$/ },
+  { method: 'patch', path: /^\/projects\/[^/]+\/phases\/reorder\/$/ },
 ];
 
 /** Whether `method url` is a structural write the changeset records. */

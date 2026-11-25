@@ -66,7 +66,6 @@ STRUCTURAL: dict[str, str] = {
 PENDING: set[str] = {
     "views.TaskSyncView.post",  # inbound task push: an add
     "views.SprintViewSet.promote_to_milestone",  # creates the sprint's milestone task
-    "views.PhaseReorderView.patch",  # moves phases in the WBS
     "template_views.ProjectTemplateViewSet.apply",  # async apply adds the template's rows
 }
 

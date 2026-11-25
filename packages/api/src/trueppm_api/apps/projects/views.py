@@ -16513,6 +16513,9 @@ class PhaseReorderView(IdempotencyMixin, APIView):
                 lambda: broadcast_board_event(project_id_str, "phases_reordered", {})
             )
             transaction.on_commit(lambda: _enqueue_recalculate(project_id_str))
+            # Reordering phases moves them in the plan's shape: on a committed plan
+            # it is a structural act like any other move (ADR-1477 §2).
+            amend.record_from_request(request, project, "move", [tid for tid, _ in parsed])
 
         return Response({"updated": len(parsed)}, status=status.HTTP_200_OK)
 
