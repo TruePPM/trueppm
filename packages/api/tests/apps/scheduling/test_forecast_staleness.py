@@ -713,6 +713,8 @@ class TestEngineEpochIsRecorded:
         cached = admin_client.get(latest_url(project.pk))
         assert cached.status_code == 200
         assert cached.data["forecast_staleness"] == "engine_superseded"
+        # The epoch is a cache-entry fact only; the response never carries it.
+        assert "engine_epoch" not in cached.data
 
         cache.clear()  # the from-history branch reads the persisted row's epoch
         from_history = admin_client.get(latest_url(project.pk))

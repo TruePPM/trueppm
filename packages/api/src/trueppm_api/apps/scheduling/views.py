@@ -1405,7 +1405,8 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
             # `stale`) would be wrong by the time it is read back.
             return Response(
                 {
-                    **cached,
+                    # `engine_epoch` is the classifier's input, not part of the response.
+                    **{k: v for k, v in cached.items() if k != "engine_epoch"},
                     # An entry written before #4663 carries only `runs`.
                     "n_simulations": cached.get("n_simulations", cached.get("runs")),
                     **risk_premium_for_forecast_payload(

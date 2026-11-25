@@ -44,7 +44,9 @@ _GUARD_TTL_SECONDS = 7 * 24 * 3600
 #: ``engine_superseded`` (#5064) is excluded for the same reason: an epoch bump supersedes
 #: every project's run at once, so signaling it would fire for the whole fleet on each
 #: project's next recalculation — and it keeps the ``staleness`` values this extension
-#: point carries the ones enterprise receivers were written against.
+#: point carries the ones enterprise receivers were written against. The run is therefore
+#: classified with ``ignore_epoch``, so a superseded run whose plan also moved (or that
+#: aged) still signals on that plan term.
 _SIGNALED = frozenset({"project_changed", "aged"})
 
 
@@ -77,6 +79,7 @@ def notify_if_forecast_stale(project_id: Any) -> bool:
             plan_version_current=current,
             recalculated_at=recalculated_at,
             today=timezone.localdate(),
+            ignore_epoch=True,
         )
         if facts["forecast_staleness"] not in _SIGNALED:
             return False

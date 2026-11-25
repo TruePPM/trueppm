@@ -350,8 +350,9 @@ def record_monte_carlo_run(
             diagnostic=diagnostic,
             status_date=status_date,
             plan_version=plan_version,
-            # Stamped here, the one place a run row is written, so no caller can omit it
-            # (#5064).
+            # Stamped here so no caller of this function can omit it. The seed writers
+            # (`projects/seed/forecast_backfill.py` and `demo_landing_overlay.py`) create rows
+            # directly and leave it null: no engine computed those under an epoch (#5064).
             engine_epoch=MC_ENGINE_EPOCH,
             **reading_values,
         )

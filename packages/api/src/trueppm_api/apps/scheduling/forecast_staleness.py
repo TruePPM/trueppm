@@ -276,6 +276,7 @@ def forecast_staleness_from_run(
     plan_version_current: int | None,
     recalculated_at: datetime.datetime | None,
     today: datetime.date,
+    ignore_epoch: bool = False,
 ) -> ForecastStalenessFacts:
     """Derive the staleness slice from a persisted :class:`.models.MonteCarloRun`.
 
@@ -288,6 +289,10 @@ def forecast_staleness_from_run(
     drift digest (``trueppm-enterprise#192``) has to be able to read this OSS fact by
     importing it — enterprise → core, the one sanctioned direction — instead of
     re-deriving its own answer beside ours and drifting from it.
+
+    ``ignore_epoch`` classifies on the plan terms alone. ``engine_superseded`` is decided
+    first and so would otherwise mask plan drift or age from a caller that only acts on
+    those (:mod:`.forecast_recompute`).
     """
     if run is None:
         return forecast_staleness_facts(
@@ -304,7 +309,7 @@ def forecast_staleness_from_run(
         recalculated_at=recalculated_at,
         today=today,
         # getattr: a caller may hand a row loaded with `.only(...)` predating the column.
-        engine_epoch=getattr(run, "engine_epoch", None),
+        engine_epoch=None if ignore_epoch else getattr(run, "engine_epoch", None),
     )
 
 
