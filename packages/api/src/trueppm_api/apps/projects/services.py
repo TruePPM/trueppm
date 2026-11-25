@@ -3968,13 +3968,13 @@ def _apply_accepted_slip(locked: Any, by: Any, *, reason: str) -> None:
 
     task = Task.objects.select_for_update().filter(pk=locked.task_id).first()
     stale = _slip_stale_reason(locked, task)
-    if stale is not None:
+    if stale is not None or task is None:
         locked.status = ScopeChangeStatus.REJECTED
         locked.decided_by = None
         locked.decided_at = timezone.now()
         locked.decision_reason = f"Not applied: {stale}"
         locked.save(update_fields=["status", "decided_by", "decided_at", "decision_reason"])
-        setattr(locked, SLIP_STALE_ATTR, stale)
+        setattr(locked, SLIP_STALE_ATTR, stale or "The task was deleted.")
         if task is not None:
             _on_commit_scope_broadcast(locked)
         return
