@@ -28,8 +28,8 @@ interface Props {
 
 /** What a pending slip row needs to offer its decision controls. */
 interface SlipDecisionProps {
-  projectId: string;
-  sprintId: string;
+  /** The drawer's one decision mutation, shared by every pending row. */
+  decide: ReturnType<typeof useSlipDecision>;
   /** Pending rows sharing this row's `batch_id`, when this row leads the batch. */
   batchSize: number;
 }
@@ -53,8 +53,13 @@ export function ScopeChangeDrawer({ sprintId, projectId, onClose }: Props) {
   const { data: durationData, isLoading: durationLoading } = useSprintDurationChanges(sprintId);
   const itl = useIterationLabel();
   const closeBtnRef = useRef<HTMLButtonElement>(null);
+  // One mutation for the whole drawer, so its pending flag can key the trap.
+  const decide = useSlipDecision(projectId, sprintId);
   // Trap Tab inside the drawer; restore focus to the trigger on close (issue 1357).
-  const trapRef = useFocusTrap<HTMLDivElement>(true);
+  // A decision in flight disables the Accept / Reject buttons, which blurs the
+  // one just pressed to <body>; the pending flag as focusKey re-seats focus
+  // inside the drawer (web rule 362).
+  const trapRef = useFocusTrap<HTMLDivElement>(true, undefined, decide.isPending);
 
   useEffect(() => {
     closeBtnRef.current?.focus();
@@ -101,7 +106,7 @@ export function ScopeChangeDrawer({ sprintId, projectId, onClose }: Props) {
     }
     const leads = event.batch_id ? batchLead.lead.get(event.batch_id) === event.id : false;
     const batchSize = leads && event.batch_id ? (batchLead.sizes.get(event.batch_id) ?? 0) : 0;
-    return { projectId, sprintId, batchSize };
+    return { decide, batchSize };
   }
 
   return (
@@ -237,12 +242,10 @@ const REJECT_BTN = `${DECIDE_BTN} border border-semantic-critical/40 text-semant
  */
 function SlipDecisionControls({
   event,
-  projectId,
-  sprintId,
+  decide,
   batchSize,
 }: { event: ScopeChangeEvent } & SlipDecisionProps) {
   const [reason, setReason] = useState('');
-  const decide = useSlipDecision(projectId, sprintId);
   const busy = decide.isPending;
   const reasonId = `slip-reason-${event.id}`;
   const showBatch = batchSize > 1 && !!event.batch_id;
