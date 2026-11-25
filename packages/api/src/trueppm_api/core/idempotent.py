@@ -126,6 +126,7 @@ def idempotent_task(
     on_contention: ContentionStrategy = "retry",
     queue_countdown: int = 10,
     max_queue_attempts: int = 5,
+    on_drop: Callable[[Any, tuple[Any, ...]], None] | None = None,
     **task_kwargs: Any,
 ) -> Callable[..., Any]:
     """Decorator that wraps a function as a Celery shared_task with Redis locking.
@@ -144,7 +145,10 @@ def idempotent_task(
             - ``"queue"`` — re-queue with a fixed countdown.
         queue_countdown: Fixed countdown in seconds for ``on_contention="queue"``.
         max_queue_attempts: Max re-queue attempts for ``on_contention="queue"``
-            (tracked via ``x-requeue-count`` header).
+            (tracked via ``x-requeue-count`` header; the first message's id
+            travels as ``x-origin-task-id``).
+        on_drop: Called with ``(task, args)`` when ``"queue"`` gives up on a
+            message, so state the message was carrying can be released.
         **task_kwargs: Passed through to ``@shared_task`` (e.g. ``bind``,
             ``autoretry_for``, ``max_retries``).
     """
@@ -174,6 +178,7 @@ def idempotent_task(
                     lock_key,
                     queue_countdown,
                     max_queue_attempts,
+                    on_drop,
                 )
 
             # Start the lock extension thread.
@@ -213,6 +218,7 @@ def _handle_contention(
     lock_key: str,
     queue_countdown: int,
     max_queue_attempts: int,
+    on_drop: Callable[[Any, tuple[Any, ...]], None] | None = None,
 ) -> None:
     """Handle lock contention according to the chosen strategy."""
     if strategy == "skip":
@@ -234,6 +240,8 @@ def _handle_contention(
                 max_queue_attempts,
                 lock_key,
             )
+            if on_drop is not None:
+                on_drop(self, args)
             return
         logger.info(
             "idempotent_task(%s): lock held on %s, re-queuing in %ds (attempt %d/%d)",
@@ -243,11 +251,15 @@ def _handle_contention(
             requeue_count + 1,
             max_queue_attempts,
         )
+        next_headers: dict[str, Any] = {"x-requeue-count": requeue_count + 1}
+        origin = headers.get("x-origin-task-id") or getattr(self.request, "id", None)
+        if isinstance(origin, str) and origin:
+            next_headers["x-origin-task-id"] = origin
         self.apply_async(
             args=list(args),
             kwargs=kwargs,
             countdown=queue_countdown,
-            headers={"x-requeue-count": requeue_count + 1},
+            headers=next_headers,
         )
         return
 

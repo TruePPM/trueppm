@@ -138,6 +138,8 @@ CELERY_TASK_NAME = "trueppm.celery.task_name"
 CELERY_TASK_OUTCOME = "trueppm.celery.outcome"
 """Lower-cased terminal Celery state for one execution: ``success`` | ``failure`` |
 ``retry`` | etc."""
+SCHEDULE_COALESCE_OUTCOME = "trueppm.schedule.coalesce_outcome"
+"""Which redundant CPM run was avoided (#4095): ``dispatch_skipped`` | ``run_bailed``."""
 
 # --- Agent / MCP span attributes (OSS-owned, ADR-0112 RC1, #1805) ----------
 # Set on the request span when an MCP/agent token acts, so an operator can attribute
@@ -236,6 +238,7 @@ __all__ = [
     "RESOURCE_SERVICE_NAME",
     "RESOURCE_SERVICE_NAMESPACE",
     "RESOURCE_SERVICE_VERSION",
+    "SCHEDULE_COALESCE_OUTCOME",
     "SCHEDULE_CRITICAL_COUNT",
     "SCHEDULE_DEPENDENCY_COUNT",
     "SCHEDULE_RECOMPUTE_REASON",

@@ -172,7 +172,7 @@ def test_run_schedule_marks_outbox_row_done(
         patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
         patch("trueppm_api.apps.webhooks.dispatch.dispatch_webhooks"),
     ):
-        _run_schedule(str(project.pk))
+        _run_schedule(str(project.pk), claimed_ids=[req.pk])
 
     req.refresh_from_db()
     assert req.status == ScheduleRequestStatus.DONE, (

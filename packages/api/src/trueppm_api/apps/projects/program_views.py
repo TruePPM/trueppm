@@ -3379,7 +3379,15 @@ class ProgramViewSet(
 
     @extend_schema(
         summary="Compute the program-true cross-project schedule",
-        responses={200: ProgramScheduleSerializer},
+        responses={
+            200: ProgramScheduleSerializer,
+            503: OpenApiResponse(
+                description=(
+                    "No free CPM slot in this API process (CPM_ON_READ_MAX_CONCURRENT, "
+                    "#4657). Body {code: schedule_busy, detail}; retry after Retry-After."
+                )
+            ),
+        },
     )
     @action(
         detail=True,
@@ -3411,10 +3419,14 @@ class ProgramViewSet(
         )
         from trueppm_api.apps.projects.mcp_settings import mcp_excluded_project_ids
         from trueppm_api.apps.projects.program_schedule import compute_program_schedule
+        from trueppm_api.apps.scheduling.cpm_admission import cpm_busy_response, cpm_slot
 
         program = self.get_object()
-        return Response(
-            compute_program_schedule(
+        # The merged CPM pass runs on this request thread (#4657).
+        with cpm_slot() as admitted:
+            if not admitted:
+                return cpm_busy_response()
+            payload = compute_program_schedule(
                 program,
                 can_access_project=lambda project_id: (
                     _membership_role(request, project_id) is not None
@@ -3432,7 +3444,7 @@ class ProgramViewSet(
                     _membership_role(request, project_id)
                 ),
             )
-        )
+        return Response(payload)
 
     @extend_schema(
         summary="Search tasks across a program's projects (cross-project dep picker)",

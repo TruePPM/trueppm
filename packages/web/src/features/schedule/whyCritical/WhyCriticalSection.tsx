@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import axios from 'axios';
 import { Button } from '@/components/Button';
+import { isThrottledResponse } from '@/features/programs/hooks/useProgramSchedule';
 import { useDrivingChain } from '@/hooks/useDrivingChain';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { useSchedulerStore } from '@/stores/schedulerStore';
@@ -19,7 +20,7 @@ import { WhyCriticalNetworkDialog } from './WhyCriticalNetworkDialog';
 
 /** Global (not per-task) disclosure preference — a per-viewer convenience only. */
 const DETAIL_OPEN_KEY = 'tppm:whyCritical:detailOpen';
-/** Default wait when a 429 carries no usable `Retry-After`. */
+/** Default wait when a 429 or busy 503 carries no usable `Retry-After`. */
 const DEFAULT_RETRY_AFTER_S = 30;
 /** Debounce between a schedule recompute and the refetch it triggers. */
 const RECOMPUTE_DEBOUNCE_MS = 3000;
@@ -41,7 +42,8 @@ function writeDetailOpen(open: boolean): void {
 }
 
 function retryAfterSeconds(error: unknown): number | null {
-  if (!axios.isAxiosError(error) || error.response?.status !== 429) return null;
+  if (!axios.isAxiosError(error) || !error.response) return null;
+  if (!isThrottledResponse(error.response.status, error.response.data)) return null;
   const raw: unknown = (error.response.headers as Record<string, unknown>)['retry-after'];
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? Math.ceil(n) : DEFAULT_RETRY_AFTER_S;
@@ -136,7 +138,7 @@ export function WhyCriticalSection({
     return () => window.clearTimeout(t);
   }, [data, error]);
 
-  // 429: count down from Retry-After; never retry automatically.
+  // 429 or busy 503: count down from Retry-After; never retry automatically.
   const throttleSeconds = retryAfterSeconds(error);
   useEffect(() => {
     if (throttleSeconds === null) return;

@@ -1,6 +1,7 @@
 ---
 title: OpenTelemetry & OTLP Export
 description: How to export TruePPM's traces and metrics to your own OpenTelemetry collector over OTLP — an opt-in, off-by-default integration configured with environment variables or Helm values.
+documentedFor: "0.5"
 ---
 
 
@@ -319,6 +320,11 @@ interval. The HTTP and Celery families follow OpenTelemetry's semantic conventio
 the outbox, database, broker, and WebSocket families are TruePPM-specific instruments
 under the `trueppm.*` namespace.
 
+:::note[Ships in 0.5]
+The `trueppm.schedule.recalc.coalesced` counter and the workflow outbox's `retrying`
+state ship in 0.5; 0.4 exports neither.
+:::
+
 | Metric | Type | What it measures | Dimensions |
 |---|---|---|---|
 | `http.server.duration` | histogram, **milliseconds** | API request latency | `http.*` semantic conventions |
@@ -331,6 +337,7 @@ under the `trueppm.*` namespace.
 | `trueppm.broker.queue.depth` | gauge | Celery messages **waiting** in the broker (Valkey/Redis `LLEN`), downstream of the outboxes | `messaging.destination.name` (queue, e.g. `celery`) |
 | `trueppm.ws.connections.active` | up/down counter | Active WebSocket connections accepted by this process's Channels consumers | — |
 | `trueppm.ws.broadcast.count` | counter | WebSocket board-event broadcasts fanned out to a project group | — |
+| `trueppm.schedule.recalc.coalesced` | counter | Ships in 0.5. Redundant CPM recalculations avoided while a run was already covering the project | `trueppm.schedule.coalesce_outcome` (`dispatch_skipped` \| `run_bailed`) |
 | `trueppm.ratelimit.enabled` | gauge | `1` when API rate limiting is on, `0` when an operator has disabled it (ADR-0604) — alert on `0`, it means DoS/abuse protection is off instance-wide | — |
 
 The two `trueppm.outbox.*` metrics are the operational signal for TruePPM's durable

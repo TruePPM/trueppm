@@ -222,6 +222,46 @@ def test_queue_drops_at_max_attempts(mock_valkey: MagicMock) -> None:
         mock_apply.assert_not_called()
 
 
+@patch("trueppm_api.core.idempotent.valkey")
+def test_queue_carries_origin_id_and_calls_on_drop(mock_valkey: MagicMock) -> None:
+    """A re-queue keeps the first message's id; giving up calls ``on_drop``."""
+    mock_client = MagicMock()
+    mock_valkey.client.return_value = mock_client
+    mock_client.set.return_value = None  # Lock NOT acquired
+
+    from trueppm_api.core.idempotent import idempotent_task
+
+    dropped = MagicMock()
+
+    @idempotent_task(
+        lock_key_template="queue_origin:{0}",
+        on_contention="queue",
+        max_queue_attempts=2,
+        on_drop=dropped,
+        name="test.queue_origin",
+    )
+    def my_task(self: object, item_id: str) -> None:
+        pass
+
+    with patch.object(my_task, "apply_async") as mock_apply:
+        my_task.push_request(id="first")
+        try:
+            my_task.run("abc")
+        finally:
+            my_task.pop_request()
+        headers = mock_apply.call_args.kwargs["headers"]
+        assert headers == {"x-requeue-count": 1, "x-origin-task-id": "first"}
+        dropped.assert_not_called()
+
+        my_task.push_request(id="later", headers={**headers, "x-requeue-count": 2})
+        try:
+            my_task.run("abc")
+        finally:
+            my_task.pop_request()
+
+    assert dropped.call_args.args[1] == ("abc",)
+
+
 # ---------------------------------------------------------------------------
 # Contention: retry strategy
 # ---------------------------------------------------------------------------

@@ -1490,6 +1490,13 @@ MC_CELL_CAP: int | None = 2_500_000
 # runs one POST /monte-carlo/ simulation at a time, so worker concurrency bounds those.
 MC_MAX_CONCURRENT: int | None = 2
 
+# CPM passes one API process computes inside a request at once (#4657): schedule
+# derivation, driving chain and program schedule. The per-user throttles bound an
+# account; this bounds the process, which also serves WebSockets. A request waits
+# up to 5 s for a slot, then gets 503 + Retry-After. Per process, so N workers
+# admit N x this. None = unbounded.
+CPM_ON_READ_MAX_CONCURRENT: int | None = 2
+
 # Wall-clock budget for one simulation, in seconds (#4496) — a worker run or a what-if. The
 # caps above bound cost through cell count, which tracks wall time on a healthy host
 # but not on a slow one or a pathological calendar. Past the budget the engine stops

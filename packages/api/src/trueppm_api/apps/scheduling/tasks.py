@@ -36,12 +36,33 @@ logger = logging.getLogger(__name__)
 _RETRIABLE = (ConnectionError, redis_lib.ConnectionError, OperationalError)
 
 
+def _message_id(task: object) -> str:
+    """The id the outbox knows this message by.
+
+    A lock-contention re-queue gets a new Celery id, so the original travels in a
+    header (``core.idempotent``).
+    """
+    request = getattr(task, "request", None)
+    headers = getattr(request, "headers", None)
+    origin = headers.get("x-origin-task-id") if isinstance(headers, dict) else None
+    task_id = origin or getattr(request, "id", None)
+    return task_id if isinstance(task_id, str) else ""
+
+
+def _release_dropped_recalc(task: object, args: tuple[Any, ...]) -> None:
+    """A message dropped on lock contention must not leave its row DISPATCHED."""
+    from trueppm_api.apps.scheduling.services import release_dropped_schedule_request
+
+    release_dropped_schedule_request(str(args[0]), _message_id(task))
+
+
 @idempotent_task(
     lock_key_template="schedule_lock:{0}",
     lock_ttl=300,
     on_contention="queue",
     queue_countdown=10,
     max_queue_attempts=5,
+    on_drop=_release_dropped_recalc,
     autoretry_for=_RETRIABLE,
     retry_backoff=30,
     retry_backoff_max=300,
@@ -76,7 +97,23 @@ def recalculate_schedule(
     Args:
         project_id: UUID string of the project to reschedule.
     """
+    from trueppm_api.apps.scheduling.services import (
+        claim_schedule_request,
+        retire_schedule_requests,
+    )
     from trueppm_api.apps.taskruns.tracker import TaskRunProjectGone, TaskRunTracker
+
+    # Claimed before any project data is read (see claim_schedule_request).
+    claimed_ids = claim_schedule_request(project_id, _message_id(self))
+    if not claimed_ids and _request_already_served(self, project_id):
+        # layering-ok: the OTel metric sink, a no-op unless telemetry is enabled
+        from trueppm_api.apps.observability.otel.metrics import record_recalc_coalesced
+
+        record_recalc_coalesced("run_bailed")
+        logger.info(
+            "recalculate_schedule: request for project %s already served; skipping", project_id
+        )
+        return
 
     try:
         with TaskRunTracker(
@@ -84,7 +121,7 @@ def recalculate_schedule(
             project_id=project_id,
             task_name="scheduling.recalculate",
         ) as tracker:
-            escalated = _run_schedule(project_id, tracker)
+            escalated = _run_schedule(project_id, tracker, claimed_ids)
         if escalated:
             return
         # Stamp the successful CPM completion so the web Schedule view can show
@@ -104,6 +141,7 @@ def recalculate_schedule(
         # The project was deleted while this message was queued (or held in the
         # lock-retry loop). Return normally: raising would dead-letter a task
         # that can never succeed, and it is not in autoretry_for (#4751).
+        retire_schedule_requests(claimed_ids)
         logger.info("recalculate_schedule: project %s no longer exists; skipping", project_id)
         return
     except SchedulerError as exc:
@@ -116,21 +154,17 @@ def recalculate_schedule(
         # alert each time). TaskRunTracker has already marked the run FAILED and
         # broadcast task_run_failed with the generic WS_FAILURE_MESSAGE (the engine's
         # message stays in the Admin-only error_detail) before we
-        # got here; retire the outbox row as DONE (the drain's own "retired" state;
+        # got here; retire the claimed outbox row as DONE (the drain's own "retired" state;
         # DEAD would turn the System Health outbox card CRIT over a data problem),
         # keep the dead-letter row so operators still see it, and end the task
-        # cleanly. Filtering on DISPATCHED leaves a newer PENDING row (a fresh edit)
-        # alone, so repairing the edge recovers the schedule on the next write.
+        # cleanly. Only the claimed ids are retired, so a newer row (a fresh edit)
+        # is left alone and repairing the edge recovers the schedule on the next write.
         logger.warning(
             "recalculate_schedule: project %s holds input the scheduler refuses: %s",
             project_id,
             exc,
         )
-        from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
-
-        ScheduleRequest.objects.filter(
-            project_id=project_id, status=ScheduleRequestStatus.DISPATCHED
-        ).update(status=ScheduleRequestStatus.DONE)
+        retire_schedule_requests(claimed_ids)
         _dead_letter_current(self, project_id, exc)
         return
     except SoftTimeLimitExceeded:
@@ -149,6 +183,7 @@ def recalculate_schedule(
             _dead_letter_current(
                 self, project_id, SoftTimeLimitExceeded("CPM computation timed out")
             )
+            retire_schedule_requests(claimed_ids)
 
             def _broadcast_error(pid: str = project_id) -> None:
                 broadcast_board_event(
@@ -156,6 +191,43 @@ def recalculate_schedule(
                 )
 
             transaction.on_commit(_broadcast_error)
+    # Any other failure leaves the claimed rows DISPATCHED, deliberately. Only the
+    # verdicts above are known to be deterministic. Anything else may be transient
+    # even when it is outside _RETRIABLE (an InterfaceError on a closed connection, a
+    # redis TimeoutError, a kombu error during a broadcast), so retiring the rows
+    # would drop an edit that is never recalculated. Releasing them as a fresh
+    # PENDING row instead would let the drain re-run a failure that does recur (a
+    # statement timeout on a large project) every 30 s. A DISPATCHED row is served
+    # by Celery's next retry, which re-claims it, and otherwise by the drain's
+    # orphan sweep, no sooner than RECALC_ORPHAN_AFTER after the last claim. That is
+    # the same bound as a crashed worker. The cost is that an edit made after the
+    # failure waits for that sweep too, because a DISPATCHED row reads as a run in
+    # flight to enqueue_recalculate and to the drain.
+
+
+def _request_already_served(task: object, project_id: str) -> bool:
+    """True when this message's outbox request was consumed by an earlier run.
+
+    Only called when the project has no outstanding row. That alone is not proof:
+    a dead-letter requeue and a message that overtakes its writer's commit also
+    see none, and must run. So require positive evidence that this message had a
+    row — it is a lock-contention re-queue, or a DONE row carries its task id
+    (a redelivery of a run that already finished).
+    """
+    from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
+
+    request = getattr(task, "request", None)
+    headers = getattr(request, "headers", None)
+    if isinstance(headers, dict) and headers.get("x-requeue-count"):
+        return True
+    task_id = _message_id(task)
+    if not task_id:
+        return False
+    return ScheduleRequest.objects.filter(
+        project_id=project_id,
+        status=ScheduleRequestStatus.DONE,
+        celery_task_id=task_id,
+    ).exists()
 
 
 @idempotent_task(
@@ -210,9 +282,10 @@ def _do_drain() -> None:
     from django.utils import timezone
 
     from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
+    from trueppm_api.apps.scheduling.services import RECALC_ORPHAN_AFTER
 
     now = timezone.now()
-    orphan_cutoff = now - timedelta(minutes=10)
+    orphan_cutoff = now - RECALC_ORPHAN_AFTER
 
     # Recover orphaned rows: dispatched but not completed within 10 minutes.
     #
@@ -249,8 +322,18 @@ def _do_drain() -> None:
             superseded,
         )
 
-    # Dispatch all currently pending rows (one Celery task per project).
-    pending = list(ScheduleRequest.objects.filter(status=ScheduleRequestStatus.PENDING))
+    # Dispatch all currently pending rows (one Celery task per project). A project
+    # with a DISPATCHED row has a run in flight: its pending row waits for a later
+    # tick (orphan recovery above bounds that wait), because dispatching it now only
+    # adds a message that contends on the lock, and the DISPATCHED transition below
+    # would violate schedule_request_one_dispatched_per_project (#4095).
+    pending = list(
+        ScheduleRequest.objects.filter(status=ScheduleRequestStatus.PENDING).exclude(
+            project_id__in=ScheduleRequest.objects.filter(
+                status=ScheduleRequestStatus.DISPATCHED
+            ).values("project_id")
+        )
+    )
     dispatched = 0
     for req in pending:
         try:
@@ -1110,8 +1193,9 @@ Bar fields first: :func:`_apply_cpm_results` classifies a moved row as float-onl
 comparing the first ``len(_CPM_BAR_FIELDS)`` items of the snapshot, so the order is
 load-bearing.
 
-Deliberately the same set the write-back persists, so "this row changed" and "this
-row needs to ship in the delta" are the same question. ``planned_start`` also rides
+Deliberately the same set the write-back persists, so "this row changed", "this row
+needs to be written" (#4096) and "this row needs to ship in the delta" are the same
+question. ``planned_start`` also rides
 in the payload but is a user-owned field the CPM write-back never touches, so it
 cannot make a row moved.
 """
@@ -1272,17 +1356,18 @@ def _apply_cpm_results(
     overwritten, so :func:`_build_schedule_shift_events` can tell which tasks
     actually moved (ADR-0207).
 
-    ``moved_tasks`` is the subset of ``tasks_to_update`` whose broadcast-relevant
-    CPM fields (:data:`_CPM_DELTA_FIELDS`) actually changed in this pass. WHY it is
-    computed here and not by the caller: a CPM run is a *full* write-back — every
+    ``moved_tasks`` is the subset of ``tasks_to_update`` whose persisted CPM fields
+    (:data:`_CPM_DELTA_FIELDS`) actually changed in this pass: the rows the write-back
+    persists (#4096) and the delta broadcast ships. WHY it is computed here and not by
+    the caller: a CPM run is a *full* recompute — every
     engine-returned row is re-assigned whether or not its value moved — so the only
     place the pre-write value still exists is inside this loop. Broadcasting the
     full write-back set instead of the moved subset put every project above 500
     tasks permanently into the ``truncated`` branch, which made each connected
     client re-fetch the whole paginated task list on every single-field edit and
     left ADR-0091's splice path effectively dead (#2573). ``tasks_to_update``
-    itself stays the full set — the write-back and the ADR-0207 activity events
-    must still see every row.
+    itself stays the full set — the ADR-0207 activity events and the project-finish
+    aggregates must still see every row.
 
     INTENTIONAL DESIGN: the caller persists these via ``bulk_update``, which
     bypasses ``VersionedModel.save()`` so ``server_version`` is NOT incremented —
@@ -1380,7 +1465,7 @@ _CPM_WRITE_FIELDS: tuple[str, ...] = (
     "scheduled_start",
     "milestone_at_day_end",
 )
-"""Columns the CPM write-back persists on EVERY scheduled row, both passes.
+"""Columns the CPM write-back persists on every row it writes, both passes.
 
 Every entry is an engine OUTPUT: read-only on ``TaskSerializer`` and recomputed from
 the inputs on each pass. The write-back is a T0-snapshot/T1-write with no row lock and
@@ -1393,8 +1478,8 @@ never computes: writing it back reverted a PATCH committed mid-recalc, the follo
 recalc then read the reverted value as truth, and ``bulk_update`` allocates no
 ``sync_seq``, so no client ever learned of it. Summary durations, which the engine
 does compute (#3530), go through a separate ``duration``-only write restricted to
-summary rows — see :func:`_bulk_write_cpm_results`. Any narrowing of the write-back to
-rows that moved (#4096) must keep that split.
+summary rows — see :func:`_bulk_write_cpm_results`. Narrowing the write-back to the
+rows that moved (#4096) keeps that split.
 """
 
 
@@ -1454,18 +1539,25 @@ def _ids_with_live_child(task_model: Any, candidates: list[Any]) -> set[str]:
 
 def _bulk_write_cpm_results(
     task_model: Any,
-    tasks_to_update: list[Any],
     summary_durations: Mapping[str, int],
     moved_tasks: list[Any],
     float_only_ids: set[str] | None = None,
 ) -> None:
     """Persist ``_apply_cpm_results``' in-memory mutations, without clobbering user input.
 
+    Only ``moved_tasks`` — the rows where a column in :data:`_CPM_DELTA_FIELDS`
+    (every column written here, plus summary ``duration``) differs from what the pass
+    loaded — are written (#4096). Rewriting every scheduled row held N row locks and
+    left N dead tuples for an edit that changed none of them, and every other writer
+    in the project queued behind the write-back. A new persisted CPM column must
+    be added to :data:`_CPM_DELTA_FIELDS` as well, or a change to it alone is never
+    written; ``test_every_write_field_is_snapshotted`` holds the two together.
+
     Must be called inside the write-back's ``transaction.atomic()``, and before the
     ``task_dates_updated`` delta is built from ``moved_tasks``. Three steps:
 
-    1. The engine outputs (:data:`_CPM_WRITE_FIELDS`) on every row. This UPDATE also
-       takes the row lock on every row the recalc touches, which is what makes the two
+    1. The engine outputs (:data:`_CPM_WRITE_FIELDS`) on every changed row. This UPDATE
+       also takes the row lock on every row it writes, which is what makes the two
        re-reads below see a committed state no concurrent writer can change before
        this transaction commits.
     2. ``duration`` on summary rows only — the only rows whose duration the recalc
@@ -1484,10 +1576,10 @@ def _bulk_write_cpm_results(
        ships none, and a split delta's float-only rows carry no user-owned field.
     """
     task_model.objects.bulk_update(
-        tasks_to_update, list(_CPM_WRITE_FIELDS), batch_size=_WRITEBACK_BATCH_SIZE
+        moved_tasks, list(_CPM_WRITE_FIELDS), batch_size=_WRITEBACK_BATCH_SIZE
     )
 
-    candidates = [t for t in tasks_to_update if str(t.id) in summary_durations]
+    candidates = [t for t in moved_tasks if str(t.id) in summary_durations]
     written_summary_ids: set[str] = set()
     if candidates:
         written_summary_ids = _ids_with_live_child(task_model, candidates)
@@ -1609,6 +1701,7 @@ def _schedule_backlog_flip_recompute(project_ids: set[Any]) -> None:
 def _run_schedule(
     project_id: str,
     tracker: object = None,
+    claimed_ids: Iterable[uuid.UUID] = (),
 ) -> bool:
     """Load tasks/dependencies, run CPM, bulk_update results, broadcast completion.
 
@@ -1624,6 +1717,8 @@ def _run_schedule(
     Args:
         project_id: UUID string of the project to schedule.
         tracker: Optional TaskRunTracker for progress reporting.
+        claimed_ids: Outbox rows the caller claimed before this read; only these
+            are retired. Empty retires nothing.
     """
     from django.utils import timezone as _tz
 
@@ -1651,6 +1746,7 @@ def _run_schedule(
         build_sched_graph,
         build_sched_tasks,
         resolve_cpm_status_date,
+        retire_schedule_requests,
         rollup_phase_statuses_detailed,
     )
     from trueppm_api.apps.scheduling.telemetry import cpm_span
@@ -1693,6 +1789,7 @@ def _run_schedule(
         )
     except Project.DoesNotExist:
         logger.warning("recalculate_schedule: project %s not found, skipping", project_id)
+        retire_schedule_requests(claimed_ids)
         _settle_empty()
         return False
 
@@ -1751,6 +1848,7 @@ def _run_schedule(
         # paths, where the program run is the sole writer and clears the whole
         # program's project set itself.
         _clear_output_of_fully_groomed_project(project_id)
+        retire_schedule_requests(claimed_ids)
         _settle_empty()
         return False
 
@@ -1853,8 +1951,9 @@ def _run_schedule(
     # below (like Task CPM fields — no server_version bump).
     _apply_driving_flags(db_deps, result.driving_edges)
 
-    # Write CPM results back for every task the engine returned (server_version is
-    # intentionally NOT bumped — see _apply_cpm_results). old_cpm_dates snapshots
+    # Apply CPM results to every task the engine returned, in memory; only the changed
+    # rows are persisted (#4096). server_version is intentionally NOT bumped — see
+    # _apply_cpm_results. old_cpm_dates snapshots
     # each task's dates before the overwrite so the shift-events helper can tell
     # which tasks actually moved (ADR-0207); moved_tasks is that same moved subset
     # as a list, and is what the ADR-0091 delta broadcast ships (#2573).
@@ -1876,8 +1975,6 @@ def _run_schedule(
     )
 
     from django.db import transaction
-
-    from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
 
     cpm_payload: dict[str, object] = {
         "project_finish": result.project_finish.isoformat(),
@@ -1945,9 +2042,7 @@ def _run_schedule(
 
     with transaction.atomic():
         # Leaf `duration` is excluded on purpose (#4371): see _CPM_WRITE_FIELDS.
-        _bulk_write_cpm_results(
-            Task, tasks_to_update, summary_durations, moved_tasks, float_only_ids
-        )
+        _bulk_write_cpm_results(Task, summary_durations, moved_tasks, float_only_ids)
         # ADR-1477 §4/§6: stamp open changeset entries and tell downstream
         # assignees, in this write transaction. Every run, even one that re-dated
         # nothing. No new task, no new dispatch.
@@ -1977,12 +2072,8 @@ def _run_schedule(
         # user edit, and must not trigger a mobile-sync pull (same rationale as Task).
         _persist_driving_flags_and_shift_events(db_deps, schedule_shift_events)
 
-        # Mark the outbox row done so the drain task knows this project is clean.
-        # Filter on status=dispatched to avoid racing with the drain during orphan
-        # recovery (which resets rows back to pending).
-        ScheduleRequest.objects.filter(
-            project_id=project_id, status=ScheduleRequestStatus.DISPATCHED
-        ).update(status=ScheduleRequestStatus.DONE)
+        # Mark the claimed outbox rows done so the drain knows they are served.
+        retire_schedule_requests(claimed_ids)
 
         # ADR-0752 §4/§7: persist the one-shot arming flag (if this is the
         # first use of the floor) and register the on-commit broadcasts,
@@ -2011,7 +2102,8 @@ def _run_schedule(
         transaction.on_commit(_capture_forecast)
 
     logger.info(
-        "recalculate_schedule: updated %d tasks for project %s (finish=%s)",
+        "recalculate_schedule: updated %d of %d tasks for project %s (finish=%s)",
+        len(moved_tasks),
         len(tasks_to_update),
         project_id,
         result.project_finish,
@@ -2708,13 +2800,10 @@ def _run_program_schedule(program_id: str, task: object | None = None) -> None:
     )
 
     with transaction.atomic():
-        if tasks_to_update:
-            # Same split as the single-project pass: leaf `duration` is never
-            # written back, so a concurrent edit anywhere in the program survives
-            # (#4371). See _CPM_WRITE_FIELDS.
-            _bulk_write_cpm_results(
-                Task, tasks_to_update, summary_durations, moved_tasks, float_only_ids
-            )
+        # Same split as the single-project pass: leaf `duration` is never
+        # written back, so a concurrent edit anywhere in the program survives
+        # (#4371). See _CPM_WRITE_FIELDS.
+        _bulk_write_cpm_results(Task, summary_durations, moved_tasks, float_only_ids)
         # ADR-1477 §4/§6, as in the single-project pass: every member, every run.
         stamp_finish_after(
             member_ids,
@@ -2777,9 +2866,10 @@ def _run_program_schedule(program_id: str, task: object | None = None) -> None:
         )
 
     logger.info(
-        "recalculate_program_schedule: program %s — %d member project(s), %d task(s) updated",
+        "recalculate_program_schedule: program %s — %d member project(s), %d of %d task(s) updated",
         program_id,
         len(member_ids),
+        len(moved_tasks),
         len(tasks_to_update),
     )
 
