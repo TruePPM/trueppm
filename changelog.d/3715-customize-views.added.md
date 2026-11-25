@@ -1,0 +1,1 @@
+Shell v2 project header: **More › Customize views…** opens *Views in {project}*, one switch per view with the reason for its state and **Reset to {lens} suggestions**; opening a hidden view offers **Keep {view} in your tabs**; workspace-off views in More stay keyboard-reachable and announce as disabled.

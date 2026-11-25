@@ -119,10 +119,11 @@ separately:
 
 ## Status
 
-The read-tool surface is **26 read-only tools** (19 ship in 0.4; `get_project_cost`,
-`get_schedule_driving_chain`, `get_project_history`, `list_dependencies`, `list_baselines`,
-`list_phases`, and `list_calendars` land in 0.5) across projects and programs, tasks and My Work, schedule and
+The read-tool surface is **27 read-only tools** (19 ship in 0.4; `get_project_cost`,
+`get_schedule_driving_chain`, `get_project_history`, `get_project_views`, `list_dependencies`,
+`list_baselines`, `list_phases`, and `list_calendars` land in 0.5) across projects and programs, tasks and My Work, schedule and
 risk (including non-mutating what-if and schedule derivation), project cost, project history,
+your resolved project views and why each is hidden,
 dependencies, baselines, phases, calendars, and
 sprints — each mapping to one existing REST
 endpoint and returning only what your role permits. The

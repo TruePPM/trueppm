@@ -1099,6 +1099,10 @@ def test_archived_write_exemptions_state_a_reason() -> None:
 #: takes one away would strand an admin holding a live grant on a frozen project.
 ARCHIVED_EXEMPT_ENTRIES: frozenset[str] = frozenset(
     {
+        # ADR-1478: the caller's own per-project navigation row, not project data.
+        "api/v1/projects/<pk>/views/::patch",
+        "api/v1/projects/<pk>/views/apply-seed/::post",
+        "api/v1/projects/<pk>/views/reset/::post",
         "api/v1/^calendars/$::create",
         "api/v1/^calendars/(?P<pk>[^/.]+)/$::destroy",
         "api/v1/^calendars/(?P<pk>[^/.]+)/$::partial_update",

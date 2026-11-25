@@ -6,6 +6,11 @@ from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from trueppm_api.apps.integrations.views import TaskLinkViewSet
+from trueppm_api.apps.profiles.views import (
+    ProjectViewsApplySeedView,
+    ProjectViewsResetView,
+    ProjectViewsView,
+)
 from trueppm_api.apps.projects.asset_views import (
     ProgramAssetsView,
     ProjectAssetsView,
@@ -183,6 +188,19 @@ urlpatterns = [
             {"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"}
         ),
         name="calendar-exceptions-detail",
+    ),
+    # Per-user resolved view set (ADR-1478). Self-scoped: every route reads or writes
+    # only the caller's own ProjectViewState row.
+    path("projects/<pk>/views/", ProjectViewsView.as_view(), name="project-views"),
+    path(
+        "projects/<pk>/views/apply-seed/",
+        ProjectViewsApplySeedView.as_view(),
+        name="project-views-apply-seed",
+    ),
+    path(
+        "projects/<pk>/views/reset/",
+        ProjectViewsResetView.as_view(),
+        name="project-views-reset",
     ),
     # Nested project actions — not routable via DefaultRouter.
     path(

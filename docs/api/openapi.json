@@ -28579,6 +28579,382 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/views/": {
+            "get": {
+                "operationId": "v1_projects_views_retrieve",
+                "description": "GET/PATCH ``/projects/{id}/views/`` — the caller's resolved view set.\n\nGET seeds on the first read for this ``(user, project)`` and fails open (ADR-1478\n§4). The web renders the result and never resolves precedence itself. Readable by\nMCP as ``get_project_views``: the \"why can't I see Sprints?\" fact.",
+                "summary": "Get my resolved view set for a project",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectViewSet"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "v1_projects_views_partial_update",
+                "description": "GET/PATCH ``/projects/{id}/views/`` — the caller's resolved view set.\n\nGET seeds on the first read for this ``(user, project)`` and fails open (ADR-1478\n§4). The web renders the result and never resolves precedence itself. Readable by\nMCP as ``get_project_views``: the \"why can't I see Sprints?\" fact.",
+                "summary": "Change my view state for a project",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "header",
+                        "name": "Idempotency-Key",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "maxLength": 255
+                        },
+                        "description": "Optional client-generated key (a UUIDv4 is recommended) that makes a retry of this request safe: a retry with the same key and a byte-identical request replays the stored response instead of repeating the write. Scoped per authenticated user. Reusing a key for a different request is refused with ``422``. See the Idempotency guide."
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProjectViewsPatchRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProjectViewsPatchRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedProjectViewsPatchRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectViewSet"
+                                }
+                            }
+                        },
+                        "description": "",
+                        "headers": {
+                            "Idempotent-Replay": {
+                                "description": "``true`` when this response is a replay of the stored response for the request's ``Idempotency-Key``; absent on a first execution.",
+                                "schema": {
+                                    "type": "string",
+                                    "example": "true"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectViewsError"
+                                }
+                            }
+                        },
+                        "description": "`code: last_plan_layout`: the write would leave Plan with no layout. A body that fails validation returns the standard field-error shape instead."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/views/apply-seed/": {
+            "post": {
+                "operationId": "v1_projects_views_apply_seed_create",
+                "description": "POST ``/projects/{id}/views/apply-seed/`` — preview or apply a lens's seed (1C).\n\nRewrites only ``seed`` entries; the caller's own choices come back as ``kept``.\n``dry_run`` defaults to true so a bare POST never changes anything.",
+                "summary": "Preview or apply a lens's view suggestions",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "header",
+                        "name": "Idempotency-Key",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "maxLength": 255
+                        },
+                        "description": "Optional client-generated key (a UUIDv4 is recommended) that makes a retry of this request safe: a retry with the same key and a byte-identical request replays the stored response instead of repeating the write. Scoped per authenticated user. Reusing a key for a different request is refused with ``422``. See the Idempotency guide."
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ApplySeedRequestRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ApplySeedRequestRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ApplySeedRequestRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SeedDiff"
+                                }
+                            }
+                        },
+                        "description": "",
+                        "headers": {
+                            "Idempotent-Replay": {
+                                "description": "``true`` when this response is a replay of the stored response for the request's ``Idempotency-Key``; absent on a first execution.",
+                                "schema": {
+                                    "type": "string",
+                                    "example": "true"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectViewsError"
+                                }
+                            }
+                        },
+                        "description": "`code: last_plan_layout`: the write would leave Plan with no layout. A body that fails validation returns the standard field-error shape instead."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/views/reset/": {
+            "post": {
+                "operationId": "v1_projects_views_reset_create",
+                "description": "POST ``/projects/{id}/views/reset/`` — restore the current lens's suggestions.\n\nRewrites ``seed`` entries only; the caller's own choices are left alone.",
+                "summary": "Reset my views to my lens's suggestions",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "header",
+                        "name": "Idempotency-Key",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "maxLength": 255
+                        },
+                        "description": "Optional client-generated key (a UUIDv4 is recommended) that makes a retry of this request safe: a retry with the same key and a byte-identical request replays the stored response instead of repeating the write. Scoped per authenticated user. Reusing a key for a different request is refused with ``422``. See the Idempotency guide."
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SeedDiff"
+                                }
+                            }
+                        },
+                        "description": "",
+                        "headers": {
+                            "Idempotent-Replay": {
+                                "description": "``true`` when this response is a replay of the stored response for the request's ``Idempotency-Key``; absent on a first execution.",
+                                "schema": {
+                                    "type": "string",
+                                    "example": "true"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ProjectViewsError"
+                                }
+                            }
+                        },
+                        "description": "`code: last_plan_layout`: the write would leave Plan with no layout. A body that fails validation returns the standard field-error shape instead."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/visit/": {
             "post": {
                 "operationId": "v1_projects_visit_create",
@@ -60996,6 +61372,22 @@
                     "overlays"
                 ]
             },
+            "ApplySeedRequestRequest": {
+                "type": "object",
+                "description": "``POST …/views/apply-seed/``: preview (``dry_run``, the default) or apply.",
+                "properties": {
+                    "lens": {
+                        "$ref": "#/components/schemas/RoleContextEnum"
+                    },
+                    "dry_run": {
+                        "type": "boolean",
+                        "default": true
+                    }
+                },
+                "required": [
+                    "lens"
+                ]
+            },
             "AssetFeedResponse": {
                 "type": "object",
                 "description": "Response envelope for the unified Assets feed (ADR-0215).",
@@ -61632,6 +62024,15 @@
                     "last_heartbeat",
                     "stale"
                 ]
+            },
+            "BindingEnum": {
+                "enum": [
+                    "advisory",
+                    "enforced"
+                ],
+                "type": "string",
+                "description": "* `advisory` - advisory\n* `enforced` - enforced",
+                "x-trueppm-enum": "open"
             },
             "BlankEnum": {
                 "enum": [
@@ -66195,6 +66596,21 @@
                     "queued"
                 ]
             },
+            "KeptView": {
+                "type": "object",
+                "properties": {
+                    "view": {
+                        "type": "string"
+                    },
+                    "hidden": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "hidden",
+                    "view"
+                ]
+            },
             "KeyEnum": {
                 "enum": [
                     "HISTORY_RETENTION_DAYS",
@@ -66616,8 +67032,12 @@
                     "hidden_views": {
                         "type": "array",
                         "items": {
-                            "type": "string"
+                            "type": "string",
+                            "maxLength": 32
                         },
+                        "maxItems": 32,
+                        "deprecated": true,
+                        "description": "Deprecated (ADR-1478): read it from GET /projects/{id}/views/ instead. Reads return the union of your own (user-sourced) hides across your projects, never lens-seeded ones. Writes fan out as your own hides to every project you belong to. Removed one minor release after 0.5.",
                         "readOnly": true
                     },
                     "role_context": {
@@ -72246,6 +72666,35 @@
                     }
                 }
             },
+            "PatchedProjectViewsPatchRequest": {
+                "type": "object",
+                "description": "``PATCH /projects/{id}/views/``: change the caller's own view state.\n\n``{key, hidden}`` records the caller's own choice for one view. ``clear_seed: true``\nis the row-3 \"Show all\": it drops only this project's seed hides.",
+                "properties": {
+                    "key": {
+                        "$ref": "#/components/schemas/ProjectViewsPatchKeyEnum"
+                    },
+                    "hidden": {
+                        "type": "boolean"
+                    },
+                    "seed_line_dismissed": {
+                        "type": "boolean"
+                    },
+                    "lens_offer_dismissed": {
+                        "$ref": "#/components/schemas/RoleContextEnum"
+                    },
+                    "clear_seed": {
+                        "type": "boolean"
+                    },
+                    "last_layouts": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 32
+                        }
+                    }
+                }
+            },
             "PatchedResourceRequest": {
                 "type": "object",
                 "description": "Read/write serializer for named resources (people, equipment, or material).\n\ncalendar is optional — when null the resource inherits the project's calendar\nfor utilization calculations. skills is read-only nested; writes use\n/api/v1/resource-skills/ directly (ADR-0033, mirrors the assignments pattern).\nis_me is a request-scoped boolean — true when the resource is linked to the\ncurrent user (Resource.user FK or, for legacy rows, an exact email match).\nDrives the \"My tasks\" Board filter (#198) without leaking other users' IDs.\n\nEmail exposure is gated on the workspace ADMIN role (#891, mirrors #815's\nUserSearchView fix; raised from org-admin in #3569): the resource catalog is\nreadable by any authenticated user, so echoing ``email`` on every row let a\nsingle low-privilege account paginate the catalog to harvest the whole org's\nemail list. ``to_representation`` strips ``email`` for every caller below\nworkspace ADMIN, while still letting the caller see their own email (is_me) so\nself-view is unaffected. ``validate`` mirrors the same floor on the write side\n(#3625): setting ``email`` below workspace ADMIN is rejected outright, closing\nthe asymmetry where a fresh account could overwrite an address it could not\nread back.",
@@ -73098,10 +73547,11 @@
                         "type": "array",
                         "items": {
                             "type": "string",
-                            "minLength": 1,
                             "maxLength": 32
                         },
-                        "maxItems": 32
+                        "maxItems": 32,
+                        "deprecated": true,
+                        "description": "Deprecated (ADR-1478): read it from GET /projects/{id}/views/ instead. Reads return the union of your own (user-sourced) hides across your projects, never lens-seeded ones. Writes fan out as your own hides to every project you belong to. Removed one minor release after 0.5."
                     },
                     "timezone": {
                         "type": "string",
@@ -81295,6 +81745,99 @@
                     "start_date"
                 ]
             },
+            "ProjectViewSet": {
+                "type": "object",
+                "description": "``GET /projects/{id}/views/``: the caller's own resolved view set.\n\n``lens`` is the caller's current role lens; ``seeded_lens`` is the lens whose seed\nis in effect (null when none). ``lens_offer`` is set when the lens has changed since\nthe project was first resolved (or last had a seed applied), even if that earlier\nlens's seed came out empty, and the \"Apply {lens} suggestions\" offer has not been\ndismissed. ``landing`` is the view the\ncurrent lens opens on for this methodology, or null when it is hidden.",
+                "properties": {
+                    "views": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ResolvedView"
+                        }
+                    },
+                    "lens": {
+                        "type": "string"
+                    },
+                    "seeded_lens": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "seed_line": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/SeedLine"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "lens_offer": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "landing": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "last_layouts": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "required": [
+                    "landing",
+                    "last_layouts",
+                    "lens",
+                    "lens_offer",
+                    "seed_line",
+                    "seeded_lens",
+                    "views"
+                ]
+            },
+            "ProjectViewsError": {
+                "type": "object",
+                "description": "The ``400`` a view-state write returns when it would leave Plan with no layout.",
+                "properties": {
+                    "code": {
+                        "$ref": "#/components/schemas/ProjectViewsErrorCodeEnum"
+                    },
+                    "detail": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "code",
+                    "detail"
+                ]
+            },
+            "ProjectViewsErrorCodeEnum": {
+                "enum": [
+                    "last_plan_layout"
+                ],
+                "type": "string",
+                "description": "* `last_plan_layout` - last_plan_layout",
+                "x-trueppm-enum": "open"
+            },
+            "ProjectViewsPatchKeyEnum": {
+                "enum": [
+                    "activity",
+                    "assets",
+                    "board",
+                    "calendar",
+                    "grid",
+                    "product-backlog",
+                    "reports",
+                    "resources",
+                    "risk",
+                    "schedule",
+                    "sprints",
+                    "today"
+                ],
+                "type": "string",
+                "description": "* `activity` - activity\n* `assets` - assets\n* `board` - board\n* `calendar` - calendar\n* `grid` - grid\n* `product-backlog` - product-backlog\n* `reports` - reports\n* `resources` - resources\n* `risk` - risk\n* `schedule` - schedule\n* `sprints` - sprints\n* `today` - today",
+                "x-trueppm-enum": "open"
+            },
             "ProjectVisitResponse": {
                 "type": "object",
                 "properties": {
@@ -81906,6 +82449,53 @@
                 ],
                 "type": "string",
                 "description": "* `project` - project\n* `program` - program\n* `task` - task\n* `sprint` - sprint\n* `risk` - risk",
+                "x-trueppm-enum": "open"
+            },
+            "ResolvedView": {
+                "type": "object",
+                "description": "One view's resolved visibility and why (ADR-1478 §3).\n\n``binding: enforced`` is a UI contract (the workspace turned the area off, the web\nshows AreaOff), not authorization. Never read ``visible: false`` as forbidden: an\n``advisory`` hidden view still opens from More and by URL.",
+                "properties": {
+                    "key": {
+                        "type": "string"
+                    },
+                    "visible": {
+                        "type": "boolean"
+                    },
+                    "source": {
+                        "$ref": "#/components/schemas/ResolvedViewSourceEnum"
+                    },
+                    "binding": {
+                        "$ref": "#/components/schemas/BindingEnum"
+                    },
+                    "lens": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "at": {
+                        "type": "string",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "at",
+                    "binding",
+                    "key",
+                    "lens",
+                    "source",
+                    "visible"
+                ]
+            },
+            "ResolvedViewSourceEnum": {
+                "enum": [
+                    "always",
+                    "methodology",
+                    "capability",
+                    "seed",
+                    "user",
+                    "default"
+                ],
+                "type": "string",
+                "description": "* `always` - always\n* `methodology` - methodology\n* `capability` - capability\n* `seed` - seed\n* `user` - user\n* `default` - default",
                 "x-trueppm-enum": "open"
             },
             "Resource": {
@@ -83736,6 +84326,52 @@
                 "description": "* `none` - None\n* `tls` - STARTTLS\n* `ssl` - SSL/TLS",
                 "x-trueppm-enum": "open"
             },
+            "SeedDiff": {
+                "type": "object",
+                "description": "The lens-change confirm (frame 1C): Will hide · Will open on · Kept.\n\nOnly ``seed`` entries change. ``kept`` lists the caller's own choices, which an\napply never touches. ``change_count`` labels the \"Apply N changes\" action.",
+                "properties": {
+                    "lens": {
+                        "type": "string"
+                    },
+                    "will_hide": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "will_show": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "will_open_on": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "kept": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/KeptView"
+                        }
+                    },
+                    "change_count": {
+                        "type": "integer"
+                    },
+                    "applied": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "applied",
+                    "change_count",
+                    "kept",
+                    "lens",
+                    "will_hide",
+                    "will_open_on",
+                    "will_show"
+                ]
+            },
             "SeedImportQueuedResponse": {
                 "type": "object",
                 "properties": {
@@ -83792,6 +84428,22 @@
                         "nullable": true
                     }
                 }
+            },
+            "SeedLine": {
+                "type": "object",
+                "description": "The one-time row-3 explainer: \"Shown for {lens} · N views hidden\" (frame 1A).",
+                "properties": {
+                    "lens": {
+                        "type": "string"
+                    },
+                    "hidden_count": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "hidden_count",
+                    "lens"
+                ]
             },
             "SeedReplaceConflict": {
                 "type": "object",
@@ -93012,7 +93664,9 @@
                             "type": "string",
                             "maxLength": 32
                         },
-                        "maxItems": 32
+                        "maxItems": 32,
+                        "deprecated": true,
+                        "description": "Deprecated (ADR-1478): read it from GET /projects/{id}/views/ instead. Reads return the union of your own (user-sourced) hides across your projects, never lens-seeded ones. Writes fan out as your own hides to every project you belong to. Removed one minor release after 0.5."
                     },
                     "timezone": {
                         "type": "string",

@@ -434,3 +434,35 @@ describe('hiddenViewsForMethodology', () => {
     expect(hiddenViewsForMethodology('AGILE')).toEqual(['schedule', 'calendar']);
   });
 });
+
+/**
+ * The web half of the methodology-defaults contract (ADR-1478 §2). The server resolves
+ * visibility now (`resolve_project_views`); this copy survives only for the pre-save
+ * methodology flip warning (#3294), so it must still agree with
+ * `contracts/methodology-views.json`, which the pytest in
+ * `packages/api/tests/apps/profiles/test_project_views.py` asserts too.
+ */
+describe('methodology-views contract (ADR-1478)', () => {
+  function readMethodologyContract(): { hiddenByMethodology: Record<string, string[]> } {
+    let dir = dirname(fileURLToPath(import.meta.url));
+    for (let i = 0; i < 10; i++) {
+      if (existsSync(resolve(dir, '.git'))) {
+        return JSON.parse(
+          readFileSync(resolve(dir, 'contracts/methodology-views.json'), 'utf-8'),
+        ) as { hiddenByMethodology: Record<string, string[]> };
+      }
+      dir = resolve(dir, '..');
+    }
+    throw new Error('No checkout root found above this spec (ADR-1478 §2).');
+  }
+
+  it.each(['WATERFALL', 'AGILE', 'HYBRID'] as const)(
+    '%s hides exactly the contract set',
+    (methodology) => {
+      const contract = readMethodologyContract();
+      expect([...hiddenViewsForMethodology(methodology)].sort()).toEqual(
+        contract.hiddenByMethodology[methodology],
+      );
+    },
+  );
+});

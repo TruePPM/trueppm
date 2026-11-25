@@ -318,6 +318,9 @@ _STATE_REFUSAL_OPERATIONS: frozenset[tuple[str, str]] = frozenset(
         ("delete", "/api/v1/me/timesheets/{week_start}/submit/"),
         ("delete", "/api/v1/programs/{program_pk}/members/{id}/"),
         ("delete", "/api/v1/projects/{id}/"),
+        # ADR-1478: reset refuses with last_plan_layout when the restored seed plus the
+        # caller's own hides would leave Plan with no layout (state, not body).
+        ("post", "/api/v1/projects/{id}/views/reset/"),
         ("delete", "/api/v1/projects/{project_pk}/members/{id}/"),
         ("delete", "/api/v1/projects/{project_pk}/phases/{id}/"),
         # The four task-collaboration deletes (attachments, comments, reactions,

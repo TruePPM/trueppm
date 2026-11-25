@@ -10,7 +10,10 @@ interface ProfileResponse {
  * PATCH /api/v1/auth/me/profile/ — set the caller's role-context lens (issue 412,
  * ADR-0162). Mirrors `useUpdateDefaultLanding`: on success the `['current-user']`
  * query is invalidated so every consumer of `role_context` (the view bar, the
- * project-entry redirect, the switcher itself) re-reads the new lens.
+ * project-entry redirect, the switcher itself) re-reads the new lens. Every cached
+ * `['project-views', …]` set is invalidated too: a lens change raises the server's
+ * `lens_offer`, and the mounted header would otherwise hold the old set for its
+ * 60 s `staleTime` and show no *Apply {lens} suggestions…* until then.
  *
  * Choice validation is server-side (400 on a bad value); callers surface the
  * error inline and leave the control re-enabled to retry.
@@ -26,6 +29,7 @@ export function useUpdateRoleContext(): UseMutationResult<ProfileResponse, Error
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['current-user'] });
+      void queryClient.invalidateQueries({ queryKey: ['project-views'] });
     },
   });
 }

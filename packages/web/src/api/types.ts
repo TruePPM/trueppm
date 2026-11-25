@@ -1292,3 +1292,40 @@ export interface StatusUpdate {
   snapshot_verified: boolean
   live_diff: Record<string, StatusUpdateLiveDiffEntry>
 }
+
+/** Why a view is or is not shown (ADR-1478 §3). Server-resolved; the web never re-derives it. */
+export type ViewSource = 'always' | 'methodology' | 'capability' | 'seed' | 'user' | 'default';
+/** `enforced` = the workspace turned the area off (AreaOff). Everything else is `advisory`: it still opens from More and by URL. */
+export type ViewBinding = 'advisory' | 'enforced';
+
+/** One entry of `GET /projects/{id}/views/`. */
+export interface ResolvedView {
+  key: string;
+  visible: boolean;
+  source: ViewSource;
+  binding: ViewBinding;
+  lens: string | null;
+  at: string | null;
+}
+
+/** `GET /projects/{id}/views/` — the caller's own resolved view set (ADR-1478 §5). */
+export interface ProjectViewSet {
+  views: ResolvedView[];
+  lens: string;
+  seeded_lens: string | null;
+  seed_line: { lens: string; hidden_count: number } | null;
+  lens_offer: string | null;
+  landing: string | null;
+  last_layouts: Record<string, string>;
+}
+
+/** `POST /projects/{id}/views/apply-seed/` and `…/reset/` — the lens-change diff (frame 1C). */
+export interface SeedDiff {
+  lens: string;
+  will_hide: string[];
+  will_show: string[];
+  will_open_on: string | null;
+  kept: Array<{ view: string; hidden: boolean }>;
+  change_count: number;
+  applied: boolean;
+}

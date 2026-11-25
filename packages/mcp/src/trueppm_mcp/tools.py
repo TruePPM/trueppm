@@ -755,6 +755,23 @@ async def _get_project_history(client: TruePPMClient, project_id: str) -> dict[s
     return _list_result(rows, total, truncated)
 
 
+async def _get_project_views(client: TruePPMClient, project_id: str) -> dict[str, Any]:
+    """The token owner's resolved view set for a project, with the reason per view.
+
+    Returns the API payload plus ``hidden``: each view not shown, with its ``source``
+    and ``binding``, so "why can't I see Sprints?" has a one-line answer (ADR-1478).
+    """
+    payload = await client.get(f"projects/{project_id}/views/")
+    data = dict(payload) if isinstance(payload, Mapping) else {"views": []}
+    views = data.get("views") or []
+    data["hidden"] = [
+        {k: v.get(k) for k in ("key", "source", "binding", "lens")}
+        for v in views
+        if isinstance(v, Mapping) and not v.get("visible", True)
+    ]
+    return data
+
+
 async def _list_dependencies(client: TruePPMClient, project_id: str) -> dict[str, Any]:
     """Outgoing dependency edges: those whose predecessor is in this project.
 
@@ -1169,6 +1186,25 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         """
         _require_uuid("project_id", project_id)
         return await _get_project_history(client, project_id)
+
+    @server.tool()
+    async def get_project_views(project_id: str) -> dict[str, Any]:
+        """Which views your token's owner sees in a project, and why each hidden one is.
+
+        Use it to answer "why can't I see Sprints?". Each view carries ``visible``, a
+        ``source`` (``always``, ``methodology``, ``capability``, ``seed``, ``user`` or
+        ``default``) and a ``binding``. ``advisory`` means the view is only hidden from
+        the tabs and still opens from More or by URL; ``enforced`` means the workspace
+        turned the area off. Never read a hidden view as forbidden. ``hidden`` lists the
+        hidden views with their reasons. Before the owner first opens the project in the
+        web app, the answer includes the role-lens suggestion that open will apply. It
+        is read-only: this call never applies the suggestion or writes anything.
+
+        Args:
+            project_id: The project's UUID.
+        """
+        _require_uuid("project_id", project_id)
+        return await _get_project_views(client, project_id)
 
     @server.tool()
     async def list_dependencies(project_id: str) -> dict[str, Any]:

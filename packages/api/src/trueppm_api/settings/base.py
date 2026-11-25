@@ -2665,6 +2665,9 @@ SPECTACULAR_SETTINGS = {
     # stable `FrequencyEnum` component (a regression). Pin the retention enum back
     # to `FrequencyEnum` and the recurrence enum to `RecurrenceFrequencyEnum`.
     "ENUM_NAME_OVERRIDES": {
+        # ADR-1478: the views endpoints reuse the lens choices; keep one RoleContextEnum
+        # rather than letting the first field to claim it rename the component.
+        "RoleContextEnum": "trueppm_api.apps.profiles.models.RoleContext.choices",
         # #4091: the three components drf-spectacular named by a hash postfix because
         # no override claimed them. The hash changes whenever an unrelated `status` /
         # `role` choice set is added, which silently renames the type a generated

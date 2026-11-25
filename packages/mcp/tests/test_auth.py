@@ -163,6 +163,7 @@ async def test_server_registers_read_tool_surface(settings: Settings) -> None:
         "get_schedule_driving_chain",
         "get_release_forecast",
         "get_project_history",
+        "get_project_views",
         "list_dependencies",
         "list_baselines",
         "list_phases",

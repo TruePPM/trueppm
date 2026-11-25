@@ -93,8 +93,9 @@ export function useCreateProject() {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['projects'] });
-      // The first project seeds the creator's per-user hidden_views server-side (#3713);
-      // /auth/me/ carries it, so refetch or the rail keeps the full set for the 5 min staleTime.
+      // /auth/me/ reports the creator's memberships-derived state (and the deprecated
+      // hidden_views union, ADR-1478), so refetch rather than wait out the 5 min staleTime.
+      // The lens seed itself is applied on the first GET /projects/{id}/views/.
       void queryClient.invalidateQueries({ queryKey: ['current-user'] });
     },
   });

@@ -315,3 +315,81 @@ class UserPin(models.Model):
     def __str__(self) -> str:
         target = self.project_id or self.program_id
         return f"UserPin({self.user_id} → {target})"
+
+
+class ViewHideSource(models.TextChoices):
+    """Who wrote a stored view entry (ADR-1478 §1).
+
+    ``seed`` came from a role lens and is rewritten by Apply/Reset/Show all; ``user`` is
+    the person's own choice and survives all three.
+    """
+
+    SEED = "seed", "Seed"
+    USER = "user", "User"
+
+
+class ProjectViewState(models.Model):
+    """One person's view composition for one project (ADR-1478 §1).
+
+    Replaces the global ``UserProfile.hidden_views`` list with per-project, source-tagged
+    entries. ``hides`` is a JSON list of ``{view, hidden, source, lens, at}`` dicts rather
+    than a row per view: the set is at most twelve keys, always read and written whole,
+    and the ``(user, project)`` unique constraint plus ``select_for_update`` gives atomic
+    replace semantics with no per-key races (Reset and Apply rewrite many keys at once).
+
+    A ``user`` entry may carry ``hidden: false`` — that is how a person keeps a view the
+    seed or the methodology would hide. ``seed`` entries are always ``hidden: true``.
+
+    Private per-user navigation preference, like :class:`ProjectVisit`: plain
+    ``models.Model`` (no ``server_version``), never synced and never broadcast. The row is
+    created on the first ``resolve_project_views`` for the pair, which is what applies
+    the lens seed exactly once.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="project_view_states",
+    )
+    project = models.ForeignKey(
+        "projects.Project",
+        on_delete=models.CASCADE,
+        related_name="view_states",
+    )
+    seeded_lens = models.CharField(
+        max_length=20,
+        default="",
+        blank=True,
+        help_text="The lens the row was resolved under; empty until first resolved.",
+    )
+    seeded_at = models.DateTimeField(null=True, blank=True, help_text="When the seed applied.")
+    seed_line_dismissed_at = models.DateTimeField(
+        null=True, blank=True, help_text="When the one-time seed explainer was dismissed."
+    )
+    lens_offer_dismissed_for = models.CharField(
+        max_length=20,
+        default="",
+        blank=True,
+        help_text="The lens whose 'Apply suggestions' offer was dismissed.",
+    )
+    last_layouts = models.JSONField(
+        default=dict, blank=True, help_text="Remembered layout per tab, e.g. {'plan': 'gantt'}."
+    )
+    hides = models.JSONField(
+        default=list, blank=True, help_text="Source-tagged view entries (ADR-1478 §1)."
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "project view state"
+        verbose_name_plural = "project view states"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "project"],
+                name="uq_project_view_state_user_project",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"ProjectViewState({self.user_id} → {self.project_id})"

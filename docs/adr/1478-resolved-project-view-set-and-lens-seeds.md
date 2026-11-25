@@ -185,6 +185,18 @@ added.
    runs in batches with a `RunPython` that is idempotent on the unique constraint, and it
    imports no live service (CLAUDE.md migration rule 3; a frozen copy lives in
    `profiles/backfill.py`).
+
+   > **Clarification (2026-11-24, maintainer decision during #3715 review).** An empty
+   > `hidden_views` does not mean "never customized" for a project the user had already
+   > opened. The same migration also creates a row, with no entries and `seeded_lens` set
+   > to the user's lens at migration time, for each `ProjectVisit` on a live membership of
+   > a user whose list is empty (or who has no profile). Those projects resolve without a
+   > seed and without an offer, as backfilled non-empty lists do. The cutoff is the
+   > migration run itself, not a date compared against `visited_at`, because `visited_at`
+   > records the *last* visit and every open after the upgrade overwrites it. A project
+   > joined or first opened after the upgrade has no row and still seeds. Separately, a
+   > row created on first resolve carries the stored list in as `source: "user"` entries,
+   > so a list written while the user had no live membership is not lost.
 2. **Compatibility window, one minor release:**
    - `GET /auth/me/` and `GET /auth/me/profile/` keep returning `hidden_views`, now computed as the
      de-duplicated union of the user's `source: "user"` hides across their projects.
