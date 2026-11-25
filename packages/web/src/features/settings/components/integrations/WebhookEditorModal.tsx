@@ -308,7 +308,7 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
                   <div className="text-[12px] text-neutral-text-secondary mb-2">
                     {events.size} selected
                   </div>
-                  {/* Bounded scroller: 19 events over 8 groups is ~815px, which
+                  {/* Bounded scroller: the full event catalog is far taller than the dialog, which
                       pushed the "{n} selected" counter and the footer off-screen on a
                       laptop. Nothing inside portals or opens an in-flow absolute
                       panel, so a nested scroller introduces no clipping (rule 253). */}

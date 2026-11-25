@@ -34,6 +34,9 @@ class Variance:
 
 def _memoized_count(calendar: Any) -> Callable[[date, date], int]:
     """Inclusive working-day count, cached: a slipped plan repeats the same date pairs."""
+    # TODO(#5009): call trueppm_scheduler's working_day_count once scheduler 0.5 is on
+    # PyPI. The API still supports 0.4.0, which does not have it, so importing it
+    # would break an install of the published wheel.
     from .services import _layered_working_days
 
     seen: dict[tuple[date, date], int] = {}

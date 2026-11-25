@@ -95,6 +95,7 @@ New events on the existing webhook model and delivery path: `schedule.finish_cha
 
 - **Payloads are ids plus deltas only**: task, sprint and scope-change ids, finish Δ in working days, `headline_forecast_kind`, actor and `on_behalf_of`. **No `people_load`, no names beyond the actor, and no velocity figures.** Consumers fetch details with their own token, which applies their own visibility.
 - `schedule.change_undone` references the `event_id` it reverses.
+- **`schedule.finish_changed` and the velocity audience (amended 2026-11-25, #5130):** webhook registrants are Admin+, which is below the default `team` velocity audience, and the kind discloses what `/forecast/` withholds from such a caller (D4). The event is still sent, with `headline_forecast_kind`, `headline_forecast_reason` and `previous_headline_forecast_kind` null and `velocity_suppressed: true`, unless the team shares velocity outward (`program_shared`) — the `sprint.closed` contract (ADR-0147). The recorded kind updates either way.
 - **Delivery:** at-least-once, using the existing sequence number per subscription. A stable `delivery_id` is exposed for consumer idempotency.
 - **Dead-letter list and replay:** permanently failed deliveries remain listable. `POST /webhooks/{id}/deliveries/{delivery_id}/replay/` is allowed **only** for `webhooks:manage`, matching the reasoning in #4461. Retention is 14 days.
 

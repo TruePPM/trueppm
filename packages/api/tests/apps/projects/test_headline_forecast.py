@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -12,11 +12,16 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.integrations.registry import OUTGOING_CHANNEL_PROVIDERS, OutgoingChannelEvent
 from trueppm_api.apps.projects.models import (
     Calendar,
     Dependency,
+    Program,
     Project,
+    ProjectSignalPrivacyPolicy,
+    SignalAudience,
     Sprint,
+    SprintCloseRequest,
     SprintState,
     Task,
     TaskStatus,
@@ -199,22 +204,178 @@ def test_a_change_of_kind_emits_schedule_finish_changed_once(
     with patch(DISPATCH) as dispatch, django_capture_on_commit_callbacks(execute=True):
         assert note_headline_forecast_kind(project.pk) is True
         assert note_headline_forecast_kind(project.pk) is False  # unchanged
-    dispatch.assert_called_once_with(
-        str(project.pk),
-        "schedule.finish_changed",
-        {
-            "project": str(project.pk),
-            "headline_forecast_kind": "team_velocity",
-            "headline_forecast_reason": "sparse_dependency_network",
-            "previous_headline_forecast_kind": "cpm_monte_carlo",
-        },
-    )
+    dispatch.assert_called_once()
+    assert dispatch.call_args.args[:2] == (str(project.pk), "schedule.finish_changed")
 
     _link(tasks[0], tasks[1])
     _link(tasks[2], tasks[3])
     with patch(DISPATCH) as dispatch, django_capture_on_commit_callbacks(execute=True):
         assert note_headline_forecast_kind(project.pk) is True
-    assert dispatch.call_args.args[2]["headline_forecast_kind"] == "cpm_monte_carlo"
+    assert HeadlineForecastState.objects.get(project=project).kind == "cpm_monte_carlo"
+
+
+def _share_velocity(project: Project) -> None:
+    ProjectSignalPrivacyPolicy.objects.create(
+        project=project,
+        signal_visibility={
+            "velocity": {
+                "audience": SignalAudience.PROGRAM_SHARED,
+                "ceiling": SignalAudience.PROGRAM_SHARED,
+            }
+        },
+    )
+
+
+def _switch_to_velocity(project: Project, capture: Any) -> dict[str, Any]:
+    """Record the cpm kind, switch to team velocity, return the dispatched payload."""
+    _tasks(project, 5)
+    note_headline_forecast_kind(project.pk)
+    _velocity_history(project)
+    with patch(DISPATCH) as dispatch, capture(execute=True):
+        assert note_headline_forecast_kind(project.pk) is True
+    dispatch.assert_called_once()
+    assert HeadlineForecastState.objects.get(project=project).kind == "team_velocity"
+    payload: dict[str, Any] = dispatch.call_args.args[2]
+    return payload
+
+
+def test_the_webhook_does_not_name_the_kind_by_default(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """Webhook registrants are Admin+, below the default TEAM velocity audience."""
+    payload = _switch_to_velocity(project, django_capture_on_commit_callbacks)
+
+    assert payload == {
+        "project": str(project.pk),
+        "velocity_suppressed": True,
+        "headline_forecast_kind": None,
+        "headline_forecast_reason": None,
+        "previous_headline_forecast_kind": None,
+    }
+
+
+def test_the_webhook_names_the_kind_when_velocity_is_shared_outward(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    _share_velocity(project)
+
+    payload = _switch_to_velocity(project, django_capture_on_commit_callbacks)
+
+    assert payload == {
+        "project": str(project.pk),
+        "velocity_suppressed": False,
+        "headline_forecast_kind": "team_velocity",
+        "headline_forecast_reason": "sparse_dependency_network",
+        "previous_headline_forecast_kind": "cpm_monte_carlo",
+    }
+
+
+def test_a_sprint_close_checks_the_kind(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """The close adds the velocity sample that makes the project forecast by velocity."""
+    from trueppm_api.apps.projects.tasks import close_sprint
+
+    _tasks(project, 5)
+    # The remaining backlog is what sits in not-yet-closed sprints.
+    backlog = Sprint.objects.create(
+        project=project,
+        name="Next",
+        start_date=date(2026, 3, 1),
+        finish_date=date(2026, 3, 14),
+        state=SprintState.PLANNED,
+    )
+    Task.objects.filter(project=project).update(sprint=backlog)
+    closing = Sprint.objects.create(
+        project=project,
+        name="Closing",
+        start_date=date(2026, 2, 1),
+        finish_date=date(2026, 2, 14),
+        state=SprintState.ACTIVE,
+        committed_points=20,
+        committed_task_count=1,
+    )
+    Sprint.objects.create(
+        project=project,
+        name="Done",
+        start_date=date(2026, 1, 1),
+        finish_date=date(2026, 1, 14),
+        state=SprintState.COMPLETED,
+        committed_points=18,
+        completed_points=18,
+        committed_task_count=1,
+        completed_task_count=1,
+        closed_at=timezone.now(),
+    )
+    Task.objects.create(
+        project=project,
+        name="Delivered",
+        duration=1,
+        story_points=20,
+        sprint=closing,
+        status=TaskStatus.COMPLETE,
+    )
+    note_headline_forecast_kind(project.pk)
+    assert HeadlineForecastState.objects.get(project=project).kind == "cpm_monte_carlo"
+    request = SprintCloseRequest.objects.create(sprint=closing, carry_over_to="backlog")
+
+    redis = MagicMock()
+    redis.set.return_value = True
+    with (
+        patch("trueppm_api.core.idempotent.valkey") as valkey,
+        patch(DISPATCH) as dispatch,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        valkey.client.return_value = redis
+        close_sprint.run(str(request.id))
+
+    assert HeadlineForecastState.objects.get(project=project).kind == "team_velocity"
+    assert "schedule.finish_changed" in [c.args[1] for c in dispatch.call_args_list]
+
+
+def test_a_program_recalculation_checks_every_member(project: Project) -> None:
+    from trueppm_api.apps.scheduling.tasks import recalculate_program_schedule
+
+    program = Program.objects.create(name="Program")
+    other = Project.objects.create(
+        name="Other", start_date=date(2026, 1, 1), calendar=project.calendar, program=program
+    )
+    Project.objects.filter(pk=project.pk).update(program=program)
+    (first,) = _tasks(project, 1)
+    (second,) = _tasks(other, 1)
+    Dependency.objects.create(
+        predecessor=first, successor=second, dep_type="FS", lag=0, accepted_at=timezone.now()
+    )
+
+    assert recalculate_program_schedule.apply(args=[str(program.pk)]).successful()
+
+    assert set(HeadlineForecastState.objects.values_list("project_id", flat=True)) == {
+        project.pk,
+        other.pk,
+    }
+
+
+@pytest.mark.parametrize("fmt", ["generic", "slack"])
+def test_a_suppressed_payload_renders_without_naming_a_kind(fmt: str) -> None:
+    payload = {
+        "project": "p1",
+        "velocity_suppressed": True,
+        "headline_forecast_kind": None,
+        "headline_forecast_reason": None,
+        "previous_headline_forecast_kind": None,
+    }
+    event = OutgoingChannelEvent(
+        event_type="schedule.finish_changed", project_id="p1", payload=payload
+    )
+
+    body = OUTGOING_CHANNEL_PROVIDERS.get(fmt)().render(event)
+
+    if fmt == "generic":
+        assert body == payload
+    else:
+        assert body["text"].startswith("*Headline forecast changed*")
+        assert body["attachments"][0]["fields"] == []
+        assert not any(word in str(body) for word in ("None", "velocity", "cpm"))
 
 
 def test_a_recalculation_checks_the_kind(project: Project) -> None:

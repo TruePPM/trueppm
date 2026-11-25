@@ -217,7 +217,7 @@ The kind is `team_velocity` when all three hold: the project has sprints, the [s
 | `cpm_monte_carlo` | `no_velocity_forecast` | Not enough velocity history, or the team forecasts by throughput |
 | `cpm_monte_carlo` | `velocity_withheld` | You are below the project's velocity audience |
 
-The answer is per caller. Below the velocity audience you always get `velocity_withheld`, whether or not a velocity forecast exists. A switch of the project's kind sends the [`schedule.finish_changed` webhook](/features/webhooks/#event-types). Both lists are part of the API contract; a new value is announced in the changelog.
+The answer is per caller. Below the velocity audience you always get `velocity_withheld`, whether or not a velocity forecast exists. The server checks the project's kind for the [`schedule.finish_changed` webhook](/features/webhooks/#event-types) at two moments: after a schedule recalculation and after a sprint close. If the kind differs from the last check, the event is sent; a switch that happens between those moments is sent at the next one. The webhook names the kind only when the team shares velocity outward (`program_shared`). Both lists are part of the API contract; a new value is announced in the changelog.
 
 ## Forecast history
 

@@ -142,8 +142,14 @@ def note_headline_forecast_kind(project_id: Any) -> bool:
     over an announcement. Returns whether the event was queued.
 
     The payload carries the kind and reason only: no velocity figure (ADR-1485 D6).
+    The kind itself says whether a velocity forecast exists, and a webhook consumer
+    is external to the team, so the three kind/reason fields are ``null`` with
+    ``velocity_suppressed`` true unless the team shares velocity outward — the
+    ``sprint.closed`` contract (ADR-0147). The event still fires, and the recorded
+    state moves either way.
     """
     from trueppm_api.apps.projects.models import Project
+    from trueppm_api.apps.projects.signal_privacy_services import velocity_shared_externally
 
     # Through the projects wrapper: scheduling does not import webhooks (layering).
     from trueppm_api.apps.projects.views import _dispatch_webhooks
@@ -152,7 +158,8 @@ def note_headline_forecast_kind(project_id: Any) -> bool:
 
     try:
         pid = str(project_id)
-        if not Project.objects.filter(pk=pid, is_deleted=False).exists():
+        project = Project.objects.filter(pk=pid, is_deleted=False).first()
+        if project is None:
             return False
         kind, reason = project_headline_forecast(pid)
         with transaction.atomic():
@@ -161,11 +168,13 @@ def note_headline_forecast_kind(project_id: Any) -> bool:
             )
             if created or state.kind == kind:
                 return False
+            shared = velocity_shared_externally(project)
             payload = {
                 "project": pid,
-                "headline_forecast_kind": kind,
-                "headline_forecast_reason": reason,
-                "previous_headline_forecast_kind": state.kind,
+                "velocity_suppressed": not shared,
+                "headline_forecast_kind": kind if shared else None,
+                "headline_forecast_reason": reason if shared else None,
+                "previous_headline_forecast_kind": state.kind if shared else None,
             }
             state.kind = kind
             state.save(update_fields=["kind", "updated_at"])
