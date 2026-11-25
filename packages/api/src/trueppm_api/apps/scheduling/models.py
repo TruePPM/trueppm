@@ -561,10 +561,12 @@ class HeadlineForecastState(models.Model):
     """The headline forecast kind last observed for a project (ADR-1485 D4, #5130).
 
     Bookkeeping for change detection only, so that a switch of kind emits
-    ``schedule.finish_changed`` once. It is never served: the read computes the
-    kind per caller (``headline_forecast.caller_headline_forecast``). A separate
-    table, not a ``Project`` column, so recording it cannot bump
-    ``server_version`` or reach the sync delta.
+    ``schedule.finish_changed`` at most once (and not at all unless velocity is
+    shared outward). It moves whether or not the event is sent. It is never
+    served: the read computes the kind per caller
+    (``headline_forecast.caller_headline_forecast``). A separate table, not a
+    ``Project`` column, so recording it cannot bump ``server_version`` or reach
+    the sync delta.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

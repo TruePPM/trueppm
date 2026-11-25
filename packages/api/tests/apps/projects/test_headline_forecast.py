@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from datetime import date
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connection, transaction
 from django.utils import timezone
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.integrations.registry import OUTGOING_CHANNEL_PROVIDERS, OutgoingChannelEvent
 from trueppm_api.apps.projects.models import (
     Calendar,
     Dependency,
@@ -193,6 +195,7 @@ def test_below_audience_always_reads_velocity_withheld(
 def test_a_change_of_kind_emits_schedule_finish_changed_once(
     project: Project, django_capture_on_commit_callbacks: Any
 ) -> None:
+    _share_velocity(project)
     tasks = _tasks(project, 5)
 
     with patch(DISPATCH) as dispatch, django_capture_on_commit_callbacks(execute=True):
@@ -226,42 +229,42 @@ def _share_velocity(project: Project) -> None:
     )
 
 
-def _switch_to_velocity(project: Project, capture: Any) -> dict[str, Any]:
-    """Record the cpm kind, switch to team velocity, return the dispatched payload."""
+def test_no_event_is_dispatched_unless_velocity_is_shared_outward(
+    project: Project, django_capture_on_commit_callbacks: Any
+) -> None:
+    """Webhook registrants are Admin+, below the default TEAM velocity audience.
+
+    Even a blanked event would count the switches, so none is sent. The recorded
+    kind still moves, and sharing later replays nothing.
+    """
     _tasks(project, 5)
     note_headline_forecast_kind(project.pk)
     _velocity_history(project)
-    with patch(DISPATCH) as dispatch, capture(execute=True):
-        assert note_headline_forecast_kind(project.pk) is True
-    dispatch.assert_called_once()
+
+    with patch(DISPATCH) as dispatch, django_capture_on_commit_callbacks(execute=True):
+        assert note_headline_forecast_kind(project.pk) is False
+    dispatch.assert_not_called()
     assert HeadlineForecastState.objects.get(project=project).kind == "team_velocity"
-    payload: dict[str, Any] = dispatch.call_args.args[2]
-    return payload
 
-
-def test_the_webhook_does_not_name_the_kind_by_default(
-    project: Project, django_capture_on_commit_callbacks: Any
-) -> None:
-    """Webhook registrants are Admin+, below the default TEAM velocity audience."""
-    payload = _switch_to_velocity(project, django_capture_on_commit_callbacks)
-
-    assert payload == {
-        "project": str(project.pk),
-        "velocity_suppressed": True,
-        "headline_forecast_kind": None,
-        "headline_forecast_reason": None,
-        "previous_headline_forecast_kind": None,
-    }
+    _share_velocity(project)
+    with patch(DISPATCH) as dispatch, django_capture_on_commit_callbacks(execute=True):
+        assert note_headline_forecast_kind(project.pk) is False
+    dispatch.assert_not_called()
 
 
 def test_the_webhook_names_the_kind_when_velocity_is_shared_outward(
     project: Project, django_capture_on_commit_callbacks: Any
 ) -> None:
     _share_velocity(project)
+    _tasks(project, 5)
+    note_headline_forecast_kind(project.pk)
+    _velocity_history(project)
 
-    payload = _switch_to_velocity(project, django_capture_on_commit_callbacks)
+    with patch(DISPATCH) as dispatch, django_capture_on_commit_callbacks(execute=True):
+        assert note_headline_forecast_kind(project.pk) is True
 
-    assert payload == {
+    dispatch.assert_called_once()
+    assert dispatch.call_args.args[2] == {
         "project": str(project.pk),
         "velocity_suppressed": False,
         "headline_forecast_kind": "team_velocity",
@@ -270,12 +273,77 @@ def test_the_webhook_names_the_kind_when_velocity_is_shared_outward(
     }
 
 
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("row_exists", [True, False], ids=["row-lock", "first-insert"])
+def test_the_kind_is_computed_after_the_state_row_is_locked(
+    project: Project, row_exists: bool
+) -> None:
+    """A concurrent check records a newer kind while this one waits for the row.
+
+    Computing before the lock would carry the older kind past the wait, write it
+    back over the newer one and announce a switch that never happened.
+    """
+    _share_velocity(project)
+    if row_exists:
+        HeadlineForecastState.objects.create(project=project, kind="cpm_monte_carlo")
+    truth = ["cpm_monte_carlo"]
+    outcome: list[bool] = []
+
+    def check() -> None:
+        try:
+            outcome.append(note_headline_forecast_kind(project.pk))
+        finally:
+            connection.close()
+
+    worker = threading.Thread(target=check)
+    with (
+        patch(
+            "trueppm_api.apps.scheduling.headline_forecast.project_headline_forecast",
+            side_effect=lambda _pid: (truth[0], "reason"),
+        ),
+        patch(DISPATCH) as dispatch,
+    ):
+        with transaction.atomic():
+            # The other caller: holds the row (or its uncommitted first insert).
+            state, _ = HeadlineForecastState.objects.select_for_update().get_or_create(
+                project=project, defaults={"kind": "cpm_monte_carlo"}
+            )
+            worker.start()
+            _wait_for_a_blocked_backend()
+            truth[0] = "team_velocity"
+            state.kind = "team_velocity"
+            state.save(update_fields=["kind", "updated_at"])
+        worker.join(timeout=10)
+
+    assert not worker.is_alive()
+    assert outcome == [False]
+    dispatch.assert_not_called()
+    assert HeadlineForecastState.objects.get(project=project).kind == "team_velocity"
+
+
+def _wait_for_a_blocked_backend() -> None:
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        with connection.cursor() as cursor:
+            # Activity stats are snapshotted per transaction: drop the snapshot.
+            cursor.execute("SELECT pg_stat_clear_snapshot()")
+            cursor.execute(
+                "SELECT 1 FROM pg_stat_activity WHERE datname = current_database() "
+                "AND wait_event_type = 'Lock'"
+            )
+            if cursor.fetchone():
+                return
+        time.sleep(0.02)
+    raise AssertionError("the concurrent check never blocked on the state row")
+
+
 def test_a_sprint_close_checks_the_kind(
     project: Project, django_capture_on_commit_callbacks: Any
 ) -> None:
     """The close adds the velocity sample that makes the project forecast by velocity."""
     from trueppm_api.apps.projects.tasks import close_sprint
 
+    _share_velocity(project)
     _tasks(project, 5)
     # The remaining backlog is what sits in not-yet-closed sprints.
     backlog = Sprint.objects.create(
@@ -353,29 +421,6 @@ def test_a_program_recalculation_checks_every_member(project: Project) -> None:
         project.pk,
         other.pk,
     }
-
-
-@pytest.mark.parametrize("fmt", ["generic", "slack"])
-def test_a_suppressed_payload_renders_without_naming_a_kind(fmt: str) -> None:
-    payload = {
-        "project": "p1",
-        "velocity_suppressed": True,
-        "headline_forecast_kind": None,
-        "headline_forecast_reason": None,
-        "previous_headline_forecast_kind": None,
-    }
-    event = OutgoingChannelEvent(
-        event_type="schedule.finish_changed", project_id="p1", payload=payload
-    )
-
-    body = OUTGOING_CHANNEL_PROVIDERS.get(fmt)().render(event)
-
-    if fmt == "generic":
-        assert body == payload
-    else:
-        assert body["text"].startswith("*Headline forecast changed*")
-        assert body["attachments"][0]["fields"] == []
-        assert not any(word in str(body) for word in ("None", "velocity", "cpm"))
 
 
 def test_a_recalculation_checks_the_kind(project: Project) -> None:

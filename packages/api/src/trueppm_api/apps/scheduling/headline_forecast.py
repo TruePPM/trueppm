@@ -141,12 +141,16 @@ def note_headline_forecast_kind(project_id: Any) -> bool:
     callers are a recalculation and a sprint close, and neither may fail or retry
     over an announcement. Returns whether the event was queued.
 
-    The payload carries the kind and reason only: no velocity figure (ADR-1485 D6).
-    The kind itself says whether a velocity forecast exists, and a webhook consumer
-    is external to the team, so the three kind/reason fields are ``null`` with
-    ``velocity_suppressed`` true unless the team shares velocity outward — the
-    ``sprint.closed`` contract (ADR-0147). The event still fires, and the recorded
-    state moves either way.
+    Nothing is dispatched unless the team shares velocity outward
+    (``program_shared``). A webhook consumer is external to the team, and the event
+    only exists on a switch between two kinds from a known starting kind, so even
+    an event with its fields blanked would disclose the kind (ADR-1485 D6). The
+    recorded state moves either way, so sharing later announces only later
+    switches. The payload carries the kind and reason: no velocity figure.
+
+    The state row is locked before the kind is computed. A recalculation and a
+    sprint close can run this at once, and a kind computed before the lock could
+    be older than the one the other caller just recorded.
     """
     from trueppm_api.apps.projects.models import Project
     from trueppm_api.apps.projects.signal_privacy_services import velocity_shared_externally
@@ -161,23 +165,27 @@ def note_headline_forecast_kind(project_id: Any) -> bool:
         project = Project.objects.filter(pk=pid, is_deleted=False).first()
         if project is None:
             return False
-        kind, reason = project_headline_forecast(pid)
         with transaction.atomic():
-            state, created = HeadlineForecastState.objects.select_for_update().get_or_create(
-                project_id=pid, defaults={"kind": kind}
-            )
-            if created or state.kind == kind:
+            # "" marks a row nobody has computed yet. It is always overwritten
+            # before commit. get_or_create resolves a concurrent first insert by
+            # waiting for it and reading the committed row.
+            HeadlineForecastState.objects.get_or_create(project_id=pid, defaults={"kind": ""})
+            state = HeadlineForecastState.objects.select_for_update().get(project_id=pid)
+            kind, reason = project_headline_forecast(pid)
+            previous = state.kind
+            if previous == kind:
                 return False
-            shared = velocity_shared_externally(project)
-            payload = {
-                "project": pid,
-                "velocity_suppressed": not shared,
-                "headline_forecast_kind": kind if shared else None,
-                "headline_forecast_reason": reason if shared else None,
-                "previous_headline_forecast_kind": state.kind if shared else None,
-            }
             state.kind = kind
             state.save(update_fields=["kind", "updated_at"])
+            if not previous or not velocity_shared_externally(project):
+                return False
+            payload = {
+                "project": pid,
+                "velocity_suppressed": False,
+                "headline_forecast_kind": kind,
+                "headline_forecast_reason": reason,
+                "previous_headline_forecast_kind": previous,
+            }
             transaction.on_commit(
                 lambda: _dispatch_webhooks(pid, "schedule.finish_changed", payload)
             )

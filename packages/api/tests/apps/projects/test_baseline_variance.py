@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from datetime import date, timedelta
 from typing import Any
 
@@ -12,7 +13,10 @@ from django.test.utils import CaptureQueriesContext
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
 from trueppm_api.apps.projects.models import (
+    SCOPE_MCP_READ,
+    ApiToken,
     Baseline,
     BaselineTask,
     Calendar,
@@ -270,6 +274,42 @@ def test_any_member_reads(project: Project, baseline: Baseline, role: int) -> No
 def test_non_member_and_anonymous_are_refused(project: Project, baseline: Baseline) -> None:
     assert _client(project, None).get(_url(project, baseline)).status_code == 403
     assert APIClient().get(_url(project, baseline)).status_code == 401
+
+
+def _agent(project: Project) -> APIClient:
+    """A client authenticated by an ``mcp:read`` token owned by a project viewer."""
+    owner = User.objects.create_user(username="agent-owner", password="pw")
+    ProjectMembership.objects.create(project=project, user=owner, role=Role.VIEWER)
+    raw = f"{TOKEN_PREFIX}{secrets.token_hex(32)}"
+    ApiToken.objects.create(
+        owner=owner,
+        name="agent",
+        token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
+        token_hash=sha256_hex(raw),
+        created_by=owner,
+        scopes=[SCOPE_MCP_READ],
+    )
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+    return client
+
+
+def test_an_mcp_read_token_reads(
+    project: Project, baseline: Baseline, chain: tuple[Task, Task]
+) -> None:
+    response = _agent(project).get(_url(project, baseline))
+
+    assert response.status_code == 200, response.data
+    assert list(_rows(response)) == ["B"]
+
+
+def test_an_mcp_read_token_is_refused_on_an_opted_out_project(
+    project: Project, baseline: Baseline
+) -> None:
+    project.mcp_enabled = False
+    project.save(update_fields=["mcp_enabled"])
+
+    assert _agent(project).get(_url(project, baseline)).status_code == 403
 
 
 def test_another_projects_or_a_deleted_baseline_is_404(

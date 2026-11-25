@@ -127,7 +127,7 @@ OSS fires **19 event types** (a deliberate hard cap), and 0.5 will add a twentie
 | `dependency.created` | A task link (FS/SS/FF/SF) is created |
 | `dependency.deleted` | A task link is deleted |
 | `schedule.recalculated` | The CPM scheduler completes a recalculation |
-| `schedule.finish_changed` | The forecast the project [headlines](/features/monte-carlo/#which-forecast-a-project-headlines) switches kind (ships in 0.5, see note) |
+| `schedule.finish_changed` | The forecast the project [headlines](/features/monte-carlo/#which-forecast-a-project-headlines) switches kind (ships in 0.5; sent only when velocity is shared outward, see note) |
 | `project.created` | A new project is created in the organization |
 | `sprint.activated` | A sprint transitions PLANNED → ACTIVE |
 | `sprint.closed` | A sprint is closed (carries the completion snapshot — see note) |
@@ -139,7 +139,7 @@ OSS fires **19 event types** (a deliberate hard cap), and 0.5 will add a twentie
 | `comment.created` | A comment is added to a task (every comment; no body in the payload) |
 
 ::::note[Ships in 0.5: `schedule.finish_changed`]
-0.4 and earlier do not have this event. From 0.5 it fires when the project's headline forecast switches between `cpm_monte_carlo` and `team_velocity`, checked after a schedule recalculation and after a sprint close. The check runs only at those two moments, so another change (for example a new dependency before the recalculation runs) is announced at the next one. The first check of a project records the kind and sends nothing. The payload is `project`, `velocity_suppressed`, `headline_forecast_kind`, `headline_forecast_reason`, and `previous_headline_forecast_kind`; it carries no velocity figure. Which forecast a project headlines tells a reader whether it has a velocity forecast, so the last three are sent only when the team has shared the `velocity` signal outward (audience `program_shared`), as for [`sprint.closed`](#event-types). Otherwise the event is still sent, with those three `null` and `velocity_suppressed: true`.
+0.4 and earlier do not have this event. From 0.5 it is sent **only when the team has shared the `velocity` signal outward** (audience `program_shared` in the project's signal-privacy settings). Which forecast a project headlines tells a reader whether it has a velocity forecast, so under the default audience no event is sent, even to a subscribed webhook. When sharing is on, it fires when the project's headline forecast switches between `cpm_monte_carlo` and `team_velocity`, checked after a schedule recalculation and after a sprint close. The check runs only at those two moments, so another change (for example a new dependency before the recalculation runs) is announced at the next one. The first check of a project records the kind and sends nothing, and a switch that happened before you turned sharing on is not sent afterwards. The payload is `project`, `velocity_suppressed` (always `false`), `headline_forecast_kind`, `headline_forecast_reason`, and `previous_headline_forecast_kind`; it carries no velocity figure.
 ::::
 
 All of them are selectable from the **Integrations** settings page as well as the API. A single PATCH that both reassigns a task and moves its date fires `task.updated` **plus** the specific events — subscribe to whichever you want.
