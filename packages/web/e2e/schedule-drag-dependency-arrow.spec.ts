@@ -198,6 +198,12 @@ test.describe('Schedule drag preview keeps dependency arrows intact (#1499)', ()
     // preview has two different dates either side of the arrow.
     const popover = page.getByRole('dialog', { name: /Reschedule task/ });
     await expect(popover).toBeVisible({ timeout: 5_000 });
+    // #4314: the popover also states what the drag does to everything downstream,
+    // from the same worker pass that drew the live preview. Foundation has a
+    // successor in this fixture, so the line is a count and a finish clause.
+    await expect(popover.getByTestId('commit-popover-cascade')).toHaveText(
+      /^(No|\d+) downstream tasks? moves?(; finish (unchanged|\d+d (later|earlier)))?$/,
+    );
     const changeText = await page.locator('#schedule-commit-change').innerText();
     const [oldDate, newDate] = changeText.split('→').map((s) => s.trim());
     expect(oldDate).toBeTruthy();

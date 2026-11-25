@@ -400,6 +400,42 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
     await expect(page.locator('[data-testid="mc-marker-p95"]')).toBeVisible();
   });
 
+  test('Today and P80 labels sit in the 18px timescale marker lane, P80 once (#4068)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1600, height: 900 });
+    await gotoScheduleWithMC(page);
+
+    const lane = page.getByTestId('marker-lane');
+    await expect(lane).toBeAttached({ timeout: 10_000 });
+    const box = await lane.boundingBox();
+    expect(box?.height).toBe(18);
+
+    // The lane always carries Today; with a forecast it carries P80 too, and the
+    // percentile is rendered exactly once — the markers overlay draws only its line.
+    await expect(page.getByTestId('marker-lane-today')).toHaveText('Today');
+    await expect(page.getByTestId('marker-lane-p80')).toHaveText(/^P80(: .+)?$/);
+    await expect(page.getByTestId('marker-lane-p80')).toHaveCount(1);
+    await expect(page.getByTestId('mc-marker-p80').getByText(/P80/)).toHaveCount(0);
+
+    // No two visible chips overlap.
+    const boxes = await page
+      .locator('[data-testid^="marker-lane-"][data-side]')
+      .evaluateAll((els) =>
+        els
+          .filter((e) => getComputedStyle(e).visibility !== 'hidden')
+          .map((e) => {
+            const r = e.getBoundingClientRect();
+            return { l: r.left, r: r.right };
+          }),
+      );
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) {
+        expect(boxes[i].l < boxes[j].r && boxes[j].l < boxes[i].r).toBe(false);
+      }
+    }
+  });
+
   test('P80 chip shows delta vs CPM finish on the consolidated bar', async ({ page }) => {
     await gotoScheduleWithMC(page);
 

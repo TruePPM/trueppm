@@ -1,6 +1,6 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useDragCpm } from './useDragCpm';
+import { useDragCpm, projectFinishDelta } from './useDragCpm';
 import { useDragStore } from '@/stores/dragStore';
 import { GanttEngineStub } from '@/features/schedule/engine';
 import type { GanttEngineEventMap } from '@/features/schedule/engine';
@@ -665,5 +665,29 @@ describe('useDragCpm', () => {
         void act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
       }).not.toThrow();
     });
+  });
+});
+
+describe('projectFinishDelta (#4314)', () => {
+  const t = (id: string, finish: string, isSummary = false) =>
+    ({ id, finish, isSummary }) as unknown as Task;
+  const sub = { taskId: 'a', ids: new Set(['a', 'b']) };
+
+  it('is the shift of the latest finish when the cascade holds the project end', () => {
+    const tasks = [t('a', '2026-03-02'), t('b', '2026-03-10'), t('z', '2026-03-05')];
+    expect(projectFinishDelta(tasks, sub, 'a', '2026-03-13')).toBe(3);
+    expect(projectFinishDelta(tasks, sub, 'a', '2026-03-08')).toBe(-2);
+  });
+
+  it('is 0 when a task off the cascade still holds the finish', () => {
+    const tasks = [t('a', '2026-03-02'), t('b', '2026-03-10'), t('z', '2026-04-01')];
+    expect(projectFinishDelta(tasks, sub, 'a', '2026-03-20')).toBe(0);
+  });
+
+  it('ignores summary rows and is null without a matching subgraph', () => {
+    const tasks = [t('a', '2026-03-02'), t('b', '2026-03-10'), t('s', '2026-09-09', true)];
+    expect(projectFinishDelta(tasks, sub, 'a', '2026-03-10')).toBe(0);
+    expect(projectFinishDelta(tasks, null, 'a', '2026-03-10')).toBeNull();
+    expect(projectFinishDelta(tasks, sub, 'other', '2026-03-10')).toBeNull();
   });
 });

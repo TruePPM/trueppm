@@ -32,7 +32,7 @@ import type { GanttEngine, GanttScaleData } from './engine';
 import { dateToLeft, leftToDate, milestoneX, ZOOM_STEP_FACTOR } from './engine';
 import { computeInitialFraming, todayLocalIso, type RowBar } from './scheduleUtils';
 import { resolveOutlineLeftReserve, CHART_HEADER_HEIGHT, ROW_HEIGHT } from './scheduleConstants';
-import { useCadenceRail, useChartHeaderHeight } from '@/hooks/useChartHeaderHeight';
+import { useCadenceRail, useChartHeaderHeight, useMarkerLane } from '@/hooks/useChartHeaderHeight';
 import { useRowHeight, useRowMetrics, useComfortableRows } from '@/hooks/useRowHeight';
 import { useIsCoarsePointer } from '@/hooks/useIsCoarsePointer';
 import { useScheduleTasks } from '@/hooks/useScheduleTasks';
@@ -121,6 +121,7 @@ import { reviewableTaskIds } from './reconcile/reconcileState';
 import { MON_FRI_MASK } from './reconcile/reconcileCopy';
 import { useReconcileStore } from '@/stores/reconcileStore';
 import { MonteCarloGanttMarkers } from './MonteCarloGanttMarkers';
+import { TimescaleMarkerLane } from './TimescaleMarkerLane';
 import { MobileMonteCarloCard } from './MobileMonteCarloCard';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
 import { MilestoneDeltaAnchor } from './MilestoneDeltaTooltip';
@@ -1304,6 +1305,8 @@ export function ScheduleView() {
    * without a visual diff on every non-agile plan.
    */
   useCadenceRail(cadenceSegments.length > 0 && chartPrefs.sprintBandsVisible !== false);
+  // The Today / P80 / Target marker lane under the timescale tiers (#4068).
+  useMarkerLane(true);
 
   // Wrap toggle to announce the new state to the polite aria-live region.
   // Written via DOM ref (rule 30) — avoids a state-driven re-render on every toggle.
@@ -5408,6 +5411,20 @@ function ScheduleOverlayLayer({
   // once at the top level regardless of which caller set it (#3812).
   const setScheduleActionToast = useScheduleStore((s) => s.setScheduleActionToast);
   const overlayProjectId = useProjectId();
+  // The preview worker's cascade summary for the popover's cascade line (#4314). Read
+  // reactively: the worker's last RESULT can land after the popover opens.
+  const dragCascade = useDragStore((s) => s.cascade);
+  const commitPending = scheduleCommit.state;
+  const commitActionWithCascade = useMemo(
+    () =>
+      commitPending
+        ? {
+            ...commitPending.action,
+            cascade: dragCascade?.taskId === commitPending.taskId ? dragCascade : null,
+          }
+        : null,
+    [commitPending, dragCascade],
+  );
   const selectedTask = selectedTaskId
     ? (allTasks.find((t) => t.id === selectedTaskId) ?? null)
     : null;
@@ -5458,11 +5475,11 @@ function ScheduleOverlayLayer({
 
       {/* Pull-to-commit popover (ADR-0067 / #492) — replaces the silent PATCH
           that fired on pointerup. Stays open until Confirm/Cancel/Esc/click-outside. */}
-      {scheduleCommit.state && (
+      {scheduleCommit.state && commitActionWithCascade && (
         <ScheduleCommitPopover
           anchor={scheduleCommit.state.anchor}
           activeSprintName={scheduleCommit.state.activeSprintName}
-          action={scheduleCommit.state.action}
+          action={commitActionWithCascade}
           isPending={scheduleCommit.isPending}
           error={scheduleCommit.state.error}
           demoRefusal={scheduleCommit.state.demoRefusal}
@@ -7430,6 +7447,12 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
                 />
                 {/* P50/P80/P95 vertical markers — scroll-synced via DOM ref writes (#333) */}
                 <MonteCarloGanttMarkers
+                  result={mcResult ?? null}
+                  scaleData={scheduleScales}
+                  canvasScrollRef={canvasScrollRef}
+                />
+                {/* Today / P80 / Target labels, one 18px lane under the tiers (#4068) */}
+                <TimescaleMarkerLane
                   result={mcResult ?? null}
                   scaleData={scheduleScales}
                   canvasScrollRef={canvasScrollRef}
