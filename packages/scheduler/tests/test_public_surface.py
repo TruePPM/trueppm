@@ -10,6 +10,7 @@ docstrings on the (de)serialization surface.
 from __future__ import annotations
 
 import dataclasses
+import importlib
 import re
 import subprocess
 import tomllib
@@ -445,7 +446,10 @@ class TestDerivationVocabulary:
             assert m.value == m.name.lower()
 
     def test_every_contribution_kind_has_an_emission_site(self) -> None:
-        source = Path(ts.derive_value.__code__.co_filename).read_text()
+        # Read the module's file, not derive_value.__code__.co_filename: mutmut
+        # wraps mutated functions, so under mutation testing the function's code
+        # object lives in another file and the stats pass dies here.
+        source = Path(importlib.import_module("trueppm_scheduler.derive").__file__).read_text()
         unused = [m.name for m in ts.ContributionKind if f"ContributionKind.{m.name}" not in source]
         assert not unused
 
