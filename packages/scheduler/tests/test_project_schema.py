@@ -22,7 +22,11 @@ from pathlib import Path
 
 import pytest
 
-jsonschema = pytest.importorskip("jsonschema")
+# In CI a missing jsonschema must fail the job, not skip the whole gate silently.
+if os.environ.get("CI"):
+    import jsonschema
+else:
+    jsonschema = pytest.importorskip("jsonschema")
 
 _PKG = Path(__file__).resolve().parent.parent
 _GENERATOR = _PKG / "scripts" / "generate_project_schema.py"
