@@ -1858,6 +1858,9 @@ scheduler:lint:
     - cd packages/scheduler
     - sh ../../scripts/ci/step.sh scheduler:lint ruff check src/ tests/
     - sh ../../scripts/ci/step.sh scheduler:lint ruff format --check src/ tests/
+    # The published project-document JSON Schema must match what models.py derives
+    # (#4164); the fixture-corpus half of the gate runs in scheduler:test.
+    - sh ../../scripts/ci/step.sh scheduler:project-schema python scripts/generate_project_schema.py --check
     # Self-heal an occasionally-corrupt restored incremental cache (#2233). mypy
     # exits 2 on a fatal INTERNAL ERROR (distinct from exit 1 = real type errors).
     # On a crash, drop .mypy_cache and retry once from cold. That way a corrupt
@@ -3154,6 +3157,8 @@ scheduler:lock-sdist:
         - packages/scheduler/**/*
         - scripts/check-scheduler-sdist.sh
         - scripts/check-scheduler-wheel-smoke.sh
+        - scripts/package-conformance-corpus.sh
+        - packages/wasm-scheduler/fixtures/**/*
         - .gitlab-ci.yml
   before_script:
     - !reference [.pip-floor, before_script]
@@ -3163,6 +3168,10 @@ scheduler:lock-sdist:
     - bash scripts/ci/step.sh scheduler:sdist-check bash scripts/check-scheduler-sdist.sh --self-test
     - bash scripts/ci/step.sh scheduler:sdist-check bash scripts/check-scheduler-wheel-smoke.sh --self-test
     - bash scripts/ci/step.sh scheduler:sdist-check bash scripts/check-scheduler-sdist.sh
+    # The corpus tarball the tag pipeline attaches to the Release (#4165): prove it
+    # packages, is reproducible, carries its agreement-not-correctness README, and
+    # that its checksum verifies, on every MR rather than first on a tag.
+    - bash scripts/ci/step.sh scheduler:corpus-package bash scripts/package-conformance-corpus.sh --self-test
     - bash scripts/ci/step.sh --finish
 
 mcp:uv-lock-check:
@@ -3428,7 +3437,7 @@ mcp:test:
   script:
     - cd packages/mcp
     - sh ../../scripts/ci/step.sh mcp:typecheck mypy
-    - sh ../../scripts/ci/step.sh mcp:test pytest --cov=trueppm_mcp --cov-report=term-missing --cov-report=xml --cov-fail-under=80
+    - sh ../../scripts/ci/step.sh mcp:test pytest --cov=trueppm_mcp --cov-report=term-missing --cov-report=xml --cov-fail-under=93
     - sh ../../scripts/ci/step.sh --finish
   coverage: '/TOTAL.*\s(\d+%)/'
   artifacts:
@@ -4684,7 +4693,9 @@ api:coverage:
     - cd packages/api
     - coverage combine
     - coverage xml
-    - coverage report --fail-under=80
+    # Floor 85 is the stated API bar (test-strategy skill) against a measured 96.0 on
+    # main (#3548). The package floor is the only gate that sees a deleted test.
+    - coverage report --fail-under=85
   coverage: '/TOTAL.*\s(\d+%)/'
   artifacts:
     paths:
@@ -6778,6 +6789,23 @@ scheduler:build:
       # there is exactly one place the URL is built.
       printf 'SCHEDULER_VERSION=%s\nSCHEDULER_SBOM_URL=%s\n' \
         "$PKG_VERSION" "$SBOM_PACKAGE_URL" > "${CI_PROJECT_DIR}/scheduler-release.env"
+    # Conformance corpus (#4165): tarball + SHA-256 beside the wheel, pushed to the
+    # Generic Package Registry so the Release links stable URLs. NOT exercised until
+    # the first `scheduler-v*` tag after this lands: tag-only, and it runs from the tag
+    # commit's CI file. The packaging itself is covered on every MR by
+    # scheduler:corpus-package. Before twine in scheduler:publish (which `needs:` this
+    # job), so a failure here stops the release before anything is uploaded to PyPI.
+    # Written to corpus-dist/, NOT dist/: publish globs dist/*.tar.gz for twine and
+    # attestation signing, and a corpus tarball there would be uploaded to PyPI as a
+    # distribution.
+    - bash "$CI_PROJECT_DIR/scripts/package-conformance-corpus.sh" "$PKG_VERSION" corpus-dist
+    - |
+      CORPUS_NAME="trueppm-scheduler-conformance-corpus-${PKG_VERSION}.tar.gz"
+      CORPUS_BASE="${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/trueppm-scheduler-conformance-corpus/${PKG_VERSION}"
+      python "$CI_PROJECT_DIR/scripts/ci/upload_generic_package.py" "$CORPUS_BASE/$CORPUS_NAME" "corpus-dist/$CORPUS_NAME" application/gzip
+      python "$CI_PROJECT_DIR/scripts/ci/upload_generic_package.py" "$CORPUS_BASE/$CORPUS_NAME.sha256" "corpus-dist/$CORPUS_NAME.sha256" text/plain
+      printf 'SCHEDULER_CORPUS_URL=%s\nSCHEDULER_CORPUS_SHA256_URL=%s\n' \
+        "$CORPUS_BASE/$CORPUS_NAME" "$CORPUS_BASE/$CORPUS_NAME.sha256" >> "${CI_PROJECT_DIR}/scheduler-release.env"
     - sh "$CI_PROJECT_DIR/scripts/ci-assert-artifacts.sh" packages/scheduler/dist/
   artifacts:
     # Keep the built wheel + sdist + SBOM as a CI artifact for traceability.
@@ -6792,6 +6820,7 @@ scheduler:build:
     # has actually produced a registry entry.
     paths:
       - packages/scheduler/dist/
+      - packages/scheduler/corpus-dist/
     # Carries SCHEDULER_VERSION + SCHEDULER_SBOM_URL to scheduler:release, which
     # cannot recompute them itself: the `release:` keyword expands CI/CD
     # variables, not shell variables set in a `script:` block.
@@ -8901,12 +8930,12 @@ scheduler:release:
     - |
       # Fail loudly if the dotenv plumbing broke: an empty SCHEDULER_SBOM_URL
       # would otherwise create a Release whose one asset link is a 404.
-      if [ -z "$SCHEDULER_VERSION" ] || [ -z "$SCHEDULER_SBOM_URL" ]; then
-        echo "ERROR: SCHEDULER_VERSION / SCHEDULER_SBOM_URL missing."
+      if [ -z "$SCHEDULER_VERSION" ] || [ -z "$SCHEDULER_SBOM_URL" ] || [ -z "$SCHEDULER_CORPUS_URL" ] || [ -z "$SCHEDULER_CORPUS_SHA256_URL" ]; then
+        echo "ERROR: SCHEDULER_VERSION / SCHEDULER_SBOM_URL / SCHEDULER_CORPUS_URL / SCHEDULER_CORPUS_SHA256_URL missing."
         echo "They come from scheduler:build's dotenv report (scheduler-release.env)."
         exit 1
       fi
-      printf '**trueppm-scheduler %s** — published to [PyPI](https://pypi.org/project/trueppm-scheduler/%s/).\n\nRelease notes: [packages/scheduler/CHANGELOG.md](%s/-/blob/%s/packages/scheduler/CHANGELOG.md)\n\nThe linked **sbom.cdx.json** is this version CycloneDX SBOM, generated from the locked runtime closure and served from the GitLab Generic Package Registry.\n' \
+      printf '**trueppm-scheduler %s** — published to [PyPI](https://pypi.org/project/trueppm-scheduler/%s/).\n\nRelease notes: [packages/scheduler/CHANGELOG.md](%s/-/blob/%s/packages/scheduler/CHANGELOG.md)\n\nThe linked **sbom.cdx.json** is this version CycloneDX SBOM, generated from the locked runtime closure and served from the GitLab Generic Package Registry.\n\nThe linked **conformance corpus** is the language-neutral fixture set the Python and Rust engines are checked against, with its SHA-256. It certifies agreement with the reference engine, not correctness: https://docs.trueppm.com/architecture/testing-another-implementation/\n' \
         "$SCHEDULER_VERSION" "$SCHEDULER_VERSION" "$CI_PROJECT_URL" "$CI_COMMIT_TAG" > release_notes.md
   release:
     tag_name: '$CI_COMMIT_TAG'
@@ -8917,6 +8946,12 @@ scheduler:release:
         - name: 'CycloneDX SBOM (sbom.cdx.json)'
           url: '$SCHEDULER_SBOM_URL'
           link_type: package
+        - name: 'Conformance corpus (trueppm-scheduler-conformance-corpus.tar.gz)'
+          url: '$SCHEDULER_CORPUS_URL'
+          link_type: package
+        - name: 'Conformance corpus SHA-256'
+          url: '$SCHEDULER_CORPUS_SHA256_URL'
+          link_type: other
 
 mcp:release:
   stage: deploy

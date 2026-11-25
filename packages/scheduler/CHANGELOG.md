@@ -16,6 +16,18 @@ change between releases. Pin an exact version (e.g.
 
 ## [Unreleased]
 
+### Added
+
+- **A JSON Schema for the project document
+  ([#4164](https://gitlab.com/trueppm/trueppm/-/issues/4164)).** Shipped in the wheel
+  as `trueppm_scheduler/project.schema.json` (draft 2020-12), generated from
+  `trueppm_scheduler.models`. It checks shape only; the engine's semantic rules (cycles,
+  unknown task ids, calendar consistency, caps) are outside what a schema can express.
+- **The conformance corpus is a release artifact
+  ([#4165](https://gitlab.com/trueppm/trueppm/-/issues/4165)).** Each `scheduler-v*`
+  release attaches the corpus as a tarball with a SHA-256. It certifies agreement with
+  the reference engine, not correctness.
+
 ### Changed
 
 - **The derivation vocabulary is published as enums
