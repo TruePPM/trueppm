@@ -41,6 +41,10 @@ _GUARD_TTL_SECONDS = 7 * 24 * 3600
 #: The classifications that mean "the run no longer describes the plan". ``unknown``
 #: (a pre-#3140 run, or never simulated) is excluded: we cannot say it moved, and
 #: signaling every legacy project on its first recalculation would be a fleet-wide storm.
+#: ``engine_superseded`` (#5064) is excluded for the same reason: an epoch bump supersedes
+#: every project's run at once, so signaling it would fire for the whole fleet on each
+#: project's next recalculation — and it keeps the ``staleness`` values this extension
+#: point carries the ones enterprise receivers were written against.
 _SIGNALED = frozenset({"project_changed", "aged"})
 
 

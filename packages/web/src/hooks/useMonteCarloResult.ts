@@ -79,7 +79,7 @@ interface MonteCarloLatestResponse {
   // every branch and never sends null, so `undefined` here means only one thing: a
   // payload from before this shipped. Optional for that reason alone — it is NOT a
   // signal the client is allowed to interpret as "fine".
-  forecast_staleness?: 'current' | 'project_changed' | 'aged' | 'unknown';
+  forecast_staleness?: 'current' | 'project_changed' | 'aged' | 'unknown' | 'engine_superseded';
   plan_version?: number | null;
   plan_version_current?: number | null;
   // Commitment + delta + definitions (ADR-1314, #4760). Derived per response on the
@@ -108,6 +108,9 @@ function mapStaleness(wire: MonteCarloLatestResponse['forecast_staleness']): For
       return 'projectChanged';
     case 'aged':
       return 'aged';
+    // A run from a since-corrected engine (#5064). Rendered as `unknown` — the Rerun action
+    // stays reachable and the bar makes no plan-drift claim, which would be the wrong one.
+    case 'engine_superseded':
     default:
       return 'unknown';
   }

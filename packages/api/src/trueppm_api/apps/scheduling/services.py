@@ -324,6 +324,7 @@ def record_monte_carlo_run(
     ``p95_at_day_start`` / ``cpm_finish_at_day_start`` to which edge of its shown
     day each finish is (#4204); omitted keys persist as ``None`` (unknown).
     """
+    from trueppm_api.apps.scheduling.forecast_staleness import MC_ENGINE_EPOCH
     from trueppm_api.apps.scheduling.models import MonteCarloRun
 
     reading_fields = (
@@ -349,6 +350,9 @@ def record_monte_carlo_run(
             diagnostic=diagnostic,
             status_date=status_date,
             plan_version=plan_version,
+            # Stamped here, the one place a run row is written, so no caller can omit it
+            # (#5064).
+            engine_epoch=MC_ENGINE_EPOCH,
             **reading_values,
         )
     except Exception:

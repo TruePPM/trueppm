@@ -95,6 +95,24 @@ from typing import Any, Literal, TypedDict
 
 from .risk_premium import STALE_AFTER_DAYS
 
+#: The forecast correctness epoch (#5064). Stamped on every Monte Carlo run — the
+#: persisted ``MonteCarloRun.engine_epoch`` and the ``mc_latest`` cache entry — and
+#: compared here against the value the server runs now.
+#:
+#: **Bump it in the change that alters what a forecast computes for unchanged inputs** —
+#: an engine correctness fix (a CPM or sampling rule), or an API-side change to how the
+#: scheduler input is shaped (which tasks are simulated, calendar composition, the
+#: velocity signal, the data-date floor). Every earlier run then reads
+#: ``engine_superseded`` and offers a rerun. Do not bump it for a refactor, a
+#: performance change or a new output field: the cost is a fleet-wide "rerun" prompt.
+#:
+#: Deliberately a hand-bumped constant, not the ``trueppm-scheduler`` version: see the
+#: field comment on ``MonteCarloRun.engine_epoch``. The trade-off is that forgetting to
+#: bump it leaves superseded runs reading as they did before — the pre-#5064 behavior,
+#: not a new false-fresh path. Bumping ``views.MC_LATEST_CACHE_VERSION`` is a separate
+#: decision: that one only invalidates the 24-hour cache entry's *shape*.
+MC_ENGINE_EPOCH = 1
+
 #: The forecast-vs-plan discriminant. Never ``None`` on the wire — a client renders from
 #: this value alone and must never have to decide what an absent key means.
 #:
@@ -108,6 +126,11 @@ from .risk_premium import STALE_AFTER_DAYS
 #: * ``unknown`` — the run recorded no plan version (it predates #3140), so no comparison
 #:   is possible. Deliberately distinct from ``current``: "we cannot tell" is not "it is
 #:   fine", and conflating them is how the original defect read.
+#: * ``engine_superseded`` — the run was computed under an earlier
+#:   :data:`MC_ENGINE_EPOCH`: a correctness fix to the forecast has landed since, so the
+#:   same plan would now forecast differently (#5064). Decided before the plan terms —
+#:   it holds whatever the plan did, and it is the one reason a reader cannot see from
+#:   the project. A run with no recorded epoch (pre-#5064) is never classified this way.
 #:
 #: **``project_changed``, not ``plan_changed``, and the name is the honest part.** The
 #: counter behind it — ``Project.last_sync_version`` — advances on *any* synced write in
@@ -117,7 +140,7 @@ from .risk_premium import STALE_AFTER_DAYS
 #: evidence is worse here than one that understates it, because the value goes to LLM and
 #: MCP callers that will narrate it as fact and have nothing else in the payload to check
 #: it against. Any consumer wanting the stronger claim must corroborate it separately.
-ForecastStaleness = Literal["current", "project_changed", "aged", "unknown"]
+ForecastStaleness = Literal["current", "project_changed", "aged", "unknown", "engine_superseded"]
 
 
 class ForecastStalenessFacts(TypedDict):
@@ -140,6 +163,8 @@ def classify_forecast_staleness(
     plan_version_current: int | None,
     age_days: int | None,
     recalculated_after_run: bool = False,
+    engine_epoch: int | None = None,
+    engine_epoch_current: int | None = None,
 ) -> ForecastStaleness:
     """Classify one run against the plan it is being read beside.
 
@@ -167,11 +192,22 @@ def classify_forecast_staleness(
         recalculated_after_run: Whether the project's CPM output was rewritten after this
             run was taken (``Project.recalculated_at > taken_at``). Closes the one
             false-fresh path the version counter cannot see — see the module docstring.
+        engine_epoch: The :data:`MC_ENGINE_EPOCH` the run was stamped with, or ``None``
+            for a run recorded before #5064 — which contributes nothing, so such a run
+            classifies exactly as it did before the column existed.
+        engine_epoch_current: The epoch to compare against; ``None`` (the default) reads
+            :data:`MC_ENGINE_EPOCH` at call time.
 
     Returns:
         The discriminant a client renders from.
     """
     aged = age_days is not None and age_days > STALE_AFTER_DAYS
+
+    # `!=`, not `<`, for the same reason as the plan version below: a run stamped by a
+    # newer server than the one reading it (a rolled-back deploy) is just as unplaceable.
+    epoch_now = MC_ENGINE_EPOCH if engine_epoch_current is None else engine_epoch_current
+    if engine_epoch is not None and engine_epoch != epoch_now:
+        return "engine_superseded"
 
     if plan_version is None or plan_version_current is None:
         # No comparison is possible. Report what the timestamp *can* prove, and otherwise
@@ -200,6 +236,7 @@ def forecast_staleness_facts(
     taken_at: datetime.datetime | None,
     recalculated_at: datetime.datetime | None,
     today: datetime.date,
+    engine_epoch: int | None = None,
 ) -> ForecastStalenessFacts:
     """Build the staleness slice for one forecast response.
 
@@ -226,6 +263,7 @@ def forecast_staleness_facts(
             plan_version_current=plan_version_current,
             age_days=age_days,
             recalculated_after_run=recalculated_after_run,
+            engine_epoch=engine_epoch,
         ),
         plan_version=plan_version,
         plan_version_current=plan_version_current,
@@ -265,6 +303,8 @@ def forecast_staleness_from_run(
         taken_at=run.taken_at,
         recalculated_at=recalculated_at,
         today=today,
+        # getattr: a caller may hand a row loaded with `.only(...)` predating the column.
+        engine_epoch=getattr(run, "engine_epoch", None),
     )
 
 
@@ -311,4 +351,5 @@ def forecast_staleness_for_payload(
         taken_at=parsed_at,
         recalculated_at=recalculated_at,
         today=today,
+        engine_epoch=_parse_int(payload.get("engine_epoch")),
     )

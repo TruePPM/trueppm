@@ -75,6 +75,7 @@ from trueppm_api.apps.scheduling.finish_reading import (
     task_finish_at_day_start,
 )
 from trueppm_api.apps.scheduling.forecast_staleness import (
+    MC_ENGINE_EPOCH,
     forecast_staleness_for_payload,
     forecast_staleness_from_run,
 )
@@ -1272,6 +1273,11 @@ def simulate_and_record_monte_carlo(
         # cache entry is the only place this observation exists. Unlike the
         # risk-premium family, this is not derivable at read time from anything.
         "plan_version": plan_version,
+        # The correctness epoch this run was computed under (#5064), carried on the
+        # cache entry for the same reason as `plan_version`: a Member's run exists only
+        # here. An entry written before #5064 has no key and reads as unknown on this
+        # axis, never as superseded.
+        "engine_epoch": MC_ENGINE_EPOCH,
         # The data date this run was actually computed against (ADR-0132, #2638):
         # the project's explicit status_date, or today when unset. Carried on the
         # cache entry too (it is part of ``result_dict``) so a cached read states
@@ -1349,9 +1355,13 @@ class MonteCarloLatestView(McpReadableViewMixin, APIView):
                     "no stored distribution return empty "
                     "confidence_curve/histogram_buckets/sensitivity arrays. "
                     "Plus the forecast-staleness family (#3140): forecast_staleness "
-                    "(current|project_changed|aged|unknown — never null; only `current` "
-                    "means the forecast still describes the plan, and a client keeps the "
-                    "recompute action reachable on the other three), plan_version (the "
+                    "(current|project_changed|aged|unknown|engine_superseded — never null; "
+                    "only `current` means the forecast still describes the plan, and a "
+                    "client keeps the recompute action reachable on the others; "
+                    "`engine_superseded` (#5064) means the run was computed before a "
+                    "forecast correctness fix and is decided before the plan terms — a "
+                    "run recorded before #5064 carries no engine epoch and is never "
+                    "classified this way), plan_version (the "
                     "project's sync version this run was computed against — unlike the "
                     "risk_premium family this one IS carried on the cache entry and the "
                     "persisted row, because it is a run-time observation that cannot be "
@@ -3081,7 +3091,7 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
                     "ScheduleCpmDerivationResponse; a Monte Carlo percentile "
                     "(p50/p80/p95) returns ScheduleMonteCarloDerivationResponse, which "
                     "additionally carries forecast_staleness "
-                    "(current|project_changed|aged|unknown), plan_version and "
+                    "(current|project_changed|aged|unknown|engine_superseded), plan_version and "
                     "plan_version_current (#3140), so a cited percentile states whether "
                     "the run it comes from still describes the current plan rather than "
                     "presenting a superseded value with full derivation confidence. "
