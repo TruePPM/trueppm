@@ -84,3 +84,21 @@ with its tracking issue rather than a deleted slot.
    `**/api/v1/**` catch-all).
 3. Gate the screenshot on a "page rendered" signal (a heading/region/group that
    only appears after the reads resolve), then `page.screenshot(...)`.
+
+---
+
+## Driving a WebSocket frame (`page.routeWebSocket`)
+
+A spec that proves a server push reaches the UI (for example
+`schedule-reforecast-cascade.spec.ts`) has three traps, none of which show up as a
+clear error:
+
+- **Send the full frame shape.** A `task_dates_updated` row missing CPM fields
+  (`duration`, late dates) splices `undefined` into the bar geometry, so the
+  comparison the handler makes is meaningless. Send a complete `TaskDatesDelta`.
+- **Serve the moved state from the tasks mock once the frame is sent.** A list mock
+  that keeps serving the old dates answers the next refetch with the pre-frame rows.
+- **Rebuild `dist/` after every source edit** (`npm run build`, which is
+  `tsc -b && vite build`, so a type error leaves `dist/` stale). Playwright serves the
+  prebuilt bundle; a negative control that edits source without rebuilding tests the
+  old tree and passes for the wrong reason.

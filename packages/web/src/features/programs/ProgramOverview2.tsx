@@ -9,9 +9,12 @@ import { QueryErrorState } from '@/components/QueryErrorState';
 import { commitmentChip } from '@/features/project/ProjectOverview2';
 import { CallChip } from '@/features/project/statusUpdates/StatusUpdatesSection';
 import { useMinWidth } from '@/features/shell2/useMinWidth';
+import { useProgram } from '@/hooks/useProgram';
 import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 import { fmtUtcLong, fmtUtcMedium } from '@/lib/formatUtcDate';
 import { asHealthBand } from '@/lib/ragBand';
+import { ROLE_OWNER } from '@/lib/roles';
+import { useProgramMembers } from './hooks/useProgramMembers';
 import { axisPosition, buildAxis, type Axis } from './programAxis';
 import {
   HEALTH_LABEL,
@@ -20,6 +23,7 @@ import {
   type ProgramRollup,
   type ProgramRollupRow,
 } from './ProgramOverviewPage';
+import { SampleDataBanner } from './SampleDataBanner';
 
 const CARD = 'rounded-lg border border-p1-hairline bg-p1-surface-1 p-4';
 
@@ -216,9 +220,26 @@ export function ProgramOverview2({ programId }: { programId: string }) {
   const driver = rows.find((r) => r.id === forecast?.driver_project_id);
   const partial = rollup ? partialRollupLine(rollup) : null;
 
+  // Same states as V1 (#3875): stale, anchor-unknown, and the owner-name line for
+  // non-owners, who cannot shift or remove a sample.
+  const { data: program } = useProgram(programId);
+  const sampleNeedsOwner = !!program?.is_sample && program.my_role !== ROLE_OWNER;
+  const { data: sampleMembers } = useProgramMembers(sampleNeedsOwner ? programId : undefined);
+  const ownerNames = (sampleMembers ?? [])
+    .filter((m) => m.role === ROLE_OWNER)
+    .map((m) => m.user_detail.username);
+
   return (
     <PageFrame width="contained" header={<PageTitle visuallyHidden>Overview</PageTitle>}>
       <div className="flex flex-col gap-6 py-4" data-testid="program-overview2">
+        {program?.is_sample && (
+          <SampleDataBanner
+            programId={programId}
+            canRemove={program.my_role === ROLE_OWNER}
+            sampleDaysStale={program.sample_days_stale}
+            ownerNames={ownerNames}
+          />
+        )}
         {error ? (
           <QueryErrorState
             variant="inline"
