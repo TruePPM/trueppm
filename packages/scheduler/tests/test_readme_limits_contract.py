@@ -41,6 +41,7 @@ _DOCUMENTED_CAPS = frozenset(
         "MAX_INDEX_CELLS",
         "MAX_VELOCITY_SPRINTS",
         "MC_SENSITIVITY_CAP",
+        "MC_TARGET_CAP",
         "_MAX_RUNS_ABSOLUTE",
         "_MAX_SAMPLE_CELLS",
     }

@@ -458,6 +458,9 @@ from trueppm_scheduler.engine.limits import (
 from trueppm_scheduler.engine.limits import (
     MC_SENSITIVITY_SUBSAMPLE as MC_SENSITIVITY_SUBSAMPLE,
 )
+from trueppm_scheduler.engine.limits import (
+    MC_TARGET_CAP as MC_TARGET_CAP,
+)
 from trueppm_scheduler.engine.milestones import (
     _FROM_PREDECESSOR_FINISH as _FROM_PREDECESSOR_FINISH,
 )
@@ -787,6 +790,9 @@ from trueppm_scheduler.engine.results import (
 )
 from trueppm_scheduler.engine.results import (
     ScheduleResult as ScheduleResult,
+)
+from trueppm_scheduler.engine.results import (
+    TargetForecast as TargetForecast,
 )
 from trueppm_scheduler.engine.results import (
     TaskSensitivity as TaskSensitivity,

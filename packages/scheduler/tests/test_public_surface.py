@@ -218,6 +218,8 @@ _EXPECTED_FIELD_ORDER: dict[str, list[str]] = {
         "velocity_saturated_runs",
         "velocity_fallback_reasons",
         "samples",
+        # Appended (#4135).
+        "targets",
     ],
     "MonteCarloSamples": ["task_ids", "durations", "early_finish"],
     "Project": [
@@ -294,6 +296,7 @@ _EXPECTED_FIELD_ORDER: dict[str, list[str]] = {
         "zero_remaining",
     ],
     "TaskSensitivity": ["task_id", "index"],
+    "TargetForecast": ["task_id", "percentiles", "distribution"],
 }
 
 
