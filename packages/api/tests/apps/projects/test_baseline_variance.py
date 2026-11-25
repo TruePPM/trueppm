@@ -322,3 +322,113 @@ def test_another_projects_or_a_deleted_baseline_is_404(
     assert client.get(_url(project, foreign)).status_code == 404
     baseline.soft_delete()
     assert client.get(_url(project, baseline)).status_code == 404
+
+
+# --- The "what moved" rollup (#2704) -----------------------------------------
+
+
+def test_summary_rolls_up_the_moved_tasks(
+    project: Project, baseline: Baseline, chain: tuple[Task, Task]
+) -> None:
+    late = _task(project, "Later", _d(9), _d(11), duration=3)
+    _snap(baseline, late, _d(2), _d(4))  # Wed-Fri -> Wed-Fri next week: +5
+    early = _task(project, "Earlier", _d(0), _d(0), duration=1)
+    _snap(baseline, early, _d(1), _d(1))
+
+    summary = _client(project).get(_url(project, baseline)).data["summary"]
+
+    assert summary["tasks_moved"] == 3  # B, Later, Earlier; A did not move
+    assert summary["tasks_finishing_later"] == 2
+    assert summary["tasks_finishing_earlier"] == 1
+    assert summary["finish_slip_working_days_total"] == 2 + 5
+    top = summary["top_slip"]
+    assert top["task_name"] == "Later"
+    assert top["finish_delta_working_days"] == 5
+    assert (top["baseline_finish"], top["current_finish"]) == (str(_d(4)), str(_d(11)))
+    # The baseline finished Fri 3/6; the plan now finishes Wed 3/13: 5 working days.
+    assert summary["project_finish"] == {
+        "baseline_finish": str(_d(4)),
+        "current_finish": str(_d(11)),
+        "delta_working_days": 5,
+    }
+
+
+def test_summary_covers_every_row_not_just_the_page(project: Project, baseline: Baseline) -> None:
+    for i in range(52):
+        task = _task(project, f"T{i:02d}", _d(7), _d(7), duration=1)
+        _snap(baseline, task, _d(4), _d(4))
+    worst = _task(project, "Worst", _d(14), _d(14), duration=1)
+    _snap(baseline, worst, _d(4), _d(4))
+    client = _client(project)
+
+    first = client.get(_url(project, baseline)).data["summary"]
+    second = client.get(_url(project, baseline, "?page=2")).data["summary"]
+
+    assert first == second
+    assert first["tasks_moved"] == 53
+    assert first["finish_slip_working_days_total"] == 52 * 1 + 6
+    # The top slip carries its provenance on every page, not only where its row is.
+    assert second["top_slip"]["task_name"] == "Worst"
+    assert "cause" in second["top_slip"] and "derivation_ref" in second["top_slip"]
+
+
+def test_summary_counts_a_slip_once_not_on_its_summary_task_too(
+    project: Project, baseline: Baseline
+) -> None:
+    phase = _task(project, "Phase", _d(0), _d(8), wbs_path="1", duration=7)
+    leaf = _task(project, "Leaf", _d(7), _d(8), wbs_path="1.1", duration=2)
+    _snap(baseline, phase, _d(0), _d(4))
+    _snap(baseline, leaf, _d(3), _d(4))
+
+    response = _client(project).get(_url(project, baseline))
+
+    assert set(_rows(response)) == {"Phase", "Leaf"}  # both rows are still listed
+    summary = response.data["summary"]
+    assert summary["tasks_moved"] == 1
+    assert summary["finish_slip_working_days_total"] == 2
+    assert summary["top_slip"]["task_name"] == "Leaf"
+
+
+def test_min_days_zero_never_counts_an_unmoved_task(
+    project: Project, baseline: Baseline, chain: tuple[Task, Task]
+) -> None:
+    summary = _client(project).get(_url(project, baseline, "?min_days=0")).data["summary"]
+
+    assert summary["tasks_moved"] == 1  # A is listed at min_days=0, but did not move
+
+
+def test_project_finish_counts_a_deleted_tasks_committed_finish(
+    project: Project, baseline: Baseline
+) -> None:
+    kept = _task(project, "Kept", _d(0), _d(4))
+    gone = _task(project, "Gone", _d(7), _d(11))
+    _snap(baseline, kept, _d(0), _d(4))
+    _snap(baseline, gone, _d(7), _d(11))
+    gone.soft_delete()
+
+    finish = _client(project).get(_url(project, baseline)).data["summary"]["project_finish"]
+
+    # Dropping the last task pulls the project finish in by 5 working days.
+    assert finish["delta_working_days"] == -5
+
+
+def test_empty_summary_when_nothing_moved(project: Project, baseline: Baseline) -> None:
+    task = _task(project, "Same", _d(0), _d(4))
+    _snap(baseline, task, _d(0), _d(4))
+
+    summary = _client(project).get(_url(project, baseline)).data["summary"]
+
+    assert summary["tasks_moved"] == 0
+    assert summary["finish_slip_working_days_total"] == 0
+    assert summary["top_slip"] is None
+    assert summary["project_finish"]["delta_working_days"] == 0
+
+
+def test_empty_project_has_no_project_finish(project: Project, baseline: Baseline) -> None:
+    summary = _client(project).get(_url(project, baseline)).data["summary"]
+
+    assert summary["project_finish"] == {
+        "baseline_finish": None,
+        "current_finish": None,
+        "delta_working_days": None,
+    }

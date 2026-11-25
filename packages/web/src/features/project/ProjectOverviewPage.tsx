@@ -45,6 +45,7 @@ import {
   type OverviewMetric,
 } from '@/features/project/overviewMetrics';
 import { AddedTimeCard } from '@/features/project/AddedTimeCard';
+import { BaselineDriftSummary } from '@/features/project/BaselineDriftSummary';
 import {
   addedTimePresentation,
   type AddedTimeFacts,
@@ -1553,6 +1554,11 @@ function ProjectOverviewV1({ projectId }: { projectId: string | undefined }) {
 
       {/* Blocked-task roll-up — the PM's impediment triage list (ADR-0124). */}
       {projectId && <BlockedRollupPanel scope="project" projectId={projectId} />}
+
+      {/* Baseline drift: what moved since the active baseline, from the server's
+          variance rollup. A baseline is a schedule artifact, hidden on AGILE with
+          the critical path (#1765). */}
+      {projectId && showCriticalPath && <BaselineDriftSummary projectId={projectId} />}
 
       {/* Monte Carlo forecast widget (#172) — gated on the monte_carlo surface (#1765). */}
       {projectId && showMonteCarlo && <MonteCarloWidget projectId={projectId} />}

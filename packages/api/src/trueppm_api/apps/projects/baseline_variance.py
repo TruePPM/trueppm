@@ -9,7 +9,7 @@ schedule (ADR-0599).
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -25,11 +25,12 @@ from .models import Baseline, BaselineTask, Task
 
 @dataclass(frozen=True)
 class Variance:
-    """Every comparable task's row, plus the counts of what has no counterpart."""
+    """Every comparable task's row, the counts of what has no counterpart, and the rollup."""
 
     rows: list[dict[str, Any]]
     added: int
     removed: int
+    summary: dict[str, Any]
 
 
 def _memoized_count(calendar: Any) -> Callable[[date, date], int]:
@@ -123,9 +124,11 @@ def baseline_variance(baseline: Baseline, calendar: Any, *, min_days: int) -> Va
             "scheduled_start",
             "early_start",
             "early_finish",
+            "wbs_path",
         )
     )
     count = _memoized_count(calendar)
+    summary_ids = _summary_task_ids(live)
     rows: list[dict[str, Any]] = []
     added = 0
     for task in live:
@@ -170,4 +173,103 @@ def baseline_variance(baseline: Baseline, calendar: Any, *, min_days: int) -> Va
     rows.sort(key=_sort_key)
     live_ids = {task.pk for task in live}
     removed = sum(1 for task_id in snapshot if task_id not in live_ids)
-    return Variance(rows=rows, added=added, removed=removed)
+    summary = {
+        **_rollup(rows, summary_ids, min_days),
+        "project_finish": _project_finish(snapshot.values(), live, calendar, count),
+    }
+    return Variance(rows=rows, added=added, removed=removed, summary=summary)
+
+
+def _summary_task_ids(live: list[Task]) -> set[str]:
+    """Ids of the live tasks with a live structural child (``task_is_summary``, in memory).
+
+    A summary task's dates are rolled up from its children, so counting it beside
+    them would report one slip twice.
+    """
+    parents = {
+        str(task.wbs_path).rsplit(".", 1)[0]
+        for task in live
+        if task.wbs_path and "." in str(task.wbs_path)
+    }
+    return {str(task.pk) for task in live if task.wbs_path and str(task.wbs_path) in parents}
+
+
+def _rollup(rows: list[dict[str, Any]], summary_ids: set[str], min_days: int) -> dict[str, Any]:
+    """Aggregate the leaf rows into the "what moved" counts.
+
+    Summary tasks are left out so a slip is counted once, on the task that
+    actually moved. A task *moved* when its start or finish moved by at least
+    ``max(min_days, 1)`` working days, so ``min_days=0`` never counts an unmoved
+    task. ``top_slip`` is the leaf whose finish slipped most: ``rows`` is already
+    latest-finish-slip first, so it is the first slipped leaf.
+    """
+    threshold = max(min_days, 1)
+    moved = later = earlier = slip_total = 0
+    top: dict[str, Any] | None = None
+    for row in rows:
+        if row["task_id"] in summary_ids:
+            continue
+        start = row["start_delta_working_days"] or 0
+        finish = row["finish_delta_working_days"] or 0
+        if max(abs(start), abs(finish)) < threshold:
+            continue
+        moved += 1
+        if finish >= threshold:
+            later += 1
+            slip_total += finish
+            if top is None:
+                top = {
+                    "task_id": row["task_id"],
+                    "task_name": row["task_name"],
+                    "baseline_finish": row["baseline_finish"],
+                    "current_finish": row["current_finish"],
+                    "finish_delta_working_days": finish,
+                }
+        elif finish <= -threshold:
+            earlier += 1
+    return {
+        "tasks_moved": moved,
+        "tasks_finishing_later": later,
+        "tasks_finishing_earlier": earlier,
+        "finish_slip_working_days_total": slip_total,
+        "top_slip": top,
+    }
+
+
+def _latest(
+    finishes: Iterable[tuple[date | None, bool | None]],
+) -> tuple[date, bool | None] | None:
+    """The latest finish reading; the end of a day is later than its start."""
+    best: tuple[date, bool | None] | None = None
+    for day, at_start in finishes:
+        if day is None:
+            continue
+        if best is None or (day, not at_start) > (best[0], not best[1]):
+            best = (day, at_start)
+    return best
+
+
+def _project_finish(
+    snapshot: Iterable[dict[str, Any]],
+    live: list[Task],
+    calendar: Any,
+    count: Callable[[date, date], int],
+) -> dict[str, Any]:
+    """The project finish (latest task finish) in the baseline and now, and the shift.
+
+    Every snapshot row counts, including a task deleted since, because the
+    baseline's finish is what was committed; every live task counts, including
+    one added since. The shift is read like a task's finish delta.
+    """
+    base = _latest((row["finish"], row["finish_at_day_start"]) for row in snapshot)
+    current = _latest((task.early_finish, task_finish_at_day_start(task)) for task in live)
+    delta = (
+        _finish_delta(base, (current[0], bool(current[1])), calendar, count)
+        if base is not None and current is not None
+        else None
+    )
+    return {
+        "baseline_finish": base[0] if base else None,
+        "current_finish": current[0] if current else None,
+        "delta_working_days": delta,
+    }

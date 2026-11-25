@@ -72,6 +72,7 @@ Common rules:
 - **`GET /api/v1/projects/{id}/baselines/{baseline_id}/variance/?min_days=1`:** signed working-day start and finish Δ per task against that baseline, plus `added` and `removed` counts. Paginated. Same permission as the existing baseline reads (any project member). MCP tool `get_baseline_variance`.
 - **`GET /api/v1/sprints/{id}/commitment-status/`:** committed tasks at risk of finishing after the sprint end (from the last recalculation), and open scope changes of both kinds (`injection` | `slip`) with batch, requester, age and proposed dates. Project members read it; the accept/reject actions keep the ADR-0102 role gate. MCP tool `get_sprint_commitment_status`.
 - Both are `mcp:read`-reachable and `x-experimental` at first.
+- **Variance `summary` (amended 2026-11-25, #2704):** the variance response also carries a `summary` rollup over every row, identical on every page: `tasks_moved`, `tasks_finishing_later`/`_earlier`, `finish_slip_working_days_total`, `top_slip` (with `cause` and `derivation_ref`, per D10.2) and `project_finish` (latest finish in the snapshot and now, and the working-day shift). Summary tasks are left out of the counts, so one slip is not counted twice. It is additive on the same read, so the project overview's drift panel and the client PDF (#2417) use one shape rather than a second endpoint. It costs no extra query and no extra CPM pass: the top slip joins the page's single `finish_causes` pass.
 
 ### D4. `headline_forecast_kind`: server-chosen, per caller
 
