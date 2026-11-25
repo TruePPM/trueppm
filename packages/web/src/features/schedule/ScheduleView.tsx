@@ -1319,7 +1319,13 @@ export function ScheduleView() {
           cur = cur.parentId ? byId.get(cur.parentId) : undefined;
         }
       }
-      const capped = capChildren(filtered, (t) => t.parentId ?? null, showAllChildren, undefined, exempt);
+      const capped = capChildren(
+        filtered,
+        (t) => t.parentId ?? null,
+        showAllChildren,
+        undefined,
+        exempt,
+      );
       filtered = capped.rows;
       hiddenByCap = capped.hiddenByParent;
     }
