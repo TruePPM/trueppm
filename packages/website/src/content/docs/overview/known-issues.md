@@ -371,14 +371,14 @@ therefore deterministic-only; every probabilistic answer requires the server.
 Mutation testing proves the suite's assertions catch regressions rather than merely
 executing lines. Its scope is `models.py`, `derive.py`, and `cli.py`. **`engine.py`
 — the CPM and Monte Carlo core — is out of scope.** The score floor within that
-scope does gate: `MUTATION_MIN` is 0.92 against an observed 96.8%, and a
-nightly below it reds.
+scope does gate: `MUTATION_MIN` is 0.95 against observed nightly scores of
+96.1–97.2%, and a nightly below it reds.
 
 - **Impact:** the strongest available evidence of assertion strength deliberately
   excludes the code that matters most. Where the roadmap describes "mutation testing
   on the scheduler", read it as covering the models/serialization layer, not the
   engine.
-- **What to do:** do not cite the 96.8% mutation score as evidence about the CPM or Monte
+- **What to do:** do not cite the mutation score as evidence about the CPM or Monte
   Carlo core. For the engine, rely on the conformance suite and the reproducible
   README values described above, and run the published package against your own
   schedules.
