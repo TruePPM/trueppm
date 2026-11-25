@@ -78,7 +78,13 @@ _VIEW_METHOD_NAMES = {
 # never added just to silence a real, actionable finding.
 #
 # Key is "ClassName.method_name"; value is (reason, issue).
-ALLOWED_WITHOUT_409: dict[str, tuple[str, str]] = {}
+ALLOWED_WITHOUT_409: dict[str, tuple[str, str]] = {
+    "SprintScopeChangeViewSet.reject": (
+        "Shares _act with accept, whose commitment_slip_stale 409 only fires when "
+        "accept_scope_change tags the row; reject_scope_change never does.",
+        "#2563",
+    ),
+}
 
 
 def _call_name(call: ast.Call) -> str:
