@@ -10,7 +10,7 @@ from collections.abc import Callable
 from datetime import date as _date
 from datetime import datetime as _datetime
 from datetime import timedelta
-from typing import Any, cast
+from typing import Any, TypedDict, cast
 
 from django.conf import settings
 from django.core.cache import cache
@@ -638,7 +638,13 @@ def _mc_input_seed(sched_project: Any, runs: int) -> int:
     return int.from_bytes(digest[:8], "big") >> 1  # 63 bits: fits any signed/unsigned seed API
 
 
-def _mc_lag_delta_kwargs() -> dict[str, int]:
+class _McLagDeltaKwargs(TypedDict, total=False):
+    """Typed so splatting it into ``monte_carlo()`` names which parameter it fills."""
+
+    max_lag_delta_cells: int
+
+
+def _mc_lag_delta_kwargs() -> _McLagDeltaKwargs:
     """Request-path ``monte_carlo()`` kwargs bounding the lag-delta table (#4129).
 
     Empty when ``MC_LAG_DELTA_CELL_CAP`` is ``None`` so the library default applies.

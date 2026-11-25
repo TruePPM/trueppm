@@ -1021,9 +1021,7 @@ the CPM date
 ([#4822](https://gitlab.com/trueppm/trueppm/-/issues/4822)), the remaining
 MS-Project-parity gaps
 ([#4327](https://gitlab.com/trueppm/trueppm/-/issues/4327),
-[#4319](https://gitlab.com/trueppm/trueppm/-/issues/4319)), and a
-`monte_carlo(return_samples=True)` option to hand back the raw matrices
-([#4166](https://gitlab.com/trueppm/trueppm/-/issues/4166)).
+[#4319](https://gitlab.com/trueppm/trueppm/-/issues/4319)).
 
 **Later — a sequence, not a schedule.** Versions past 0.5 carry no date; what
 ships and in what order is set by evidence from the 0.4 beta and 0.5, not by
