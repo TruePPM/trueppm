@@ -2921,6 +2921,25 @@ describe('useProjectWebSocket — remaining invalidation handlers', () => {
     },
   );
 
+  it('changeset_updated refetches the changeset, decisions, baselines and the task overlay', () => {
+    // A peer's "Take v2" (ADR-1477 §5): the counts-only payload cannot say the
+    // active baseline moved, so every other client refetches what draws it.
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    renderHook(() => useProjectWebSocket('proj-1'), { wrapper: makeWrapper(qc) });
+
+    dispatch('changeset_updated', {
+      id: 'proj-1',
+      project_id: 'proj-1',
+      open_count: 0,
+      unreasoned_count: 0,
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['changeset', 'proj-1'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['baselineDecisions', 'proj-1'] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['baselines', 'proj-1'] });
+    flushDebounce();
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['tasks', 'proj-1'] });
+  });
+
   it.each([
     'tasks_reordered',
     'tasks_restructured',
