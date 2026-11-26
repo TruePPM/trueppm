@@ -244,8 +244,17 @@ test.describe('shell v2 People destination', () => {
   }) => {
     await setup(page, { load: ALL_WITHHELD });
     await page.goto('/people');
-    await expect(page.getByText('Load is withheld for your projects')).toBeVisible();
-    await expect(page.getByText(/2 projects withheld/)).toBeVisible();
+    // The empty state mirrors its title + description into a sr-only live region
+    // (empty-state-announcer) once it mounts, so a bare getByText matches twice
+    // whenever the announcer has landed — assert the visible heading and body only.
+    await expect(
+      page.getByRole('heading', { name: 'Load is withheld for your projects' }),
+    ).toBeVisible();
+    await expect(
+      page
+        .getByText(/2 projects withheld/)
+        .and(page.locator(':not([data-testid="empty-state-announcer"])')),
+    ).toBeVisible();
     await expect(page.getByText(/share its capacity signal with your role band/)).toBeVisible();
     await expect(page.getByText(/Ask a project owner/)).toHaveCount(0);
     await expect(page.getByText(/enterprise|upgrade/i)).toHaveCount(0);
@@ -297,8 +306,17 @@ test.describe('shell v2 Resource Manager home', () => {
   test('home = rm with every project withheld says so', async ({ page }) => {
     await setup(page, { home: 'rm', load: ALL_WITHHELD });
     await page.goto('/home');
-    await expect(page.getByText('Load is withheld for your projects')).toBeVisible();
-    await expect(page.getByText(/2 projects withheld/)).toBeVisible();
+    // The empty state mirrors its title + description into a sr-only live region
+    // (empty-state-announcer) once it mounts, so a bare getByText matches twice
+    // whenever the announcer has landed — assert the visible heading and body only.
+    await expect(
+      page.getByRole('heading', { name: 'Load is withheld for your projects' }),
+    ).toBeVisible();
+    await expect(
+      page
+        .getByText(/2 projects withheld/)
+        .and(page.locator(':not([data-testid="empty-state-announcer"])')),
+    ).toBeVisible();
   });
 
   test('a failed load read is retryable', async ({ page }) => {
