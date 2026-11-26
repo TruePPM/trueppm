@@ -13,7 +13,10 @@ point was claimed in, which includes days spent waiting for a team capacity othe
 stories hold. It is priced by the capacity it claimed instead (each sprint's claimed
 points over that sprint's velocity x ``sprint_length_days``,
 ``_VelocityCapacity.work``), so three parallel stories bill one sprint each, not one,
-two and three, and who pays for the wait does not hang on a topological tie-break.
+two and three. Who pays for the wait does not hang on a topological tie-break only
+when every sprint has the same velocity: when velocity varies, which sprints a story
+claims, and so its days and cost, depends on the order stories are served, though
+the total claimed days in each run do not.
 That is claimed work only: it ignores the deterministic floor the dates take
 (#3765), and a run that saturates the drawn capacity prices just what it claimed,
 the same truncated tail its dates report.
