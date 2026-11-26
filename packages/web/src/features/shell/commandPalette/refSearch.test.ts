@@ -61,7 +61,9 @@ describe('refRoute', () => {
     expect(refRoute(resolved({ type: 'sprint' }), 'unified')).toBe(
       `/projects/PLAT/board?sprint=${TASK}`,
     );
-    expect(refRoute(resolved({ type: 'risk' }), 'unified')).toBe('/projects/PLAT/risk');
+    expect(refRoute(resolved({ type: 'risk' }), 'unified')).toBe(
+      `/projects/PLAT/risk?risk=${resolved().id}`,
+    );
   });
 
   it('refuses a child with no project to route under', () => {

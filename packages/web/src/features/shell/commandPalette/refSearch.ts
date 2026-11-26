@@ -46,7 +46,7 @@ const REF_TAG: Record<ResolveResponseType, string> = {
 /**
  * Where a resolved reference opens. A task opens its drawer on the lens's landing
  * view (the same deep link omni-search uses), a sprint the board scoped to it, a
- * risk the project's risk register. Every path prefers the current key over the
+ * risk the project's risk register with that risk selected. Every path prefers the current key over the
  * UUID, so the address bar reads the way the user typed it.
  *
  * @returns The route, or null when the answer carries no project to route under.
@@ -69,7 +69,7 @@ export function refRoute(resolved: ResolveResponse, lens: RoleContext): string |
     case 'sprint':
       return `${projectPath(project, 'board')}?sprint=${encodeURIComponent(resolved.id)}`;
     case 'risk':
-      return projectPath(project, 'risk');
+      return `${projectPath(project, 'risk')}?risk=${encodeURIComponent(resolved.id)}`;
     default:
       return null;
   }

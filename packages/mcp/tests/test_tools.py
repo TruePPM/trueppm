@@ -1804,6 +1804,7 @@ async def test_resolve_reference_404_is_found_false_with_no_hint_of_why(
     # Missing and hidden read the same; the ref itself is not echoed back.
     assert "SECRET" not in str(result)
     assert "may not exist" in result["explanation"]
+    assert "only projects you are a member of" in result["explanation"]
 
 
 async def test_resolve_reference_other_errors_propagate(settings: Settings) -> None:

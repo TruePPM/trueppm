@@ -12,7 +12,8 @@ import {
  * `GET /api/v1/resolve/` and offers the answer as a **Reference** row.
  *
  * Golden path: a task reference resolves, the row shows the current form, and
- * Enter opens the task under the project key. Empty state: a reference the server
+ * Enter opens the task under the project key; a bare key in capitals offers its
+ * project. Empty state: a reference the server
  * 404s (missing or not visible, indistinguishable by design) reads "No matches".
  */
 
@@ -76,6 +77,19 @@ test.describe('command palette: find by key', () => {
     await expect(page).toHaveURL(new RegExp(`/projects/PLAT/[^?]+\\?task=${TASK_ID}$`));
   });
 
+  test('a bare key in capitals offers the project as a reference', async ({ page }) => {
+    const refs: string[] = [];
+    await setup(page, refs);
+    await page.keyboard.press('Control+k');
+    const dialog = page.getByRole('dialog', { name: 'Command palette' });
+    await expect(dialog).toBeVisible();
+
+    await paletteSearch(page).fill('PLAT');
+    await expect(dialog.getByRole('option', { name: 'PLAT Project', exact: true })).toBeVisible();
+    await expect(dialog.getByText('Reference', { exact: true })).toBeVisible();
+    expect(refs).toContain('PLAT');
+  });
+
   test('a reference the server does not resolve reads as no matches', async ({ page }) => {
     const refs: string[] = [];
     await setup(page, refs);
@@ -83,8 +97,13 @@ test.describe('command palette: find by key', () => {
     const dialog = page.getByRole('dialog', { name: 'Command palette' });
     await expect(dialog).toBeVisible();
 
+    // Registered before typing, so the absence assertions run after the answer.
+    const answered = page.waitForResponse(
+      (res) => res.url().includes('/api/v1/resolve/') && res.url().includes('NOPE-T-1'),
+    );
     await paletteSearch(page).fill('NOPE-T-1');
-    await expect.poll(() => refs.includes('NOPE-T-1')).toBe(true);
+    expect((await answered).status()).toBe(404);
+    expect(refs).toContain('NOPE-T-1');
     await expect(dialog.getByText('No matches for “NOPE-T-1”.', { exact: true })).toBeVisible();
     await expect(dialog.getByRole('option', { name: /NOPE-T-1/ })).toHaveCount(0);
   });

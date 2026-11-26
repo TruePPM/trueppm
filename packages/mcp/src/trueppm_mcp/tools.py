@@ -954,8 +954,10 @@ _REF_NEXT_TOOL = {
 }
 
 _REF_NOT_FOUND = (
-    "Nothing you can read matches this reference. It may not exist, or it may "
-    "belong to a project you cannot see; the server deliberately does not say which."
+    "Lookup covers only projects you are a member of (for a program key, programs "
+    "you are a member of), and none of them matches this reference. It may not "
+    "exist, or it may belong to one you are not a member of; the server "
+    "deliberately does not say which."
 )
 
 
@@ -1628,8 +1630,11 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         Returns ``found: true`` with ``type`` (project, program, task, sprint or
         risk), ``id``, ``project_id``, ``program_id``, ``key`` and
         ``canonical_ref``, plus ``see_also`` naming the tool that reads it. Returns
-        ``found: false`` when nothing you can read matches; that answer is the same
-        for "does not exist" and "not visible to you", so do not guess which.
+        ``found: false`` when nothing matches. Lookup covers only projects you are
+        a member of (for a program key, programs you are a member of), so a
+        workspace-visible project that ``list_projects`` shows you without a
+        ``caller_role`` is not found here. The answer is the same for "does not
+        exist" and "not a member", so do not guess which.
 
         When you cite a task, sprint or risk in an answer and the payload carries its
         ``qualified_id`` field (``PLAT-T-10``), use that, not its UUID: a person can
