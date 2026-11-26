@@ -1,4 +1,5 @@
 import type { Ref } from 'react';
+import { useFeatureFlag } from '@/lib/featureFlags';
 import { LearnMoreLink } from '../SettingsShell';
 
 export interface LifecycleCardProps {
@@ -40,6 +41,8 @@ export function LifecycleCard({
   actionRef,
 }: LifecycleCardProps) {
   const isWarning = tone === 'warning';
+  // Shell v2 phone pass (#5102): a lifecycle action is a full-width, stacked target.
+  const v2 = useFeatureFlag('shell_v2');
   return (
     <div
       className={[
@@ -74,6 +77,7 @@ export function LifecycleCard({
           'text-neutral-text-primary hover:bg-neutral-surface-sunken',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1',
           'disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed',
+          v2 ? 'max-md:w-full max-md:min-h-11' : '',
         ].join(' ')}
       >
         {busy ? 'Working…' : actionLabel}

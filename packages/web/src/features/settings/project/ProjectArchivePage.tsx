@@ -180,6 +180,8 @@ function DeleteProjectCard({
   onDelete: () => void;
   deleteError: string | null;
 }) {
+  // Shell v2 phone pass (#5102): the code input and the destructive button stack full width.
+  const v2 = useFeatureFlag('shell_v2');
   return (
     <div className="rounded-card border border-semantic-critical bg-semantic-critical-bg p-4">
       <h2 className="text-[13px] font-bold text-semantic-critical mb-1">
@@ -196,7 +198,7 @@ function DeleteProjectCard({
         <div className="text-[12px] text-neutral-text-secondary mb-2">
           To confirm, type the project {usesCode ? 'code' : 'name'}:
         </div>
-        <div className="flex items-center gap-2">
+        <div className={v2 ? 'flex flex-wrap items-center gap-2 max-md:flex-col max-md:items-stretch' : 'flex items-center gap-2'}>
           <code className="px-2 py-0.5 rounded-chip bg-neutral-surface-sunken border border-neutral-border tppm-mono text-[12px] text-neutral-text-primary">
             {confirmTarget || '…'}
           </code>
@@ -208,7 +210,8 @@ function DeleteProjectCard({
             aria-label="Confirm delete by typing the project code or name"
             disabled={!confirmTarget}
             className={[
-              'w-[240px] h-8 px-2.5 rounded-control border tppm-mono text-[12px] text-neutral-text-primary bg-neutral-surface-raised',
+              v2 ? 'w-[240px] max-md:w-full' : 'w-[240px]',
+              'h-8 px-2.5 rounded-control border tppm-mono text-[12px] text-neutral-text-primary bg-neutral-surface-raised',
               'placeholder:text-neutral-text-secondary',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical',
               confirmText && !confirmed ? 'border-semantic-critical' : 'border-neutral-border',
@@ -223,6 +226,7 @@ function DeleteProjectCard({
         className={[
           'px-4 py-2 rounded-control text-[13px] font-semibold text-semantic-on-critical bg-semantic-critical transition-opacity',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1',
+          v2 ? 'max-md:w-full max-md:min-h-11' : '',
           confirmed && !busy ? 'opacity-100 hover:opacity-90' : 'opacity-40 cursor-not-allowed',
         ].join(' ')}
       >

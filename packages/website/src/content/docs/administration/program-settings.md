@@ -379,7 +379,8 @@ lifecycle actions (#530). Every action here is logged and reviewable in the
 - **Close / Reopen** — end the program's active phase, or reopen a closed program. In
   0.5, with the new shell on, closing will ask you to type the program code first and
   say what it does (members, settings and ceremonies become read-only; member projects
-  stay active). Reopening stays one click.
+  stay active). Reopening stays one click. On a phone the lifecycle actions, including
+  Delete, stack full width at 44px.
 - **Transfer sponsorship** — hand the **Program Admin** role to another member. You
   step down to **Program Manager**, and can optionally reassign the **program lead**
   in the same step. The new Program Admin must already be a program member.

@@ -236,6 +236,21 @@ describe('ProgramArchivePage close confirmation under shell_v2 (#5102, rule 462)
     expect(screen.getByRole('button', { name: 'Close program…' })).toHaveFocus();
   });
 
+  it('stacks the delete button full width at 44px under v2, and not under v1', () => {
+    setFeatureFlag('shell_v2', true);
+    const { unmount } = renderPage();
+    expect(screen.getByRole('button', { name: /Delete program permanently/i })).toHaveClass(
+      'max-md:w-full',
+      'max-md:min-h-11',
+    );
+    unmount();
+    setFeatureFlag('shell_v2', false);
+    renderPage();
+    expect(screen.getByRole('button', { name: /Delete program permanently/i })).not.toHaveClass(
+      'max-md:w-full',
+    );
+  });
+
   it('flag off: Close stays one click (v1 unchanged)', async () => {
     const user = userEvent.setup();
     mutation.mutate.mockClear();
