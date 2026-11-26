@@ -240,9 +240,7 @@ describe('Board2Page', () => {
   it('search: matches stay bright, the rest dim in place; no matches dims nothing', () => {
     h.search = { matchIds: new Set(['Write brief']), matchCount: 1, isSearching: false };
     renderWithRouter(<Board2Page />, { initialEntries: ['/?q=brief'] });
-    expect(
-      (screen.getByRole('searchbox', { name: 'Search cards' })).value,
-    ).toBe('brief');
+    expect(screen.getByRole('searchbox', { name: 'Search cards' })).toHaveValue('brief');
     expect(screen.getByText('Write brief').closest('button')!.className).not.toContain(
       'opacity-50',
     );
