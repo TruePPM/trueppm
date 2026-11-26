@@ -16,6 +16,9 @@ vi.mock('../hooks/useProgramSchedule', async (orig) => {
   return { ...actual, useProgramSchedule: () => useProgramSchedule() };
 });
 
+const useProgramRollup = vi.fn<() => unknown>(() => ({ data: undefined }));
+vi.mock('../ProgramOverviewPage', () => ({ useProgramRollup: () => useProgramRollup() }));
+
 const useProgram = vi.fn<() => unknown>();
 vi.mock('@/hooks/useProgram', () => ({ useProgram: () => useProgram() }));
 
@@ -225,12 +228,32 @@ describe('ProgramSchedulePage', () => {
     useProgram.mockReturnValue({ data: { id: 'prog-1', name: 'Helios' } });
   });
 
-  it('shows a larger-screen notice on small viewports', () => {
+  it('lists critical-path tasks per project on small viewports instead of the canvas (#3480)', async () => {
+    const user = userEvent.setup();
     useBreakpoint.mockReturnValue('sm');
     useProgramSchedule.mockReturnValue(queryResult({ data: GOLDEN }));
+    useProgramRollup.mockReturnValue({
+      data: { forecast: { available: true, value: '2026-06-12' }, projects: [] },
+    });
     renderPage();
-    expect(screen.getByText('Best viewed on a larger screen')).toBeInTheDocument();
+    expect(screen.queryByText('Best viewed on a larger screen')).not.toBeInTheDocument();
     expect(screen.queryByTestId('canvas-timeline')).not.toBeInTheDocument();
+    expect(screen.getByTestId('program-schedule-mobile-summary')).toHaveTextContent('P80 finish');
+    expect(screen.getAllByTestId('program-schedule-mobile-row').length).toBeGreaterThan(0);
+    await user.click(screen.getAllByRole('button', { name: /on the critical path/ })[0]);
+    expect(screen.getByText('Project schedule landed')).toBeInTheDocument();
+  });
+
+  it('opens a bar on its own project schedule with the task deep-linked (#3896)', async () => {
+    const engine = new TestEngine();
+    activeEngine = engine;
+    useProgramSchedule.mockReturnValue(queryResult({ data: GOLDEN }));
+    renderPage();
+    await waitFor(() => expect(engine.fitCalls).toBe(1));
+    act(() => {
+      engine.emit('task-open', { id: 't-a1' });
+    });
+    expect(screen.getByText('Project schedule landed')).toBeInTheDocument();
   });
 
   it('shows a loading skeleton while fetching', () => {
