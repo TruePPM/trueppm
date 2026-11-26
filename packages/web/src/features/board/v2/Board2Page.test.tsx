@@ -15,6 +15,10 @@ const h = vi.hoisted(() => ({
   desktop: true,
   exportPdf: vi.fn(() => Promise.resolve()),
   offline: vi.fn(),
+  sprintId: null as string | null,
+  sprintClosed: false,
+  setSprint: vi.fn(),
+  search: { matchIds: new Set<string>(), matchCount: 0, isSearching: false },
 }));
 
 vi.mock('@/hooks/useScheduleTasks', () => ({
@@ -79,11 +83,30 @@ vi.mock('../export/exportBoardPdf', () => ({
   exportBoardPdf: h.exportPdf,
   boardPdfFileName: () => 'proj.pdf',
 }));
+vi.mock('../boardView/useBoardSprintScope', () => ({
+  useBoardSprintScope: () => ({
+    sprints: [
+      { id: 's1', name: 'Sprint 1', state: 'ACTIVE', start_date: null, end_date: null },
+      { id: 's0', name: 'Sprint 0', state: 'COMPLETED', start_date: null, end_date: null },
+    ],
+    selectedSprintId: h.sprintId,
+    selectedSprint: h.sprintId === 's1' ? { id: 's1', name: 'Sprint 1', state: 'ACTIVE' } : null,
+    selectedSprintName: undefined,
+    setSelectedSprintId: h.setSprint,
+    sprintClosed: h.sprintClosed,
+    sprintStateUnknown: false,
+  }),
+}));
+vi.mock('@/hooks/useBoardCardSearch', () => ({ useBoardCardSearch: () => h.search }));
+vi.mock('../ClosedSprintBanner', () => ({
+  ClosedSprintBanner: () => <div data-testid="closed-banner" />,
+}));
 vi.mock('@/hooks/useOnlineStatus', () => ({ useOnlineStatus: () => h.online }));
 vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => 'p1' }));
 vi.mock('../boardView/useBoardIdentity', () => ({
   useBoardIdentity: () => ({ projectId: 'p1', projectIdOrNull: 'p1', currentRole: h.role }),
-  boardReadOnly: (role: number | null) => role == null || role < 2,
+  boardReadOnly: (role: number | null, closed: boolean, unknown: boolean) =>
+    role == null || role < 2 || closed || unknown,
 }));
 vi.mock('@/features/shell2/useMinWidth', () => ({ useMinWidth: () => h.desktop }));
 
@@ -115,6 +138,10 @@ describe('Board2Page', () => {
     h.online = true;
     h.role = 3;
     h.desktop = true;
+    h.sprintId = null;
+    h.sprintClosed = false;
+    h.search = { matchIds: new Set<string>(), matchCount: 0, isSearching: false };
+    h.setSprint.mockClear();
     h.move.mockClear();
     h.create.mockClear();
     seed([
@@ -132,10 +159,10 @@ describe('Board2Page', () => {
     ]);
   });
 
-  it('has at most five toolbar controls', () => {
+  it('has the five Pass 2 controls plus the sprint scope switcher', () => {
     renderWithRouter(<Board2Page />);
     const bar = screen.getByRole('toolbar', { name: 'Board controls' });
-    expect(within(bar).getAllByRole('button')).toHaveLength(5);
+    expect(within(bar).getAllByRole('button')).toHaveLength(6);
   });
 
   it('renders a phase lane header with count and critical count', () => {
@@ -174,11 +201,103 @@ describe('Board2Page', () => {
     fireEvent.keyDown(card, { key: ' ' });
     fireEvent.keyDown(card, { key: 'ArrowRight' });
     fireEvent.keyDown(card, { key: ' ' });
+    // IN_PROGRESS is over its limit in this fixture: the move waits for the v1 confirm.
+    expect(h.move).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /Move anyway/ }));
     expect(h.move).toHaveBeenCalledWith({
       projectId: 'p1',
       taskId: 'Write brief',
       status: 'IN_PROGRESS',
     });
+  });
+
+  it('WIP confirm: "Keep it here" cancels the move and nothing is written', () => {
+    renderWithRouter(<Board2Page />);
+    const card = screen.getByText('Write brief').closest('button')!;
+    fireEvent.keyDown(card, { key: ' ' });
+    fireEvent.keyDown(card, { key: 'ArrowRight' });
+    fireEvent.keyDown(card, { key: ' ' });
+    expect(screen.getByRole('alertdialog')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Keep it here/ }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(h.move).not.toHaveBeenCalled();
+  });
+
+  it('a move into a column under its limit writes straight away', () => {
+    renderWithRouter(<Board2Page />);
+    const card = screen.getByText('Get legal sign-off').closest('button')!;
+    fireEvent.keyDown(card, { key: ' ' });
+    fireEvent.keyDown(card, { key: 'ArrowRight' });
+    fireEvent.keyDown(card, { key: ' ' });
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(h.move).toHaveBeenCalledWith({
+      projectId: 'p1',
+      taskId: 'Get legal sign-off',
+      status: 'REVIEW',
+    });
+  });
+
+  it('search: matches stay bright, the rest dim in place; no matches dims nothing', () => {
+    h.search = { matchIds: new Set(['Write brief']), matchCount: 1, isSearching: false };
+    renderWithRouter(<Board2Page />, { initialEntries: ['/?q=brief'] });
+    expect(
+      (screen.getByRole('searchbox', { name: 'Search cards' }) as HTMLInputElement).value,
+    ).toBe('brief');
+    expect(screen.getByText('Write brief').closest('button')!.className).not.toContain(
+      'opacity-50',
+    );
+    expect(screen.getByText('Pick vendor').closest('button')!.className).toContain('opacity-50');
+  });
+
+  it('search: a query that matches nothing dims nothing', () => {
+    renderWithRouter(<Board2Page />, { initialEntries: ['/?q=zzz'] });
+    expect(screen.getByText('Pick vendor').closest('button')!.className).not.toContain(
+      'opacity-50',
+    );
+  });
+
+  it('sprint scope: cards outside the selected sprint are hidden', () => {
+    h.sprintId = 's1';
+    seed([
+      t({ id: 'In sprint', sprintId: 's1', status: 'IN_PROGRESS' }),
+      t({ id: 'Other sprint', sprintId: 's2' }),
+      t({ id: 'Not planned', sprintId: 's1' }),
+    ]);
+    renderWithRouter(<Board2Page />);
+    expect(screen.queryByText('Other sprint')).toBeNull();
+    const card = screen.getByText('Not planned').closest('button')!;
+    fireEvent.keyDown(card, { key: ' ' });
+    fireEvent.keyDown(card, { key: 'ArrowRight' });
+    fireEvent.keyDown(card, { key: ' ' });
+    expect(screen.getByRole('alertdialog')).toBeTruthy();
+  });
+
+  it('sprint scope: a backlog card pulled onto the board carries the sprint id', () => {
+    h.sprintId = 's1';
+    seed([
+      t({ id: 'In sprint', sprintId: 's1', status: 'REVIEW' }),
+      t({ id: 'Idea', status: 'BACKLOG' }),
+    ]);
+    renderWithRouter(<Board2Page />);
+    fireEvent.dragStart(screen.getByText('Idea').closest('button')!);
+    fireEvent.drop(screen.getAllByTestId('board2-cell-NOT_STARTED')[0]!);
+    expect(h.move).toHaveBeenCalledWith({
+      projectId: 'p1',
+      taskId: 'Idea',
+      status: 'NOT_STARTED',
+      sprintId: 's1',
+    });
+  });
+
+  it('closed sprint: the board is read-only and says why', () => {
+    h.sprintId = 's0';
+    h.sprintClosed = true;
+    seed([t({ id: 'Write brief', sprintId: 's0' })]);
+    renderWithRouter(<Board2Page />);
+    expect(screen.getByTestId('closed-banner')).toBeTruthy();
+    expect(screen.getByText('Write brief').closest('button')!.getAttribute('draggable')).toBe(
+      'false',
+    );
   });
 
   it('Escape cancels a pickup without moving', () => {
@@ -191,11 +310,21 @@ describe('Board2Page', () => {
     expect(h.move).not.toHaveBeenCalled();
   });
 
+  it('hides "Import tasks" from a role the importer would refuse', () => {
+    h.role = 100;
+    renderWithRouter(<Board2Page />);
+    expect(screen.queryByRole('link', { name: 'Import tasks' })).toBeNull();
+  });
+
   it('opens the backlog pane with a quiet empty state and the actions that fill it', () => {
+    h.role = 200;
     renderWithRouter(<Board2Page />);
     const pane = screen.getByTestId('board2-backlog-empty');
     expect(within(pane).getByRole('button', { name: 'Add to backlog' })).toBeTruthy();
-    expect(within(pane).getByRole('link', { name: 'Import tasks' })).toBeTruthy();
+    // The real importer: the schedule's CSV/Excel wizard, not project settings.
+    expect(within(pane).getByRole('link', { name: 'Import tasks' }).getAttribute('href')).toBe(
+      '/projects/p1/schedule?import=csv',
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Backlog pane' }));
     expect(screen.queryByTestId('board2-backlog')).toBeNull();
   });
@@ -314,7 +443,11 @@ describe('Board2Page', () => {
     // The card's own column is not a destination.
     expect(within(list).queryByRole('button', { name: 'To Do' })).toBeNull();
     fireEvent.click(within(list).getByRole('button', { name: 'Review' }));
-    expect(h.move).toHaveBeenCalledWith({ projectId: 'p1', taskId: 'Write brief', status: 'REVIEW' });
+    expect(h.move).toHaveBeenCalledWith({
+      projectId: 'p1',
+      taskId: 'Write brief',
+      status: 'REVIEW',
+    });
     expect(screen.getByRole('status').textContent).toContain('Moved Write brief to Review');
   });
 
@@ -351,6 +484,8 @@ describe('Board2Page', () => {
     fireEvent.click(screen.getByRole('button', { name: /More board options/ }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Export PDF' }));
     await vi.waitFor(() => expect(h.exportPdf).toHaveBeenCalledTimes(1));
-    await vi.waitFor(() => expect(document.querySelector('[data-print-text="masthead"]')).toBeNull());
+    await vi.waitFor(() =>
+      expect(document.querySelector('[data-print-text="masthead"]')).toBeNull(),
+    );
   });
 });

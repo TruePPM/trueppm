@@ -113,7 +113,8 @@ test.describe('shell v2 board', () => {
       const top = (await page.locator('[data-board2-card]').first().boundingBox())?.y ?? Infinity;
       expect(top).toBeLessThanOrEqual(279);
       const toolbar = page.getByRole('toolbar', { name: 'Board controls' });
-      await expect(toolbar.getByRole('button')).toHaveCount(5);
+      // Five Pass 2 controls plus the sprint scope switcher restored from v1.
+      await expect(toolbar.getByRole('button')).toHaveCount(6);
       await expect(
         page.getByTestId('board2-lane').getByRole('button', { name: /Discovery/ }),
       ).toContainText('▲ 1 critical');
@@ -200,7 +201,26 @@ test.describe('shell v2 board', () => {
       await open(page);
       const pane = page.getByTestId('board2-backlog-empty');
       await expect(pane.getByRole('button', { name: 'Add to backlog' })).toBeVisible();
-      await expect(pane.getByRole('link', { name: 'Import tasks' })).toBeVisible();
+      // The schedule's own CSV/Excel importer, not project settings.
+      await expect(pane.getByRole('link', { name: 'Import tasks' })).toHaveAttribute(
+        'href',
+        `${BASE}/schedule?import=csv`,
+      );
+    });
+
+    test('search is back: typing mirrors to ?q= and a match-less query dims nothing', async ({
+      page,
+    }) => {
+      await page.route('**/api/v1/tasks/search/**', (route) =>
+        route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+      );
+      await open(page);
+      const box = page.getByRole('searchbox', { name: 'Search cards' });
+      await box.fill('brief');
+      await expect(page).toHaveURL(/[?&]q=brief/);
+      await expect(page.locator('[data-board2-card="c2"]')).not.toHaveClass(/opacity-50/);
+      await page.keyboard.press('Escape');
+      await expect(page).not.toHaveURL(/[?&]q=/);
     });
 
     test('offline: the board says it is showing a saved copy', async ({ page }) => {

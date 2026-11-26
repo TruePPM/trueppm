@@ -138,6 +138,7 @@ import { BoardSidePanels } from './boardView/BoardSidePanels';
 import { visibleLanes, type LaneShape } from './boardView/BoardPhaseLanes';
 import { BoardBody } from './boardView/BoardBody';
 import { wipBreachInfo, type WipBreach } from './wipBreach';
+import { sprintAssignTarget } from './sprintAssign';
 import {
   useBoardToolbarPrefs,
   resolveBoardLayout,
@@ -178,13 +179,6 @@ import { exportBoardPdf, boardPdfFileName } from './export/exportBoardPdf';
  */
 function isOutsideSet(ids: Set<string> | null, taskId: string): boolean {
   return ids !== null && !ids.has(taskId);
-}
-
-function sprintAssignTarget(sprint: ApiSprint | null, task: Task): string | undefined {
-  if (!sprint) return undefined;
-  if (sprint.state !== 'ACTIVE' && sprint.state !== 'PLANNED') return undefined;
-  if (task.sprintId === sprint.id) return undefined;
-  return sprint.id;
 }
 
 /**

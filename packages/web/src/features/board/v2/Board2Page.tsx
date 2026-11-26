@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { Link } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
 import { DefinitionTip } from '@/components/page2/DefinitionTip';
 import { PageFrame } from '@/components/page2/PageFrame';
@@ -20,6 +20,15 @@ import { Button } from '@/components/Button';
 import { useBoardConfig } from '@/hooks/useBoardConfig';
 import { useUpdateTaskStatus } from '@/hooks/useBoardTasks';
 import { useProject } from '@/hooks/useProject';
+import { useBoardCardSearch } from '@/hooks/useBoardCardSearch';
+import { BoardSearchControl } from '../BoardSearchControl';
+import { BoardSprintSwitcher } from '../BoardSprintSwitcher';
+import { ClosedSprintBanner } from '../ClosedSprintBanner';
+import { WipLimitConfirmDialog } from '../WipLimitConfirmDialog';
+import { wipBreachInfo, type WipBreach } from '../wipBreach';
+import { sprintAssignTarget } from '../sprintAssign';
+import { useBoardSprintScope } from '../boardView/useBoardSprintScope';
+import { ROLE_SCHEDULER } from '@/lib/roles';
 import { useBoardOffline } from '../offline/useBoardOffline';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { toast } from '@/components/Toast/toast';
@@ -201,7 +210,68 @@ export function Board2Page() {
   const online = useOnlineStatus();
   const { formatInstantTime } = useUserDateFormat();
   const isDesktop = useMinWidth(768);
-  const readOnly = boardReadOnly(currentRole, false, false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Sprint scope is the v1 hook, unchanged: `?sprint=`, the one-shot smart default,
+  // and the closed-sprint write lock all come from it so the two boards never disagree.
+  const {
+    sprints,
+    selectedSprintId,
+    selectedSprint,
+    setSelectedSprintId,
+    sprintClosed,
+    sprintStateUnknown,
+  } = useBoardSprintScope(projectId, searchParams, setSearchParams);
+  const readOnly = boardReadOnly(currentRole, sprintClosed, sprintStateUnknown);
+  const canImport = currentRole !== null && currentRole >= ROLE_SCHEDULER;
+
+  // Card search (#323, ADR-0145): same hook and `?q=` mirror as v1. Matches dim the
+  // other cards in place; an empty or match-less query dims nothing.
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [searchQuery, setSearchQuery] = useState<string>(() => searchParams.get('q') ?? '');
+  const onSearchChange = useCallback(
+    (q: string) => {
+      setSearchQuery(q);
+      setSearchParams(
+        (prev: URLSearchParams) => {
+          if (q.trim()) prev.set('q', q);
+          else prev.delete('q');
+          return prev;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+  const {
+    matchIds: searchMatchIds,
+    matchCount: searchMatchCount,
+    isSearching,
+  } = useBoardCardSearch(projectIdOrNull, searchQuery);
+  const searchDims = searchQuery.trim().length > 0 && searchMatchIds.size > 0;
+  const isDimmed = (id: string) => searchDims && !searchMatchIds.has(id);
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = document.activeElement;
+      if (
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement ||
+        el instanceof HTMLSelectElement ||
+        (el instanceof HTMLElement && el.isContentEditable)
+      )
+        return;
+      e.preventDefault();
+      searchInputRef.current?.focus();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  // A move into a column at its WIP limit waits behind the v1 confirm dialog.
+  const [wipPending, setWipPending] = useState<{
+    breach: WipBreach;
+    taskName: string;
+    perform: () => void;
+  } | null>(null);
 
   const [filter, setFilter] = useState<Board2Filter>({ criticalOnly: false, blockedOnly: false });
   const [lanesOn, setLanesOn] = useState(true);
@@ -238,7 +308,19 @@ export function Board2Page() {
     () => rawColumns.filter((c) => c.visible && c.status !== 'BACKLOG'),
     [rawColumns],
   );
-  const all = useMemo(() => tasks ?? [], [tasks]);
+  // Sprint view (#429): a committed card outside the selected sprint is hidden; backlog
+  // cards and summary tasks stay so the lanes and the backlog pane still render.
+  const all = useMemo(
+    () =>
+      (tasks ?? []).filter(
+        (t) =>
+          !selectedSprintId ||
+          t.status === 'BACKLOG' ||
+          t.isSummary ||
+          t.sprintId === selectedSprintId,
+      ),
+    [tasks, selectedSprintId],
+  );
   const isCard = useMemo(() => {
     const ids = new Set(groupIntoLanes(all, undefined).flatMap((l) => l.tasks.map((t) => t.id)));
     return (t: Task) => ids.has(t.id);
@@ -335,11 +417,30 @@ export function Board2Page() {
   const move = useCallback(
     (task: Task, status: TaskStatus) => {
       if (readOnly || task.status === status) return;
-      updateStatus.mutate({ projectId, taskId: task.id, status });
-      setAnnounce(`Moved ${task.name} to ${labelOf(status)}`);
+      // Under a PLANNED/ACTIVE sprint view a card pulled in is assigned to that sprint,
+      // exactly as on the v1 board (#429); a closed sprint assigns nothing.
+      const assignSprintId = sprintAssignTarget(selectedSprint, task);
+      const perform = () => {
+        updateStatus.mutate({
+          projectId,
+          taskId: task.id,
+          status,
+          ...(assignSprintId ? { sprintId: assignSprintId } : {}),
+        });
+        setAnnounce(`Moved ${task.name} to ${labelOf(status)}`);
+      };
+      // The WIP limit is advisory but the move is deliberate: confirm, cancel-first.
+      const counts: Record<string, number> = {};
+      for (const h of heads) counts[h.status] = h.count;
+      const breach = wipBreachInfo(columns, counts, status);
+      if (breach) {
+        setWipPending({ breach, taskName: task.name, perform });
+        return;
+      }
+      perform();
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [readOnly, updateStatus, columns, projectId],
+    [readOnly, updateStatus, columns, heads, projectId, selectedSprint],
   );
 
   const onCardKey = (e: KeyboardEvent<HTMLButtonElement>, task: Task) => {
@@ -420,6 +521,18 @@ export function Board2Page() {
       role="toolbar"
       aria-label="Board controls"
     >
+      <BoardSprintSwitcher
+        sprints={sprints}
+        selectedSprintId={selectedSprintId}
+        onSelectSprint={setSelectedSprintId}
+      />
+      <BoardSearchControl
+        value={searchQuery}
+        onChange={onSearchChange}
+        matchCount={searchMatchCount}
+        isSearching={isSearching}
+        inputRef={searchInputRef}
+      />
       <Popover
         ariaLabel="Filter cards"
         label={<>Filter{activeFilters > 0 ? ` · ${activeFilters}` : ''}</>}
@@ -595,6 +708,7 @@ export function Board2Page() {
                 held={held?.id === t.id}
                 draggable={!readOnly}
                 showFields={showFields}
+                dimmed={isDimmed(t.id)}
                 onKeyDown={onCardKey}
                 onDragStart={(task) => (dragged.current = task)}
                 onOpen={(task) => setSelectedTaskId(task.id)}
@@ -696,12 +810,16 @@ export function Board2Page() {
                   Add to backlog
                 </Button>
               )}
-              <Link
-                to={`/projects/${projectId}/settings`}
-                className={`text-p1-text-1 underline ${FOCUS_RING}`}
-              >
-                Import tasks
-              </Link>
+              {canImport && (
+                <Link
+                  // The schedule's own CSV/Excel import wizard, opened by its `?import=csv`
+                  // deep link (gated there on Scheduler+, which `canImport` mirrors).
+                  to={`/projects/${projectId}/schedule?import=csv`}
+                  className={`text-p1-text-1 underline ${FOCUS_RING}`}
+                >
+                  Import tasks
+                </Link>
+              )}
             </div>
           ) : (
             <ul className="m-0 flex flex-col gap-2 p-0">
@@ -714,6 +832,7 @@ export function Board2Page() {
                   held={held?.id === t.id}
                   draggable={!readOnly}
                   showFields={showFields}
+                  dimmed={isDimmed(t.id)}
                   onKeyDown={onCardKey}
                   onDragStart={(task) => (dragged.current = task)}
                   onOpen={(task) => setSelectedTaskId(task.id)}
@@ -777,10 +896,13 @@ export function Board2Page() {
               held={held?.id === t.id}
               draggable={false}
               showFields={showFields}
+              dimmed={isDimmed(t.id)}
               onKeyDown={onCardKey}
               onDragStart={() => undefined}
               onOpen={(task) => setSelectedTaskId(task.id)}
-              moveTargets={readOnly ? undefined : columns.map((c) => ({ status: c.status, label: c.label }))}
+              moveTargets={
+                readOnly ? undefined : columns.map((c) => ({ status: c.status, label: c.label }))
+              }
               onMoveTo={readOnly ? undefined : move}
             />
           ))}
@@ -821,6 +943,7 @@ export function Board2Page() {
             </Button>
           </form>
         )}
+        {sprintClosed && projectIdOrNull && <ClosedSprintBanner projectId={projectIdOrNull} />}
         {isDesktop ? desktopBoard : phoneBoard}
         <div role="status" aria-live="polite" className="sr-only">
           {announce}
@@ -831,6 +954,20 @@ export function Board2Page() {
           </div>
         )}
       </div>
+      {wipPending && (
+        <WipLimitConfirmDialog
+          taskName={wipPending.taskName}
+          columnLabel={wipPending.breach.label}
+          count={wipPending.breach.count}
+          limit={wipPending.breach.limit}
+          onCancel={() => setWipPending(null)}
+          onConfirm={() => {
+            const { perform } = wipPending;
+            setWipPending(null);
+            perform();
+          }}
+        />
+      )}
       {projectIdOrNull && selectedTaskId && (
         <TaskDetailDrawer
           task={all.find((x) => x.id === selectedTaskId) ?? null}

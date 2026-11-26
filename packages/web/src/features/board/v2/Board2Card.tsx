@@ -13,6 +13,8 @@ export interface Board2CardProps {
   held: boolean;
   draggable: boolean;
   showFields: boolean;
+  /** A search is active and this card is not a match: dim it in place (never hide it). */
+  dimmed?: boolean;
   onKeyDown: (e: KeyboardEvent<HTMLButtonElement>, task: Task) => void;
   onDragStart: (task: Task) => void;
   /** Click or Enter opens task detail. Space is reserved for picking the card up. */
@@ -39,6 +41,7 @@ export function Board2Card({
   held,
   draggable,
   showFields,
+  dimmed = false,
   onKeyDown,
   onDragStart,
   onOpen,
@@ -66,7 +69,7 @@ export function Board2Card({
         onKeyUp={(e) => e.key === ' ' && e.preventDefault()}
         className={`flex w-full min-w-0 flex-col gap-1.5 rounded-md border border-p1-hairline bg-p1-surface-1 p-2.5 text-left text-sm text-p1-text-1 hover:bg-p1-surface-2 ${FOCUS_RING} ${
           task.isCritical ? 'border-l-[3px] border-l-p1-critical' : ''
-        } ${held ? 'ring-2 ring-p1-focus' : ''}`}
+        } ${held ? 'ring-2 ring-p1-focus' : ''} ${dimmed ? 'opacity-50' : ''}`}
       >
         <span className="line-clamp-2 break-words font-medium">{task.name}</span>
         {showFields && chips.length > 0 && (
@@ -111,7 +114,11 @@ export function Board2Card({
             Move to…
           </button>
           {moveOpen && (
-            <ul id={moveId} aria-label={`Move ${task.name} to`} className="m-0 mt-1 flex flex-col gap-1 p-0">
+            <ul
+              id={moveId}
+              aria-label={`Move ${task.name} to`}
+              className="m-0 mt-1 flex flex-col gap-1 p-0"
+            >
               {destinations.map((d) => (
                 <li key={d.status} className="list-none">
                   <button
