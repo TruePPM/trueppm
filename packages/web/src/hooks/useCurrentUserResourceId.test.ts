@@ -37,14 +37,25 @@ describe('useCurrentUserResourceId', () => {
 
   it('returns the resourceId of the resource flagged is_me=true', () => {
     useProjectResourcePoolMock.mockReturnValue({
+      data: [pr({ id: 'r-other', isMe: false }, 'pr-1'), pr({ id: 'r-me', isMe: true }, 'pr-2')],
+      isLoading: false,
+    } as ReturnType<typeof useProjectResourcePool>);
+    const { result } = renderHook(() => useCurrentUserResourceId('p1'));
+    expect(result.current.resourceId).toBe('r-me');
+  });
+
+  it('returns every is_me resource id when a user is split across two roster rows', () => {
+    useProjectResourcePoolMock.mockReturnValue({
       data: [
-        pr({ id: 'r-other', isMe: false }, 'pr-1'),
-        pr({ id: 'r-me', isMe: true }, 'pr-2'),
+        pr({ id: 'r-me', isMe: true }, 'pr-1'),
+        pr({ id: 'r-other', isMe: false }, 'pr-2'),
+        pr({ id: 'r-me-2', isMe: true }, 'pr-3'),
       ],
       isLoading: false,
     } as ReturnType<typeof useProjectResourcePool>);
     const { result } = renderHook(() => useCurrentUserResourceId('p1'));
     expect(result.current.resourceId).toBe('r-me');
+    expect([...result.current.resourceIds].sort()).toEqual(['r-me', 'r-me-2']);
   });
 
   it('returns null when no resource is flagged is_me', () => {

@@ -176,3 +176,11 @@ MC_SENSITIVITY_CAP = 20
 # fix the top-N ranking to within ~0.02 of the full-run correlation, far tighter
 # than the ranking needs. This makes the tornado cost independent of ``runs``.
 MC_SENSITIVITY_SUBSAMPLE = 2_000
+
+
+# Ceiling on the number of ``targets`` one :func:`monte_carlo` call reports per-task
+# percentiles for (#4135). Each target keeps a ``runs``-long finish column while the
+# simulation runs and a sorted distribution afterwards, so the count — not the
+# project size — bounds that memory and the result payload. A caller with more
+# milestones than this picks which to read.
+MC_TARGET_CAP = 50

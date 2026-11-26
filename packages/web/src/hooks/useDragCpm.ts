@@ -82,6 +82,39 @@ interface UseDragCpmOptions {
   calendar?: PreviewCalendar | null;
 }
 
+const DAY_MS = 86_400_000;
+
+/**
+ * Signed calendar-day shift of the project's latest finish under a live preview,
+ * or null when it cannot be stated.
+ *
+ * The preview only recomputes the dragged task's downstream subgraph, so the
+ * project finish is the later of (a) the latest finish among tasks OFF that
+ * subgraph, which the gesture cannot move, and (b) the preview's latest finish
+ * within it. Summary rows are skipped — their finish is a rollup of the tasks
+ * already counted, and a stale one would pin the "before" value.
+ */
+export function projectFinishDelta(
+  tasks: readonly Task[],
+  subgraph: { taskId: string; ids: Set<string> } | null,
+  draggedTaskId: string,
+  previewMaxFinish: string | null,
+): number | null {
+  if (!subgraph || subgraph.taskId !== draggedTaskId || previewMaxFinish === null) return null;
+  let outside: string | null = null;
+  let before: string | null = null;
+  for (const t of tasks) {
+    if (t.isSummary || !t.finish) continue;
+    if (before === null || t.finish > before) before = t.finish;
+    if (!subgraph.ids.has(t.id) && (outside === null || t.finish > outside)) outside = t.finish;
+  }
+  if (before === null) return null;
+  const after = outside !== null && outside > previewMaxFinish ? outside : previewMaxFinish;
+  return Math.round(
+    (Date.parse(after + 'T00:00:00Z') - Date.parse(before + 'T00:00:00Z')) / DAY_MS,
+  );
+}
+
 export function useDragCpm({
   engine,
   tasks,
@@ -100,6 +133,10 @@ export function useDragCpm({
   // correct for everything else that reads it (PreviewOverlay, the worker
   // RESULT handler) — only the cancel announcement's wording needs to know.
   const activeGestureRef = useRef<'drag' | 'resize' | null>(null);
+  // Ids of the live gesture's downstream subgraph (inclusive of the gesture's own
+  // task). The cascade line needs them to tell "the project finish moved" from
+  // "a task off the cascade still holds the finish" (#4314).
+  const subgraphIdsRef = useRef<{ taskId: string; ids: Set<string> } | null>(null);
 
   const startDrag = useDragStore((s) => s.startDrag);
   const updatePreview = useDragStore((s) => s.updatePreview);
@@ -140,7 +177,23 @@ export function useDragCpm({
       // Discard stale results (seq guard)
       if (msg.seq < seqRef.current) return;
 
-      updatePreview(msg.results, msg.worstMilestone, msg.overflowCount);
+      updatePreview(
+        msg.results,
+        msg.worstMilestone,
+        msg.overflowCount,
+        msg.movedCount === undefined
+          ? null
+          : {
+              taskId: msg.draggedTaskId,
+              movedCount: msg.movedCount,
+              finishDeltaDays: projectFinishDelta(
+                tasksRef.current,
+                subgraphIdsRef.current,
+                msg.draggedTaskId,
+                msg.maxFinish ?? null,
+              ),
+            },
+      );
 
       // Update aria-live directly via DOM ref (rule 30)
       if (ariaLiveRef.current && msg.worstMilestone) {
@@ -183,6 +236,7 @@ export function useDragCpm({
       if (!worker) return;
 
       const subgraph = buildSubgraph(ev.id, tasksRef.current, linksRef.current);
+      subgraphIdsRef.current = { taskId: ev.id, ids: new Set(subgraph.tasks.map((t) => t.id)) };
       const startMsg: DragStartMessage = {
         type: 'DRAG_START',
         draggedTaskId: ev.id,
@@ -267,6 +321,7 @@ export function useDragCpm({
       if (!worker) return;
 
       const subgraph = buildSubgraph(ev.id, tasksRef.current, linksRef.current);
+      subgraphIdsRef.current = { taskId: ev.id, ids: new Set(subgraph.tasks.map((t) => t.id)) };
       const startMsg: ResizeStartMessage = {
         type: 'RESIZE_START',
         resizedTaskId: ev.id,

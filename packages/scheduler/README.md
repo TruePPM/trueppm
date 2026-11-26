@@ -234,6 +234,36 @@ Both matrices are `(runs, n_tasks)` and cost `runs x n_tasks x 4 bytes x 2`
 50,000,000 cells the call raises `SimulationCapExceeded`; the default path is
 unaffected.
 
+## Milestone percentiles
+
+From 0.5, `monte_carlo()` will take an opt-in `targets` argument. It defaults to
+off, so a call without it returns what it does today at the same cost, and it
+draws nothing from the random stream, so seeded P50/P80/P95 and the tornado
+ranking do not move when you turn it on.
+
+```python
+result = monte_carlo(project, runs=10_000, seed=42, targets=["design-complete"])
+design = result.targets["design-complete"]  # a TargetForecast
+design.p80                                   # the P80 on that one milestone
+design.percentiles[95].date                  # the same mapping, by level
+```
+
+`targets` names up to `MC_TARGET_CAP` (50) task ids. Each comes back on
+`result.targets` as a `TargetForecast` (`task_id`, `percentiles`, `distribution`),
+read from the same per-run finishes the project finish is the maximum of. So at
+every level a target is never later than the project. Where a target's own reading
+would be shown later than the project's (a start-of-day milestone on the Monday,
+the project at the end of the Friday before it), it takes the project's, and that
+level can then sit ahead of the target's own `distribution`. With mixed calendars
+the day it takes can be one the target's own week does not work. A completed target
+reports its recorded finish at every level. A task on its own calendar is read through its
+own working week ([#4135](https://gitlab.com/trueppm/trueppm/-/issues/4135)).
+
+`percentiles` is the extensible `dict[int, Percentile]` mapping, the same form as
+`MonteCarloResult.percentiles` ([#4514](https://gitlab.com/trueppm/trueppm/-/issues/4514)),
+so a further level is a key rather than a new field. `p50`, `p80` and `p95` are
+convenience properties over it.
+
 ## Exporting the graph
 
 > **Ships in 0.5.** `to_graph()` and the graph types below are not in 0.4.0; this
@@ -702,6 +732,7 @@ application can check or re-enforce them without hand-copying a number:
 | `MAX_INDEX_CELLS` | `25000000` | From 0.5 (not in 0.4): Monte Carlo's `(distinct calendars by content) x (index span)` working-day indices, 8 bytes per cell; over it `monte_carlo()` will raise `SimulationCapExceeded`. Override per call with `max_index_cells`. Provisional (see [API stability](#api-stability-and-versioning)) |
 | `MAX_VELOCITY_SPRINTS` | `10000` | Per-run sprint horizon the velocity sampler will bootstrap |
 | `MC_SENSITIVITY_CAP` | `20` | Tasks returned by the sensitivity ("tornado") ranking |
+| `MC_TARGET_CAP` | `50` | From 0.5: most `targets` one `monte_carlo()` call reports per-task percentiles for; more raises `InvalidScheduleInput` |
 | `_MAX_RUNS_ABSOLUTE` | `100000000` | Hard ceiling on `monte_carlo(runs=…)`, enforced regardless of `max_runs`; over it `monte_carlo()` raises `InvalidScheduleInput`. A caller-supplied `max_runs` below `runs` is checked as well and raises `SimulationCapExceeded` instead. Not exported from the package: it is a private engine constant, listed so the number is documented |
 | `_MAX_SAMPLE_CELLS` | `250000000` | From 0.5, a hard ceiling on `runs x tasks`. It was sized for a sampled-duration matrix held in full (8 bytes a cell, about 2 GB at the ceiling); from 0.5 that matrix will be replayed a row block at a time above 32M cells, so the ceiling bounds the work rather than one allocation. Over it `monte_carlo()` will raise `SimulationCapExceeded` whatever `max_runs` says, instead of a bare `MemoryError`: 100,000 runs fit a 2,500-task project, 10,000 runs a 25,000-task one. Not exported from the package |
 
@@ -758,6 +789,32 @@ calendar-day lookups are index-backed (a cached, bisected merged-interval
 index), so both the CPM pass and Monte Carlo snap to the next or previous
 working day in `O(log E)` regardless of how many tasks or dependencies
 reference that calendar.
+
+## The project document JSON Schema
+
+The shape of the document `Project.from_json` accepts and `Project.to_json` emits is
+published as a JSON Schema (draft 2020-12), so a client in any language can validate a
+plan before submitting it.
+
+- **Where it lives:** `src/trueppm_scheduler/project.schema.json` in the repository,
+  and `trueppm_scheduler/project.schema.json` inside the wheel. Read it with
+  `importlib.resources.files("trueppm_scheduler") / "project.schema.json"`.
+- **How it is made:** generated from `trueppm_scheduler.models` by
+  `scripts/generate_project_schema.py`; never edit it by hand. CI fails when a model
+  change is not followed by a regenerate, and validates every conformance fixture
+  against it.
+- **Versioning:** it versions with the package, because it is generated from the same
+  models. A new optional property is a minor change; removing or renaming a property,
+  making one required, or narrowing a type or range is a breaking change and follows
+  the [API stability](#api-stability-and-versioning) rules.
+- **What it does not check:** shape only. Cycles, duplicate task ids, edges naming an
+  unknown task, calendar consistency, and the span and duration caps are engine rules a
+  schema cannot express, so a document that validates can still be refused. The
+  schema's own `description` says so.
+
+The conformance corpus the schema is checked against is published with each release;
+see [Testing another implementation against the corpus](https://docs.trueppm.com/architecture/testing-another-implementation/).
+It certifies agreement with the reference engine, not correctness.
 
 ## API stability and versioning
 

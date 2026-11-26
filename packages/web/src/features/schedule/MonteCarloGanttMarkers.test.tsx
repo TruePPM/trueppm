@@ -77,9 +77,11 @@ describe('MonteCarloGanttMarkers', () => {
         canvasScrollRef={ref}
       />,
     );
-    // Chips show "P50: Oct 5", "P80: Nov 3", "P95: Nov 30" (from FIXTURE_MC_RESULT)
+    // P50 and P95 chips stay here; the P80 label moved to the timescale marker
+    // lane (#4068) so a percentile renders once (ADR-0144, rule 189) — only its
+    // line is drawn by this overlay.
     expect(screen.getByText(/P50:/)).toBeInTheDocument();
-    expect(screen.getByText(/P80:/)).toBeInTheDocument();
+    expect(screen.queryByText(/P80:/)).not.toBeInTheDocument();
     expect(screen.getByText(/P95:/)).toBeInTheDocument();
   });
 

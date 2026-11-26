@@ -268,6 +268,22 @@ export interface CalendarChipData {
   isStart: boolean;
   /** True if this fragment contains the task's true finish date */
   isEnd: boolean;
+  /**
+   * The task's assignees (resource id + display name). Optional so a hand-built
+   * chip means "unassigned"; the builders always fill it. Read by the Week
+   * view's group-by-assignee swimlanes (#3169).
+   */
+  assignees?: ChipAssignee[];
+}
+
+/** The slice of a task assignment the calendar needs to place a chip in a swimlane. */
+export interface ChipAssignee {
+  resourceId: string;
+  name: string;
+}
+
+function chipAssignees(task: Task): ChipAssignee[] {
+  return task.assignees.map((a) => ({ resourceId: a.resourceId, name: a.name }));
 }
 
 /** A milestone marker positioned in a specific day cell. */
@@ -278,6 +294,8 @@ export interface MilestoneMark {
   weekStart: string;
   /** Day offset from weekStart (0–6). */
   dayOffset: number;
+  /** See `CalendarChipData.assignees`. */
+  assignees?: ChipAssignee[];
 }
 
 /**
@@ -349,6 +367,7 @@ function weekFragments(
       isAtRisk: task.status === 'REVIEW',
       isStart: clampStart.getTime() === taskStart.getTime(),
       isEnd: clampEnd.getTime() === taskEnd.getTime(),
+      assignees: chipAssignees(task),
     });
   }
 
@@ -378,6 +397,7 @@ export function buildMilestoneMarks(
       taskName: task.name,
       weekStart: formatISODate(ws),
       dayOffset: Math.round((ms.getTime() - ws.getTime()) / 86_400_000),
+      assignees: chipAssignees(task),
     });
   }
   return marks;
@@ -495,4 +515,95 @@ export function isSameDay(a: Date, b: Date): boolean {
     a.getUTCMonth() === b.getUTCMonth() &&
     a.getUTCDate() === b.getUTCDate()
   );
+}
+
+// ---------------------------------------------------------------------------
+// Swimlanes, "my tasks" and the containing sprint
+// ---------------------------------------------------------------------------
+
+/** Swimlane key for chips whose task has no assignee. */
+export const UNASSIGNED_LANE = '__unassigned__';
+
+/** One assignee swimlane of the grouped Week view. */
+export interface AssigneeLane {
+  /** A resource id, or `UNASSIGNED_LANE`. */
+  key: string;
+  label: string;
+}
+
+/**
+ * The swimlanes a week needs: one per distinct assignee that has a chip or
+ * milestone in it (sorted by name), then Unassigned if any item has none. A
+ * multi-assignee task sits in each of its assignees' lanes — the question the
+ * lanes answer is "who is loaded", so the task is load on every owner.
+ * Always returns at least one lane so the grid keeps a row to draw.
+ */
+export function buildAssigneeLanes(
+  items: ReadonlyArray<{ assignees?: ChipAssignee[] }>,
+): AssigneeLane[] {
+  const byId = new Map<string, string>();
+  let hasUnassigned = false;
+  for (const item of items) {
+    if (!item.assignees || item.assignees.length === 0) hasUnassigned = true;
+    for (const a of item.assignees ?? []) byId.set(a.resourceId, a.name);
+  }
+  const lanes: AssigneeLane[] = [...byId.entries()]
+    .map(([key, label]) => ({ key, label }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+  if (hasUnassigned || lanes.length === 0) {
+    lanes.push({ key: UNASSIGNED_LANE, label: 'Unassigned' });
+  }
+  return lanes;
+}
+
+/** Whether `item` belongs in the swimlane `laneKey`. */
+export function inAssigneeLane(item: { assignees?: ChipAssignee[] }, laneKey: string): boolean {
+  const list = item.assignees ?? [];
+  return laneKey === UNASSIGNED_LANE
+    ? list.length === 0
+    : list.some((a) => a.resourceId === laneKey);
+}
+
+/** Tasks assigned to any of `resourceIds` — the "My tasks only" filter. */
+export function filterTasksByResource(tasks: Task[], resourceIds: ReadonlySet<string>): Task[] {
+  if (resourceIds.size === 0) return [];
+  return tasks.filter((t) => t.assignees.some((a) => resourceIds.has(a.resourceId)));
+}
+
+interface SprintWindowLike {
+  name: string;
+  start_date: string;
+  finish_date: string;
+  state: string;
+}
+
+/**
+ * The header phrase naming the sprint(s) a week sits inside (#3170), or null.
+ *
+ * Cancelled sprints are skipped: they never ran, so naming one would tell the
+ * reader the team is in a cadence it abandoned. "N days left" is calendar days
+ * from `todayIso` to the sprint's finish and appears only when today is inside
+ * the sprint — for a past or future week there is nothing remaining to count.
+ */
+export function describeWeekSprints(
+  sprints: ReadonlyArray<SprintWindowLike>,
+  weekAnchor: Date,
+  startDay: WeekStartDay,
+  todayIso: string,
+): string | null {
+  const first = weekStart(weekAnchor, startDay);
+  const firstIso = formatISODate(first);
+  const lastIso = formatISODate(addDays(first, 6));
+  const parts = sprints
+    .filter((s) => s.state !== 'CANCELLED' && s.start_date <= lastIso && s.finish_date >= firstIso)
+    .sort((a, b) => a.start_date.localeCompare(b.start_date))
+    .map((s) => {
+      if (todayIso < s.start_date || todayIso > s.finish_date) return s.name;
+      const left = Math.round(
+        (parseUTCDate(s.finish_date).getTime() - parseUTCDate(todayIso).getTime()) / 86_400_000,
+      );
+      if (left === 0) return `${s.name} · ends today`;
+      return `${s.name} · ${left} ${left === 1 ? 'day' : 'days'} left`;
+    });
+  return parts.length > 0 ? parts.join(' / ') : null;
 }

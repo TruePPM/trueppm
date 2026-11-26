@@ -9,7 +9,7 @@
  */
 
 import { create } from 'zustand';
-import type { DragPhase, DragPreviewResult, WorstMilestone } from '../types';
+import type { DragCascadeSummary, DragPhase, DragPreviewResult, WorstMilestone } from '../types';
 
 export interface DragState {
   phase: DragPhase;
@@ -19,6 +19,12 @@ export interface DragState {
   worstMilestone: WorstMilestone | null;
   /** Count of tasks beyond the 10-bar cap (rule 32). */
   overflowCount: number;
+  /**
+   * Cascade summary for the commit popover (#4314). Unlike `previewResults` it is
+   * NOT cleared by `commitDrag` — the popover opens after release — only by the
+   * next gesture start or a cancel.
+   */
+  cascade: DragCascadeSummary | null;
   /** True when the active drag was initiated via keyboard (issue #34). */
   isKeyboardMode: boolean;
   /**
@@ -49,6 +55,7 @@ export interface DragState {
     results: DragPreviewResult[],
     worstMilestone: WorstMilestone | null,
     overflowCount: number,
+    cascade?: DragCascadeSummary | null,
   ) => void;
   commitDrag: (confirmedStart?: string) => void;
   cancelDrag: () => void;
@@ -66,6 +73,7 @@ export const useDragStore = create<DragState>((set) => ({
   previewResults: [],
   worstMilestone: null,
   overflowCount: 0,
+  cascade: null,
   isKeyboardMode: false,
   keyboardDelta: 0,
   confirmedStart: null,
@@ -80,13 +88,19 @@ export const useDragStore = create<DragState>((set) => ({
       previewResults: [],
       worstMilestone: null,
       overflowCount: 0,
+      cascade: null,
       isKeyboardMode: isKeyboard,
       keyboardDelta: 0,
       confirmedStart: null,
     }),
 
-  updatePreview: (results, worstMilestone, overflowCount) =>
-    set({ previewResults: results, worstMilestone, overflowCount }),
+  updatePreview: (results, worstMilestone, overflowCount, cascade = null) =>
+    set((s) => ({
+      previewResults: results,
+      worstMilestone,
+      overflowCount,
+      cascade: cascade ?? s.cascade,
+    })),
 
   commitDrag: (confirmedStart) =>
     set({
@@ -104,6 +118,7 @@ export const useDragStore = create<DragState>((set) => ({
       previewResults: [],
       worstMilestone: null,
       overflowCount: 0,
+      cascade: null,
       isKeyboardMode: false,
       keyboardDelta: 0,
       confirmedStart: null,

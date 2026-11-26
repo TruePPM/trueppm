@@ -51,6 +51,7 @@ import {
   drawTodayLine,
   drawSprintBands,
   drawCadenceRail,
+  drawMarkerLane,
   sprintBandFadeAlpha,
   drawTimelineHeader,
   drawTaskBar,
@@ -71,7 +72,7 @@ import {
 import type { BaselineDates, ChartRenderOptions, DependencyLayout } from './GanttRenderer';
 import type { CadenceSegment, SprintBand } from '../sprintBands';
 import type { RowMode } from '../deliveryModePresentation';
-import { CHART_HEADER_HEIGHT } from '../scheduleConstants';
+import { CHART_HEADER_HEIGHT, subscribeCadenceRail } from '../scheduleConstants';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -306,6 +307,7 @@ export class GanttEngineImpl implements GanttEngine {
    * the first.
    */
   private _cadenceSegments: CadenceSegment[] = [];
+  private _unsubscribeHeaderStack: (() => void) | null = null;
   /**
    * `performance.now()` at which the band fade-in began, or null when no fade is
    * running. Non-null is the ONLY thing that keeps the rAF loop re-arming for
@@ -411,6 +413,15 @@ export class GanttEngineImpl implements GanttEngine {
       setRendererColorMode(this._isDark, this._forcedColors);
       this._forcedColorsMQ.addEventListener('change', this._onForcedColorsChange);
     }
+
+    // The header stack (rail, marker lane) changes height outside any engine
+    // call; repaint the retained header band and every row when it does (#4068).
+    this._unsubscribeHeaderStack = subscribeCadenceRail(() => {
+      if (this._isDestroyed) return;
+      this._headerContentDirty = true;
+      this._fullRepaintPending = true;
+      this._requestRepaint();
+    });
 
     // ResizeObserver
     this._resizeObserver = new ResizeObserver(this._onResize);
@@ -986,6 +997,8 @@ export class GanttEngineImpl implements GanttEngine {
     }
 
     this._resizeObserver.disconnect();
+    this._unsubscribeHeaderStack?.();
+    this._unsubscribeHeaderStack = null;
 
     if (this._reducedMotionMQ) {
       this._reducedMotionMQ.removeEventListener('change', this._onReducedMotionChange);
@@ -1384,6 +1397,8 @@ export class GanttEngineImpl implements GanttEngine {
       if (this._chartOptions.showSprintBands) {
         drawCadenceRail(ctx, this._cadenceSegments, this._scales, this._scrollLeft, w);
       }
+      // The marker lane (#4068) is the last band of the header stack.
+      drawMarkerLane(ctx, w);
       this._headerContentDirty = false;
       this._lastHeaderScrollLeft = this._scrollLeft;
     } else {

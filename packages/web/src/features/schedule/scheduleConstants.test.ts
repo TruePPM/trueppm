@@ -401,7 +401,7 @@ describe('the grip reserve', () => {
     expect(GRIP_WIDTH_FINE).toBeLessThan(GRIP_WIDTH_COARSE);
   });
 
-  it('reserves a lane at EVERY pointer class, and it is the grip\'s full width', () => {
+  it("reserves a lane at EVERY pointer class, and it is the grip's full width", () => {
     // The reserve must equal the grip exactly, on both branches. A reserve
     // narrower than the grip puts the grip back on top of its neighbour, which
     // is the failure the lane exists to prevent — at 44px it lands on the WBS
@@ -417,7 +417,7 @@ describe('the grip reserve', () => {
     }
   });
 
-  it('leaves the nudge lane a clear box — no control may sit in a neighbour\'s (#3078)', () => {
+  it("leaves the nudge lane a clear box — no control may sit in a neighbour's (#3078)", () => {
     // The property the two lanes exist to guarantee, stated once as arithmetic
     // rather than left implicit in two independent constants.
     //
@@ -460,9 +460,13 @@ describe('the structural-nudge lane (#3026)', () => {
     // Three controls since the ◆ milestone toggle joined ⇤/⇥ (#3257) — the
     // reserve widened rather than the third button sharing the pair's lane.
     expect(NUDGE_COUNT).toBe(3);
-    expect(resolveNudgeLaneWidth(true)).toBe(NUDGE_COUNT * NUDGE_SIZE_COARSE + (NUDGE_COUNT - 1) * NUDGE_GAP);
+    expect(resolveNudgeLaneWidth(true)).toBe(
+      NUDGE_COUNT * NUDGE_SIZE_COARSE + (NUDGE_COUNT - 1) * NUDGE_GAP,
+    );
     expect(resolveNudgeLaneWidth(true)).toBeGreaterThanOrEqual(NUDGE_COUNT * 44);
-    expect(resolveNudgeLaneWidth(false)).toBe(NUDGE_COUNT * NUDGE_SIZE_FINE + (NUDGE_COUNT - 1) * NUDGE_GAP);
+    expect(resolveNudgeLaneWidth(false)).toBe(
+      NUDGE_COUNT * NUDGE_SIZE_FINE + (NUDGE_COUNT - 1) * NUDGE_GAP,
+    );
   });
 
   it('gives a VIEWER no lane at either pointer class — absence, not a reserved hole', () => {
@@ -515,5 +519,25 @@ describe('the structural-nudge lane (#3026)', () => {
         );
       }
     }
+  });
+});
+
+describe('marker lane (#4068)', () => {
+  it('adds 18px to the chart header and stacks under the cadence rail', async () => {
+    const c = await import('./scheduleConstants');
+    c.syncCadenceRail(false);
+    c.syncMarkerLane(false);
+    expect(c.CHART_HEADER_HEIGHT).toBe(c.HEADER_HEIGHT);
+    c.syncMarkerLane(true);
+    expect(c.CHART_HEADER_HEIGHT).toBe(c.HEADER_HEIGHT + c.MARKER_LANE_HEIGHT);
+    expect(c.markerLaneTop()).toBe(c.HEADER_HEIGHT);
+    c.syncCadenceRail(true);
+    expect(c.CHART_HEADER_HEIGHT).toBe(
+      c.HEADER_HEIGHT + c.CADENCE_RAIL_HEIGHT + c.MARKER_LANE_HEIGHT,
+    );
+    expect(c.markerLaneTop()).toBe(c.HEADER_HEIGHT + c.CADENCE_RAIL_HEIGHT);
+    c.syncCadenceRail(false);
+    c.syncMarkerLane(false);
+    expect(c.CHART_HEADER_HEIGHT).toBe(c.HEADER_HEIGHT);
   });
 });

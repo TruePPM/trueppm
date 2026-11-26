@@ -288,7 +288,7 @@ test.describe('Grid ↔ Timeline — a viewer gets absence on BOTH surfaces (#29
     const canvas = page.getByTestId('schedule-canvas-scroll');
     const box = await canvas.boundingBox();
     expect(box).not.toBeNull();
-    await page.mouse.click(box!.x + 200, box!.y + 28 + 14, { button: 'right' });
+    await page.mouse.click(box!.x + 200, box!.y + 28 + 18 + 14, { button: 'right' });
     await expect(page.getByRole('menu')).toHaveCount(0);
   });
 });

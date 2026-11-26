@@ -1,14 +1,15 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import {
-  CHART_HEADER_HEIGHT,
-  getCadenceRail,
+  HEADER_HEIGHT,
+  getChartHeaderHeight,
+  syncMarkerLane,
   subscribeCadenceRail,
   syncCadenceRail,
 } from '@/features/schedule/scheduleConstants';
 
-/** SSR draws no canvas and therefore no rail — the same default as the store's. */
-function getCadenceRailServerSnapshot(): boolean {
-  return false;
+/** SSR draws no canvas and therefore no rail or lane. */
+function getServerSnapshot(): number {
+  return HEADER_HEIGHT;
 }
 
 /**
@@ -29,8 +30,7 @@ function getCadenceRailServerSnapshot(): boolean {
  *    definition web rule 315 forbids.
  */
 export function useChartHeaderHeight(): number {
-  useSyncExternalStore(subscribeCadenceRail, getCadenceRail, getCadenceRailServerSnapshot);
-  return CHART_HEADER_HEIGHT;
+  return useSyncExternalStore(subscribeCadenceRail, getChartHeaderHeight, getServerSnapshot);
 }
 
 /**
@@ -54,6 +54,19 @@ export function useCadenceRail(visible: boolean): void {
     syncCadenceRail(visible);
     return () => {
       syncCadenceRail(false);
+    };
+  }, [visible]);
+}
+
+/**
+ * Install whether the timescale marker lane is drawn (#4068). Same lifecycle as
+ * {@link useCadenceRail}: written from an effect, retracted on unmount.
+ */
+export function useMarkerLane(visible: boolean): void {
+  useEffect(() => {
+    syncMarkerLane(visible);
+    return () => {
+      syncMarkerLane(false);
     };
   }, [visible]);
 }

@@ -75,6 +75,10 @@ dev = [
     "pytest-benchmark>=4.0,<6.0",
     "diff-cover>=9.0,<10.0",
     "hypothesis>=6.0,<7.0",
+    # Validates the published project-document JSON Schema against the conformance
+    # fixtures (tests/test_project_schema.py, #4164). Dev/CI-only, MIT — never
+    # shipped in the wheel or added to the runtime dependency closure.
+    "jsonschema>=4.18,<5.0",
     # Mutation testing (#2282): proves the suite's assertions actually *catch*
     # regressions, not just that lines execute. Dev/CI-only — never shipped in the
     # wheel.
@@ -188,6 +192,10 @@ pytest_add_cli_args = [
     "--ignore=tests/test_wasm_conformance.py",
     "--ignore=tests/test_bench.py",
     "--ignore=tests/test_contract_fuzz.py",
+    # Reads the conformance fixtures (absent from the sandbox) and a generator that
+    # imports the package by path; its drift check proves a file is current, which
+    # a mutant of models.py would not make fail in a way worth scoring (#4164).
+    "--ignore=tests/test_project_schema.py",
 ]
 #
 # mutmut runs the suite inside a copied `mutants/` sandbox, and anything a test
