@@ -98678,7 +98678,6 @@
                 },
                 "required": [
                     "fiscal_year_start_display",
-                    "guest_count",
                     "logo_url",
                     "subdomain"
                 ]

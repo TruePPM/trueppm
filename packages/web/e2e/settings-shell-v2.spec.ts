@@ -229,6 +229,21 @@ test.describe('Settings v2: Workspace > General save bar (#4800)', () => {
   });
 });
 
+test.describe('Settings v2: guest count readout (#5102)', () => {
+  test('the Guest access toggle reports the count the server sends', async ({ page }) => {
+    await setupWorkspace(page);
+    await page.route('**/api/v1/workspace/', (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ ...WORKSPACE, guest_count: 3 }),
+      }),
+    );
+    await page.goto(`/settings/general${V2}`);
+    await expect(page.getByText('Enabled - 3 guests')).toBeVisible();
+  });
+});
+
 test.describe('Settings v2: a11y and phone viewport (#4800)', () => {
   test('Project > General has no critical/serious axe violations, light', async ({
     page,
@@ -330,8 +345,21 @@ test.describe('Settings v2: a11y and phone viewport (#4800)', () => {
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(project) }),
     );
     await page.goto(`/projects/${PROJECT_ID}/settings/lifecycle${V2}`);
-    await expect(page.getByRole('button', { name: /Archive Atlas Migration/i })).toBeVisible();
+    const archive = page.getByRole('button', { name: /Archive Atlas Migration/i });
+    await expect(archive).toBeVisible();
     expect(await shortControls(page)).toEqual([]);
+
+    // The action fills its card (16px padding + 1px border a side), not just clears 44px.
+    const btnBox = await archive.boundingBox();
+    const cardBox = await archive.locator('xpath=..').boundingBox();
+    expect(btnBox).not.toBeNull();
+    expect(cardBox).not.toBeNull();
+    expect(btnBox!.width).toBeGreaterThanOrEqual(cardBox!.width - 34);
+
+    // The typed-confirm input is wider than its 240px desktop width.
+    const confirm = page.getByLabel('Confirm delete by typing the project code or name');
+    await expect(confirm).toBeVisible();
+    expect((await confirm.boundingBox())!.width).toBeGreaterThan(280);
   });
 });
 
