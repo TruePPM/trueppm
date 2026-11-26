@@ -79,3 +79,14 @@ def test_non_admin_does_not_see_count(db: object) -> None:
     # The route stays readable for members; only the admin-facing count is withheld.
     assert res.status_code == 200
     assert "guest_count" not in res.data
+
+
+def test_schema_does_not_require_guest_count() -> None:
+    """The field is omitted below workspace ADMIN, so the schema must not promise it."""
+    import json
+    from pathlib import Path
+
+    schema = json.loads((Path(__file__).parents[5] / "docs" / "api" / "openapi.json").read_text())
+    component = schema["components"]["schemas"]["WorkspaceSettings"]
+    assert "guest_count" in component["properties"]
+    assert "guest_count" not in component.get("required", [])

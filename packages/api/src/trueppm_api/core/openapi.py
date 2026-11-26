@@ -437,6 +437,9 @@ ROLE_OMITTED_RESPONSE_FIELDS: frozenset[tuple[str, str]] = frozenset(
         # project (#3571); absent on every other row and every other endpoint.
         ("Resource", "skill_fit"),
         ("Resource", "missing_skills"),
+        # #5102: guest roster size, workspace ADMIN only
+        # (WorkspaceSettingsSerializer.to_representation).
+        ("WorkspaceSettings", "guest_count"),
     }
 )
 

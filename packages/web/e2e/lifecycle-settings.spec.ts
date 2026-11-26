@@ -383,6 +383,30 @@ test.describe('Program lifecycle settings (#530)', () => {
     await expect.poll(() => captures.programClose).toBe(1);
   });
 
+  test('shell v2 phone (390px): program lifecycle actions are 44px and full width (#5102)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const captures: Captures = {};
+    await setupAuth(page);
+    await setupProgramRoutes(page, captures);
+    await page.goto(`/programs/${PROGRAM_ID}/settings/lifecycle?ff=shell_v2`);
+
+    const del = page.getByRole('button', { name: /Delete program permanently/i });
+    await expect(del).toBeVisible();
+    const box = await del.boundingBox();
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(43.5);
+    const input = page.getByLabel('Confirm delete by typing the program code or name');
+    const inputBox = await input.boundingBox();
+    // Stacked: the input spans its inner card (12px padding + 1px border a side), not the
+    // 240px desktop width.
+    const innerCard = await input.locator('xpath=../..').boundingBox();
+    expect(innerCard).not.toBeNull();
+    expect(inputBox?.width ?? 0).toBeGreaterThanOrEqual((innerCard?.width ?? Infinity) - 26);
+    const close = page.getByRole('button', { name: 'Close program…' });
+    expect((await close.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(43.5);
+  });
+
   test('delete after typed-confirm sends DELETE and redirects', async ({ page }) => {
     const captures: Captures = {};
     await setupAuth(page);
