@@ -33,6 +33,7 @@ from trueppm_api.apps.projects.models import (
     TaskStatus,
     TaskSuggestedAssignee,
 )
+from trueppm_api.apps.projects.retro_services import pull_carryover_item_to_sprint
 
 User = get_user_model()
 
@@ -806,3 +807,38 @@ def test_pull_to_sprint_response_carries_permission_flags_matching_detail_read(
     assert detail.status_code == 200
     for flag in ("can_edit", "can_delete", "can_log_time", "can_edit_estimates"):
         assert pulled[flag] == detail.data[flag], flag
+
+
+@pytest.mark.django_db
+def test_promotion_and_carryover_task_frames_carry_id_without_task_id_alias(
+    project: Project,
+    member: object,
+    django_capture_on_commit_callbacks: Callable[..., Any],
+) -> None:
+    """#4991: ``id`` is the only subject key on the retro task frames."""
+    _, _, item = _retro_with_item(project)
+    target = Sprint.objects.create(
+        project=project,
+        name="Next",
+        start_date=date(2026, 5, 1),
+        finish_date=date(2026, 5, 14),
+        state=SprintState.PLANNED,
+    )
+
+    events: list[tuple[str, dict[str, Any]]] = []
+    with (
+        patch(
+            "trueppm_api.apps.sync.broadcast.broadcast_board_event",
+            side_effect=lambda pid, et, payload: events.append((et, payload)),
+        ),
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        task = pull_carryover_item_to_sprint(item, target, member)  # type: ignore[arg-type]
+
+    frames = {et: p for et, p in events if et in {"task_created", "task_updated"}}
+    assert set(frames) == {"task_created", "task_updated"}
+    for payload in frames.values():
+        assert payload["id"] == str(task.pk)
+        assert "task_id" not in payload
+    assert frames["task_updated"]["sprint_id"] == str(target.pk)
+    assert frames["task_updated"]["source"] == "retro_carryover"

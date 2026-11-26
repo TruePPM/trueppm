@@ -174,7 +174,6 @@ def _resync_required_response() -> Response:
             "changes": {},
             "timestamp": 0,
             "next_cursor": None,
-            "has_more": False,
             "resync_required": True,
         }
     )
@@ -246,8 +245,8 @@ class ProjectSyncView(CommitmentSlipAuditMixin, IdempotencyMixin, APIView):
                     "Opaque pagination continuation token (#1013). Omit on the "
                     "first request; on each subsequent request pass the previous "
                     "response's `next_cursor`. Keep `since` constant for the whole "
-                    "paging session. Loop until `next_cursor` is null / `has_more` "
-                    "is false, then adopt `timestamp` as the next `since`."
+                    "paging session. Loop until `next_cursor` is null, "
+                    "then adopt `timestamp` as the next `since`."
                 ),
             ),
             OpenApiParameter(
@@ -534,7 +533,7 @@ class ProjectSyncView(CommitmentSlipAuditMixin, IdempotencyMixin, APIView):
             # label/custom-field prefetches over deleted rows (#4470).
             sources = [(name, _live_only(qs), ser) for name, qs, ser in sources]
 
-        changes, next_cursor, has_more = paginate_changes(
+        changes, next_cursor = paginate_changes(
             sources,
             cursor=cursor,
             page_size=page_size,
@@ -557,7 +556,6 @@ class ProjectSyncView(CommitmentSlipAuditMixin, IdempotencyMixin, APIView):
                 "changes": changes,
                 "timestamp": timestamp,
                 "next_cursor": next_cursor.encode() if next_cursor is not None else None,
-                "has_more": has_more,
                 "resync_required": False,
             }
         )
@@ -922,8 +920,8 @@ class UserProgramSyncView(IdempotencyMixin, APIView):
                     "Opaque pagination continuation token (#1013). Omit on the "
                     "first request; on each subsequent request pass the previous "
                     "response's `next_cursor`. Keep `since` constant for the whole "
-                    "paging session. Loop until `has_more` is false, then adopt "
-                    "`timestamp` as the next `since`."
+                    "paging session. Loop until `next_cursor` is null, then "
+                    "adopt `timestamp` as the next `since`."
                 ),
             ),
             OpenApiParameter(
@@ -1009,7 +1007,7 @@ class UserProgramSyncView(IdempotencyMixin, APIView):
             # delete (same reasoning as ProjectSyncView, #4470).
             sources = [(name, _live_only(qs), ser) for name, qs, ser in sources]
 
-        changes, next_cursor, has_more = paginate_changes(
+        changes, next_cursor = paginate_changes(
             sources,
             cursor=cursor,
             page_size=page_size,
@@ -1033,7 +1031,6 @@ class UserProgramSyncView(IdempotencyMixin, APIView):
                 "changes": changes,
                 "timestamp": timestamp,
                 "next_cursor": next_cursor.encode() if next_cursor is not None else None,
-                "has_more": has_more,
                 "resync_required": False,
             }
         )

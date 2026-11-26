@@ -203,6 +203,8 @@ _PAIRS: dict[str, tuple[str, str]] = {
     "AUTH_REFRESH_COOKIE_PATH": ("/legacy/", "/legacy/"),
     "AUTH_REFRESH_COOKIE_SAMESITE": ("Lax", "Lax"),
     "AUTH_REFRESH_COOKIE_SECURE": ("false", False),
+    "JWT_SIGNING_KEY_FALLBACKS": ("legacy-a,legacy-b", ["legacy-a", "legacy-b"]),
+    "INTEGRATION_ENCRYPTION_KEY_FALLBACKS": ("legacy-c", ["legacy-c"]),
 }
 
 
@@ -259,10 +261,6 @@ _GRANDFATHERED_BARE = frozenset(
         "CSP_CONNECT_SRC",
         "JWT_SIGNING_KEY",
         "INTEGRATION_ENCRYPTION_KEY",
-        # Rotation siblings (#3406) of the two bare keys above; named in the issue and
-        # delivered through the same operator Secret, so they follow their primaries.
-        "JWT_SIGNING_KEY_FALLBACKS",
-        "INTEGRATION_ENCRYPTION_KEY_FALLBACKS",
     }
 )
 
@@ -376,6 +374,9 @@ _FOUR_CASE.update(
         "AUTH_REFRESH_COOKIE_PATH": ("/l/", "/l/", "/p/", "/p/"),
         "AUTH_REFRESH_COOKIE_SAMESITE": ("Lax", "Lax", "Strict", "Strict"),
         "AUTH_REFRESH_COOKIE_SECURE": ("false", False, "true", True),
+        # #5048: bare names stay readable; the prefixed name wins.
+        "JWT_SIGNING_KEY_FALLBACKS": ("l1,l2", ["l1", "l2"], "p1,p2", ["p1", "p2"]),
+        "INTEGRATION_ENCRYPTION_KEY_FALLBACKS": ("l1", ["l1"], "p1", ["p1"]),
     }
 )
 for _n in _PAIRS:

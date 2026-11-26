@@ -12,7 +12,6 @@ import uuid
 from collections.abc import Iterator
 from typing import Any
 
-from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership
@@ -529,15 +528,14 @@ class SyncTimeEntrySerializer(serializers.ModelSerializer[TimeEntry]):
 # ---------------------------------------------------------------------------
 
 
-@extend_schema_serializer(deprecate_fields=["has_more"])
 class SyncPullResponseSerializer(serializers.Serializer):  # type: ignore[type-arg]
     """Response envelope for the paginated delta pull (#1013).
 
-    ``next_cursor``/``has_more`` are added for cursor pagination; the pre-existing
-    ``changes`` and ``timestamp`` fields are unchanged, so an older client that
-    ignores the cursor still gets a valid (first) page. The client loops while
-    ``has_more`` is true, sending the previous ``next_cursor`` back and keeping
-    ``since`` constant, then adopts ``timestamp`` as the next ``since``.
+    ``next_cursor`` is added for cursor pagination; the pre-existing ``changes``
+    and ``timestamp`` fields are unchanged, so an older client that ignores the
+    cursor still gets a valid (first) page. The client loops until
+    ``next_cursor`` is null, sending it back and keeping ``since`` constant,
+    then adopts ``timestamp`` as the next ``since``.
     """
 
     changes = serializers.DictField(
@@ -560,17 +558,6 @@ class SyncPullResponseSerializer(serializers.Serializer):  # type: ignore[type-a
         help_text=(
             "Opaque continuation token. Pass it as the `cursor` query param on the "
             "next request; `null` when the delta is exhausted."
-        ),
-    )
-    # TODO(#4990): remove `has_more` (OpenAPI marks it `deprecated`).
-    has_more = serializers.BooleanField(
-        help_text=(
-            "DEPRECATED — removed in 0.5. True while more pages remain for this "
-            "`since` session. Exactly equivalent to `next_cursor is not null`; loop "
-            "on that instead. Announced here rather than removed in 0.4 (#2842) "
-            "because a client following the published drain loop would read "
-            "`undefined`, treat it as false, and silently stop after page one — "
-            "missing data presented as a complete sync."
         ),
     )
     resync_required = serializers.BooleanField(

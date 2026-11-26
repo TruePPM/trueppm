@@ -197,13 +197,13 @@ def paginate_changes(
     collect: CollectFn,
     watermark: int,
     version_field: str = "server_version",
-) -> tuple[dict[str, Any], SyncCursor | None, bool]:
-    """Return one page of the delta: ``(changes, next_cursor, has_more)``.
+) -> tuple[dict[str, Any], SyncCursor | None]:
+    """Return one page of the delta: ``(changes, next_cursor)``.
 
     ``changes`` always contains every collection key (empty buckets for
     collections this page does not touch) so the response shape is stable across
-    pages. ``next_cursor`` is ``None`` exactly when the delta is fully drained
-    (``has_more`` is then ``False``); the client loops until then.
+    pages. ``next_cursor`` is ``None`` exactly when the delta is fully drained;
+    the client loops until then.
 
     Each source is fetched ``ORDER BY <version_field>, id`` with ``LIMIT
     page_size + 1`` (the extra row detects whether the collection still has more
@@ -255,18 +255,14 @@ def paginate_changes(
         if has_more_in_source:
             # This collection still has rows; stop with an intra-table cursor.
             last = rows[-1]
-            return (
-                changes,
-                SyncCursor(i, getattr(last, version_field), str(last.pk), watermark),
-                True,
-            )
+            return changes, SyncCursor(i, getattr(last, version_field), str(last.pk), watermark)
 
         if remaining == 0:
             # Page is exactly full and this collection is drained. Resume at the
             # top of the next collection, or finish if this was the last one.
             if i + 1 < len(sources):
-                return changes, SyncCursor(i + 1, 0, None, watermark), True
-            return changes, None, False
+                return changes, SyncCursor(i + 1, 0, None, watermark)
+            return changes, None
 
     # Every remaining collection drained within the budget — delta exhausted.
-    return changes, None, False
+    return changes, None

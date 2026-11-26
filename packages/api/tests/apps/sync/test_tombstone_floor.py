@@ -48,7 +48,6 @@ RESYNC_ENVELOPE = {
     "changes": {},
     "timestamp": 0,
     "next_cursor": None,
-    "has_more": False,
     "resync_required": True,
 }
 

@@ -202,18 +202,13 @@ def promote_retro_action_item(
         suggested_user_id = locked.assignee_id
 
         def _on_commit_dispatch() -> None:
-            # Same ``id``-omission defect as the carryover ``task_updated`` below
-            # (#2843), found by the payload-shape guard rather than by the audit:
-            # every other ``task_created`` site emits ``{"id": ...}``, and a client
-            # keying on ``payload.id`` cannot see this one at all. ``task_id`` stays
-            # for one release; drop it after 0.5.
-            # TODO(#4991): drop the alias.
+            # ``id`` is the subject key every other ``task_created`` site emits
+            # (#2843); a client keying on ``payload.id`` must see this one too.
             broadcast_board_event(
                 project_id,
                 "task_created",
                 {
                     "id": task_id,
-                    "task_id": task_id,
                     "source": "retrospective",
                     "retro_id": retro_id,
                     "action_item_id": action_item_id,
@@ -261,7 +256,7 @@ def pull_carryover_item_to_sprint(
         ``task.sprint = target_sprint``.
       - Fires a single ``task_updated`` broadcast at commit (in addition to
         the ``task_created`` broadcast from promotion, if the promote happened
-        in this call) — clients can dedupe by task_id.
+        in this call) — clients can dedupe by ``id``.
 
     Returns the Task in its post-assign state (sprint set).
     """
@@ -304,20 +299,18 @@ def pull_carryover_item_to_sprint(
         task.sprint = target_locked
         task.save(update_fields=["sprint", "server_version"])
 
-        task_id = str(task.pk)
         sprint_id = str(target_locked.pk)
 
         # Through the ADR-0152 helper so the frame carries ``changed_fields`` and the
         # post-save ``version`` (the ``save`` above bumped it). Unattributed: the
         # pull-to-sprint hook does not refresh the actor's ``['tasks']`` cache, so the
         # actor's own client must refetch rather than skip the frame as a self-echo.
-        # ``task_id`` / ``sprint_id`` / ``source`` are the keys this site already
-        # published (``task_id`` predates the ``id`` fix in #2843); ``extra`` keeps
-        # them without letting them override the standard keys.
+        # ``sprint_id`` / ``source`` are the keys this site already published;
+        # ``extra`` keeps them without letting them override the standard keys.
         defer_task_updated(
             task,
             changed_fields=["sprint"],
-            extra={"task_id": task_id, "sprint_id": sprint_id, "source": "retro_carryover"},
+            extra={"sprint_id": sprint_id, "source": "retro_carryover"},
         )
 
     return task

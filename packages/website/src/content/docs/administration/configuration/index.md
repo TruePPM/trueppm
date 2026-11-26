@@ -24,8 +24,8 @@ development, `docker-compose.yml` sets sensible defaults.
 :::note[Ships in 0.5]
 The single precedence rule, the deprecation warning, and the `TRUEPPM_`-prefixed import,
 MPXJ, seed-import and time-tracking limits described here ship in 0.5. On 0.4 those
-limits are read only under their bare names. The `JWT_SIGNING_KEY_FALLBACKS` and
-`INTEGRATION_ENCRYPTION_KEY_FALLBACKS` rotation lists named below ship in 0.5
+limits are read only under their bare names. The `TRUEPPM_JWT_SIGNING_KEY_FALLBACKS` and
+`TRUEPPM_INTEGRATION_ENCRYPTION_KEY_FALLBACKS` rotation lists ship in 0.5
 (0.4 has no key rotation lists).
 :::
 
@@ -37,7 +37,7 @@ in development) and for a short
 **grandfathered** list of TruePPM settings that shipped bare and have not been renamed
 yet: `MSPROJECT_MAX_UPLOAD_MB`, `SEED_MAX_UPLOAD_MB`, `IMPORT_MAX_RESOURCES_CREATED`,
 `RETENTION_PURGE_INFLIGHT_SECONDS`, `SIGNAL_CEILING_PROPOSAL_TTL_HOURS`,
-`CSP_CONNECT_SRC`, `JWT_SIGNING_KEY` and `INTEGRATION_ENCRYPTION_KEY`. Two 0.5 rotation lists, `JWT_SIGNING_KEY_FALLBACKS` and `INTEGRATION_ENCRYPTION_KEY_FALLBACKS`, are also read under the bare name for now (whether to prefix them is tracked in #5048). Those will gain the `TRUEPPM_` prefix with the
+`CSP_CONNECT_SRC`, `JWT_SIGNING_KEY` and `INTEGRATION_ENCRYPTION_KEY`. Those will gain the `TRUEPPM_` prefix with the
 same legacy fallback described below; until then, set them under the bare name.
 
 Settings that shipped under a bare name keep working as a **deprecated fallback**, with

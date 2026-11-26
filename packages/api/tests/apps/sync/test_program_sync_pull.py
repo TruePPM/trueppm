@@ -63,11 +63,11 @@ def test_requires_auth() -> None:
 @pytest.mark.django_db
 def test_response_shape(authed_client: APIClient) -> None:
     body = authed_client.get(URL).json()
-    assert set(body) == {"changes", "timestamp", "next_cursor", "has_more", "resync_required"}
+    assert set(body) == {"changes", "timestamp", "next_cursor", "resync_required"}
     assert set(body["changes"]) == {"programs", "program_memberships"}
     for bucket in body["changes"].values():
         assert set(bucket) == {"created", "updated", "deleted"}
-    assert body["has_more"] is False
+    assert body["next_cursor"] is None
     assert body["next_cursor"] is None
 
 
@@ -298,7 +298,7 @@ def test_user_with_no_programs(db: object) -> None:
     assert body["changes"]["programs"]["updated"] == []
     assert body["changes"]["program_memberships"]["updated"] == []
     assert body["timestamp"] == 0
-    assert body["has_more"] is False
+    assert body["next_cursor"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +326,7 @@ def test_pagination_paths_all_rows(user: object) -> None:
         body = c.get(q).json()
         seen_programs |= {r["id"] for r in body["changes"]["programs"]["updated"]}
         seen_memberships |= {r["id"] for r in body["changes"]["program_memberships"]["updated"]}
-        if not body["has_more"]:
+        if body["next_cursor"] is None:
             break
         cursor = body["next_cursor"]
         assert cursor is not None
@@ -366,7 +366,7 @@ def test_timestamp_is_pinned_for_the_whole_paging_session(user: object) -> None:
         # Bump the sequence between pages; a per-request watermark would climb.
         progs[0].description = f"churn {guard}"
         progs[0].save()
-        if not body["has_more"]:
+        if body["next_cursor"] is None:
             break
         cursor = body["next_cursor"]
 
@@ -392,7 +392,7 @@ def test_continuation_page_issues_no_watermark_aggregates(user: object) -> None:
     c.force_authenticate(user=user)
 
     first = c.get(f"{URL}?page_size=2").json()
-    assert first["has_more"] is True, "fixture assumption: the delta spans multiple pages"
+    assert first["next_cursor"] is not None, "fixture assumption: the delta spans multiple pages"
 
     with CaptureQueriesContext(connection) as ctx:
         c.get(f"{URL}?page_size=2&cursor={first['next_cursor']}")

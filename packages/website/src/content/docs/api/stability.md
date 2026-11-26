@@ -449,21 +449,45 @@ for removal at 1.0. Recipes and a verification sample are in
 
 ### Deprecated aliases kept for a release (#4090)
 
-These four were deprecated in code comments or field descriptions only (#4090). They are
+These were deprecated in code comments or field descriptions only (#4090). They are
 registered here so the list is complete, each with the issue that schedules its removal.
-`has_more` and `subtask_name` are also marked `deprecated: true` in the OpenAPI schema.
-None has a `Deprecation` header yet.
+`subtask_name` is also marked `deprecated: true` in the OpenAPI schema.
+None has a `Deprecation` header yet. Two more entries from the same registration, the sync
+`has_more` flag and the retrospective `task_id` alias, are removed under the headings
+below.
 
 | Element | Replacement | Removal |
 |---------|-------------|---------|
 | `subtask_name` on sprint scope-change rows (ADR-0101) | `item_name`, which carries the same value | no date set; announced as "one release"; tracked in #4992 |
-| `has_more` on the sync delta response (#2842) | `next_cursor is not null` | 0.5; tracked in #4990 |
 | `?token=<access_token>` on the WebSocket handshake | the `?ticket=` flow in [WebSocket API](/api/websockets/#authentication) | off by default; removed in the next release; tracked in #4989 |
-| `task_id` on the `task_created` and `task_updated` WebSocket payloads sent by retrospective promotion and carryover | `id`, which every other `task_created` and `task_updated` payload carries | dropped after 0.5; tracked in #4991 |
 
-Also deprecated, outside those four: `detail` and `cycle` on the `cyclic_dependency` 400
+Also deprecated, outside that table: `detail` and `cycle` on the `cyclic_dependency` 400
 (#3800) are replaced by `code` and `offending`. No removal date is set; it was announced
 as "one minor".
+
+### Sync delta `has_more` removed (#4990)
+
+The sync pull responses (`GET /api/v1/projects/{id}/sync/` and
+`GET /api/v1/sync/user/programs/`) will no longer carry `has_more` from 0.5. This is a
+**Breaking** removal, taken pre-GA at the end of the announced window: the field was
+exactly `next_cursor is not null`. A client that still branches on `has_more` will read
+`undefined` and stop after the first page, so update the drain loop before you upgrade.
+
+| | |
+|---|---|
+| Announced | 0.4 (marked deprecated in the field description, #2842); 0.5 will remove it |
+| Migration | loop until `next_cursor` is null, then adopt `timestamp` as the next `since` |
+
+### Retrospective `task_id` WebSocket alias removed (#4991)
+
+The `task_created` frame sent by retrospective promotion and the `task_updated` frame sent
+by retrospective carryover will no longer carry `task_id` from 0.5. `id` holds the same
+value and is the key every other task event uses; 0.4 already sends both.
+
+| | |
+|---|---|
+| Announced | 0.4 sends the alias beside `id`; 0.5 will remove it |
+| Migration | read `id` |
 
 ### Simulation count published as `n_simulations` (#4663)
 

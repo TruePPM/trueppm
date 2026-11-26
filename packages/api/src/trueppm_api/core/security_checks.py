@@ -848,10 +848,10 @@ def validate_secret_key_fallbacks(
 def validate_signing_key_fallbacks(
     fallbacks: Sequence[str] | None, *, debug: bool
 ) -> list[CheckMessage]:
-    """Validate ``JWT_SIGNING_KEY_FALLBACKS`` with the ``JWT_SIGNING_KEY`` rules."""
+    """Validate ``TRUEPPM_JWT_SIGNING_KEY_FALLBACKS`` with the ``JWT_SIGNING_KEY`` rules."""
     return _validate_fallback_entries(
         "JWT_SIGNING_KEY",
-        "JWT_SIGNING_KEY_FALLBACKS",
+        "TRUEPPM_JWT_SIGNING_KEY_FALLBACKS",
         fallbacks,
         lambda k: validate_signing_key(k, None, debug=False),
         debug=debug,
@@ -861,10 +861,10 @@ def validate_signing_key_fallbacks(
 def validate_integration_encryption_key_fallbacks(
     fallbacks: Sequence[str] | None, *, debug: bool
 ) -> list[CheckMessage]:
-    """Validate ``INTEGRATION_ENCRYPTION_KEY_FALLBACKS`` as Fernet keys."""
+    """Validate ``TRUEPPM_INTEGRATION_ENCRYPTION_KEY_FALLBACKS`` as Fernet keys."""
     return _validate_fallback_entries(
         "INTEGRATION_ENCRYPTION_KEY",
-        "INTEGRATION_ENCRYPTION_KEY_FALLBACKS",
+        "TRUEPPM_INTEGRATION_ENCRYPTION_KEY_FALLBACKS",
         fallbacks,
         lambda k: validate_integration_encryption_key(k, debug=False),
         debug=debug,

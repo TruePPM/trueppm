@@ -51,10 +51,7 @@ _GRANDFATHERED_ENVELOPES: dict[str, str] = {
     ),
     # The offline-sync delta. `changes` is a per-collection bucket MAP, not a list,
     # so calling it `results` would be actively misleading against the two DRF
-    # envelopes where `results` is always an array. `has_more` is redundant with
-    # `next_cursor is None` and is deprecated for removal in 0.5 — it is documented
-    # in the client drain loop, so dropping it now would silently truncate a client
-    # that follows our own published example.
+    # envelopes where `results` is always an array.
     "/api/v1/projects/{id}/sync/": "offline-sync delta (bucket map, not a list)",
     "/api/v1/sync/user/programs/": "offline-sync delta (bucket map, not a list)",
     # My Work (#3650) hand-adds five aggregate/badge fields alongside the page

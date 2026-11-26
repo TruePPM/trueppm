@@ -451,7 +451,7 @@ These exist for specific operational situations and are not part of routine use:
 - **`reencrypt_integration_secrets`** — rewrites every secret encrypted with
   `INTEGRATION_ENCRYPTION_KEY` (SSO client secret, Jira credentials, webhook and
   board-automation secrets, the SMTP password) under the current primary key, so an
-  old key in `INTEGRATION_ENCRYPTION_KEY_FALLBACKS` can be retired. Run it after
+  old key in `TRUEPPM_INTEGRATION_ENCRYPTION_KEY_FALLBACKS` can be retired. Run it after
   the phase-2 rollout has finished (see the rotation runbook); see
   [Rotating secrets without downtime](/administration/security/#rotating-secrets-without-downtime).
   Pass `--dry-run` to count without writing and `--batch-size N` (default 500) to

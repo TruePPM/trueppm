@@ -146,10 +146,15 @@ def test_exempt_and_safe_operations_do_not_declare_idempotency_key() -> None:
 
 
 def test_deprecated_aliases_are_marked_deprecated() -> None:
-    pull = _SCHEMA["components"]["schemas"]["SyncPullResponse"]["properties"]["has_more"]
-    assert pull.get("deprecated") is True
     task = _SCHEMA["components"]["schemas"]["Task"]["properties"]["sprint_scope_changes"]
     assert task["items"]["properties"]["subtask_name"]["deprecated"] is True
+
+
+def test_sync_pull_response_has_no_has_more() -> None:
+    """#4990: `next_cursor` is the only pagination signal on the sync pull."""
+    props = _SCHEMA["components"]["schemas"]["SyncPullResponse"]["properties"]
+    assert "has_more" not in props
+    assert "next_cursor" in props
 
 
 def test_derivation_vocabulary_is_published_as_enums() -> None:

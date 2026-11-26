@@ -1,7 +1,7 @@
 """Re-encrypt every stored third-party secret under the primary Fernet key (#3406).
 
 Run after promoting a new ``INTEGRATION_ENCRYPTION_KEY`` and moving the old one
-into ``INTEGRATION_ENCRYPTION_KEY_FALLBACKS``. When the command reports zero
+into ``TRUEPPM_INTEGRATION_ENCRYPTION_KEY_FALLBACKS``. When the command reports zero
 rows left to rewrite, the fallback can be dropped. Idempotent: a row that already
 decrypts under the primary alone is left untouched.
 """
@@ -35,7 +35,7 @@ ENCRYPTED_FIELDS: tuple[tuple[str, str, str], ...] = (
 class Command(BaseCommand):
     help = (
         "Re-encrypt all stored integration/SSO/webhook/SMTP secrets under the primary "
-        "INTEGRATION_ENCRYPTION_KEY so an old key in INTEGRATION_ENCRYPTION_KEY_FALLBACKS "
+        "INTEGRATION_ENCRYPTION_KEY so an old key in TRUEPPM_INTEGRATION_ENCRYPTION_KEY_FALLBACKS "
         "can be dropped. Idempotent; use --dry-run to count without writing."
     )
 
@@ -87,5 +87,5 @@ class Command(BaseCommand):
             raise CommandError(
                 f"{failed_total} value(s) could not be decrypted by the primary key or any "
                 "fallback. Add the key they were written under to "
-                "INTEGRATION_ENCRYPTION_KEY_FALLBACKS and re-run; do not drop any key yet."
+                "TRUEPPM_INTEGRATION_ENCRYPTION_KEY_FALLBACKS and re-run; do not drop any key yet."
             )
