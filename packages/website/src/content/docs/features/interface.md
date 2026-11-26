@@ -402,8 +402,11 @@ Other changes you will notice with the flag on:
     program at a time**. It opens on the program the server chose, and the
     **Program** switcher lists the programs you can see and changes only the
     view. If the server chose no program it opens on a "Choose a program"
-    message. There is no view across programs. Sharing a status link from this
-    home is planned for a later release.
+    message. There is no view across programs. **Share status** lists, for each project
+    in the selected program, the public links that are live (name, what it
+    shows, when it expires and how often it was opened), each with a **Revoke**
+    that asks again before it acts. Only project admins can read a project's
+    links; for anyone else the row says so.
   - **Resource manager home**: **Team load**, the same load heat map as the
     People destination, over the projects where you hold the Scheduler role or
     above and whose team has shared its capacity signal with your role band,
@@ -411,7 +414,9 @@ Other changes you will notice with the flag on:
     under **Settings > Preferences > Home screen**
     (**Open on the Resource Manager home**); turning it off returns you to the
     home that fits your role. Saving a **Default landing screen** also turns it
-    off. With the flag off, `/home` sends you to your usual landing page.
+    off. **Make this my home** on the People page sets the same choice in one
+    step, and then reads "Capacity is your home screen." With the flag off,
+    `/home` sends you to your usual landing page.
 - **People is the capacity view.** The rail's **People** item opens `/people` on
   a load-by-person-by-week heat map, with the resource catalog as its
   **Directory** tab. See

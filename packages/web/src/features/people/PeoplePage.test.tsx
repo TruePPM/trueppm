@@ -6,6 +6,19 @@ import { SHELL_V2_FLAG } from '@/features/shell2/shellFlag';
 import { PeoplePage } from './PeoplePage';
 
 const load = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
+const home = vi.hoisted(() => ({
+  landing: { home: 'pm' } as { home: string },
+  mutate: vi.fn(),
+  isError: false,
+  online: true,
+}));
+vi.mock('@/hooks/useCurrentUser', () => ({
+  useCurrentUser: () => ({ user: { landing: home.landing } }),
+}));
+vi.mock('@/hooks/useHomeOverride', () => ({
+  useUpdateHomeOverride: () => ({ mutate: home.mutate, isPending: false, isError: home.isError }),
+}));
+vi.mock('@/hooks/useOnlineStatus', () => ({ useOnlineStatus: () => home.online }));
 vi.mock('@/hooks/usePeopleLoad', () => ({ usePeopleLoad: () => load.current }));
 vi.mock('@/features/resources/ResourcesPage', () => ({
   ResourcesPage: () => <div>directory-surface</div>,
@@ -41,6 +54,10 @@ const data = {
 describe('PeoplePage', () => {
   beforeEach(() => {
     localStorage.clear();
+    home.landing = { home: 'pm' };
+    home.isError = false;
+    home.online = true;
+    home.mutate.mockClear();
     setFeatureFlag(SHELL_V2_FLAG, true);
     load.current = { data, isLoading: false, isError: false, refetch: vi.fn() };
   });
@@ -69,5 +86,26 @@ describe('PeoplePage', () => {
     setFeatureFlag(SHELL_V2_FLAG, false);
     renderWithRouter(<PeoplePage />, { initialEntries: ['/people'] });
     expect(screen.queryByRole('tablist')).toBeNull();
+  });
+
+  it('"Make this my home" sets the same field as the Preferences toggle (home_override = rm)', () => {
+    renderWithRouter(<PeoplePage />, { initialEntries: ['/people'] });
+    fireEvent.click(screen.getByRole('button', { name: 'Make this my home' }));
+    expect(home.mutate).toHaveBeenCalledWith('rm');
+  });
+
+  it('reads as a status once capacity is already the home', () => {
+    home.landing = { home: 'rm' };
+    renderWithRouter(<PeoplePage />, { initialEntries: ['/people'] });
+    expect(screen.queryByRole('button', { name: 'Make this my home' })).toBeNull();
+    expect(screen.getByText('Capacity is your home screen.')).toBeInTheDocument();
+  });
+
+  it('says so when the save fails, and is disabled offline', () => {
+    home.isError = true;
+    home.online = false;
+    renderWithRouter(<PeoplePage />, { initialEntries: ['/people'] });
+    expect(screen.getByRole('alert')).toHaveTextContent('Couldn’t save your home screen');
+    expect(screen.getByRole('button', { name: 'Make this my home' })).toBeDisabled();
   });
 });

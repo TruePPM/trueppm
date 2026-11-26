@@ -1,6 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { setFeatureFlag } from '@/lib/featureFlags';
 import { WorkspaceDangerPage } from './WorkspaceDangerPage';
 
 const startExportMutate = vi.fn();
@@ -122,5 +123,24 @@ describe('WorkspaceDangerPage (#641 wired)', () => {
     expect(deleteBtn).toBeEnabled();
     fireEvent.click(deleteBtn);
     expect(deleteMutate).toHaveBeenCalledWith('Acme', expect.any(Object));
+  });
+
+  it('shell v2: the typed confirmation names what the delete takes with it', () => {
+    setFeatureFlag('shell_v2', true);
+    try {
+      renderPage();
+      const input = screen.getByLabelText(/to delete this workspace/);
+      expect(
+        screen.getByText(/Every program, project, task, baseline, group, and member/),
+      ).toBeInTheDocument();
+      const del = screen.getByRole('button', { name: 'Delete workspace permanently' });
+      expect(del).toBeDisabled();
+      fireEvent.change(input, { target: { value: 'Acme' } });
+      expect(del).toBeEnabled();
+      fireEvent.click(del);
+      expect(deleteMutate).toHaveBeenCalledWith('Acme', expect.anything());
+    } finally {
+      setFeatureFlag('shell_v2', false);
+    }
   });
 });

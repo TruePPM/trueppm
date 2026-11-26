@@ -233,8 +233,8 @@ one described in the rest of this page.
 
 With the new shell on, the Board page is rebuilt so the work is on screen first:
 
-- **Five toolbar controls**: **Filter**, **Lanes (Phase)**, **Backlog pane**, the
-  **⋯** overflow, and **Add card**. Card fields, WIP limits and **Collapse Done**
+- **Six toolbar controls** and a search box: the **sprint** switcher, **Filter**,
+  **Lanes (Phase)**, **Backlog pane**, the **⋯** overflow, and **Add card**. Card fields, WIP limits and **Collapse Done**
   live in the overflow, which is reachable by keyboard; its label lists what it holds.
 - **Phases are lanes.** Each phase is a full-width group with its dates, its card
   count and "▲ N critical". Collapsing a lane leaves one summary line.
@@ -242,6 +242,12 @@ With the new shell on, the Board page is rebuilt so the work is on screen first:
   per first assignee, ordered by name, with unowned cards in an **Unassigned** lane;
   **Lanes (Person)** then names the toolbar toggle) and **Export PDF**, which produces
   the same PDF as the board above from the lanes and filters you are looking at.
+- **Sprint scoping, search and WIP confirmation are the board above's.** The sprint
+  switcher scopes the columns to one sprint (a shareable `?sprint=` link, and a
+  closed sprint is read-only); a card pulled in under a planned or active sprint
+  joins it. The search box finds cards by title and description, mirrors to `?q=`,
+  dims non-matches in place, and <kbd>/</kbd> focuses it. A move into a column that
+  is already at its WIP limit asks first, with **Keep it here** as the default.
 - **Moving a card by touch on a phone.** Every card on the phone layout has a
   **Move to…** button, 44 pixels tall, that lists the other columns. Choosing one
   makes the same write as a drag. A move made while offline is queued and syncs when
@@ -260,7 +266,8 @@ With the new shell on, the Board page is rebuilt so the work is on screen first:
   pane counts as the first target when it is open), and Space again to drop it.
   Escape cancels. Click a card, or press Enter on it, to open its task detail.
 - **Backlog pane**: open by default, with a quiet empty state offering **Add to
-  backlog** and an import link, and it is the drop target that unplans a card. The
+  backlog** and, for Schedulers and above, **Import tasks**, which opens the
+  schedule's spreadsheet import. It is the drop target that unplans a card. The
   toggle collapses it to give the columns another 248 pixels. (An earlier proposal
   was to collapse it while empty; the design keeps it open so the drop target is
   always there.)
@@ -272,14 +279,11 @@ With the new shell on, the Board page is rebuilt so the work is on screen first:
 
 ### Not in the redesigned board yet
 
-The redesigned board does not carry everything the board above does. These are
-missing from it for now, and the board above still has them:
+The redesigned board leaves out some of what the board above has. These were
+removed on purpose, with no replacement, and the board above still has them:
 
-- **Sprint scoping**, **saved views**, **search**, **grouping** and **density**.
+- **Saved views**, **grouping** and **density**.
 - The **standup** and **activity** panels.
-- **WIP-limit confirmation** dialogs when a move would pass a column's limit.
-- **Import tasks** in the empty Backlog pane (still undecided: where import lives) currently links to project settings, not
-  to an import flow of its own.
 
 ## Toolbar
 
