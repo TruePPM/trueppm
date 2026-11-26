@@ -24,4 +24,32 @@ describe('ScopeMatrix', () => {
     await userEvent.click(screen.getByRole('checkbox', { name: 'Schedule: Propose' }));
     expect(onChange).toHaveBeenCalledWith('schedule', 'propose', true);
   });
+
+  it('disables an unavailable column with its reason and never says Never or Yes there', async () => {
+    const onChange = vi.fn();
+    const areas: ScopeArea[] = [
+      { ...AREAS[0], covers: 'Tasks and dates' },
+      { id: 'budget', label: 'Budget', access: { read: true, propose: true, write: true } },
+    ];
+    const columns = { propose: { label: 'Dry run' }, write: { disabledReason: 'Ships in 0.6' } };
+    const { rerender } = render(
+      <ScopeMatrix label="Agent scope" areas={areas} columns={columns} onChange={onChange} />,
+    );
+    expect(screen.getByRole('columnheader', { name: /Write.*Ships in 0\.6/ })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Budget: Dry run' })).toBeEnabled();
+    for (const area of ['Schedule', 'Budget']) {
+      const box = screen.getByRole('checkbox', { name: `${area}: Write` });
+      expect(box).toBeDisabled();
+      expect(box).not.toBeChecked();
+      expect(box).toHaveAccessibleDescription(/Ships in 0\.6/);
+    }
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Budget: Write' }));
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByRole('row', { name: /Schedule/ })).toHaveTextContent('Tasks and dates');
+    expect(screen.queryByText('Never')).toBeNull();
+
+    rerender(<ScopeMatrix label="Agent scope" areas={areas} columns={columns} />);
+    expect(screen.queryByText('Never')).toBeNull();
+    expect(screen.getByRole('row', { name: /Budget/ })).toHaveTextContent('Yes✓ Yes– No');
+  });
 });

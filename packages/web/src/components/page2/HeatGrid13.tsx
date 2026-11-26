@@ -1,7 +1,9 @@
 import { FOCUS_RING } from '@/components/page2/classes';
+import { HEAT_SEAT_MARK, HEAT_START_MARK } from '@/components/page2/heatGridMarks';
 import { heatFill, heatInk } from '@/features/charts/heat';
 import { HeatLegendLine } from '@/features/people/LoadHeatMap';
 import { isOverBand, loadBand, loadBandCell } from '@/features/people/loadBand';
+import { formatRelative } from '@/lib/formatRelative';
 import { fmtUtcShort } from '@/lib/formatUtcDate';
 
 export interface HeatGrid13Row {
@@ -21,8 +23,13 @@ export interface HeatGrid13Props {
   modeledSeat?: HeatGrid13Row;
   /** The week the modeled change starts; its column gets a dashed marker. */
   startWeek?: string;
+  /** The server's definition of the figure (`definitions.load_pct`). */
+  definition?: string;
+  /** The server's `as_of` instant (ISO). */
+  asOf?: string;
 }
 
+// The header cell has no fill under it, so a plain border is enough there.
 const START = 'border-l-2 border-dashed border-p1-text-1';
 
 /**
@@ -31,19 +38,28 @@ const START = 'border-l-2 border-dashed border-p1-text-1';
  * two colors. It is a read-only table: no cell is interactive, and the scroll
  * region is the one tab stop (rule 360). Nothing here derives a figure.
  */
-export function HeatGrid13({ label, weeks, rows, modeledSeat, startWeek }: HeatGrid13Props) {
+export function HeatGrid13({
+  label,
+  weeks,
+  rows,
+  modeledSeat,
+  startWeek,
+  definition,
+  asOf,
+}: HeatGrid13Props) {
+  if (rows.length === 0 && !modeledSeat) {
+    return <p className="text-sm text-p1-text-2">No one to show in these weeks.</p>;
+  }
+
   const renderRow = (row: HeatGrid13Row, modeled: boolean) => (
-    <tr
-      key={row.id}
-      data-modeled={modeled || undefined}
-      className={modeled ? 'outline outline-2 -outline-offset-2 outline-p1-text-2' : undefined}
-    >
+    <tr key={row.id} data-modeled={modeled || undefined}>
       <th
         scope="row"
         className="sticky left-0 h-11 whitespace-nowrap bg-p1-surface-1 px-2 text-left text-sm font-normal text-p1-text-1"
       >
         {row.name}
         {modeled && <span className="ml-1 text-xs text-p1-text-2">(modeled seat)</span>}
+        {modeled && <span aria-hidden="true" data-mark="seat" className={HEAT_SEAT_MARK} />}
       </th>
       {weeks.map((week, i) => {
         const pct = row.loads[i] ?? null;
@@ -54,9 +70,7 @@ export function HeatGrid13({ label, weeks, rows, modeledSeat, startWeek }: HeatG
             key={week}
             data-band={band}
             data-start={week === startWeek || undefined}
-            className={`chart-heat h-11 min-w-[3rem] text-center text-xs font-medium tabular-nums ${
-              week === startWeek ? START : ''
-            }`}
+            className="chart-heat relative h-11 min-w-[3rem] px-1.5 text-center text-xs font-medium tabular-nums"
             style={{ background: heatFill(heat), color: heatInk(heat) }}
           >
             {isOverBand(band) && <span aria-hidden="true">▲&nbsp;</span>}
@@ -69,6 +83,10 @@ export function HeatGrid13({ label, weeks, rows, modeledSeat, startWeek }: HeatG
               `${pct}%`
             )}
             {isOverBand(band) && <span className="sr-only"> over-allocated</span>}
+            {modeled && <span aria-hidden="true" data-mark="seat" className={HEAT_SEAT_MARK} />}
+            {week === startWeek && (
+              <span aria-hidden="true" data-mark="start" className={HEAT_START_MARK} />
+            )}
           </td>
         );
       })}
@@ -82,7 +100,9 @@ export function HeatGrid13({ label, weeks, rows, modeledSeat, startWeek }: HeatG
         aria-label={`${label}, scrollable`}
         // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- rule 360
         tabIndex={0}
-        className={`overflow-x-auto rounded ${FOCUS_RING}`}
+        // `relative` keeps the cells' sr-only spans inside this scroller; without
+        // it they escape and widen the page.
+        className={`relative overflow-x-auto rounded ${FOCUS_RING}`}
       >
         <table aria-label={label} className="border-separate border-spacing-px">
           <thead>
@@ -111,6 +131,16 @@ export function HeatGrid13({ label, weeks, rows, modeledSeat, startWeek }: HeatG
         </table>
       </div>
       <HeatLegendLine />
+      {(definition || asOf) && (
+        <p className="text-xs text-p1-text-2">
+          {definition}
+          {asOf && (
+            <span className="text-p1-text-3">
+              {definition ? ' · ' : ''}as of {formatRelative(new Date(asOf))}
+            </span>
+          )}
+        </p>
+      )}
     </div>
   );
 }

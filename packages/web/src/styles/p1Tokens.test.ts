@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { HEAT_SEAT_MARK, HEAT_START_MARK } from '@/components/page2/heatGridMarks';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -227,9 +228,14 @@ describe.each([
   });
 
   // Pass 3 primitives (#4802): the marks that carry meaning without text.
-  it('the heat grid seat outline and start marker clear 3:1 on the sheet', () => {
-    for (const mark of ['text-1', 'text-2']) {
-      expect(contrast(tokens[mark], tokens['surface-1'])).toBeGreaterThanOrEqual(AA_NON_TEXT);
+  it('the heat grid seat outline and start marker clear 3:1 against their own backing', () => {
+    // Both are drawn over heat fills, so each must bring the ground it is read
+    // against with it; the pairing comes from the classes the grid renders.
+    for (const mark of [HEAT_SEAT_MARK, HEAT_START_MARK]) {
+      const ink = /\bborder-p1-(text-\d)\b/.exec(mark)?.[1] ?? '';
+      const ground = /(?:bg|outline)-p1-(surface-\d)/.exec(mark)?.[1] ?? '';
+      expect(ink && ground).toBeTruthy();
+      expect(contrast(tokens[ink], tokens[ground])).toBeGreaterThanOrEqual(AA_NON_TEXT);
     }
   });
 

@@ -29,4 +29,10 @@ describe('TrailTimeline', () => {
     expect(screen.getByText('12 Mar 2026')).toHaveAttribute('datetime', '2026-03-12');
     expect(screen.queryByRole('button')).toBeNull();
   });
+
+  it('says so instead of drawing an empty list', () => {
+    render(<TrailTimeline label="Change trail" entries={[]} />);
+    expect(screen.getByText('No changes recorded yet.')).toBeInTheDocument();
+    expect(screen.queryByRole('list')).toBeNull();
+  });
 });

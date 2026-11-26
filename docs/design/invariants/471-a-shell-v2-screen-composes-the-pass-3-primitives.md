@@ -9,10 +9,10 @@
 | Agent, service, job or modeled resource | `NonHumanTile` | Square tile, tool icon (bot, cpu, cog, hard-hat), `role="img"` and a label. Never initials in a circle, never a face |
 | Percent up / down | `Stepper` | 44px buttons; at a bound the button is `aria-disabled`, never `disabled`, so the press that reaches the bound does not drop focus |
 | Capacity share | `SplitBar` | The text line names every share; the bar is `aria-hidden` |
-| Person x 13 weeks | `HeatGrid13` | Banding, ink and legend are the People heat map's (rule 464); a modeled seat is outlined and says so in words; the start week is dashed and says "Starts" |
-| History of changes | `TrailTimeline` | Immutable: no action or edit slot |
+| Person x 13 weeks | `HeatGrid13` | Banding, ink and legend are the People heat map's (rule 464); a modeled seat is outlined and says so in words; the start week is dashed and says "Starts"; both marks carry a sheet-colored backing so they read on every band; it has an empty line and takes the server's definition and "as of" |
+| History of changes | `TrailTimeline` | Immutable: no action or edit slot. No entries renders a line, not an empty list |
 | Why-reason choice | `ReasonRadioGroup` | Native radios, nothing preselected by the component |
-| Area x read / propose / write | `ScopeMatrix` | A grant that is never offered reads "Never", not as an unticked box |
+| Area x read / propose / write | `ScopeMatrix` | A grant that is never offered reads "Never", not as an unticked box. A grant that is not offered *yet* is a column with a `disabledReason`: disabled, unchecked, reason in the header |
 | Modal | `ModalDialog` | Trap and restore, Escape, scrim; `busy` blocks all three dismissals. Rule 217 (dirty guard) stays with the caller |
 | RAG call, engine facts, page-level message | `RagRadio`, `SnapshotPanel`, `Banner` | `Banner` goes in `PageFrame`'s `toolbarOverride`, at the toolbar row's height |
 

@@ -17,8 +17,13 @@ const WEEKS = Array.from({ length: 13 }, (_, i) =>
 const LOADS = [30, 55, 70, 95, 110, 130, null, 80, 60, 45, 20, 100, 90];
 
 const AREAS: ScopeArea[] = [
-  { id: 'schedule', label: 'Schedule', access: { read: true, propose: true, write: false } },
-  { id: 'budget', label: 'Budget', access: { read: true, propose: false, write: null } },
+  {
+    id: 'schedule',
+    label: 'Schedule',
+    covers: 'Tasks, dependencies and dates',
+    access: { read: true, propose: true, write: false },
+  },
+  { id: 'budget', label: 'Budget', access: { read: true, propose: null, write: false } },
 ];
 
 /** The Pass 3 half of the page-kit fixture (#4802): static data, no requests. */
@@ -47,6 +52,8 @@ export function KitPass3() {
           label="Team load, next 13 weeks"
           weeks={WEEKS}
           startWeek={WEEKS[3]}
+          definition="Booked hours as a share of working time."
+          asOf="2026-11-02T00:00:00Z"
           rows={[{ id: 'ana', name: 'Ana Lee', loads: LOADS }]}
           modeledSeat={{ id: 'seat', name: 'Backend engineer', loads: LOADS }}
         />
@@ -86,6 +93,7 @@ export function KitPass3() {
         <ScopeMatrix
           label="Agent scope"
           areas={areas}
+          columns={{ propose: { label: 'Dry run' }, write: { disabledReason: 'Ships in 0.6' } }}
           onChange={(id, access, granted) =>
             setAreas((prev) =>
               prev.map((a) =>

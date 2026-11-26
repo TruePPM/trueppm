@@ -27,6 +27,10 @@ export interface TrailTimelineProps {
  * given. Entries are immutable: there is deliberately no action or edit slot.
  */
 export function TrailTimeline({ label, entries }: TrailTimelineProps) {
+  if (entries.length === 0) {
+    return <p className="text-sm text-p1-text-2">No changes recorded yet.</p>;
+  }
+
   return (
     <ol aria-label={label} className="m-0 flex list-none flex-col p-0">
       {entries.map((e) => (
