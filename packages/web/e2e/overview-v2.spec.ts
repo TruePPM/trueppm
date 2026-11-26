@@ -181,4 +181,28 @@ test.describe('shell v2 project overview', () => {
     await expect(page.getByTestId('overview2-moved')).toContainText('moved from');
     await expectNoA11yViolationsBothThemes(page, testInfo);
   });
+  test.describe('phone layout (#5104)', () => {
+    test.use({ viewport: { width: 390, height: 844 } });
+
+    test('lead card, tiles and cost line fit one column with 44px targets; axe clean in both themes', async ({
+      page,
+    }, testInfo) => {
+      await open(page, 'stale');
+      await expect(page.getByTestId('overview2-lead')).toHaveAttribute('data-layout', 'phone');
+      const svg = page.getByTestId('overview2-lead').locator('svg[viewBox]');
+      await expect(svg).toBeVisible();
+      // The S-curve is drawn at the phone size, not the 640-wide desktop viewBox scaled down.
+      await expect(svg).toHaveAttribute('viewBox', /^0 0 340 220$/);
+      // TODO(#5148): screenshot baselines (CI image, both themes) go here.
+      await expect(page.getByTestId('overview2-tile')).toHaveCount(3);
+      await expect(page.getByTestId('not-computable')).toContainText('Cost variance');
+      const why = await page.getByRole('link', { name: /Why this date\?/ }).boundingBox();
+      expect(why?.height ?? 0).toBeGreaterThanOrEqual(44);
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      expect(overflow).toBeLessThanOrEqual(0);
+      await expectNoA11yViolationsBothThemes(page, testInfo);
+    });
+  });
 });

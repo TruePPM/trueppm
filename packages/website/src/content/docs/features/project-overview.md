@@ -16,6 +16,8 @@ This page is for project managers who want to read a project's state in one glan
 - **Supporting tiles.** Critical tasks, Complete and Open risks, each with a label. Where the server supplies a definition (the lead figure, the P50 and commitment, and Open risks), the label is dotted-underlined: hover, focus or tap it to read what the figure measures. The other labels are plain text.
 - **Detail last.** The next milestone sits below the tiles.
 
+On a phone the lead card is laid out for one column: the P50, commitment and CPM dates sit in one row under the figure, the S-curve is drawn at the card's own width so its labels stay readable, and **Why this date?** is a full-width 44px link. The three supporting tiles sit in a two-column grid, with the third tile on its own row.
+
 Every figure and every definition on this page comes from the server. The page formats them and never recomputes them, so it cannot disagree with the schedule or the forecast panel.
 
 ## When something cannot be computed

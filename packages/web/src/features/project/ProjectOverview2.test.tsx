@@ -21,6 +21,9 @@ const h = vi.hoisted(() => ({
   },
   overview: undefined as unknown,
   history: undefined as unknown,
+  tasks: [{ id: 't9', name: 'Pour foundation' }] as { id: string; name: string }[],
+  taskOpts: [] as unknown[],
+  bp: 'lg' as 'sm' | 'md' | 'lg',
 }));
 
 vi.mock('@/hooks/useMonteCarloResult', () => ({
@@ -30,8 +33,12 @@ vi.mock('@/hooks/useMonteCarloHistory', () => ({
   useMonteCarloHistory: () => ({ data: h.history }),
 }));
 vi.mock('@/hooks/useScheduleTasks', () => ({
-  useScheduleTasks: () => ({ tasks: [{ id: 't9', name: 'Pour foundation' }] }),
+  useScheduleTasks: (_id: string, opts: unknown) => {
+    h.taskOpts.push(opts);
+    return { tasks: h.tasks };
+  },
 }));
+vi.mock('@/hooks/useBreakpoint', () => ({ useBreakpoint: () => h.bp }));
 vi.mock('@/api/client', () => ({
   apiClient: { get: () => Promise.resolve({ data: h.overview }) },
 }));
@@ -87,6 +94,9 @@ describe('ProjectOverview2', () => {
     h.mc = { data: MC, isLoading: false, error: null };
     h.overview = OVERVIEW;
     h.history = undefined;
+    h.tasks = [{ id: 't9', name: 'Pour foundation' }];
+    h.taskOpts = [];
+    h.bp = 'lg';
   });
 
   it('renders one lead figure with the server definition and a spoken label', async () => {
@@ -216,5 +226,80 @@ describe('#5104 / #5103 additions', () => {
     const rows = liveSnapshotRows(undefined);
     expect(rows.map((r) => r.value)).toEqual([null, null, null]);
     expect(rows[0].notComputable).toBe('no forecast has run');
+  });
+});
+
+describe('#5104 driver lookup and phone layout', () => {
+  beforeEach(() => {
+    h.mc = { data: MC, isLoading: false, error: null };
+    h.overview = OVERVIEW;
+    h.history = undefined;
+    h.tasks = [{ id: 't9', name: 'Pour foundation' }];
+    h.taskOpts = [];
+    h.bp = 'lg';
+  });
+
+  it('does not enable the task lookup when there is no sensitivity driver', async () => {
+    renderPage();
+    await screen.findByTestId('overview2-lead');
+    expect(h.taskOpts.length).toBeGreaterThan(0);
+    expect(h.taskOpts.every((o) => (o as { enabled: boolean }).enabled === false)).toBe(true);
+    expect(screen.queryByTestId('overview2-driver')).not.toBeInTheDocument();
+  });
+
+  it('enables the task lookup only once a top driver exists', async () => {
+    h.mc = {
+      data: { ...MC, sensitivity: [{ taskId: 't9', index: 0.8 }] },
+      isLoading: false,
+      error: null,
+    };
+    renderPage();
+    await screen.findByTestId('overview2-lead');
+    expect(h.taskOpts.every((o) => (o as { enabled: boolean }).enabled === true)).toBe(true);
+  });
+
+  it('omits the driver line when the top driver is not in the task list', async () => {
+    h.tasks = [{ id: 'other', name: 'Elsewhere' }];
+    h.mc = {
+      data: { ...MC, sensitivity: [{ taskId: 't9', index: 0.8 }] },
+      isLoading: false,
+      error: null,
+    };
+    renderPage();
+    const link = await screen.findByRole('link', { name: /Why this date\?/ });
+    expect(link).not.toHaveTextContent('Biggest driver');
+    expect(screen.queryByTestId('overview2-driver')).not.toBeInTheDocument();
+  });
+
+  it('words the velocity-limit caveat as a lower bound, and speaks it', async () => {
+    h.mc = {
+      data: { ...MC, velocitySaturatedRuns: 4 },
+      isLoading: false,
+      error: null,
+    };
+    renderPage();
+    expect(await screen.findByTestId('overview2-staleness')).toHaveTextContent(
+      '◆ Lower bound — some runs hit the velocity limit',
+    );
+    expect(
+      screen.getByTestId('overview2-lead-figure').querySelector('.sr-only')?.textContent,
+    ).toMatch(/Lower bound — some runs hit the velocity limit$/);
+  });
+
+  it('lays the lead card out for a phone: three-up peers, 44px Why link, inline cost line', async () => {
+    h.bp = 'sm';
+    renderPage();
+    const lead = await screen.findByTestId('overview2-lead');
+    expect(lead).toHaveAttribute('data-layout', 'phone');
+    expect(screen.getByTestId('overview2-peers')).toHaveClass('grid-cols-3');
+    expect(screen.getByRole('link', { name: /Why this date\?/ })).toHaveClass('min-h-[44px]');
+    expect(screen.getByTestId('overview2-tiles')).toHaveClass('grid-cols-2');
+    expect(screen.getByTestId('not-computable')).toHaveTextContent('Cost variance');
+  });
+
+  it('keeps the wide layout above the phone breakpoint', async () => {
+    renderPage();
+    expect(await screen.findByTestId('overview2-lead')).toHaveAttribute('data-layout', 'wide');
+    expect(screen.getByTestId('overview2-peers')).not.toHaveClass('grid-cols-3');
   });
 });

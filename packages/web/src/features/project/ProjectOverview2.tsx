@@ -12,6 +12,7 @@ import { SCurveChart, forecastToSCurveProps } from '@/features/charts';
 import { useEffect, useState } from 'react';
 import type { SnapshotRow } from '@/components/page2/SnapshotPanel';
 import { StatusUpdatesSection } from '@/features/project/statusUpdates/StatusUpdatesSection';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
 import { useProject } from '@/hooks/useProject';
@@ -100,7 +101,7 @@ function Peer({
   definition?: string;
 }) {
   return (
-    <div className="min-w-[88px]">
+    <div className="min-w-0 sm:min-w-[88px]">
       <div className="text-xs text-p1-text-2">
         <DefinitionTip term={label} definition={definition} />
       </div>
@@ -144,6 +145,10 @@ function LeadCard({ projectId, mc }: { projectId: string; mc: MonteCarloResult }
   const chip = commitmentChip(mc.p80DeltaVsCommitmentDays);
   const runs = mc.nSimulations ?? mc.runs;
   const caveats = stalenessCaveat(mc);
+  // Phone: the chart is drawn at the card's own width so its labels keep their size
+  // (a 640-wide viewBox scaled into ~340px halves the type), the peers sit in one
+  // three-up row, and the "Why this date?" link is a full-width 44px target.
+  const phone = useBreakpoint() === 'sm';
   const idle = useIdleReady();
   const history = useMonteCarloHistory(idle ? projectId : undefined);
   // Two server facts: the latest run's P80 and the run before it. Shown only when they differ.
@@ -164,7 +169,12 @@ function LeadCard({ projectId, mc }: { projectId: string; mc: MonteCarloResult }
     caveats,
   );
   return (
-    <section aria-labelledby="ov2-lead-h" className={CARD} data-testid="overview2-lead">
+    <section
+      aria-labelledby="ov2-lead-h"
+      className={CARD}
+      data-testid="overview2-lead"
+      data-layout={phone ? 'phone' : 'wide'}
+    >
       <h2 id="ov2-lead-h" className="text-xs text-p1-text-2">
         <DefinitionTip term="Forecast finish · P80" definition={mc.definitions?.p80} />
       </h2>
@@ -186,13 +196,19 @@ function LeadCard({ projectId, mc }: { projectId: string; mc: MonteCarloResult }
           {caveats.map((c) => `◆ ${c}`).join(' · ')}
         </p>
       )}
-      <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2">
+      <div
+        className={phone ? 'mt-3 grid grid-cols-3 gap-x-2' : 'mt-3 flex flex-wrap gap-x-6 gap-y-2'}
+        data-testid="overview2-peers"
+      >
         <Peer label="P50" date={mc.p50} definition={mc.definitions?.p50} />
         <Peer label="Commitment" date={mc.commitmentDate} definition={mc.definitions?.commitment} />
         <Peer label="CPM" date={mc.cpmFinish} />
       </div>
       <div className="mt-4">
-        <SCurveChart {...forecastToSCurveProps(mc)} />
+        <SCurveChart
+          {...forecastToSCurveProps(mc)}
+          {...(phone ? { width: 340, height: 220 } : {})}
+        />
       </div>
       <p
         className="mt-2 flex flex-wrap items-center gap-x-2 text-xs text-p1-text-3"
@@ -205,7 +221,14 @@ function LeadCard({ projectId, mc }: { projectId: string; mc: MonteCarloResult }
             · moved from {fmtUtcMedium(moved.from)} on {moved.day}
           </span>
         )}
-        <Link className="ml-auto text-p1-brand underline" to={`/projects/${projectId}/schedule`}>
+        <Link
+          className={
+            phone
+              ? 'flex min-h-[44px] w-full items-center text-p1-brand underline'
+              : 'ml-auto text-p1-brand underline'
+          }
+          to={`/projects/${projectId}/schedule`}
+        >
           Why this date?
           {driver && <span data-testid="overview2-driver"> Biggest driver: {driver}</span>}
         </Link>
