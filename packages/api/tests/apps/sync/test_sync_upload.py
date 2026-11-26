@@ -1997,3 +1997,31 @@ def test_member_upload_echoing_unchanged_on_behalf_of_succeeds(project: Project,
     assert resp.status_code == 200, resp.content
     t.refresh_from_db()
     assert (t.name, t.on_behalf_of_id) == ("Renamed", user.pk)
+
+
+@pytest.mark.django_db
+def test_member_upload_echoing_string_on_behalf_of_with_deactivated_principal(
+    project: Project, user: Any
+) -> None:
+    """A string-typed echo of the unchanged id is a no-op even once the principal is inactive."""
+    _make_membership(project, user, Role.ADMIN)
+    m, member_client = _member_client(project, "m_echo_str", Role.MEMBER)
+    t = Task.objects.create(
+        project=project,
+        name="T",
+        duration=1,
+        assignee=m,
+        executor_kind="agent",
+        on_behalf_of=user,
+    )
+    type(user).objects.filter(pk=user.pk).update(is_active=False)
+    row = {
+        "id": str(t.pk),
+        "name": "Renamed",
+        "executor_kind": "agent",
+        "on_behalf_of": str(user.pk),
+    }
+    resp = member_client.post(_url(project), _payload(updated=[row]), format="json")
+    assert resp.status_code == 200, resp.content
+    t.refresh_from_db()
+    assert (t.name, t.on_behalf_of_id) == ("Renamed", user.pk)

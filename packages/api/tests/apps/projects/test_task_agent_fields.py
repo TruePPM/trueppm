@@ -295,32 +295,79 @@ def test_bulk_edit_enforces_agent_gate(admin: Any, member: Any, project: Project
     assert t.executor_kind == "agent"
 
 
-@pytest.mark.django_db
-def test_mcp_read_token_cannot_write_agent_fields_and_refusal_is_audited(
-    admin: Any, task: Task
-) -> None:
-    """No agent token can write these fields: ``mcp:read`` is refused and recorded."""
+def _mcp_read_client(owner: Any) -> APIClient:
     import secrets
 
-    from trueppm_api.apps.agents.models import AgentAction, AgentActionVerdict
     from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
     from trueppm_api.apps.projects.models import SCOPE_MCP_READ, ApiToken
 
     raw = f"{TOKEN_PREFIX}{secrets.token_hex(32)}"
     ApiToken.objects.create(
-        owner=admin,
+        owner=owner,
         name="t",
         scopes=[SCOPE_MCP_READ],
         token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
         token_hash=sha256_hex(raw),
-        created_by=admin,
+        created_by=owner,
     )
     c = APIClient()
     c.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
-    before = AgentAction.objects.count()
+    return c
+
+
+@pytest.mark.django_db
+def test_mcp_read_token_cannot_write_agent_fields_and_refusal_is_audited(
+    admin: Any, task: Task
+) -> None:
+    """No agent token can write these fields: ``mcp:read`` is refused and recorded."""
+    from trueppm_api.apps.agents.models import AgentAction, AgentActionVerdict
+
+    c = _mcp_read_client(admin)
+    before = set(AgentAction.objects.values_list("pk", flat=True))
     resp = c.patch(f"/api/v1/tasks/{task.pk}/", {"executor_kind": "agent"}, format="json")
     assert resp.status_code == 403
     task.refresh_from_db()
     assert task.executor_kind == "human"
-    assert AgentAction.objects.count() == before + 1
-    assert AgentAction.objects.latest("pk").verdict == AgentActionVerdict.REFUSED
+    new = AgentAction.objects.exclude(pk__in=before)
+    assert new.count() == 1
+    assert new.get().verdict == AgentActionVerdict.REFUSED
+
+
+@pytest.mark.django_db
+def test_mcp_read_token_is_rejected_at_bulk_auth_without_audit_row(
+    admin: Any, project: Project, task: Task
+) -> None:
+    """Bulk edit is not MCP-wrapped: the token is refused at authentication (401), unaudited."""
+    from trueppm_api.apps.agents.models import AgentAction
+
+    c = _mcp_read_client(admin)
+    before = AgentAction.objects.count()
+    ops = [{"op": "update", "id": str(task.pk), "data": {"executor_kind": "agent"}}]
+    resp = c.post(f"/api/v1/projects/{project.pk}/tasks/bulk/", {"operations": ops}, format="json")
+    assert resp.status_code == 401
+    task.refresh_from_db()
+    assert task.executor_kind == "human"
+    assert AgentAction.objects.count() == before
+
+
+@pytest.mark.django_db
+def test_bulk_edit_echoing_unchanged_on_behalf_of_succeeds_for_member(
+    admin: Any, member: Any, project: Project
+) -> None:
+    from unittest.mock import patch
+
+    t = _agent_task(project, assignee=member, on_behalf_of=admin)
+    ops = [
+        {
+            "op": "update",
+            "id": str(t.pk),
+            "data": {"name": "Renamed", "on_behalf_of": admin.pk},
+        }
+    ]
+    with patch("trueppm_api.apps.projects.views._enqueue_recalculate"):
+        resp = _client(member).post(
+            f"/api/v1/projects/{project.pk}/tasks/bulk/", {"operations": ops}, format="json"
+        )
+    assert resp.status_code in (200, 207), resp.content
+    t.refresh_from_db()
+    assert (t.name, t.on_behalf_of_id) == ("Renamed", admin.pk)

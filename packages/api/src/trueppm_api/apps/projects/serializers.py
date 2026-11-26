@@ -5846,8 +5846,10 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         Without a request (internal callers) the role gate is skipped.
 
         Audit reality: no agent token can write ``agent_state`` yet. ``mcp:read`` tokens are
-        refused on writes (that refusal lands in ``AgentAction``); successful ``api:full``
-        writes are not agent-attributed and are not recorded there.
+        refused on writes to ``/api/v1/tasks/`` (that refusal lands in ``AgentAction``); the
+        bulk-edit and sync-upload views are not MCP-wrapped, so authentication rejects the
+        token with a 401 and writes no row. Successful ``api:full`` writes are not
+        agent-attributed and are not recorded there.
         """
         from rest_framework.exceptions import PermissionDenied
 
