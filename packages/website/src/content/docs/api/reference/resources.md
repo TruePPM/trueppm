@@ -285,7 +285,8 @@ way as a dry run, so on unchanged data the two verdicts differ only in `as_of`.
 | `403` | Below Resource Manager on the project, or the project is archived |
 
 Saves for one person are serialized, so two concurrent bookings cannot jointly
-pass the ceiling. A full-scope personal access token acts as its owner; a
+pass the ceiling. The request honors the `Idempotency-Key` header, so a retried
+save is replayed and does not notify the person twice. A full-scope personal access token acts as its owner; a
 read-only agent token is refused, including for a dry run (agent access is
 tracked in #5146). `share_pct`,
 `share_start`, `share_end` and the `overage_*` fields are read-only on

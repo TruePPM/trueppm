@@ -550,6 +550,19 @@ def test_non_member_notice_is_readable_in_the_inbox(world: dict[str, Any]) -> No
     assert "Launch week" in row["body"]
 
 
+def test_a_replayed_accepted_save_notifies_once(world: dict[str, Any]) -> None:
+    payload = body(world, share_pct=100, accept_overage=True, reason="Release week")
+    headers = {"HTTP_IDEMPOTENCY_KEY": str(uuid.uuid4())}
+
+    first = world["client"].post(URL, payload, format="json", **headers)
+    again = world["client"].post(URL, payload, format="json", **headers)
+
+    assert first.status_code == again.status_code == 200
+    assert again["Idempotent-Replay"] == "true"
+    assert again.json() == first.json()
+    assert Notification.objects.filter(recipient=world["person"].user).count() == 1
+
+
 def test_a_later_fitting_save_clears_the_overage(world: dict[str, Any]) -> None:
     save(world, accept_overage=True, reason="Launch week")
     assert save(world, share_pct=20).status_code == 200

@@ -26,6 +26,7 @@ from trueppm_api.apps.access.permissions import (
     _membership_role,
     assert_project_not_archived,
 )
+from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.notifications.models import NotificationEventType
 from trueppm_api.apps.notifications.services import create_event_notifications
 from trueppm_api.apps.projects.models import Project
@@ -204,7 +205,7 @@ class AllocationCheckUnavailable(APIException):
     default_detail = "The allocation check could not complete. Nothing was saved."
 
 
-class AllocationView(APIView):
+class AllocationView(IdempotencyMixin, APIView):
     """Check or save a booking (a weekly share of one person on one project).
 
     Resource Manager (Scheduler) or above on the project, for the dry run as well as
