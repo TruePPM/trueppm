@@ -119,7 +119,7 @@ If you logged two separate sessions against the same task on the same day, that 
 
 ## Submitting your week
 
-**Submit week** marks the week as done. In the current release it's a signal, not a lock: your entries stay fully editable after you submit, and you can **Reopen** the week at any time. There is no approver and no manager view.
+**Submit week** marks the week as done. In the current release it's a signal, not a lock: your entries stay fully editable after you submit, and you can **Reopen** the week at any time. There is no approver and no manager view. From 0.5 that last freedom will end at approval; see below.
 
 :::note[Ships in 0.5]
 In 0.5 a submitted week will go to your **reviewer**: the one direct manager a workspace admin has set for you (see [reporting lines](/administration/workspace-settings/#reporting-lines)). A week will move through four states:
@@ -129,7 +129,7 @@ In 0.5 a submitted week will go to your **reviewer**: the one direct manager a w
 | **Draft** | Not submitted, or withdrawn. | Yes |
 | **Submitted** | Waiting for your reviewer. You can withdraw it back to draft. | Yes. Your reviewer can only approve the entries you submitted; if you change them, they will need you to resubmit. |
 | **Returned** | Your reviewer sent it back with a reason, which arrives in your Inbox. | Yes. Fix it and submit again; your reviewer is told. |
-| **Approved** | Your reviewer accepted it. | No. Nobody can edit, add, or delete time in an approved week through the product: not the grid, a timer, or the API. A running timer whose week is approved is discarded when you stop it, and the response says the time was not logged. 0.5 will have no reopen. |
+| **Approved** | Your reviewer accepted it. | No. Nobody can edit, add, or delete time in an approved week through the product: not the grid, a timer, or the API. A running timer whose week is approved is discarded when you stop it, and the response says the time was not logged. 0.5 will have no reopen: if you press **Reopen** on an approved week, the page will say that it cannot be reopened. |
 
 Your reviewer will not see a draft week at all: until you submit, your week and its time are yours, and if you withdraw a week it goes back to being private. Once a week is submitted, approved, or returned, your reviewer will see its totals and every entry's hours and category. They will see the task, project, and note of an entry only on projects they're also a member of; on other projects they'll see the hours and "restricted". The return reason is visible to you and to the reviewer who wrote it, and to nobody else.
 

@@ -14,6 +14,7 @@
  * authoritative fold.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import axios from 'axios';
 import { apiClient } from '@/api/client';
 import { toast } from '@/components/Toast';
 import { isClientRejection } from '@/lib/apiError';
@@ -159,6 +160,20 @@ export function applyCellEdit(prev: WeeklyResponse, vars: CellEditVars): WeeklyR
 }
 
 /**
+ * Copy for a refused submit / reopen. An approved week (ADR-1495) answers 409 for both, and
+ * no retry can succeed, so it must not be reported as a transient failure.
+ */
+function submitErrorMessage(error: unknown, submit: boolean): string {
+  const code = axios.isAxiosError<{ code?: string }>(error) ? error.response?.data?.code : undefined;
+  if (code === 'timesheet_week_approved' || code === 'timesheet_state_conflict') {
+    return submit
+      ? 'This week is approved, so it cannot be submitted again.'
+      : 'This week is approved. An approved week cannot be reopened.';
+  }
+  return 'Could not update the week. Please try again.';
+}
+
+/**
  * Submit ("mark done") or un-submit the week's timesheet (ADR-0224). Optimistically flips
  * the cached `submission` and reconciles on settle. Submission does not lock entries — it
  * is a signal the 0.5 approval epic (#100) reads.
@@ -191,9 +206,9 @@ export function useSubmitWeek(mondayIso: string) {
       }
       return { previous };
     },
-    onError: (_err, _submit, context) => {
+    onError: (err, submit, context) => {
       if (context?.previous) qc.setQueryData(key, context.previous);
-      toast.error('Could not update the week. Please try again.');
+      toast.error(submitErrorMessage(err, submit));
     },
     onSuccess: (_data, submit) => {
       toast.info(submit ? 'Week submitted.' : 'Week reopened.');

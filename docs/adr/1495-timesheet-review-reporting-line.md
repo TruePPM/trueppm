@@ -41,6 +41,14 @@ ADR records decisions for.
   calls `review.set_manager()` in-process, getting the same checks and audit. A read-side
   override was considered and rejected: the review queue needs the reverse lookup (manager to
   reports), and two sources of truth for authority would disagree.
+- **This deviates from the enterprise-check on the issue**, which asked for a read-override
+  seam. The user confirmed the write seam instead, for the reason above: an override that
+  answers "who is this person's manager" cannot also answer "who reports to me" without a
+  second registration that could disagree with it, and writing synced lines into the one
+  table keeps the cycle check and the change audit in force. The cost is that enterprise
+  cannot supply authority without persisting it, and an admin can edit a synced line
+  until the next sync writes it again; marking lines as externally managed is not part
+  of this decision.
 
 ### 2. State machine, with an append-only transition log
 

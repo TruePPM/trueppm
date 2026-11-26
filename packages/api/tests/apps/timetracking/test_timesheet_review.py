@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import re
 from datetime import date, timedelta
 from pathlib import Path
@@ -339,16 +340,44 @@ def test_approved_week_refuses_every_write_path(world: dict[str, Any]) -> None:
     assert TimeEntry.objects.filter(user=r, is_deleted=False).count() == 1
 
 
-def test_time_entry_write_paths_are_enumerated() -> None:
-    """Every write of TimeEntry must go through ``save()``, where the approved-week lock is.
+_BYPASSING = {"update", "bulk_create", "bulk_update", "delete"}
+#: Calls that hand back another queryset; ``get``/``first`` return an instance, whose
+#: ``delete()`` goes through the model and is therefore guarded.
+_CHAINING = {"all", "filter", "exclude", "select_related", "select_for_update", "order_by"}
 
-    ``bulk_create`` and ``QuerySet.update`` bypass ``save()``. The only callers allowed to
-    use them are the demo seed tools, which never run against a user's approved week. A
-    new bypassing caller fails here and must route through ``save()`` or be justified.
+
+def _is_time_entry_queryset(node: ast.expr, names: set[str]) -> bool:
+    """True for a TimeEntry manager, ``<obj>.time_entries``, or a queryset built on one."""
+    if isinstance(node, ast.Call):
+        func = node.func
+        return (
+            isinstance(func, ast.Attribute)
+            and func.attr in _CHAINING
+            and _is_time_entry_queryset(func.value, names)
+        )
+    if isinstance(node, ast.Attribute):
+        if node.attr == "time_entries":
+            return True
+        return (
+            node.attr in {"objects", "_default_manager", "_base_manager"}
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "TimeEntry"
+        )
+    return isinstance(node, ast.Name) and node.id in names
+
+
+def test_time_entry_write_paths_are_enumerated() -> None:
+    """Every write of TimeEntry must go through ``save()``/``delete()``, where the lock is.
+
+    ``bulk_create``, ``bulk_update``, ``QuerySet.update`` and ``QuerySet.delete`` bypass
+    the model, whether reached through the manager, ``_default_manager``, the
+    ``time_entries`` related manager or a local variable holding such a queryset. The
+    only callers allowed are the demo seed tools, which never run against a user's
+    approved week. A new bypassing caller fails here and must route through the model
+    or be justified. A queryset passed in from another function is not followed.
     """
     root = Path(__file__).resolve().parents[3] / "src" / "trueppm_api"
     allowed = {"apps/projects/seed/importer.py", "apps/projects/seed/replay.py"}
-    pattern = re.compile(r"TimeEntry\.objects[\s\S]{0,200}?\.(update|bulk_create|bulk_update)\(")
     bulk = re.compile(r"_bulk_insert\(\s*TimeEntry")
     offenders = []
     for path in root.rglob("*.py"):
@@ -356,7 +385,21 @@ def test_time_entry_write_paths_are_enumerated() -> None:
         if "/migrations/" in rel or rel in allowed:
             continue
         text = path.read_text()
-        if pattern.search(text) or bulk.search(text):
+        tree = ast.parse(text)
+        names = {
+            target.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Assign) and _is_time_entry_queryset(node.value, set())
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        }
+        if bulk.search(text) or any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in _BYPASSING
+            and _is_time_entry_queryset(node.func.value, names)
+            for node in ast.walk(tree)
+        ):
             offenders.append(rel)
     assert offenders == []
 

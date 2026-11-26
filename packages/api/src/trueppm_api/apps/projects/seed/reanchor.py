@@ -410,6 +410,9 @@ _DELIBERATELY_UNSHIFTED: dict[str, str] = {
         "person's real submissions if a persona account is ever taken over."
     ),
     "timetracking.TimesheetSubmission.submitted_at": "See week_start.",
+    "timetracking.TimesheetSubmission.reviewed_at": (
+        "Set only by a real reviewer's approve or return; see week_start."
+    ),
     "projects.CeremonyTemplate.created_at": "auto_now_add bookkeeping; not rendered as plan.",
     "projects.CeremonyTemplate.updated_at": "auto_now bookkeeping.",
     "agents.AgentAction.occurred_at": (

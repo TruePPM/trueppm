@@ -195,6 +195,29 @@ describe('useSubmitWeek', () => {
     postMock.mockReset().mockResolvedValue({ data: {} });
     deleteMock.mockReset().mockResolvedValue({ data: {} });
     toastInfo.mockReset();
+    toastError.mockReset();
+  });
+
+  const REOPEN = 'This week is approved. An approved week cannot be reopened.';
+  const RESUBMIT = 'This week is approved, so it cannot be submitted again.';
+  const GENERIC = 'Could not update the week. Please try again.';
+
+  it.each([
+    ['timesheet_state_conflict', false, REOPEN],
+    ['timesheet_week_approved', false, REOPEN],
+    ['timesheet_state_conflict', true, RESUBMIT],
+    ['something_else', false, GENERIC],
+  ])('reports a %s refusal honestly (submit=%s)', async (code, submit, message) => {
+    const refusal = new AxiosError('conflict', undefined, undefined, undefined, {
+      status: 409,
+      data: { detail: 'refused', code },
+    } as AxiosResponse);
+    postMock.mockRejectedValue(refusal);
+    deleteMock.mockRejectedValue(refusal);
+    const { Wrapper } = wrapper();
+    const { result } = renderHook(() => useSubmitWeek('2026-06-15'), { wrapper: Wrapper });
+    result.current.mutate(submit);
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith(message));
   });
 
   it('POSTs to submit the week', async () => {
