@@ -1,7 +1,8 @@
 """API views for project status updates (#4803).
 
-``GET/POST /projects/{project_pk}/status-updates/`` and
-``GET /projects/{project_pk}/status-updates/{update_id}/``. There is deliberately no
+``GET/POST /projects/{project_pk}/status-updates/``,
+``GET /projects/{project_pk}/status-updates/{update_id}/`` and its one-page PDF,
+``GET /projects/{project_pk}/status-updates/{update_id}/pdf/`` (#4805). There is deliberately no
 PUT, PATCH or DELETE: a posted update is immutable and a correction is a new post.
 The public, snapshot-only read rides the share-link envelope in ``share_views``.
 """
@@ -11,8 +12,11 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
+    OpenApiParameter,
     OpenApiResponse,
     extend_schema,
     extend_schema_field,
@@ -35,7 +39,7 @@ from trueppm_api.apps.access.permissions import (
     McpScope,
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
-from trueppm_api.apps.projects import status_update_services
+from trueppm_api.apps.projects import status_update_pdf, status_update_services
 from trueppm_api.apps.projects.models import Project, StatusUpdate, StatusUpdateRag
 from trueppm_api.apps.workspace.serializers import display_name_for
 
@@ -260,3 +264,75 @@ class ProjectStatusUpdateDetailView(McpReadableViewMixin, APIView):
         )
         context = {"current": status_update_services.current_values(project)}
         return Response(StatusUpdateSerializer(update, context=context).data)
+
+
+class ProjectStatusUpdatePdfView(McpReadableViewMixin, APIView):
+    """GET the one-page PDF of a posted update, Letter or A4 (#4805). Members only.
+
+    The page is drawn from the update's frozen snapshot alone (``status_update_pdf``),
+    so it carries nothing the member could not already read on the detail route.
+    A row that no longer hashes to its seal is refused with ``409`` rather than
+    printed: the page states its facts were frozen at post time, and for an altered
+    row that statement would be false.
+    """
+
+    # ADR-0678: projects/<project_pk>/status-updates/<update_id>/pdf/
+    mcp_scope = McpScope.PATH
+    permission_classes = [IsAuthenticated, IsProjectMember]  # noqa: RUF012
+    http_method_names = ["get", "head", "options"]  # noqa: RUF012
+
+    @extend_schema(
+        summary="Download one status update as a one-page PDF (Letter or A4)",
+        parameters=[
+            OpenApiParameter(
+                "size",
+                str,
+                enum=sorted(status_update_pdf.PAGE_SIZES),
+                required=False,
+                description="Page size; `letter` (default) or `a4`.",
+            )
+        ],
+        responses={
+            (200, "application/pdf"): OpenApiResponse(
+                response=OpenApiTypes.BINARY,
+                description="A one-page PDF of the update's frozen snapshot.",
+            ),
+            400: OpenApiResponse(description="Unknown page size."),
+            404: OpenApiResponse(description="No such project or update for this member."),
+            409: OpenApiResponse(
+                description="The stored update no longer matches its seal; not printed."
+            ),
+        },
+    )
+    def get(self, request: Request, project_pk: str, update_id: str) -> HttpResponse:
+        size = str(request.query_params.get("size", "letter")).lower()
+        if size not in status_update_pdf.PAGE_SIZES:
+            return Response(
+                {"size": [f"Choose one of: {', '.join(sorted(status_update_pdf.PAGE_SIZES))}."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
+        self.check_object_permissions(request, project)
+        update = get_object_or_404(
+            StatusUpdate.objects.select_related("author", "project"),
+            pk=update_id,
+            project=project,
+        )
+        if not status_update_services.snapshot_verified(update):
+            return Response(
+                {
+                    "detail": "This update no longer matches the record taken when it was "
+                    "posted, so it is not printed."
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        pdf = status_update_pdf.pdf_for_update(update, size)
+        code = "".join(c for c in (project.code or "project") if c.isalnum() or c in "-_")
+        resp = HttpResponse(pdf, content_type="application/pdf")
+        resp["Content-Disposition"] = (
+            f'attachment; filename="{code or "project"}-status-update-{update.seq}-{size}.pdf"'
+        )
+        # A member's PDF names people and risks: never held by a shared cache.
+        resp["Cache-Control"] = "private, no-store"
+        resp["X-Content-Type-Options"] = "nosniff"
+        return resp

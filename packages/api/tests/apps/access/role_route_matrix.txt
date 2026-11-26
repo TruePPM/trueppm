@@ -301,6 +301,7 @@
 --+++++  GET api/v1/projects/<project_pk>/standup/::get
 --+++++  GET api/v1/projects/<project_pk>/status-updates/::get
 --+++++  GET api/v1/projects/<project_pk>/status-updates/<update_id>/::get
+--+++++  GET api/v1/projects/<project_pk>/status-updates/<update_id>/pdf/::get
 --+++++  GET api/v1/projects/<project_pk>/task-runs/::list
 --+++++  GET api/v1/projects/<project_pk>/task-runs/<pk>/::retrieve
 --+++++  GET api/v1/projects/<project_pk>/tasks/<task_pk>/attachments/::list

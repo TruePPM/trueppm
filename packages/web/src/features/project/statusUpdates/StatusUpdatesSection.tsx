@@ -23,7 +23,15 @@ import {
   saveDraft,
   snapshotRows,
 } from './statusUpdateModel';
-import { usePostStatusUpdate, useStatusUpdates } from './useStatusUpdates';
+import { isAxiosError } from 'axios';
+import {
+  downloadStatusUpdatePdf,
+  useCreateStatusUpdateShareLink,
+  usePostStatusUpdate,
+  useStatusUpdates,
+  type StatusUpdatePdfSize,
+  type StatusUpdateShareLink,
+} from './useStatusUpdates';
 
 const BUTTON = `inline-flex min-h-[44px] items-center justify-center rounded-lg px-4 text-sm font-medium ${FOCUS_RING}`;
 const PRIMARY = `${BUTTON} bg-p1-brand text-p1-on-brand disabled:cursor-not-allowed disabled:opacity-50`;
@@ -275,6 +283,189 @@ function FrozenSnapshot({ update }: { update: StatusUpdate }) {
   );
 }
 
+const EXPIRY_DAYS = [7, 30, 90] as const;
+
+/** Mint a read-only link to ONE update and reveal it once (#4805). Admin+ only. */
+function ShareLinkPanel({ projectId, update }: { projectId: string; update: StatusUpdate }) {
+  const mint = useCreateStatusUpdateShareLink(projectId);
+  const formId = useId();
+  const [days, setDays] = useState<number>(30);
+  const [showRisks, setShowRisks] = useState(false);
+  const [showDecisions, setShowDecisions] = useState(false);
+  const [link, setLink] = useState<StatusUpdateShareLink | null>(null);
+  const [copied, setCopied] = useState(false);
+  const { formatInstantDate } = useUserDateFormat();
+
+  if (link) {
+    const url = `${window.location.origin}${link.share_path}`;
+    return (
+      <div className="flex flex-col gap-2" data-testid="status-update-share-reveal">
+        <label htmlFor={`${formId}-url`} className="text-xs text-p1-text-2">
+          Read-only link to update {update.seq}
+        </label>
+        <div className="flex flex-wrap gap-2">
+          <input
+            id={`${formId}-url`}
+            readOnly
+            value={url}
+            onFocus={(e) => e.currentTarget.select()}
+            className={`min-h-[44px] min-w-0 flex-1 rounded-lg border border-p1-hairline bg-p1-surface-2 px-3 font-mono text-xs text-p1-text-1 ${FOCUS_RING}`}
+          />
+          <button
+            type="button"
+            className={SECONDARY}
+            onClick={() => {
+              void navigator.clipboard?.writeText(url).then(() => setCopied(true));
+            }}
+          >
+            {copied ? 'Copied' : 'Copy link'}
+          </button>
+        </div>
+        <p className="text-xs text-p1-text-2" role="status">
+          Copy it now: the link is shown only once.
+          {link.expires_at
+            ? ` It stops working on ${formatInstantDate(link.expires_at, 'medium')}.`
+            : ''}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <form
+      className="flex flex-col gap-2"
+      data-testid="status-update-share-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        mint.mutate(
+          { updateId: update.id, expiresInDays: days, showRisks, showDecisions },
+          { onSuccess: setLink },
+        );
+      }}
+    >
+      <p className="text-xs text-p1-text-2">
+        Anyone with the link can read this update’s frozen snapshot without signing in. People’s
+        names are not shown.
+      </p>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        <label className="flex min-h-[44px] items-center gap-2 text-sm text-p1-text-1">
+          Expires after
+          <select
+            value={days}
+            onChange={(e) => setDays(Number(e.target.value))}
+            className={`min-h-[44px] rounded-lg border border-p1-hairline bg-p1-surface-1 px-2 ${FOCUS_RING}`}
+          >
+            {EXPIRY_DAYS.map((d) => (
+              <option key={d} value={d}>
+                {d} days
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex min-h-[44px] items-center gap-2 text-sm text-p1-text-1">
+          <input
+            type="checkbox"
+            checked={showRisks}
+            onChange={(e) => setShowRisks(e.target.checked)}
+          />
+          Include top risks
+        </label>
+        <label className="flex min-h-[44px] items-center gap-2 text-sm text-p1-text-1">
+          <input
+            type="checkbox"
+            checked={showDecisions}
+            onChange={(e) => setShowDecisions(e.target.checked)}
+          />
+          Include open decisions
+        </label>
+      </div>
+      {mint.isError && (
+        <p className="text-sm text-p1-text-1" role="alert">
+          {isAxiosError(mint.error) && mint.error.response?.status === 403
+            ? 'Public sharing is turned off for this project, so a link can’t be created.'
+            : 'The link wasn’t created. Try again.'}
+        </p>
+      )}
+      <button type="submit" className={`${PRIMARY} self-start`} disabled={mint.isPending}>
+        {mint.isPending ? 'Creating…' : 'Create link'}
+      </button>
+    </form>
+  );
+}
+
+/** PDF and Share link actions for one history row (#4805). */
+function UpdateActions({
+  projectId,
+  projectCode,
+  update,
+  canShare,
+}: {
+  projectId: string;
+  projectCode: string | null;
+  update: StatusUpdate;
+  canShare: boolean;
+}) {
+  const [busy, setBusy] = useState<StatusUpdatePdfSize | null>(null);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
+
+  const download = (size: StatusUpdatePdfSize) => {
+    setBusy(size);
+    setPdfError(null);
+    downloadStatusUpdatePdf(projectId, update, size, projectCode)
+      .catch((err: unknown) => {
+        setPdfError(
+          isAxiosError(err) && err.response?.status === 409
+            ? 'This update no longer matches its record, so it isn’t printed.'
+            : 'The PDF didn’t download. Try again.',
+        );
+      })
+      .finally(() => setBusy(null));
+  };
+
+  return (
+    <div className="flex flex-col gap-2" data-testid="status-update-actions">
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          className={SECONDARY}
+          disabled={busy != null}
+          onClick={() => download('letter')}
+          data-testid="status-update-pdf-letter"
+        >
+          {busy === 'letter' ? 'Preparing PDF…' : 'PDF (Letter)'}
+        </button>
+        <button
+          type="button"
+          className={SECONDARY}
+          disabled={busy != null}
+          onClick={() => download('a4')}
+          data-testid="status-update-pdf-a4"
+        >
+          {busy === 'a4' ? 'Preparing PDF…' : 'PDF (A4)'}
+        </button>
+        {canShare && (
+          <button
+            type="button"
+            className={SECONDARY}
+            aria-expanded={sharing}
+            onClick={() => setSharing((v) => !v)}
+            data-testid="status-update-share"
+          >
+            Share link
+          </button>
+        )}
+      </div>
+      {pdfError && (
+        <p className="text-sm text-p1-text-1" role="alert">
+          {pdfError}
+        </p>
+      )}
+      {sharing && canShare && <ShareLinkPanel projectId={projectId} update={update} />}
+    </div>
+  );
+}
+
 interface SectionProps {
   projectId: string;
   /** The signed-in user, for the per-author draft; null while loading. */
@@ -283,6 +474,8 @@ interface SectionProps {
   canPost: boolean;
   /** An archived project is history: the API refuses a post, so none is offered. */
   archived?: boolean;
+  /** The project's code, for the downloaded PDF's file name. */
+  projectCode?: string | null;
   liveRows: SnapshotRow[];
   /**
    * status-summary's band when the counts decided it (never a manual report), so the
@@ -301,6 +494,7 @@ export function StatusUpdatesSection({
   userId,
   canPost,
   archived = false,
+  projectCode = null,
   liveRows,
   derivedBand = null,
 }: SectionProps) {
@@ -391,7 +585,14 @@ export function StatusUpdatesSection({
                     </span>
                   </button>
                   {isSelected && (
-                    <div className="px-3 pb-3">
+                    <div className="flex flex-col gap-3 px-3 pb-3">
+                      <UpdateActions
+                        projectId={projectId}
+                        projectCode={projectCode}
+                        update={u}
+                        // Minting is Admin+ and refused on an archived project, like a post.
+                        canShare={canPost && !archived}
+                      />
                       <FrozenSnapshot update={u} />
                     </div>
                   )}
