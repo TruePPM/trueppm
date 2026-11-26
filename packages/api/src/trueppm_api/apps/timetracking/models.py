@@ -62,9 +62,9 @@ class TimesheetStatus(models.TextChoices):
 class TimesheetWeekLocked(APIException):
     """A write into a week whose timesheet has been approved (ADR-1495 §3).
 
-    Raised from :meth:`TimeEntry.save`, so every ORM write path that goes through
-    ``save()`` (REST create/edit/delete, timer stop, the serializer) refuses it with
-    one shared guard. ``bulk_create`` and ``QuerySet.update`` bypass ``save()``; the
+    Raised from :meth:`TimeEntry.save` and :meth:`TimeEntry.delete`, so every ORM write
+    path that goes through them (REST create/edit/delete, timer stop, the serializer)
+    refuses it with one shared guard. ``bulk_create`` and ``QuerySet.update`` bypass ``save()``; the
     write-path enumeration test pins the callers that may use them.
     """
 
@@ -185,19 +185,31 @@ class TimeEntry(VersionedModel):
         or an edit could empty an approved week one row at a time.
         """
         with transaction.atomic():
-            weeks = {self.entry_date}
-            if not self._state.adding and self.pk is not None:
-                stored = (
-                    TimeEntry.objects.filter(pk=self.pk)
-                    .values_list("entry_date", flat=True)
-                    .first()
-                )
-                if stored is not None:
-                    weeks.add(stored)
-            for d in weeks:
-                if isinstance(d, date) and week_is_approved(self.user_id, d, lock=True):
-                    raise TimesheetWeekLocked()
+            self._refuse_if_week_approved()
             super().save(*args, **kwargs)
+
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        """Refuse a hard delete of an entry in an approved week (ADR-1495 §3).
+
+        Instance deletes only: ``QuerySet.delete`` and cascades from a parent row
+        never call this.
+        """
+        with transaction.atomic():
+            self._refuse_if_week_approved()
+            return super().delete(*args, **kwargs)
+
+    def _refuse_if_week_approved(self) -> None:
+        """Lock and check the week the entry is in, and the week its stored row is in."""
+        weeks = {self.entry_date}
+        if not self._state.adding and self.pk is not None:
+            stored = (
+                TimeEntry.objects.filter(pk=self.pk).values_list("entry_date", flat=True).first()
+            )
+            if stored is not None:
+                weeks.add(stored)
+        for d in weeks:
+            if isinstance(d, date) and week_is_approved(self.user_id, d, lock=True):
+                raise TimesheetWeekLocked()
 
     def soft_delete(self, *, actor: Any | None = None) -> None:
         """Stamp ``deleted_at``/``deleted_by`` before delegating to the base soft-delete.

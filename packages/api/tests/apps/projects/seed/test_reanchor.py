@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 from django.apps import apps
 from django.utils import timezone
+from rest_framework.test import APIClient
 
 from trueppm_api.apps.projects.models import (
     BaselineTask,
@@ -42,6 +43,8 @@ from trueppm_api.apps.projects.seed.reanchor import (
     whole_week_delta,
 )
 from trueppm_api.apps.projects.seed.samples import load_sample
+from trueppm_api.apps.timetracking.models import TimesheetSubmission
+from trueppm_api.apps.timetracking.review import set_manager, week_digest
 
 pytestmark = pytest.mark.django_db
 
@@ -699,3 +702,51 @@ def test_a_no_op_shift_still_reports_the_actor_but_writes_no_history(
     assert report.shifted is False
     assert report.actor_id == owner.pk
     assert program.history.count() == history_before
+
+
+def _approve(submission: Any, user_model: Any) -> Any:
+    admin = user_model.objects.create_superuser(f"ra-admin-{submission.pk}", "a@example.com", "x")
+    manager = user_model.objects.create_user(f"ra-manager-{submission.pk}")
+    set_manager(actor=admin, user=submission.user, manager=manager)
+    client = APIClient()
+    client.force_authenticate(manager)
+    return client.post(
+        f"/api/v1/me/reports/{submission.user_id}/timesheets/"
+        f"{submission.week_start.isoformat()}/approve/"
+    )
+
+
+def test_a_submitted_sample_week_can_be_approved_after_the_shift(
+    aged: Program, django_user_model: Any
+) -> None:
+    """The shift moves entries under an unmoved week; the digest has to follow."""
+    submission = next(
+        s
+        for s in TimesheetSubmission.objects.order_by("-week_start").select_related("user")
+        if week_digest(s.user_id, s.week_start) == s.entries_digest
+    )
+    before = submission.entries_digest
+
+    shift_sample_dates(aged)
+
+    submission.refresh_from_db()
+    assert submission.entries_digest != before
+    resp = _approve(submission, django_user_model)
+    assert resp.status_code == 200, resp.content
+
+
+def test_shift_does_not_restamp_a_week_edited_after_submit(
+    aged: Program, django_user_model: Any
+) -> None:
+    submission = TimesheetSubmission.objects.order_by("-week_start").select_related("user").first()
+    assert submission is not None
+    submission.entries_digest = "0" * 64  # stands for "no longer what was submitted"
+    submission.save(update_fields=["entries_digest"])
+
+    shift_sample_dates(aged)
+
+    submission.refresh_from_db()
+    assert submission.entries_digest == "0" * 64
+    resp = _approve(submission, django_user_model)
+    assert resp.status_code == 409
+    assert resp.json()["code"] == "timesheet_changed_since_submit"

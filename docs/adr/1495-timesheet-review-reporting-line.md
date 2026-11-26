@@ -184,6 +184,12 @@ trail with retention evidence. No Enterprise affordance appears in the OSS UI.
 - **Harder:** `TimeEntry.save()` costs one to two extra indexed queries.
 - **Risks:** a future caller using `bulk_create` / `update` on `TimeEntry` bypasses the lock;
   the enumeration test is the backstop.
+- **Limitation (sample re-anchor):** the demo date shift moves `TimeEntry.entry_date` but not
+  a submission's `week_start`, so after it a submitted sample week names the same Monday and
+  holds whatever entries moved into it, possibly none, while newer weeks show as draft. The
+  shift re-stamps `entries_digest` on submitted weeks whose digest was still true and that
+  hold no time from outside the sample, so they can still be approved. An approved sample week
+  stays locked, but its entries move too. `submitted_at` and the transition log do not move.
 
 ## Implementation Notes
 - **P3M layer:** Operations. OSS.

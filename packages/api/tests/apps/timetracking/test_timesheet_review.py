@@ -340,9 +340,29 @@ def test_approved_week_refuses_every_write_path(world: dict[str, Any]) -> None:
     assert TimeEntry.objects.filter(user=r, is_deleted=False).count() == 1
 
 
+@pytest.mark.django_db
+def test_instance_delete_is_refused_only_in_an_approved_week(world: dict[str, Any]) -> None:
+    r, task = world["report"], world["task"]
+    locked = TimeEntry.objects.create(user=r, task=task, minutes=30, entry_date=MONDAY)
+    earlier = MONDAY - timedelta(days=7)
+    open_entry = TimeEntry.objects.create(user=r, task=task, minutes=30, entry_date=earlier)
+    TimesheetSubmission.objects.create(
+        user=r, week_start=MONDAY, submitted_at=timezone.now(), status=TimesheetStatus.APPROVED
+    )
+    with pytest.raises(TimesheetWeekLocked):
+        locked.delete()
+    # The stored week counts, not just the date set on the instance.
+    locked.entry_date = earlier
+    with pytest.raises(TimesheetWeekLocked):
+        locked.delete()
+    assert TimeEntry.objects.filter(pk=locked.pk).exists()
+    open_entry.delete()
+    assert not TimeEntry.objects.filter(pk=open_entry.pk).exists()
+
+
 _BYPASSING = {"update", "bulk_create", "bulk_update", "delete"}
 #: Calls that hand back another queryset; ``get``/``first`` return an instance, whose
-#: ``delete()`` goes through the model and is therefore guarded.
+#: ``delete()`` is the guarded ``TimeEntry.delete``. Not exhaustive (see the test).
 _CHAINING = {"all", "filter", "exclude", "select_related", "select_for_update", "order_by"}
 
 
@@ -374,7 +394,15 @@ def test_time_entry_write_paths_are_enumerated() -> None:
     ``time_entries`` related manager or a local variable holding such a queryset. The
     only callers allowed are the demo seed tools, which never run against a user's
     approved week. A new bypassing caller fails here and must route through the model
-    or be justified. A queryset passed in from another function is not followed.
+    or be justified.
+
+    Not followed: a queryset passed in from another function or held on an attribute;
+    a variable assigned from another such variable (only one hop is tracked, so
+    ``a = TimeEntry.objects; b = a.filter(); b.update()`` passes); and chain methods
+    outside ``_CHAINING`` (``using``, ``annotate``, ``distinct``, ``reverse``,
+    ``prefetch_related``, set operators, ...). A generic registry that deletes through a
+    model variable (the tombstone reap) is also invisible. Instance ``delete()`` is not
+    flagged because ``TimeEntry.delete`` carries the lock.
     """
     root = Path(__file__).resolve().parents[3] / "src" / "trueppm_api"
     allowed = {"apps/projects/seed/importer.py", "apps/projects/seed/replay.py"}
