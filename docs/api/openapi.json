@@ -9417,6 +9417,412 @@
                 }
             }
         },
+        "/api/v1/me/reports/": {
+            "get": {
+                "operationId": "v1_me_reports_retrieve",
+                "description": "``GET /api/v1/me/reports/?week=`` — the caller's direct reports and their week.\n\nOne row per direct report with the week's review state and total minutes, so a\nmanager sees who has submitted. Three queries regardless of team size.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "week",
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    }
+                ],
+                "tags": [
+                    "me"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/MeReportsResponse"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Retrieve report"
+            }
+        },
+        "/api/v1/me/reports/{user_id}/timesheets/{week_start}/": {
+            "get": {
+                "operationId": "v1_me_reports_timesheets_retrieve",
+                "description": "``GET /api/v1/me/reports/{user_id}/timesheets/{week_start}/`` — a report's week.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "user_id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "week_start",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "me"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TimesheetReportWeek"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Retrieve timesheet"
+            }
+        },
+        "/api/v1/me/reports/{user_id}/timesheets/{week_start}/approve/": {
+            "post": {
+                "operationId": "v1_me_reports_timesheets_approve_create",
+                "description": "``POST .../approve/`` — approve a direct report's submitted week (ADR-1495 §2).\n\n409 ``timesheet_state_conflict`` when the week is not submitted, and 409\n``timesheet_changed_since_submit`` when its entries changed after submit.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "user_id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "week_start",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "header",
+                        "name": "Idempotency-Key",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "maxLength": 255
+                        },
+                        "description": "Optional client-generated key (a UUIDv4 is recommended) that makes a retry of this request safe: a retry with the same key and a byte-identical request replays the stored response instead of repeating the write. Scoped per authenticated user. Reusing a key for a different request is refused with ``422``. See the Idempotency guide."
+                    }
+                ],
+                "tags": [
+                    "me"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TimesheetReportWeek"
+                                }
+                            }
+                        },
+                        "description": "",
+                        "headers": {
+                            "Idempotent-Replay": {
+                                "description": "``true`` when this response is a replay of the stored response for the request's ``Idempotency-Key``; absent on a first execution.",
+                                "schema": {
+                                    "type": "string",
+                                    "example": "true"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    }
+                },
+                "summary": "Approve timesheet"
+            }
+        },
+        "/api/v1/me/reports/{user_id}/timesheets/{week_start}/return/": {
+            "post": {
+                "operationId": "v1_me_reports_timesheets_return_create",
+                "description": "``POST .../return/ {\"reason\": \"...\"}`` — return a submitted week (ADR-1495 §2).\n\nThe reason is required (400 when blank). It reaches the submitter as an in-app\nInbox item and is readable by the submitter and this reviewer only.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "user_id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "week_start",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "header",
+                        "name": "Idempotency-Key",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "maxLength": 255
+                        },
+                        "description": "Optional client-generated key (a UUIDv4 is recommended) that makes a retry of this request safe: a retry with the same key and a byte-identical request replays the stored response instead of repeating the write. Scoped per authenticated user. Reusing a key for a different request is refused with ``422``. See the Idempotency guide."
+                    }
+                ],
+                "tags": [
+                    "me"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TimesheetReturnRequestRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TimesheetReturnRequestRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TimesheetReturnRequestRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TimesheetReportWeek"
+                                }
+                            }
+                        },
+                        "description": "",
+                        "headers": {
+                            "Idempotent-Replay": {
+                                "description": "``true`` when this response is a replay of the stored response for the request's ``Idempotency-Key``; absent on a first execution.",
+                                "schema": {
+                                    "type": "string",
+                                    "example": "true"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    }
+                },
+                "summary": "Return timesheet"
+            }
+        },
         "/api/v1/me/search/": {
             "get": {
                 "operationId": "v1_me_search_list",
@@ -9557,7 +9963,7 @@
         "/api/v1/me/time-entries/{id}/": {
             "patch": {
                 "operationId": "v1_me_time_entries_partial_update",
-                "description": "``/api/v1/me/time-entries/{id}/`` — author-only PATCH / DELETE (ADR-0185 §4).\n\nThe queryset is hard-scoped to ``user=request.user``, so PATCH or DELETE on another\nuser's entry returns **404** (existence-oracle close, matches #996) — never 403.\nDELETE is a ``soft_delete`` so the undo toast and mobile sync tombstone both work.\n\n**No ``TimesheetSubmission`` check, deliberately.** ADR-0224 ships submission as a\nweek-level *marker*: \"no approver, no lock, no return\". Entries stay editable after\nsubmit — that is why un-submit exists at all, so a fat-fingered Submit cannot strand\na week. Do not add a submitted-week guard here: it would pre-empt the approval and\nlocking design that #100 owns at 0.5, and it would silently break the un-submit\nescape hatch. The timesheet grid renders a submitted week read-only as a UI\nconvention only, and says so on the page (#2701).\n\n**Re-checks live Member+ and the archived-project gate on every write (#4318).**\nThe queryset above only proves the entry is *owned by the caller* — it says\nnothing about whether that caller is still a project member, or whether the\nproject has since been archived. A former member who still holds a valid\nsession could otherwise edit or delete their own historical entries in a\nproject they no longer belong to, or one that is now read-only. Both checks run\nagainst the entry's own ``task`` (object-level, via ``CanLogTime`` and\n``IsProjectNotArchived`` on ``permission_classes``) — a revoked member or an\narchived project answers **403**, matching the sibling write paths; this never\nleaks existence (the entry already resolved as the caller's own), so there is\nno 404 case to preserve here.",
+                "description": "``/api/v1/me/time-entries/{id}/`` — author-only PATCH / DELETE (ADR-0185 §4).\n\nThe queryset is hard-scoped to ``user=request.user``, so PATCH or DELETE on another\nuser's entry returns **404** (existence-oracle close, matches #996) — never 403.\nDELETE is a ``soft_delete`` so the undo toast and mobile sync tombstone both work.\n\n**The approved-week lock is not here, deliberately (ADR-1495 §3).** It lives in\n``TimeEntry.save()``, so this view, the create path and timer stop share one guard\nand a write into (or out of) an approved week answers 409\n``timesheet_week_approved``. A submitted or returned week stays editable.\n\n**Re-checks live Member+ and the archived-project gate on every write (#4318).**\nThe queryset above only proves the entry is *owned by the caller* — it says\nnothing about whether that caller is still a project member, or whether the\nproject has since been archived. A former member who still holds a valid\nsession could otherwise edit or delete their own historical entries in a\nproject they no longer belong to, or one that is now read-only. Both checks run\nagainst the entry's own ``task`` (object-level, via ``CanLogTime`` and\n``IsProjectNotArchived`` on ``permission_classes``) — a revoked member or an\narchived project answers **403**, matching the sibling write paths; this never\nleaks existence (the entry already resolved as the caller's own), so there is\nno 404 case to preserve here.",
                 "parameters": [
                     {
                         "in": "path",
@@ -9700,7 +10106,7 @@
             },
             "delete": {
                 "operationId": "v1_me_time_entries_destroy",
-                "description": "``/api/v1/me/time-entries/{id}/`` — author-only PATCH / DELETE (ADR-0185 §4).\n\nThe queryset is hard-scoped to ``user=request.user``, so PATCH or DELETE on another\nuser's entry returns **404** (existence-oracle close, matches #996) — never 403.\nDELETE is a ``soft_delete`` so the undo toast and mobile sync tombstone both work.\n\n**No ``TimesheetSubmission`` check, deliberately.** ADR-0224 ships submission as a\nweek-level *marker*: \"no approver, no lock, no return\". Entries stay editable after\nsubmit — that is why un-submit exists at all, so a fat-fingered Submit cannot strand\na week. Do not add a submitted-week guard here: it would pre-empt the approval and\nlocking design that #100 owns at 0.5, and it would silently break the un-submit\nescape hatch. The timesheet grid renders a submitted week read-only as a UI\nconvention only, and says so on the page (#2701).\n\n**Re-checks live Member+ and the archived-project gate on every write (#4318).**\nThe queryset above only proves the entry is *owned by the caller* — it says\nnothing about whether that caller is still a project member, or whether the\nproject has since been archived. A former member who still holds a valid\nsession could otherwise edit or delete their own historical entries in a\nproject they no longer belong to, or one that is now read-only. Both checks run\nagainst the entry's own ``task`` (object-level, via ``CanLogTime`` and\n``IsProjectNotArchived`` on ``permission_classes``) — a revoked member or an\narchived project answers **403**, matching the sibling write paths; this never\nleaks existence (the entry already resolved as the caller's own), so there is\nno 404 case to preserve here.",
+                "description": "``/api/v1/me/time-entries/{id}/`` — author-only PATCH / DELETE (ADR-0185 §4).\n\nThe queryset is hard-scoped to ``user=request.user``, so PATCH or DELETE on another\nuser's entry returns **404** (existence-oracle close, matches #996) — never 403.\nDELETE is a ``soft_delete`` so the undo toast and mobile sync tombstone both work.\n\n**The approved-week lock is not here, deliberately (ADR-1495 §3).** It lives in\n``TimeEntry.save()``, so this view, the create path and timer stop share one guard\nand a write into (or out of) an approved week answers 409\n``timesheet_week_approved``. A submitted or returned week stays editable.\n\n**Re-checks live Member+ and the archived-project gate on every write (#4318).**\nThe queryset above only proves the entry is *owned by the caller* — it says\nnothing about whether that caller is still a project member, or whether the\nproject has since been archived. A former member who still holds a valid\nsession could otherwise edit or delete their own historical entries in a\nproject they no longer belong to, or one that is now read-only. Both checks run\nagainst the entry's own ``task`` (object-level, via ``CanLogTime`` and\n``IsProjectNotArchived`` on ``permission_classes``) — a revoked member or an\narchived project answers **403**, matching the sibling write paths; this never\nleaks existence (the entry already resolved as the caller's own), so there is\nno 404 case to preserve here.",
                 "parameters": [
                     {
                         "in": "path",
@@ -10056,7 +10462,7 @@
         "/api/v1/me/timesheets/{week_start}/submit/": {
             "post": {
                 "operationId": "v1_me_timesheets_submit_create",
-                "description": "``/api/v1/me/timesheets/{week_start}/submit`` — mark a week done / undo (ADR-0224).\n\nA per-user-per-week submission marker with no approver: entries stay editable after\nsubmit, and the 0.5 approval epic (#100) reads this row rather than re-deciding it. The\nmarker is hard-scoped to ``request.user`` (IDOR-safe by construction — the URL carries no\nother user's identity), so ``IsAuthenticated`` is the whole gate; there is no task/project\nto run ``CanLogTime`` against, and a marker with no entries is inert.\n\n``week_start`` is normalized to its ISO Monday (:func:`_monday_of`) before write, so the\n``(user, week_start)`` uniqueness cannot fragment. POST is an idempotent upsert\n(``update_or_create`` refreshes ``submitted_at``); DELETE is an idempotent un-submit (204\neven when no marker exists).",
+                "description": "``/api/v1/me/timesheets/{week_start}/submit`` — mark a week done / undo (ADR-0224).\n\nThe submitter's half of the review state machine (ADR-1495 §2): POST submits or\nresubmits (a returned week included, which notifies the reviewer), DELETE withdraws\nto draft. Both answer 409 once the week is approved — there is no reopen in 0.5.\nEntries stay editable while submitted; approve re-hashes them and refuses a week\nthat changed. Hard-scoped to ``request.user`` (the URL carries no other user's\nidentity), so ``IsAuthenticated`` is the whole gate.\n\n``week_start`` is normalized to its ISO Monday (:func:`_monday_of`) before write, so the\n``(user, week_start)`` uniqueness cannot fragment. A repeated POST refreshes\n``submitted_at`` and the digest; a DELETE of a never-submitted week is a 204 no-op.",
                 "parameters": [
                     {
                         "in": "path",
@@ -10093,6 +10499,9 @@
                         },
                         "description": ""
                     },
+                    "409": {
+                        "description": "The week is approved and can no longer be resubmitted."
+                    },
                     "400": {
                         "content": {
                             "application/json": {
@@ -10127,7 +10536,7 @@
             },
             "delete": {
                 "operationId": "v1_me_timesheets_submit_destroy",
-                "description": "``/api/v1/me/timesheets/{week_start}/submit`` — mark a week done / undo (ADR-0224).\n\nA per-user-per-week submission marker with no approver: entries stay editable after\nsubmit, and the 0.5 approval epic (#100) reads this row rather than re-deciding it. The\nmarker is hard-scoped to ``request.user`` (IDOR-safe by construction — the URL carries no\nother user's identity), so ``IsAuthenticated`` is the whole gate; there is no task/project\nto run ``CanLogTime`` against, and a marker with no entries is inert.\n\n``week_start`` is normalized to its ISO Monday (:func:`_monday_of`) before write, so the\n``(user, week_start)`` uniqueness cannot fragment. POST is an idempotent upsert\n(``update_or_create`` refreshes ``submitted_at``); DELETE is an idempotent un-submit (204\neven when no marker exists).",
+                "description": "``/api/v1/me/timesheets/{week_start}/submit`` — mark a week done / undo (ADR-0224).\n\nThe submitter's half of the review state machine (ADR-1495 §2): POST submits or\nresubmits (a returned week included, which notifies the reviewer), DELETE withdraws\nto draft. Both answer 409 once the week is approved — there is no reopen in 0.5.\nEntries stay editable while submitted; approve re-hashes them and refuses a week\nthat changed. Hard-scoped to ``request.user`` (the URL carries no other user's\nidentity), so ``IsAuthenticated`` is the whole gate.\n\n``week_start`` is normalized to its ISO Monday (:func:`_monday_of`) before write, so the\n``(user, week_start)`` uniqueness cannot fragment. A repeated POST refreshes\n``submitted_at`` and the digest; a DELETE of a never-submitted week is a 204 no-op.",
                 "parameters": [
                     {
                         "in": "path",
@@ -10155,7 +10564,10 @@
                 ],
                 "responses": {
                     "204": {
-                        "description": "Week un-submitted; empty body."
+                        "description": "Week withdrawn to draft; empty body."
+                    },
+                    "409": {
+                        "description": "The week is approved and cannot be withdrawn."
                     },
                     "400": {
                         "content": {
@@ -44220,6 +44632,438 @@
                 "summary": "Delete recurrence rule"
             }
         },
+        "/api/v1/reporting-lines/": {
+            "get": {
+                "operationId": "v1_reporting_lines_retrieve",
+                "description": "``GET /api/v1/reporting-lines/`` — every reporting line (workspace Admin+).",
+                "tags": [
+                    "workspace"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ReportingLineList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage credentials, sign-in configuration, memberships or workspace exports. Sign in to perform this action."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "List reporting lines"
+            }
+        },
+        "/api/v1/reporting-lines/{user_id}/": {
+            "get": {
+                "operationId": "v1_reporting_lines_retrieve_2",
+                "description": "``/api/v1/reporting-lines/{user_id}/`` — read, set or clear a person's manager.\n\nWorkspace Admin+ only: setting a manager grants approval authority over a\nperson's time. ``PUT {\"manager\": <user id>}`` sets it, ``DELETE`` clears it. The\nservice refuses self-management and cycles and audits every change.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "user_id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "workspace"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ReportingLine"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage credentials, sign-in configuration, memberships or workspace exports. Sign in to perform this action."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Retrieve reporting line"
+            },
+            "put": {
+                "operationId": "v1_reporting_lines_update",
+                "description": "``/api/v1/reporting-lines/{user_id}/`` — read, set or clear a person's manager.\n\nWorkspace Admin+ only: setting a manager grants approval authority over a\nperson's time. ``PUT {\"manager\": <user id>}`` sets it, ``DELETE`` clears it. The\nservice refuses self-management and cycles and audits every change.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "user_id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "header",
+                        "name": "Idempotency-Key",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "maxLength": 255
+                        },
+                        "description": "Optional client-generated key (a UUIDv4 is recommended) that makes a retry of this request safe: a retry with the same key and a byte-identical request replays the stored response instead of repeating the write. Scoped per authenticated user. Reusing a key for a different request is refused with ``422``. See the Idempotency guide."
+                    }
+                ],
+                "tags": [
+                    "workspace"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ReportingLineWriteRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ReportingLineWriteRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ReportingLineWriteRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ReportingLine"
+                                }
+                            }
+                        },
+                        "description": "",
+                        "headers": {
+                            "Idempotent-Replay": {
+                                "description": "``true`` when this response is a replay of the stored response for the request's ``Idempotency-Key``; absent on a first execution.",
+                                "schema": {
+                                    "type": "string",
+                                    "example": "true"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage credentials, sign-in configuration, memberships or workspace exports. Sign in to perform this action."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Update reporting line"
+            },
+            "delete": {
+                "operationId": "v1_reporting_lines_destroy",
+                "description": "``/api/v1/reporting-lines/{user_id}/`` — read, set or clear a person's manager.\n\nWorkspace Admin+ only: setting a manager grants approval authority over a\nperson's time. ``PUT {\"manager\": <user id>}`` sets it, ``DELETE`` clears it. The\nservice refuses self-management and cycles and audits every change.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "user_id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "header",
+                        "name": "Idempotency-Key",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "maxLength": 255
+                        },
+                        "description": "Optional client-generated key (a UUIDv4 is recommended) that makes a retry of this request safe: a retry with the same key and a byte-identical request replays the stored response instead of repeating the write. Scoped per authenticated user. Reusing a key for a different request is refused with ``422``. See the Idempotency guide."
+                    }
+                ],
+                "tags": [
+                    "workspace"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Manager cleared.",
+                        "headers": {
+                            "Idempotent-Replay": {
+                                "description": "``true`` when this response is a replay of the stored response for the request's ``Idempotency-Key``; absent on a first execution.",
+                                "schema": {
+                                    "type": "string",
+                                    "example": "true"
+                                }
+                            }
+                        }
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "403": {
+                        "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "API tokens cannot manage credentials, sign-in configuration, memberships or workspace exports. Sign in to perform this action."
+                                        },
+                                        "refusal": {
+                                            "type": "object",
+                                            "properties": {
+                                                "verdict": {
+                                                    "type": "string",
+                                                    "example": "refused"
+                                                },
+                                                "reason": {
+                                                    "type": "string",
+                                                    "example": "policy"
+                                                },
+                                                "constraint": {
+                                                    "type": "string",
+                                                    "example": "capability_scope"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Delete reporting line"
+            }
+        },
         "/api/v1/resolve/": {
             "get": {
                 "operationId": "v1_resolve_retrieve",
@@ -69134,6 +69978,30 @@
                     "velocity"
                 ]
             },
+            "MeReportsResponse": {
+                "type": "object",
+                "properties": {
+                    "next": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TimesheetReportRow"
+                        }
+                    }
+                },
+                "required": [
+                    "next",
+                    "previous",
+                    "results"
+                ]
+            },
             "MeTimeEntriesWeeklyResponse": {
                 "type": "object",
                 "properties": {
@@ -69168,9 +70036,27 @@
                     "submitted_at": {
                         "type": "string",
                         "nullable": true
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/TimesheetStatusEnum"
+                    },
+                    "reviewer": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "reviewed_at": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "return_reason": {
+                        "type": "string"
                     }
                 },
                 "required": [
+                    "return_reason",
+                    "reviewed_at",
+                    "reviewer",
+                    "status",
                     "submitted",
                     "submitted_at",
                     "week_start"
@@ -75494,6 +76380,9 @@
                     "note": {
                         "type": "string",
                         "maxLength": 500
+                    },
+                    "category": {
+                        "$ref": "#/components/schemas/TimeEntryCategoryEnum"
                     }
                 }
             },
@@ -84557,6 +85446,62 @@
                 "required": [
                     "id",
                     "server_version"
+                ]
+            },
+            "ReportingLine": {
+                "type": "object",
+                "properties": {
+                    "manager": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/TimesheetPerson"
+                            }
+                        ],
+                        "title": "User"
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "required": [
+                    "manager",
+                    "updated_at"
+                ]
+            },
+            "ReportingLineList": {
+                "type": "object",
+                "properties": {
+                    "next": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ReportingLine"
+                        }
+                    }
+                },
+                "required": [
+                    "next",
+                    "previous",
+                    "results"
+                ]
+            },
+            "ReportingLineWriteRequest": {
+                "type": "object",
+                "properties": {
+                    "manager": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "manager"
                 ]
             },
             "ResolutionEnum": {
@@ -95698,6 +96643,9 @@
                         ],
                         "readOnly": true
                     },
+                    "category": {
+                        "$ref": "#/components/schemas/TimeEntryCategoryEnum"
+                    },
                     "server_version": {
                         "type": "integer",
                         "readOnly": true
@@ -95718,6 +96666,17 @@
                     "user"
                 ]
             },
+            "TimeEntryCategoryEnum": {
+                "enum": [
+                    "task",
+                    "pto",
+                    "admin",
+                    "training"
+                ],
+                "type": "string",
+                "description": "* `task` - Task work\n* `pto` - Paid time off\n* `admin` - Admin\n* `training` - Training",
+                "x-trueppm-enum": "open"
+            },
             "TimeEntryRequest": {
                 "type": "object",
                 "description": "Read/write serializer for a single :class:`TimeEntry` (create + author-only PATCH).\n\n``task``, ``user``, ``source``, ``server_version`` and ``created_at`` are read-only:\nthe task comes from the nested route (not the body), the owner is server-set\n(IDOR-safe), and provenance is server-decided. Only ``minutes``/``entry_date``/\n``note`` are writable. ``validate_entry_date`` enforces the no-future / backdate-\nwindow rule (ADR-0185 §Consequences) — it applies only to manual writes, since timer\nentries set ``entry_date`` in the service and never pass through this serializer.",
@@ -95734,6 +96693,9 @@
                     "note": {
                         "type": "string",
                         "maxLength": 500
+                    },
+                    "category": {
+                        "$ref": "#/components/schemas/TimeEntryCategoryEnum"
                     }
                 },
                 "required": [
@@ -95799,6 +96761,9 @@
                     "source": {
                         "$ref": "#/components/schemas/TimeEntrySourceEnum"
                     },
+                    "category": {
+                        "$ref": "#/components/schemas/TimeEntryCategoryEnum"
+                    },
                     "server_version": {
                         "type": "integer",
                         "readOnly": true
@@ -95840,6 +96805,181 @@
                     "task"
                 ]
             },
+            "TimesheetPerson": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "username": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "name",
+                    "username"
+                ]
+            },
+            "TimesheetReportEntry": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "entry_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "minutes": {
+                        "type": "integer"
+                    },
+                    "category": {
+                        "type": "string"
+                    },
+                    "restricted": {
+                        "type": "boolean"
+                    },
+                    "task": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "task_name": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "project": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "project_name": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "note": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "category",
+                    "entry_date",
+                    "id",
+                    "minutes",
+                    "note",
+                    "project",
+                    "project_name",
+                    "restricted",
+                    "task",
+                    "task_name"
+                ]
+            },
+            "TimesheetReportRow": {
+                "type": "object",
+                "properties": {
+                    "user": {
+                        "$ref": "#/components/schemas/TimesheetPerson"
+                    },
+                    "week_start": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/TimesheetStatusEnum"
+                    },
+                    "submitted_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "week_minutes": {
+                        "type": "integer",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "status",
+                    "submitted_at",
+                    "user",
+                    "week_minutes",
+                    "week_start"
+                ]
+            },
+            "TimesheetReportWeek": {
+                "type": "object",
+                "properties": {
+                    "user": {
+                        "$ref": "#/components/schemas/TimesheetPerson"
+                    },
+                    "week_start": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/TimesheetStatusEnum"
+                    },
+                    "submitted_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "reviewed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "return_reason": {
+                        "type": "string"
+                    },
+                    "week_minutes": {
+                        "type": "integer"
+                    },
+                    "entries": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TimesheetReportEntry"
+                        }
+                    }
+                },
+                "required": [
+                    "entries",
+                    "return_reason",
+                    "reviewed_at",
+                    "status",
+                    "submitted_at",
+                    "user",
+                    "week_minutes",
+                    "week_start"
+                ]
+            },
+            "TimesheetReturnRequestRequest": {
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "minLength": 1
+                    }
+                },
+                "required": [
+                    "reason"
+                ]
+            },
+            "TimesheetStatusEnum": {
+                "enum": [
+                    "draft",
+                    "submitted",
+                    "approved",
+                    "returned"
+                ],
+                "type": "string",
+                "description": "* `draft` - Draft\n* `submitted` - Submitted\n* `approved` - Approved\n* `returned` - Returned",
+                "x-trueppm-enum": "open"
+            },
             "TimesheetSubmitResponse": {
                 "type": "object",
                 "properties": {
@@ -95848,9 +96988,13 @@
                     },
                     "submitted_at": {
                         "type": "string"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/TimesheetStatusEnum"
                     }
                 },
                 "required": [
+                    "status",
                     "submitted_at",
                     "week_start"
                 ]

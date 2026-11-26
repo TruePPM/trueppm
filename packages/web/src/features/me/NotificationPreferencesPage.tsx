@@ -115,6 +115,15 @@ const EVENT_LABELS: Record<string, { title: string; example: string }> = {
     title: 'When you are booked over your capacity',
     example: '“You are booked over capacity on Apollo”',
   },
+  // ADR-1495 (#4811): timesheet review by a reporting-line manager.
+  'timesheet.returned': {
+    title: 'When your timesheet week is returned',
+    example: '“Sam Lee returned your week of 2026-11-23”',
+  },
+  'timesheet.resubmitted': {
+    title: 'When a returned week is resubmitted',
+    example: '“Alex Kim resubmitted the week of 2026-11-23”',
+  },
 };
 
 /** Event types sent on the weekly slot — used to gate the schedule card. */

@@ -128,14 +128,17 @@ def test_two_users_submit_same_week_independently(alice: object, bob: object) ->
 
 
 @pytest.mark.django_db
-def test_unsubmit_removes_marker(alice: object) -> None:
+def test_unsubmit_withdraws_to_draft(alice: object) -> None:
+    """Withdraw keeps the row as ``draft`` so its transition log survives (ADR-1495 §2)."""
     client = _client(alice)
     client.post(_submit_url(MONDAY))
 
     resp = client.delete(_submit_url(MONDAY))
 
     assert resp.status_code == 204
-    assert not TimesheetSubmission.objects.filter(user=alice).exists()
+    assert TimesheetSubmission.objects.get(user=alice).status == "draft"
+    weekly = client.get(f"/api/v1/me/time-entries/?from={MONDAY}&to={SUNDAY}").json()
+    assert weekly["submission"]["submitted"] is False
 
 
 @pytest.mark.django_db

@@ -1,7 +1,9 @@
 # ADR-0224: Timesheet week-submission marker and the multi-entry grid-cell rule
 
 ## Status
-Accepted
+Accepted. **Amended by [ADR-1495](1495-timesheet-review-reporting-line.md)** (0.5): the
+submission marker becomes a review state machine (draft / submitted / approved / returned),
+un-submit becomes withdraw-to-draft (the row is kept), and an approved week is locked.
 
 ## Context
 

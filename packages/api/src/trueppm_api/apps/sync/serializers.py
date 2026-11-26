@@ -511,6 +511,7 @@ class SyncTimeEntrySerializer(serializers.ModelSerializer[TimeEntry]):
             "entry_date",
             "note",
             "source",
+            "category",
             "created_at",
         ]
 

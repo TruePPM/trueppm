@@ -1,6 +1,7 @@
 ---
 title: Errors and status codes
 description: The two error response shapes, the stable machine-readable code values you can branch on, and what the API stability contract guarantees about them.
+documentedFor: "0.5"
 ---
 
 TruePPM returns errors in **two different shapes**, and the difference decides
@@ -629,6 +630,20 @@ Ships in 0.5. A date write (`planned_start`, `duration` or `planned_finish`) tha
 While a slip is pending, the task read will report it in `pending_commitment_slip` (`scope_change_id`, `sprint_id`, `proposed_start`, `proposed_finish`, `batch_id`, `reason`; `null` otherwise). When more than one requester has one pending, the task read reports the newest, and `GET /api/v1/sprints/{id}/scope-changes/` lists them all with `summary.pending_slip_count`.
 
 The bulk task endpoint will report the same code on the rejected row, and the sync push will report it as an entry in `conflicts.tasks`; keep the local edit pending. `structure_role` (`work` or `container`) is on the `409` and the sync entry, not the bulk row. A caller who *can* accept scope changes and sends no `slip_reason` will get a field error keyed `slip_reason` (shape 1, no `code`).
+
+### 409 — timesheet review
+
+:::note[Ships in 0.5]
+These three codes ship with timesheet review in 0.5; the current release has no reviewer and never emits them.
+:::
+
+Each arrives in the body as `{"detail": "...", "code": "..."}`.
+
+| Code | Status | Meaning |
+|------|--------|---------|
+| `timesheet_week_approved` | 409 | A time-entry write (create, edit, delete, or moving an entry out) lands in a week whose timesheet is approved. Approved weeks are read-only. |
+| `timesheet_state_conflict` | 409 | The week is not in a state that allows the transition: resubmitting or withdrawing an approved week, or approving or returning a week that is not submitted. |
+| `timesheet_changed_since_submit` | 409 | Approve was refused because the week's entries changed after it was submitted. The submitter resubmits. |
 
 ### 413 — request body too large
 

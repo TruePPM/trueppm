@@ -104,7 +104,13 @@ from trueppm_api.apps.resources.services import ensure_project_resource
 from trueppm_api.apps.scheduling.services import enqueue_recalculate
 from trueppm_api.apps.sync.broadcast import broadcast_board_event
 from trueppm_api.apps.sync.sequence import allocate_for_projects, coalesce_sync_seq
-from trueppm_api.apps.timetracking.models import TimeEntry, TimesheetSubmission
+from trueppm_api.apps.timetracking.models import (
+    TimeEntry,
+    TimesheetStatus,
+    TimesheetSubmission,
+    TimesheetTransition,
+)
+from trueppm_api.apps.timetracking.review import week_digest
 
 logger = logging.getLogger(__name__)
 
@@ -2819,11 +2825,30 @@ class _SeedImporter:
                 # Friday 17:00 UTC of that week — submitted when the week closed.
                 submitted_at=datetime(monday.year, monday.month, monday.day, 17, 0, tzinfo=_UTC)
                 + timedelta(days=4),
+                status=TimesheetStatus.SUBMITTED,
+                # What approve compares the live entries against (ADR-1495); an empty
+                # digest would make every seeded week answer 409 "changed since submit".
+                entries_digest=week_digest(user_id, monday),
             )
             for user_id, monday in sorted(weeks, key=lambda pair: (str(pair[0]), pair[1]))
             if (user_id, monday) not in existing
         ]
         TimesheetSubmission.objects.bulk_create(rows, batch_size=_BULK_BATCH_SIZE)
+        # The history a real submit would leave. Written directly rather than through
+        # ``submit_week`` so it is backdated and fires no extension signal.
+        TimesheetTransition.objects.bulk_create(
+            [
+                TimesheetTransition(
+                    submission=row,
+                    actor_id=row.user_id,
+                    from_status=TimesheetStatus.DRAFT,
+                    to_status=TimesheetStatus.SUBMITTED,
+                    created_at=row.submitted_at,
+                )
+                for row in rows
+            ],
+            batch_size=_BULK_BATCH_SIZE,
+        )
 
     def _create_program_risks(self, program: Program) -> None:
         """Program-scoped risks attach to the first project (Risk is project-FK).

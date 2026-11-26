@@ -32,7 +32,8 @@ from trueppm_api.apps.projects.models import (
     TaskNote,
 )
 from trueppm_api.apps.projects.seed.samples import SAMPLES, load_sample
-from trueppm_api.apps.timetracking.models import TimeEntry, TimesheetSubmission
+from trueppm_api.apps.timetracking.models import TimeEntry, TimesheetStatus, TimesheetSubmission
+from trueppm_api.apps.timetracking.review import set_manager
 
 pytestmark = pytest.mark.django_db
 
@@ -169,3 +170,34 @@ def test_aurora_share_link_is_visible_to_its_admins_only() -> None:
     assert len(links) == 1
     assert ShareLink.objects.get(project=project).revoked_at is None
     assert _as("aurora-ada").get(url).status_code in (403, 404)
+
+
+def test_a_synthesized_week_can_be_approved() -> None:
+    """A seeded submitted week carries the digest and history a real submit leaves."""
+    _load("atlas-platform-launch")
+    submissions = TimesheetSubmission.objects.filter(user__username__startswith="atlas-")
+    assert submissions.exists()
+    assert not submissions.filter(entries_digest="").exists()
+    assert not submissions.filter(transitions__isnull=True).exists()
+
+    submission = submissions.order_by("-week_start").select_related("user").first()
+    assert submission is not None
+    step = submission.transitions.get()
+    assert (step.actor_id, step.from_status, step.to_status, step.created_at) == (
+        submission.user_id,
+        TimesheetStatus.DRAFT,
+        TimesheetStatus.SUBMITTED,
+        submission.submitted_at,
+    )
+    manager = User.objects.create_user("atlas-layer-manager")
+    admin = User.objects.get(username="atlas-platform-launch-layer-owner")
+    set_manager(actor=admin, user=submission.user, manager=manager)
+    client = APIClient()
+    client.force_authenticate(manager)
+    resp = client.post(
+        f"/api/v1/me/reports/{submission.user_id}/timesheets/"
+        f"{submission.week_start.isoformat()}/approve/"
+    )
+    assert resp.status_code == 200, resp.content
+    submission.refresh_from_db()
+    assert submission.status == TimesheetStatus.APPROVED

@@ -81,6 +81,10 @@ _EVENT_TYPE_CATEGORY: dict[str, str] = {
     NotificationEventType.AGENT_REFUSED.value: CATEGORY_PROJECT,
     # `project`: a notice about the person's own booking on a project (#4806).
     NotificationEventType.ALLOCATION_OVERAGE_ACCEPTED.value: CATEGORY_PROJECT,
+    # `tasks` (ADR-1495): both are about the recipient's own logged work (my week was
+    # returned) or work they review (my report resubmitted), not a project lifecycle.
+    NotificationEventType.TIMESHEET_RETURNED.value: CATEGORY_TASKS,
+    NotificationEventType.TIMESHEET_RESUBMITTED.value: CATEGORY_TASKS,
 }
 
 

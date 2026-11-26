@@ -461,6 +461,21 @@ This feature was added in 0.3.
 
 ---
 
+## Reporting lines
+
+:::note[Ships in 0.5]
+Reporting lines will arrive in 0.5 as an API; the current release has no manager for anyone and no timesheet review.
+:::
+
+A reporting line sets one person's **direct manager**, who reviews that person's [timesheet](/features/timesheet/#submitting-your-week). Setting a manager gives that person authority to approve or return someone's time, so only a workspace **Admin** or **Owner** can read or change reporting lines, and every change is recorded with who made it and what it replaced.
+
+- `GET /api/v1/reporting-lines/` lists every line; `GET /api/v1/reporting-lines/{user_id}/` reads one.
+- `PUT /api/v1/reporting-lines/{user_id}/` with `{"manager": <user id>}` sets or changes a manager; `DELETE` clears it.
+- A person cannot be their own manager, and a change that would make a loop (two people managing each other, or a longer chain that leads back to the person) is refused with `400`.
+- API tokens are refused on these routes, an admin's included: a person sets reporting lines.
+
+Each person has at most one manager, and review is one level: there is no chain, delegate, or escalation. When a manager changes, weeks already submitted go to the new manager, and the previous manager loses access immediately.
+
 ## Invites (`/settings/members` → invite flow)
 
 Workspace Admins send email invitations to bring new users into the workspace.

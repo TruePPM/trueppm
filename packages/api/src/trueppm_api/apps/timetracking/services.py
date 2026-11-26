@@ -16,7 +16,13 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from trueppm_api.apps.timetracking.models import ActiveTimer, TimeEntry, TimeEntrySource
+from trueppm_api.apps.timetracking.models import (
+    ActiveTimer,
+    TimeEntry,
+    TimeEntryCategory,
+    TimeEntrySource,
+    week_is_approved,
+)
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User as _User
@@ -77,6 +83,7 @@ def log_time(
     entry_date: date | None = None,
     note: str = "",
     source: str = TimeEntrySource.MANUAL,
+    category: str = TimeEntryCategory.TASK,
 ) -> TimeEntry:
     """Create a logged :class:`TimeEntry`.
 
@@ -91,6 +98,7 @@ def log_time(
         entry_date=entry_date or timezone.localdate(),
         note=note,
         source=source,
+        category=category,
     )
 
 
@@ -124,8 +132,11 @@ def start_timer(*, user: _User, task: Task, note: str = "") -> tuple[ActiveTimer
     )
     if existing is not None:
         existing_project_id = existing.task.project_id
-        if _project_is_archived_now(existing_project_id) or not _member_can_still_log_time(
-            user, existing_project_id
+        if (
+            _project_is_archived_now(existing_project_id)
+            or not _member_can_still_log_time(user, existing_project_id)
+            # ADR-1495 §3: the prior timer's week was approved while it ran.
+            or week_is_approved(user.pk, timezone.localdate(existing.started_at), lock=True)
         ):
             existing.delete()
         else:
@@ -139,8 +150,13 @@ def start_timer(*, user: _User, task: Task, note: str = "") -> tuple[ActiveTimer
     return timer, finalized
 
 
+#: Returned by :func:`stop_timer` when the timer was discarded because its week is
+#: approved: distinct from ``None`` ("no timer") so the caller can say what happened.
+TIMER_DISCARDED_APPROVED_WEEK = "approved_week"
+
+
 @transaction.atomic
-def stop_timer(*, user: _User) -> TimeEntry | None:
+def stop_timer(*, user: _User) -> TimeEntry | str | None:
     """Stop ``user``'s running timer, finalize it into a :class:`TimeEntry`, delete the row.
 
     Returns ``None`` when no timer is running (or when the timer is discarded —
@@ -182,6 +198,13 @@ def stop_timer(*, user: _User) -> TimeEntry | None:
     if _project_is_archived_now(project_id) or not _member_can_still_log_time(user, project_id):
         timer.delete()
         return None
+    if week_is_approved(user.pk, timezone.localdate(timer.started_at), lock=True):
+        # The timer's week was approved while it ran (ADR-1495 §3). The approved week
+        # is read-only, so the elapsed time cannot be logged into it; discard the timer
+        # rather than raise, for the same reason as the lapsed-access branch above, and
+        # tell the view so it can say why instead of "no active timer".
+        timer.delete()
+        return TIMER_DISCARDED_APPROVED_WEEK
     return _finalize(timer)
 
 

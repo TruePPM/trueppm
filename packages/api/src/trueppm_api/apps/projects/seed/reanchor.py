@@ -43,6 +43,12 @@ from django.db.models import F, QuerySet
 from django.utils import timezone
 
 from trueppm_api.apps.projects.models import Program, Project
+from trueppm_api.apps.timetracking.models import (
+    TimeEntry,
+    TimesheetStatus,
+    TimesheetSubmission,
+)
+from trueppm_api.apps.timetracking.review import week_digest
 
 # The shift quantum. Plan dates are snapped onto working days by the seed
 # resolver, so only a whole-week offset preserves the weekday each date was
@@ -115,7 +121,6 @@ def _shift_specs() -> tuple[DateShift, ...]:
         TaskRelation,
     )
     from trueppm_api.apps.scheduling.models import MonteCarloRun, ProjectForecastSnapshot
-    from trueppm_api.apps.timetracking.models import TimeEntry
 
     return (
         DateShift(
@@ -407,9 +412,13 @@ _DELIBERATELY_UNSHIFTED: dict[str, str] = {
     "timetracking.TimesheetSubmission.week_start": (
         "TimesheetSubmission has no project or program FK — only `user`. It cannot "
         "be scoped to one sample program, and shifting by user would reach a real "
-        "person's real submissions if a persona account is ever taken over."
+        "person's real submissions if a persona account is ever taken over. Only "
+        "entries_digest is re-stamped (_restampable_submissions)."
     ),
     "timetracking.TimesheetSubmission.submitted_at": "See week_start.",
+    "timetracking.TimesheetSubmission.reviewed_at": (
+        "Set only by a real reviewer's approve or return; see week_start."
+    ),
     "projects.CeremonyTemplate.created_at": "auto_now_add bookkeeping; not rendered as plan.",
     "projects.CeremonyTemplate.updated_at": "auto_now bookkeeping.",
     "agents.AgentAction.occurred_at": (
@@ -473,6 +482,36 @@ def whole_week_delta(anchor: dt.date, today: dt.date) -> int:
     return round(raw / _WEEK) * _WEEK
 
 
+def _restampable_submissions(program: Program) -> list[TimesheetSubmission]:
+    """Submitted weeks whose digest the shift invalidates and may redo (ADR-1495).
+
+    The shift moves ``entry_date`` but not ``week_start``, so each submitted week
+    ends up holding other entries and approve would answer 409 for good. A row
+    qualifies only when its person logged time on this program, its week holds no
+    entry from outside the program, and its digest matches the entries right now.
+    The last two keep a re-stamp from covering for an edit made after submit, or
+    from touching a week of real work. Rows are locked, as approve locks them.
+    """
+    mine = TimeEntry.objects.filter(task__project__program=program)
+    candidates = TimesheetSubmission.objects.select_for_update().filter(
+        user_id__in=mine.values("user_id"), status=TimesheetStatus.SUBMITTED
+    )
+    keep = []
+    for submission in candidates:
+        monday = submission.week_start
+        foreign = TimeEntry.objects.filter(
+            user_id=submission.user_id,
+            is_deleted=False,
+            # engine-boundary-ok: calendar bookkeeping, not schedule math
+            entry_date__range=(monday, monday + dt.timedelta(days=6)),
+        ).exclude(task__project__program=program)
+        if not foreign.exists() and submission.entries_digest == week_digest(
+            submission.user_id, monday
+        ):
+            keep.append(submission)
+    return keep
+
+
 def shift_sample_dates(program: Program, *, actor: Any = None) -> ShiftReport:
     """Move every dated row of a sample program forward to today (ADR-1175).
 
@@ -533,6 +572,8 @@ def shift_sample_dates(program: Program, *, actor: Any = None) -> ShiftReport:
             )
 
         offset = dt.timedelta(days=days)
+        # Read before the entries move: only a digest that is still true may be redone.
+        submissions = _restampable_submissions(locked)
         for spec in (*_shift_specs(), *_history_specs()):
             # ALL of a model's columns move in ONE statement. Updating them one at
             # a time walks the row through states its own CHECK constraints forbid:
@@ -544,6 +585,10 @@ def shift_sample_dates(program: Program, *, actor: Any = None) -> ShiftReport:
             # need no filtering — which is also why the report counts ROWS rather
             # than columns.
             rows += spec.scope(locked).update(**{field: F(field) + offset for field in spec.fields})
+
+        for submission in submissions:
+            submission.entries_digest = week_digest(submission.user_id, submission.week_start)
+            submission.save(update_fields=["entries_digest"])
 
         # Tier 2: the engine output was left alone on purpose. Null the completion
         # marker so the Schedule view shows its existing "recalculating" badge
