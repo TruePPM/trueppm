@@ -1124,6 +1124,9 @@ ARCHIVED_EXEMPT_ENTRIES: frozenset[str] = frozenset(
         "api/v1/projects/<project_pk>/task-runs/<pk>/cancel/::cancel",
         "api/v1/projects/<uuid:pk>/notification-preferences/::patch",
         "api/v1/workspace/groups/<uuid:group_id>/projects/<uuid:project_id>/::delete",
+        # Replaying a dead letter writes the delivery row only (#5121).
+        "api/v1/^projects/(?P<project_pk>[^/.]+)/webhooks/(?P<pk>[^/.]+)/deliveries/"
+        "(?P<delivery_id>[0-9a-fA-F-]{32,36})/replay/$::replay",
     }
 )
 

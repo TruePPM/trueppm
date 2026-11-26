@@ -197,48 +197,65 @@ def baseline_version(project_id: Any) -> int:
     )
 
 
-def _variance_working_days(project: Project, baseline: Baseline | None) -> int | None:
-    """Project finish variance against ``baseline`` in working days, or None.
+def _variance_working_days(project_id: Any, baseline_id: Any) -> int | None:
+    """Project finish variance against a baseline in working days, or None.
 
-    The server's own variance read (never recomputed here). Best effort: it feeds
-    an outbound event, so a failure must not undo the decision it describes.
+    The server's own variance read (never recomputed here). Called from the
+    ``baseline.kept`` on-commit callback, after the decision has committed, so a
+    failure here (a database error included) cannot undo the decision: it only
+    sends the event with ``variance_wd`` null.
     """
-    if baseline is None:
+    if baseline_id is None:
         return None
     from trueppm_api.apps.scheduling.calendars import project_sched_calendars
 
     from .baseline_variance import baseline_variance
 
     try:
-        calendar = project_sched_calendars([project.pk])[str(project.pk)]
+        baseline = Baseline.objects.filter(pk=baseline_id).first()
+        if baseline is None:
+            return None
+        calendar = project_sched_calendars([project_id])[str(project_id)]
         summary = baseline_variance(baseline, calendar, min_days=1).summary
         delta: int | None = summary["project_finish"]["delta_working_days"]
         return delta
     except Exception:
-        logger.warning("baseline.kept: variance read failed for %s", project.pk, exc_info=True)
+        logger.warning("baseline.kept: variance read failed for %s", project_id, exc_info=True)
         return None
 
 
 def _announce_kept(row: BaselineDecision, project: Project, open_count: int) -> None:
     """``baseline.kept`` after commit: the Keep v1 exit (#5121).
 
-    Ids, counts and the user's own note. ``variance_wd`` is the project finish
-    shift the decision lets stand, in working days (null before CPM has run).
+    Ids, counts and the user's own note. ``decision_id`` is the
+    ``BaselineDecision`` row, the same id Take v2's ``baseline.captured`` carries
+    as ``decision_id``; ``baseline_id`` and ``from_baseline_id`` both name the
+    baseline that stays active. ``variance_wd`` is the project finish shift the
+    decision lets stand, in working days (null before CPM has run, or when the
+    read fails). It is read in the callback, after commit, never in ``decide``'s
+    transaction.
     """
-    from .views import _dispatch_webhooks
-
+    from_baseline_id = str(row.from_baseline_id) if row.from_baseline_id else None
     payload = {
         "project": str(project.pk),
         "decision_id": str(row.pk),
-        "baseline_id": str(row.from_baseline_id) if row.from_baseline_id else None,
+        "baseline_id": from_baseline_id,
+        "from_baseline_id": from_baseline_id,
         "baseline_version": baseline_version(project.pk),
         "note": row.note or None,
         "open_entries": open_count,
-        "variance_wd": _variance_working_days(project, row.from_baseline),
         "actor": str(row.actor_id) if row.actor_id else None,
     }
     pid = str(project.pk)
-    transaction.on_commit(lambda: _dispatch_webhooks(pid, "baseline.kept", payload))
+    transaction.on_commit(lambda: _send_kept(pid, payload, from_baseline_id))
+
+
+def _send_kept(project_id: str, payload: dict[str, Any], from_baseline_id: str | None) -> None:
+    """The ``baseline.kept`` callback: add ``variance_wd``, then enqueue the deliveries."""
+    from .views import _dispatch_webhooks
+
+    sent = {**payload, "variance_wd": _variance_working_days(project_id, from_baseline_id)}
+    _dispatch_webhooks(project_id, "baseline.kept", sent)
 
 
 # ── The changeset read ───────────────────────────────────────────────────────
@@ -426,7 +443,13 @@ def decide(
                     # adds the commitment field, so this is False today and follows
                     # the input the day the refusal goes.
                     "commitment_moved": data.commitment_moved,
+                    # changeset_id and decision_id are the same BaselineDecision
+                    # pk: the decision is the changeset's resolution, and
+                    # baseline.kept names it decision_id. from_baseline_id is the
+                    # baseline this capture replaces (``id`` is the new one).
                     "changeset_id": str(decision_pk),
+                    "decision_id": str(decision_pk),
+                    "from_baseline_id": str(active.pk) if active is not None else None,
                 },
             )
 

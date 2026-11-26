@@ -274,6 +274,15 @@ class WebhookViewSet(
     # Read by the OpenAPI hook alongside the set above: `deliveries` is the one action
     # a `webhooks:manage` token cannot reach (#2414).
     narrow_token_refused_actions = frozenset({"deliveries"})
+    # Read by the route-table invariant (#2745): replay re-sends a stored payload and
+    # writes only the delivery row, never project data, so it survives archiving.
+    archived_write_exempt = {
+        "replay": (
+            "re-sends a stored dead-lettered payload and touches only the delivery row, "
+            "not the project; failures from before archiving must stay recoverable, "
+            "and the delivery history that lists them is readable while archived too"
+        ),
+    }
 
     def get_authenticators(self) -> list[BaseAuthentication]:
         # Prepended so a `webhooks:manage` token is recognized here and nowhere else
@@ -289,6 +298,13 @@ class WebhookViewSet(
         if self.action == "deliveries":
             # A read. Archived projects stay readable, so no lifecycle gate here.
             return [IsAuthenticated(), IsProjectAdmin(), IsNotNarrowScopedToken()]
+        if self.action == "replay":
+            # Refused for a full-access token (it stays in full_token_refused_actions
+            # for the schema), but with no lifecycle gate, like `deliveries`: a replay
+            # re-sends a stored payload and changes no project state, and the dead
+            # letters an archived project's webhook already holds must stay
+            # recoverable.
+            return [IsAuthenticated(), IsProjectAdmin(), IsNotFullTokenAuthenticated()]
         if self.action in self.full_token_refused_actions:
             # IsNotTokenAuthenticated (#4461): create mints a durable HMAC signing
             # secret, and update can repoint the delivery URL or rotate that secret
@@ -699,7 +715,12 @@ class ProgramWebhookViewSet(WebhookViewSet):
         # events to an external URL, and deleting it is the only way to stop that
         # outbound flow without reopening the program — the same containment argument
         # as program token revocation. `test_ping` and `deliveries` touch no program
-        # state and stay available for diagnosing a still-live webhook.
+        # state and stay available for diagnosing a still-live webhook. `replay` is
+        # the same: the webhook keeps delivering child-project events after close, so
+        # its dead letters keep accruing and must stay replayable. It is refused for a
+        # full-access token only.
+        if self.action == "replay":
+            return [IsAuthenticated(), IsProgramAdmin(), IsNotFullTokenAuthenticated()]
         if self.action in self.full_token_refused_actions:
             # IsNotFullTokenAuthenticated (#4461, #2414): see WebhookViewSet.get_permissions —
             # same durable-grant shape, mint/repoint/rotate only through a session

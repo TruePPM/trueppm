@@ -3493,6 +3493,7 @@ def accept_scope_change(
         # decision (this accept, reject_scope_change, a decided slip), never on a
         # silent injection. Carries no velocity signal, so no privacy gate applies.
         scope_payload = _sprint_scope_change_webhook_payload(locked, source="api")
+        scope_payload["closed_by"] = _scope_closed_by(locked)
 
         # #1009: capture only plain values (the sprint pk, not the ORM instance) and
         # re-fetch the Sprint inside the closure. A Sprint instance captured across
@@ -3938,11 +3939,12 @@ def record_commitment_slip(
 
 
 def _signal_slip_decided(row: Any, task: Any) -> None:
-    """Tell ``sprint_scope_changed`` receivers a slip row left PENDING.
+    """Tell ``sprint_scope_changed`` receivers and webhook subscribers a slip left PENDING.
 
     Covers both a person's accept or reject and a closure the system makes.
 
-    Without this an audit receiver sees the row open and never sees it close.
+    Without this an audit receiver, or a consumer mirroring
+    ``sprint.scope_change_requested``, sees the row open and never sees it close.
     """
     from trueppm_api.apps.projects.models import SprintScopeChange
     from trueppm_api.apps.projects.signals import sprint_scope_changed
@@ -3951,10 +3953,11 @@ def _signal_slip_decided(row: Any, task: Any) -> None:
     dispatch_extension_signal(
         sprint_scope_changed, sender=SprintScopeChange, scope_change=row, task=task
     )
-    # A person's decision is announced; a system closure (superseded, stale) has no
-    # decider and is not a decision anyone made.
-    if row.decided_by_id is not None:
-        _on_commit_scope_webhook(row, "sprint.scope_changed")
+    # Every row that left PENDING is announced, so a consumer holding the
+    # ``sprint.scope_change_requested`` it got can close it. A system closure
+    # (superseded, stale on accept, another slip accepted, sprint closed) has no
+    # decider: ``decided_by`` is null and ``closed_by`` is ``"system"``.
+    _on_commit_scope_webhook(row, "sprint.scope_changed")
 
 
 def _close_pending_slips(
@@ -4087,8 +4090,21 @@ def _on_commit_scope_webhook(row: Any, event_type: str, *, source: str = "api") 
     payload = _sprint_scope_change_webhook_payload(row, source=source)
     if event_type == "sprint.scope_change_requested":
         payload.pop("item_name", None)
+    else:
+        payload["closed_by"] = _scope_closed_by(row)
     pid = payload["project"]
     transaction.on_commit(lambda: _dispatch_webhooks(pid, event_type, payload))
+
+
+def _scope_closed_by(row: Any) -> str:
+    """``"person"`` when someone decided the row, ``"system"`` when TruePPM closed it.
+
+    ``sprint.scope_changed``'s enum for who ended a request: a superseded slip, a
+    slip found stale on accept, a sibling closed by another accept, and a slip
+    closed at sprint close all carry no decider, and saying so as an enum keeps
+    the payload free of the free-text ``decision_reason``.
+    """
+    return "person" if row.decided_by_id is not None else "system"
 
 
 def _on_commit_scope_broadcast(row: Any) -> None:

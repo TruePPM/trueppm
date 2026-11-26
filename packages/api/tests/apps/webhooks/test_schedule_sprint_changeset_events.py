@@ -313,6 +313,7 @@ def test_keep_v1_fires_baseline_kept_and_not_captured(
         "project",
         "decision_id",
         "baseline_id",
+        "from_baseline_id",
         "baseline_version",
         "note",
         "open_entries",
@@ -320,6 +321,9 @@ def test_keep_v1_fires_baseline_kept_and_not_captured(
         "actor",
     }
     assert kept["decision_id"] == str(row.pk)
+    # The baseline that stays active, under both names: from_baseline_id is the
+    # one Take v2's baseline.captured uses for the baseline it replaces.
+    assert kept["baseline_id"] == kept["from_baseline_id"] == str(row.from_baseline_id)
     assert kept["note"] == "Living with it"
     assert kept["open_entries"] == 1
     assert kept["baseline_version"] == 1
@@ -336,6 +340,36 @@ def test_keep_v1_without_a_note_sends_null(
     ):
         baselines.decide(committed, user=owner, data=baselines.DecisionInput(kind="kept"))
     assert _events(dispatch, "baseline.kept")[0]["note"] is None
+
+
+@pytest.mark.django_db(transaction=True)
+def test_a_failing_variance_read_still_commits_keep_and_sends_null(
+    committed: Project, owner: Any
+) -> None:
+    """A database error in the variance read cannot undo the Keep it describes.
+
+    ``transaction=True`` so the on-commit callback runs after a real commit, the way
+    production runs it: the read raises a genuine database error, not a mock one.
+    """
+    from django.db import connection
+
+    from trueppm_api.apps.projects import baseline_variance as bv
+    from trueppm_api.apps.projects.models import BaselineDecision
+
+    def _broken(*_a: Any, **_k: Any) -> Any:
+        with connection.cursor() as cur:
+            cur.execute("SELECT * FROM no_such_table_5121")
+        raise AssertionError("unreachable")
+
+    with (
+        patch.object(views, "_dispatch_webhooks") as dispatch,
+        patch.object(bv, "baseline_variance", _broken),
+    ):
+        row = baselines.decide(committed, user=owner, data=baselines.DecisionInput(kind="kept"))
+    assert BaselineDecision.objects.filter(pk=row.pk, kind="kept").exists()
+    (kept,) = _events(dispatch, "baseline.kept")
+    assert kept["decision_id"] == str(row.pk)
+    assert kept["variance_wd"] is None
 
 
 @pytest.mark.django_db
@@ -363,6 +397,26 @@ def test_take_v2_captured_carries_the_reason_and_v1_does_not(
             ),
         )
     (captured,) = _events(dispatch, "baseline.captured")
+    assert set(captured) == {
+        "id",
+        "project",
+        "name",
+        "has_cpm_dates",
+        "task_count",
+        "created_by",
+        "source",
+        "reason_code",
+        "reason",
+        "commitment_moved",
+        "changeset_id",
+        "decision_id",
+        "from_baseline_id",
+    }
+    # The capture names the decision it resolves under the same key baseline.kept
+    # uses, and the baseline it replaces; ``id`` is the new baseline.
+    assert captured["decision_id"] == captured["changeset_id"] == str(row.pk)
+    assert captured["from_baseline_id"] == str(row.from_baseline_id)
+    assert captured["id"] == str(row.to_baseline_id)
     assert captured["reason_code"] == "scope_change"
     assert captured["reason"] == "Owner added scope"
     # Derived from the decision, not asserted: the row and the event agree, and a
@@ -442,8 +496,9 @@ def test_a_direct_slip_with_a_reason_is_a_decision(
     ):
         _slip(task, active_sprint, owner, status="accepted", reason="Vendor late")
     (changed,) = _events(dispatch, "sprint.scope_changed")
-    assert set(changed) == _SCOPE_KEYS | _SLIP_KEYS | {"item_name"}  # D6 amendment
+    assert set(changed) == _SCOPE_KEYS | _SLIP_KEYS | {"item_name", "closed_by"}  # D6 amendment
     assert changed["status"] == "accepted"
+    assert changed["closed_by"] == "person"
     assert changed["kind"] == "slip"
     assert changed["decided_by"] == str(owner.pk)
     assert _events(dispatch, "sprint.scope_change_requested") == []
@@ -475,6 +530,7 @@ def test_a_pending_slip_requests_and_its_reject_decides(
     assert changed["id"] == str(row.pk)
     assert changed["status"] == "rejected"
     assert changed["decided_by"] == str(owner.pk)
+    assert changed["closed_by"] == "person"
 
 
 @pytest.mark.django_db
@@ -497,10 +553,10 @@ def test_a_pending_slip_accept_decides(
 
 
 @pytest.mark.django_db
-def test_a_system_closed_slip_announces_no_decision(
+def test_a_superseded_slip_is_closed_by_the_system_on_the_wire(
     committed: Project, owner: Any, active_sprint: Sprint, django_capture_on_commit_callbacks: Any
 ) -> None:
-    """A superseded slip is closed with no decider: nobody decided anything."""
+    """A superseded slip got a scope_change_requested; it must also get its close."""
     task = Task.objects.filter(project=committed).first()
     assert task is not None
     first = _slip(task, active_sprint, owner)
@@ -511,8 +567,39 @@ def test_a_system_closed_slip_announces_no_decision(
         second = _slip(task, active_sprint, owner)
     first.refresh_from_db()
     assert first.status == "rejected" and first.decided_by_id is None
-    assert _events(dispatch, "sprint.scope_changed") == []
+    (closed,) = _events(dispatch, "sprint.scope_changed")
+    assert set(closed) == _SCOPE_KEYS | _SLIP_KEYS | {"item_name", "closed_by"}
+    assert closed["id"] == str(first.pk)
+    assert closed["status"] == "rejected"
+    assert closed["decided_by"] is None
+    assert closed["closed_by"] == "system"
     assert [e["id"] for e in _events(dispatch, "sprint.scope_change_requested")] == [str(second.pk)]
+
+
+@pytest.mark.django_db
+def test_a_slip_found_stale_on_accept_is_closed_by_the_system_on_the_wire(
+    committed: Project, owner: Any, active_sprint: Sprint, django_capture_on_commit_callbacks: Any
+) -> None:
+    """Accepting a stale slip closes it unapplied: decided_by null, closed_by system."""
+    from trueppm_api.apps.projects.services import accept_scope_change
+
+    task = Task.objects.filter(project=committed).first()
+    assert task is not None
+    row = _slip(task, active_sprint, owner)
+    # The task's dates move after the proposal, so the stored dates are stale.
+    Task.objects.filter(pk=task.pk).update(duration=task.duration + 1)
+    with (
+        patch.object(views, "_dispatch_webhooks") as dispatch,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        accept_scope_change(row, owner, reason="Fine")
+    row.refresh_from_db()
+    assert row.status == "rejected" and row.decided_by_id is None
+    (closed,) = _events(dispatch, "sprint.scope_changed")
+    assert closed["id"] == str(row.pk)
+    assert closed["status"] == "rejected"
+    assert closed["decided_by"] is None
+    assert closed["closed_by"] == "system"
 
 
 @pytest.mark.django_db
@@ -760,6 +847,38 @@ def test_program_replay_is_registrant_only(
     ):
         assert c.post(_program_replay_url(program, hook, delivery)).status_code == 202
     task.delay.assert_called_once_with(str(delivery.pk))
+
+
+@pytest.mark.django_db
+def test_replay_is_not_lifecycle_gated(
+    committed: Project, owner: Any, django_capture_on_commit_callbacks: Any
+) -> None:
+    """A closed program's and an archived project's dead letters stay replayable.
+
+    A closed program's webhook keeps delivering child-project events, so its dead
+    letters keep accruing; like ``deliveries`` and ``test_ping``, replay changes no
+    program or project state and is not refused by the lifecycle gates.
+    """
+    program, program_hook = _program_hook(owner)
+    program.is_closed = True
+    program.save(update_fields=["is_closed"])
+    program_delivery = _failed_delivery(program_hook)
+
+    project_hook = _webhook(committed, owner)
+    project_delivery = _failed_delivery(project_hook)
+    Project.objects.filter(pk=committed.pk).update(is_archived=True)
+
+    c = APIClient()
+    c.force_authenticate(user=owner)
+    with (
+        patch("trueppm_api.apps.webhooks.views.deliver_webhook") as task,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        assert (
+            c.post(_program_replay_url(program, program_hook, program_delivery)).status_code == 202
+        )
+        assert c.post(_replay_url(committed, project_hook, project_delivery)).status_code == 202
+    assert task.delay.call_count == 2
 
 
 @pytest.mark.django_db

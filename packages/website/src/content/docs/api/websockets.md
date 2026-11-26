@@ -584,7 +584,7 @@ configured webhook endpoints:
 | `task.due_date_changed` | No WS broadcast. |
 | `sprint.activated` | No WS broadcast. First-party agile domain event (ADR-0147). |
 | `sprint.closed` | No WS broadcast. Completion snapshot (velocity) is privacy-gated in its payload per ADR-0104. |
-| `sprint.scope_changed` | Same fact as the WS `sprint_scope_changed` event (one vocabulary, #4406). Fires when a scope change is decided (ADR-0102, ADR-1485 D6). |
+| `sprint.scope_changed` | Same fact as the WS `sprint_scope_changed` event (one vocabulary, #4406). Fires when a mid-sprint injection is accepted (ADR-0102). From 0.5 it will fire on every decision, a reject included, and when the system closes a pending slip (ADR-1485 D6). |
 | `sprint.scope_change_requested` | No WS broadcast. A scope change is awaiting a decision (ADR-1485 D6). Ships in 0.5. |
 | `schedule.change_undone` | No WS broadcast. A structural act was undone (ADR-1485 D6). Ships in 0.5. |
 | `changeset.opened` | No WS broadcast under this name (a counts-only `changeset_updated` WS event exists). Ships in 0.5. |

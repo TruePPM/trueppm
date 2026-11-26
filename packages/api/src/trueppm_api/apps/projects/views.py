@@ -13118,9 +13118,11 @@ def _sprint_scope_change_webhook_payload(scope_change: SprintScopeChange, *, sou
     """Payload for ``sprint.scope_changed`` and ``sprint.scope_change_requested``.
 
     ``scope_changed`` fires on a decision (accept, reject, or a direct accept with
-    a reason; ADR-0102/0147, ADR-1485 D6), ``scope_change_requested`` when a row is
-    left PENDING. Ids, enums and dates only (D6): the actors are ids, there is no
-    ``people_load`` and no velocity figure, so no privacy gate applies. ``id`` is
+    a reason; ADR-0102/0147, ADR-1485 D6) and when the system closes a pending slip,
+    ``scope_change_requested`` when a row is left PENDING. The services add
+    ``closed_by`` (``person``/``system``) to ``scope_changed`` only. Ids, enums and
+    dates only (D6): the actors are ids, there is no ``people_load`` and no velocity
+    figure, so no privacy gate applies. ``id`` is
     the scope-change row id (the event is *about* the scope change), with the
     sprint, task, and project carried alongside. ``item_name`` predates D6 and is
     kept for existing consumers. The slip fields are present only on a slip.
