@@ -447,6 +447,7 @@ def decide(
                 locked,
                 user,
                 f"Baseline v{taken_before + 2}",
+                source="decision",
                 webhook_extra={
                     "reason_code": data.reason_code or "",
                     "reason": data.reason,

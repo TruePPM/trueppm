@@ -24,6 +24,7 @@ from trueppm_api.apps.projects.forecast_calibration import (
 )
 from trueppm_api.apps.projects.models import (
     Baseline,
+    BaselineDecisionKind,
     Calendar,
     ForecastCalibrationRecord,
     Project,
@@ -42,6 +43,7 @@ FORECAST_KEYS = {
     "record",
     "project_id",
     "capture_id",
+    "baseline_id",
     "captured_at",
     "forecast_kind",
     "scope",
@@ -63,6 +65,8 @@ FORECAST_KEYS = {
     "p80",
     "p95",
     "distribution_computed_at",
+    "distribution_cpm_finish",
+    "distribution_cpm_finish_at_day_start",
     "mc_iterations",
     "actual_finish",
     "outcome",
@@ -165,6 +169,8 @@ class TestCapture:
             p50_at_day_start=True,
             p80_at_day_start=False,
             p95_at_day_start=True,
+            cpm_finish=date(2026, 3, 18),
+            cpm_finish_at_day_start=True,
             n_simulations=1000,
         )
         commit_project(p, user=owner)
@@ -178,12 +184,24 @@ class TestCapture:
         [exported] = [r for r in _forecasts() if r["scope"] == "project"]
         flags = [exported[f"p{n}_at_day_start"] for n in (50, 80, 95)]
         assert flags == [True, False, True]
+        # The run predates the plan here: its CPM finish differs from the row's.
+        assert exported["distribution_cpm_finish"] == "2026-03-18"
+        assert exported["distribution_cpm_finish_at_day_start"] is True
+        assert exported["deterministic_finish"] == "2026-03-20"
         assert row.distribution_computed_at == latest.taken_at
 
     def test_taken_decision_capture_is_a_replan(self, owner: object) -> None:
         p = _project(owner, opted_in=True)
         commit_project(p, user=owner)
-        baselines.capture(p, owner, "Baseline v2", source="decision")
+        baselines.decide(
+            p,
+            user=owner,
+            data=baselines.DecisionInput(
+                kind=BaselineDecisionKind.TAKEN,
+                reason_code="approved_scope_change",
+                reason="CO-7",
+            ),
+        )
         kinds = set(
             ForecastCalibrationRecord.objects.filter(project=p).values_list("kind", flat=True)
         )
@@ -329,6 +347,26 @@ class TestExport:
         Project.objects.filter(pk=p.pk).update(forecast_calibration_capture=False)
         assert _forecasts() == []
         assert ForecastCalibrationRecord.objects.filter(project=p).count() == 4
+
+    def test_trashed_project_is_not_exported(self, owner: object) -> None:
+        p = _project(owner, opted_in=True)
+        commit_project(p, user=owner)
+        p.soft_delete()
+        [header, *rows] = list(export_records())
+        assert header["project_count"] == 0 and rows == []
+        assert _forecasts([p.pk]) == []
+        assert ForecastCalibrationRecord.objects.filter(project=p).exists()
+
+    def test_rows_name_the_baseline_whose_calendar_applies(self, owner: object) -> None:
+        p = _project(owner, opted_in=True)
+        commit_project(p, user=owner)
+        baseline = Baseline.objects.get(project=p)
+        assert {r["baseline_id"] for r in _forecasts()} == {str(baseline.pk)}
+        # A soft delete (the product's delete) keeps the row and its calendar.
+        baseline.soft_delete()
+        assert {r["baseline_id"] for r in _forecasts()} == {str(baseline.pk)}
+        Baseline.objects.filter(pk=baseline.pk).delete()
+        assert {r["baseline_id"] for r in _forecasts()} == {None}
 
     def test_project_filter(self, owner: object) -> None:
         a = _project(owner, opted_in=True)

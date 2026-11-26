@@ -48,11 +48,14 @@ call. A capture is therefore taken once per baseline, on every path.
   `estimate_status`. #2299 compares actual with estimated duration, a task is
   re-estimated during execution, and a past estimate cannot be backfilled.
 - Project scope: the percentiles, their day-start flags,
-  `distribution_computed_at` and
-  `mc_iterations` are **copied** from the project's latest `MonteCarloRun`.
-  They are null when Monte Carlo has never run. `distribution_computed_at` can
-  be earlier than `captured_at`, and an analysis should decide how stale a
-  distribution it will accept.
+  `distribution_computed_at`, `mc_iterations`, and the run's own `cpm_finish`
+  (as `distribution_cpm_finish`, with its day-start flag) are **copied** from
+  the project's latest `MonteCarloRun`. They are null when Monte Carlo has
+  never run. `distribution_computed_at` can be earlier than `captured_at`. A
+  `distribution_cpm_finish` that differs from `deterministic_finish` means the
+  plan moved after the run, and an analysis can drop that distribution. Equal
+  finishes do not prove the run is current, because a change can leave the
+  finish where it was.
 - Task scope: the percentiles stay null until #4135 lands. The columns already
   exist, so filling them changes no schema.
 - Writing a capture is best-effort. It runs in a savepoint, and a failure is
@@ -85,8 +88,8 @@ visible sign. A read-time join covers every path at once.
   every change of consent is audited (ADR-0104 §4).
 - Withdrawing consent stops capture and removes the project from **every later
   export**. The rows themselves are kept, so the project can opt back in
-  without losing history. The rows are deleted when the project is deleted
-  (CASCADE).
+  without losing history. A project in the trash is not exported, and its rows
+  are deleted when it is permanently deleted (CASCADE).
 - Aggregate only. A row holds dates, UUIDs, durations, the estimate approval
   state and two bits, never a user, an assignee, a task or project name, or free
   text. Calibration measures the forecast, not the people doing the work.
@@ -106,9 +109,32 @@ No purge touches that table: not #952 (`ForecastSnapshot`), not the
 `ProjectForecastSnapshot` tiered prune (ADR-0154), and not the `MonteCarloRun`
 cap (ADR-0175). This is deliberate, because a row is useless until its actual
 arrives. The Monte Carlo percentiles are copied rather than referenced for the
-same reason. A deleted baseline sets `baseline` to null and keeps the row,
-because deleting a baseline does not undo the forecast it carried. Growth is
+same reason. Deleting a baseline keeps the row, because it does not undo the
+forecast it carried: the product's delete is a soft delete, so `baseline` still
+points at it, and only a permanent removal sets `baseline` to null. Growth is
 bounded by baseline frequency: about one row per committed task per baseline.
+
+### Actual duration in working days (for #2299)
+
+`duration` and the three-point estimate are working days. `actual_start` and
+`actual_finish` are calendar dates, so they cannot be subtracted and compared
+with an estimate directly. Each row carries `baseline_id`, and that `Baseline`
+froze the project calendar (`calendar_working_days`, the weekday mask) when the
+forecast was made. #2299 derives the actual duration of a finished, non-milestone
+task as the number of dates from `actual_start` to `actual_finish`, both
+included, whose weekday is set in that mask.
+
+The limits of that derivation:
+
+- The mask is not in the export file. It is read from the `Baseline` row on the
+  instance that produced the file.
+- The snapshot holds weekdays and hours per day only. It holds no holidays or
+  other calendar exceptions and no applied overlay calendars, so a task that
+  spanned one is overstated. Work done on a non-working weekday is not counted.
+  It is the project calendar, not a task's or a resource's own calendar.
+- The working-day actual is unknown, not zero, when `actual_start` or
+  `actual_finish` is null, when `baseline_id` is null (the baseline was
+  permanently removed), or when the baseline has no mask.
 
 ### Export: a management command, schema `trueppm.forecast-calibration` v1
 
@@ -121,6 +147,7 @@ The export is `manage.py export_forecast_calibration [--project <uuid>]...
 |---|---|---|
 | `record` | `"forecast"` | Line type |
 | `project_id`, `capture_id` | UUID string | Project; capture group |
+| `baseline_id` | UUID string \| null | Baseline that recorded it; null once permanently removed |
 | `captured_at` | ISO datetime | When the forecast was made |
 | `forecast_kind` | `baseline` \| `replan` | Which plan event |
 | `scope` | `project` \| `task` | Grain |
@@ -135,6 +162,8 @@ The export is `manage.py export_forecast_calibration [--project <uuid>]...
 | `p50`, `p80`, `p95` | ISO date \| null | Forecast percentiles |
 | `p50_at_day_start`, `p80_at_day_start`, `p95_at_day_start` | bool \| null | Day edge of each percentile |
 | `distribution_computed_at` | ISO datetime \| null | When the copied distribution ran |
+| `distribution_cpm_finish` | ISO date \| null | CPM finish that run was computed against |
+| `distribution_cpm_finish_at_day_start` | bool \| null | Day edge of that finish |
 | `mc_iterations` | int \| null | Runs behind it |
 | `actual_start` | ISO date \| null | Joined at export; task scope only |
 | `actual_finish` | ISO date \| null | Joined at export |

@@ -14,7 +14,7 @@ A P80 is a claim: across many forecasts, about 80% of forecast items should fini
 
 Each baseline of an opted-in project records one forecast. That covers the commit baseline, a named baseline, and a new version taken through a baseline decision (recorded as a *replan*). A forecast holds:
 
-- **Project level**: the deterministic CPM finish, plus the P50/P80/P95 of the project's most recent Monte Carlo run, with each one's day edge, the time that run was computed and its iteration count. The percentiles are empty if Monte Carlo has never run.
+- **Project level**: the deterministic CPM finish, plus the P50/P80/P95 of the project's most recent Monte Carlo run, with each one's day edge, the time that run was computed, its iteration count, and the CPM finish it was computed against. The percentiles are empty if Monte Carlo has never run.
 - **Each committed task**: the deterministic CPM finish, whether it is a milestone, and its estimate as it stood at that moment (duration, the three-point estimate, and the estimate's approval status). Per-task P50/P80/P95 are left empty for now.
 
 Work that had already finished when a baseline was taken is recorded too, marked `finished_at_capture`. Leave those rows out when you measure how often a forecast held.
@@ -36,7 +36,7 @@ curl -X PATCH https://trueppm.example.com/api/v1/projects/<project-id>/ \
 
 Recording starts at the project's next baseline. Earlier forecasts cannot be recovered, because their distributions were never kept.
 
-Turning the setting off stops recording, and the project no longer appears in exports. Its existing records are kept, so turning it back on resumes with the old history intact. The records are deleted along with the project.
+Turning the setting off stops recording, and the project no longer appears in exports. Its existing records are kept, so turning it back on resumes with the old history intact. A project in the trash is not exported either. Its records are deleted when the project is permanently deleted.
 
 ## Retention
 
@@ -54,7 +54,7 @@ python manage.py export_forecast_calibration --project <uuid> --project <uuid>
 
 On Kubernetes, use `kubectl exec deploy/<release>-api -- python manage.py export_forecast_calibration > cal.jsonl`.
 
-Only projects with the setting turned on are exported. The output is JSON Lines. The first line is a header:
+Only projects with the setting turned on, and not in the trash, are exported. The output is JSON Lines. The first line is a header:
 
 ```json
 {"record": "header", "schema": "trueppm.forecast-calibration", "version": 1, "exported_at": "2026-12-01T09:00:00+00:00", "project_count": 1}
@@ -65,6 +65,7 @@ Each following line is one forecast:
 | Field | Meaning |
 |---|---|
 | `project_id`, `capture_id` | The project, and the capture that this forecast was recorded in |
+| `baseline_id` | The baseline that recorded the forecast, or `null` once that baseline is permanently removed |
 | `captured_at` | When the forecast was made |
 | `forecast_kind` | `baseline` or `replan` |
 | `scope` | `project` or `task` (`task_id` is `null` for `project`) |
@@ -77,9 +78,18 @@ Each following line is one forecast:
 | `p50`, `p80`, `p95` | Forecast percentiles, or `null` |
 | `p50_at_day_start`, `p80_at_day_start`, `p95_at_day_start` | Whether each percentile falls at the start of its day, or `null` |
 | `distribution_computed_at`, `mc_iterations` | When the Monte Carlo run behind the percentiles was computed, and its iteration count |
+| `distribution_cpm_finish`, `distribution_cpm_finish_at_day_start` | The CPM finish that Monte Carlo run was computed against, and its day edge, or `null` |
 | `actual_start` | The task's actual start as of the export, or `null` (always `null` for `project`) |
 | `actual_finish` | The actual finish as of the export, or `null` |
 | `outcome` | `finished`, `open`, or `deleted` (the task was deleted; its forecast is kept) |
+
+If `distribution_cpm_finish` differs from `deterministic_finish`, the plan moved after the Monte Carlo run, and you can leave that distribution out. Matching values do not prove the run was current.
+
+## Compare actual with estimated duration
+
+Estimates are in working days, but `actual_start` and `actual_finish` are calendar dates. To get an actual duration in working days, count the dates from `actual_start` to `actual_finish`, both included, whose weekday is a working day in the calendar that the baseline named by `baseline_id` froze. The baseline record keeps that weekday mask. The export file does not include it, so you need access to the instance. Skip milestones.
+
+The result has limits. The frozen calendar has no holidays, other exceptions, or overlay calendars, so a task that spanned one comes out longer than it was. Work done on a non-working weekday is not counted. It is the project calendar, not a task's or a resource's own calendar. Treat the working-day actual as unknown when either actual date or `baseline_id` is `null`, or when the baseline has no calendar recorded.
 
 A project-level forecast counts as `finished` only once every committed task has an actual finish. Its `actual_finish` is then the latest of those dates.
 

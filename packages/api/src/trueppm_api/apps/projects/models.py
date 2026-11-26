@@ -9901,6 +9901,11 @@ class ForecastCalibrationRecord(models.Model):
     p95_at_day_start = models.BooleanField(null=True, blank=True)
     # When the copied distribution was computed — it can predate captured_at.
     distribution_computed_at = models.DateTimeField(null=True, blank=True)
+    # The CPM finish that run was computed against (and its day edge). When it
+    # differs from deterministic_finish the plan moved after the run, so an
+    # analysis can drop a stale distribution.
+    distribution_cpm_finish = models.DateField(null=True, blank=True)
+    distribution_cpm_finish_at_day_start = models.BooleanField(null=True, blank=True)
     mc_iterations = models.PositiveIntegerField(null=True, blank=True)
 
     class Meta:

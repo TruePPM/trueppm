@@ -123,6 +123,8 @@ def _write_capture(
             "p50_at_day_start",
             "p80_at_day_start",
             "p95_at_day_start",
+            "cpm_finish",
+            "cpm_finish_at_day_start",
             "taken_at",
             "n_simulations",
         )
@@ -151,6 +153,8 @@ def _write_capture(
             p80_at_day_start=run.p80_at_day_start if run else None,
             p95_at_day_start=run.p95_at_day_start if run else None,
             distribution_computed_at=run.taken_at if run else None,
+            distribution_cpm_finish=run.cpm_finish if run else None,
+            distribution_cpm_finish_at_day_start=run.cpm_finish_at_day_start if run else None,
             mc_iterations=run.n_simulations if run else None,
         )
     ]
@@ -183,10 +187,10 @@ def export_records(project_ids: list[Any] | None = None) -> Iterator[dict[str, A
 
     Only projects whose ``forecast_calibration_capture`` is on *now* are emitted:
     withdrawing consent removes a project from every later export without deleting
-    its rows. The actual start and finish are joined here, at read time, from the
-    live task.
+    its rows. A project in the trash is not emitted either. The actual start and
+    finish are joined here, at read time, from the live task.
     """
-    projects = Project.objects.filter(forecast_calibration_capture=True)
+    projects = Project.objects.filter(forecast_calibration_capture=True, is_deleted=False)
     if project_ids:
         projects = projects.filter(pk__in=project_ids)
     consenting = list(projects.values_list("pk", flat=True))
@@ -237,6 +241,7 @@ def export_records(project_ids: list[Any] | None = None) -> Iterator[dict[str, A
                 "record": "forecast",
                 "project_id": str(rec.project_id),
                 "capture_id": str(rec.capture_id),
+                "baseline_id": str(rec.baseline_id) if rec.baseline_id else None,
                 "captured_at": _iso(rec.captured_at),
                 "forecast_kind": rec.kind,
                 "scope": rec.scope,
@@ -253,6 +258,8 @@ def export_records(project_ids: list[Any] | None = None) -> Iterator[dict[str, A
                 "p80_at_day_start": rec.p80_at_day_start,
                 "p95_at_day_start": rec.p95_at_day_start,
                 "distribution_computed_at": _iso(rec.distribution_computed_at),
+                "distribution_cpm_finish": _iso(rec.distribution_cpm_finish),
+                "distribution_cpm_finish_at_day_start": rec.distribution_cpm_finish_at_day_start,
                 "mc_iterations": rec.mc_iterations,
                 "actual_start": _iso(actual_start),
                 "actual_finish": _iso(actual),
