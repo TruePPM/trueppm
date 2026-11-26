@@ -1340,7 +1340,8 @@ class TruePPMAutoSchema(AutoSchema):
         # Exact classes, not subclasses: IsNotFullTokenAuthenticated admits a
         # webhooks:manage token. IsNotTokenForScopeDecision refuses every token.
         refusing = (IsNotTokenAuthenticated, IsNotTokenForScopeDecision)
-        if any(cls in refusing for cls in classes):
+        # issubclass, so IsNotTokenForTimesheetReview (a scope-decision subclass) counts.
+        if any(isinstance(cls, type) and issubclass(cls, refusing) for cls in classes):
             return True
         if isinstance(self.view, SessionOnlyWritesMixin) and self.method not in SAFE_METHODS:
             return True

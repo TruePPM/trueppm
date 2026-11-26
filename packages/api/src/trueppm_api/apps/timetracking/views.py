@@ -18,6 +18,7 @@ RBAC posture:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
@@ -40,8 +41,14 @@ from rest_framework.views import APIView
 from trueppm_api.apps.access.permissions import CanLogTime, IsProjectNotArchived
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects.models import Task
-from trueppm_api.apps.timetracking import services
-from trueppm_api.apps.timetracking.models import ActiveTimer, TimeEntry, TimesheetSubmission
+from trueppm_api.apps.timetracking import review, services
+from trueppm_api.apps.timetracking.models import (
+    ActiveTimer,
+    TimeEntry,
+    TimeEntryCategory,
+    TimesheetStatus,
+    TimesheetSubmission,
+)
 from trueppm_api.apps.timetracking.serializers import (
     ActiveTimerSerializer,
     TimeEntrySerializer,
@@ -150,6 +157,7 @@ class TaskTimeEntryView(IdempotencyMixin, APIView):
             minutes=serializer.validated_data["minutes"],
             entry_date=serializer.validated_data.get("entry_date"),
             note=serializer.validated_data.get("note", ""),
+            category=serializer.validated_data.get("category", TimeEntryCategory.TASK),
         )
         return Response(
             TimeEntrySerializer(entry, context={"request": request}).data,
@@ -164,13 +172,10 @@ class MeTimeEntryDetailView(IdempotencyMixin, APIView):
     user's entry returns **404** (existence-oracle close, matches #996) — never 403.
     DELETE is a ``soft_delete`` so the undo toast and mobile sync tombstone both work.
 
-    **No ``TimesheetSubmission`` check, deliberately.** ADR-0224 ships submission as a
-    week-level *marker*: "no approver, no lock, no return". Entries stay editable after
-    submit — that is why un-submit exists at all, so a fat-fingered Submit cannot strand
-    a week. Do not add a submitted-week guard here: it would pre-empt the approval and
-    locking design that #100 owns at 0.5, and it would silently break the un-submit
-    escape hatch. The timesheet grid renders a submitted week read-only as a UI
-    convention only, and says so on the page (#2701).
+    **The approved-week lock is not here, deliberately (ADR-1495 §3).** It lives in
+    ``TimeEntry.save()``, so this view, the create path and timer stop share one guard
+    and a write into (or out of) an approved week answers 409
+    ``timesheet_week_approved``. A submitted or returned week stays editable.
 
     **Re-checks live Member+ and the archived-project gate on every write (#4318).**
     The queryset above only proves the entry is *owned by the caller* — it says
@@ -243,6 +248,35 @@ def _monday_of(d: date) -> date:
     return d - timedelta(days=d.weekday())
 
 
+def _own_submission_payload(week_start: date, row: Mapping[str, Any] | None) -> dict[str, Any]:
+    """The caller's own week state, folded into the weekly GET (ADR-0224, ADR-1495).
+
+    ``submitted`` stays the 0.4 boolean the grid reads: true while the week is
+    submitted or approved, false for draft and returned (both editable). The return
+    reason is included because this payload only ever describes the caller's own week.
+    """
+    if row is None:
+        return {
+            "week_start": week_start.isoformat(),
+            "submitted": False,
+            "submitted_at": None,
+            "status": TimesheetStatus.DRAFT,
+            "reviewer": None,
+            "reviewed_at": None,
+            "return_reason": "",
+        }
+    status_ = row["status"]
+    return {
+        "week_start": week_start.isoformat(),
+        "submitted": status_ in (TimesheetStatus.SUBMITTED, TimesheetStatus.APPROVED),
+        "submitted_at": row["submitted_at"].isoformat() if row["submitted_at"] else None,
+        "status": status_,
+        "reviewer": row["reviewer_id"],
+        "reviewed_at": row["reviewed_at"].isoformat() if row["reviewed_at"] else None,
+        "return_reason": row["return_reason"] if status_ == TimesheetStatus.RETURNED else "",
+    }
+
+
 class MeTimeEntryWeeklyView(APIView):
     """``/api/v1/me/time-entries/?from=&to=`` — weekly cross-project rollup (ADR-0185 §4).
 
@@ -286,6 +320,10 @@ class MeTimeEntryWeeklyView(APIView):
                             "week_start": serializers.CharField(),
                             "submitted": serializers.BooleanField(),
                             "submitted_at": serializers.CharField(allow_null=True),
+                            "status": serializers.ChoiceField(choices=TimesheetStatus.choices),
+                            "reviewer": serializers.IntegerField(allow_null=True),
+                            "reviewed_at": serializers.CharField(allow_null=True),
+                            "return_reason": serializers.CharField(allow_blank=True),
                         },
                     ),
                 },
@@ -343,7 +381,7 @@ class MeTimeEntryWeeklyView(APIView):
         week_start = _monday_of(start)
         submission = (
             TimesheetSubmission.objects.filter(user=user, week_start=week_start)
-            .values_list("submitted_at", flat=True)
+            .values("submitted_at", "status", "reviewer_id", "reviewed_at", "return_reason")
             .first()
         )
 
@@ -356,11 +394,7 @@ class MeTimeEntryWeeklyView(APIView):
                     "today_minutes": today_minutes,
                     "week_minutes": week_minutes,
                 },
-                "submission": {
-                    "week_start": week_start.isoformat(),
-                    "submitted": submission is not None,
-                    "submitted_at": submission.isoformat() if submission is not None else None,
-                },
+                "submission": _own_submission_payload(week_start, submission),
             }
         )
 
@@ -368,16 +402,16 @@ class MeTimeEntryWeeklyView(APIView):
 class MeTimesheetSubmitView(APIView):
     """``/api/v1/me/timesheets/{week_start}/submit`` — mark a week done / undo (ADR-0224).
 
-    A per-user-per-week submission marker with no approver: entries stay editable after
-    submit, and the 0.5 approval epic (#100) reads this row rather than re-deciding it. The
-    marker is hard-scoped to ``request.user`` (IDOR-safe by construction — the URL carries no
-    other user's identity), so ``IsAuthenticated`` is the whole gate; there is no task/project
-    to run ``CanLogTime`` against, and a marker with no entries is inert.
+    The submitter's half of the review state machine (ADR-1495 §2): POST submits or
+    resubmits (a returned week included, which notifies the reviewer), DELETE withdraws
+    to draft. Both answer 409 once the week is approved — there is no reopen in 0.5.
+    Entries stay editable while submitted; approve re-hashes them and refuses a week
+    that changed. Hard-scoped to ``request.user`` (the URL carries no other user's
+    identity), so ``IsAuthenticated`` is the whole gate.
 
     ``week_start`` is normalized to its ISO Monday (:func:`_monday_of`) before write, so the
-    ``(user, week_start)`` uniqueness cannot fragment. POST is an idempotent upsert
-    (``update_or_create`` refreshes ``submitted_at``); DELETE is an idempotent un-submit (204
-    even when no marker exists).
+    ``(user, week_start)`` uniqueness cannot fragment. A repeated POST refreshes
+    ``submitted_at`` and the digest; a DELETE of a never-submitted week is a 204 no-op.
     """
 
     permission_classes = [IsAuthenticated]
@@ -390,7 +424,11 @@ class MeTimesheetSubmitView(APIView):
                 fields={
                     "week_start": serializers.CharField(),
                     "submitted_at": serializers.CharField(),
+                    "status": serializers.ChoiceField(choices=TimesheetStatus.choices),
                 },
+            ),
+            409: OpenApiResponse(
+                description="The week is approved and can no longer be resubmitted."
             ),
             400: state_refusal_400(
                 "``week_start`` in the path is not an ISO date (YYYY-MM-DD). The "
@@ -404,21 +442,19 @@ class MeTimesheetSubmitView(APIView):
     def post(self, request: Request, week_start: str) -> Response:
         user = cast("_User", request.user)
         monday = _monday_of(_parse_iso_date(week_start, "week_start"))
-        submission, _ = TimesheetSubmission.objects.update_or_create(
-            user=user,
-            week_start=monday,
-            defaults={"submitted_at": timezone.now()},
-        )
+        submission = review.submit_week(user=user, week_start=monday)
         return Response(
             {
                 "week_start": monday.isoformat(),
                 "submitted_at": submission.submitted_at.isoformat(),
+                "status": submission.status,
             }
         )
 
     @extend_schema(
         responses={
-            204: OpenApiResponse(description="Week un-submitted; empty body."),
+            204: OpenApiResponse(description="Week withdrawn to draft; empty body."),
+            409: OpenApiResponse(description="The week is approved and cannot be withdrawn."),
             400: state_refusal_400(
                 "``week_start`` in the path is not an ISO date (YYYY-MM-DD). The "
                 "segment is free text, so a malformed value reaches the handler and "
@@ -431,7 +467,7 @@ class MeTimesheetSubmitView(APIView):
     def delete(self, request: Request, week_start: str) -> Response:
         user = cast("_User", request.user)
         monday = _monday_of(_parse_iso_date(week_start, "week_start"))
-        TimesheetSubmission.objects.filter(user=user, week_start=monday).delete()
+        review.withdraw_week(user=user, week_start=monday)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

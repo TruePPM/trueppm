@@ -119,13 +119,28 @@ If you logged two separate sessions against the same task on the same day, that 
 
 ## Submitting your week
 
-**Submit week** marks the week as done. It's a signal, not a lock: your entries stay fully editable after you submit, and you can **Reopen** the week at any time. There is no approver and no manager view — submitting is just you telling yourself (and, later, an approval workflow) that the week is complete.
+**Submit week** marks the week as done. In the current release it's a signal, not a lock: your entries stay fully editable after you submit, and you can **Reopen** the week at any time. There is no approver and no manager view.
 
-Manager approval, non-project time categories (PTO, admin, training), and the earned-value actuals feed are a separate, later track — they are not part of this grid.
+:::note[Ships in 0.5]
+In 0.5 a submitted week will go to your **reviewer**: the one direct manager a workspace admin has set for you (see [reporting lines](/administration/workspace-settings/#reporting-lines)). A week will move through four states:
+
+| State | What it means | Can you edit it? |
+|---|---|---|
+| **Draft** | Not submitted, or withdrawn. | Yes |
+| **Submitted** | Waiting for your reviewer. You can withdraw it back to draft. | Yes. Your reviewer can only approve the entries you submitted; if you change them, they will need you to resubmit. |
+| **Returned** | Your reviewer sent it back with a reason, which arrives in your Inbox. | Yes. Fix it and submit again; your reviewer is told. |
+| **Approved** | Your reviewer accepted it. | No. Nobody can edit, add, or delete time in an approved week, through any route (the grid, a timer, or the API). 0.5 will have no reopen. |
+
+Your reviewer will see your week's totals and every entry's hours and category. They will see the task, project, and note of an entry only on projects they're also a member of; on other projects they'll see the hours and "restricted". The return reason is visible to you and to the reviewer who wrote it, and to nobody else.
+
+Each entry will also carry a **category**: task work (the default), paid time off, admin, or training. Only task work counts toward a project's actual cost; PTO, admin, and training time is recorded but never costed.
+
+This is a single, one-level review. There are no approval chains, delegation, escalation, or rules that approve weeks in bulk, and an approved week does not block anything else in TruePPM.
+:::
 
 ## Your own time only
 
-The timesheet is a personal, individual-contributor surface: it shows and submits **your** logged time on tasks you can access. It carries no cross-project rollup, no per-person visibility for managers, and no portfolio or governance scope — a contributor reviewing their own week is squarely community-edition functionality.
+The timesheet is a personal, individual-contributor surface: it shows and submits **your** logged time on tasks you can access. It carries no cross-project rollup and no portfolio or governance scope. The one exception, from 0.5, is your reviewer's read of the weeks you submit, described above.
 
 ### If you leave a project, or it's archived
 
@@ -141,9 +156,14 @@ A **running timer** is treated differently from a logged entry, and the archived
 | `PATCH`/`DELETE` | `/api/v1/me/time-entries/{id}/` | Author-only edit or (soft) delete of one entry. |
 | `GET` | `/api/v1/me/time-entries/?from=&to=` | The weekly cross-project rollup that backs the grid: entries in range plus precomputed daily/cell/week totals and the week's submission marker. |
 | `POST`/`DELETE` | `/api/v1/me/timesheets/{week_start}/submit/` | Submit or un-submit a week (`week_start` is normalized to its ISO Monday). |
+| `GET` | `/api/v1/me/reports/?week=` | From 0.5: your direct reports and each one's state and total minutes for the week. |
+| `GET` | `/api/v1/me/reports/{user_id}/timesheets/{week_start}/` | From 0.5: one direct report's week. `404` for anyone who is not your direct report. |
+| `POST` | `/api/v1/me/reports/{user_id}/timesheets/{week_start}/approve/` | From 0.5: approve a submitted week. `409` if it isn't submitted, or its entries changed since submit. API tokens are refused (`403`): a person approves. |
+| `POST` | `/api/v1/me/reports/{user_id}/timesheets/{week_start}/return/` | From 0.5: return a submitted week with `{"reason": "..."}`. A blank reason is `400`. |
 | `GET` | `/api/v1/me/timer/` | The caller's running timer, if any, with server-computed `elapsed_seconds` and `stale`. |
 | `POST` | `/api/v1/me/timer/start/` | Start a timer on a task (`403` if that project is archived or you're below Team Member); second-start atomically stops and logs the prior one, returned as `finalized_entry` — or discards it with `finalized_entry: null` if the prior timer's own project is archived or your access there has lapsed. |
 | `POST` | `/api/v1/me/timer/stop/` | Stop the running timer and log it as a `TimeEntry`; `409` if none is running, including when the timer is discarded rather than logged because its project is archived or your access there has lapsed. |
 
-Every read and write here is scoped to the authenticated caller — there is no cross-project rollup
-of *other* people's time and no admin surface to log or edit on someone else's behalf.
+Every read and write here is scoped to the authenticated caller. There is no cross-project rollup
+of *other* people's time and no admin surface to log or edit on someone else's behalf; from 0.5 the
+`me/reports/` routes give a reviewer read access to their direct reports' submitted weeks only.

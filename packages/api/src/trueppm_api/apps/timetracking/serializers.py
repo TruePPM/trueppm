@@ -42,6 +42,7 @@ class TimeEntrySerializer(serializers.ModelSerializer[TimeEntry]):
             "entry_date",
             "note",
             "source",
+            "category",
             "server_version",
             "created_at",
         ]
@@ -122,6 +123,7 @@ class TimeEntryWeeklySerializer(serializers.ModelSerializer[TimeEntry]):
             "entry_date",
             "note",
             "source",
+            "category",
             "server_version",
             "created_at",
         ]

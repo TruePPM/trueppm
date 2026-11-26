@@ -192,6 +192,12 @@ class NotificationEventType(models.TextChoices):
         "allocation.overage_accepted",
         "I was booked over my capacity",
     )
+    # Timesheet review (ADR-1495, #4811). RETURNED reaches the submitter and carries the
+    # reviewer's reason in the in-app row; RESUBMITTED reaches the reviewer who returned
+    # the week. In-app only: the reason is confidential personal text, so no email
+    # channel renders it (ADR-1495 threat model).
+    TIMESHEET_RETURNED = "timesheet.returned", "My timesheet week was returned"
+    TIMESHEET_RESUBMITTED = "timesheet.resubmitted", "A returned timesheet week was resubmitted"
 
 
 class NotificationChannel(models.TextChoices):

@@ -706,7 +706,7 @@ def _effective_permission_names(cls: type, action: str | None, method: str) -> s
     # ADR-1485 D1: ``IsNotTokenForScopeDecision`` refuses every token exactly as
     # ``IsNotTokenAuthenticated`` does (it only changes the audit mark), so it
     # reads as that class here. ``IsNotFullTokenAuthenticated`` deliberately does not.
-    if "IsNotTokenForScopeDecision" in names:
+    if names & {"IsNotTokenForScopeDecision", "IsNotTokenForTimesheetReview"}:
         names.add("IsNotTokenAuthenticated")
     return names
 

@@ -2675,6 +2675,11 @@ SPECTACULAR_SETTINGS = {
         # ADR-1478: the views endpoints reuse the lens choices; keep one RoleContextEnum
         # rather than letting the first field to claim it rename the component.
         "RoleContextEnum": "trueppm_api.apps.profiles.models.RoleContext.choices",
+        # ADR-1495: TimeEntry.category is a second `category`; pinned so the existing
+        # risk CategoryEnum keeps its name instead of both being hash-suffixed.
+        "TimeEntryCategoryEnum": "trueppm_api.apps.timetracking.models.TimeEntryCategory.choices",
+        "CategoryEnum": "trueppm_api.apps.projects.models.RiskCategory.choices",
+        "TimesheetStatusEnum": "trueppm_api.apps.timetracking.models.TimesheetStatus.choices",
         # #4291: the derivation `kind` vocabulary is a third kind of `kind`; pinned so
         # a generated client's type name does not move when another one is added.
         "ScheduleDerivationContributionKindEnum": (

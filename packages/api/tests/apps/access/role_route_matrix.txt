@@ -80,6 +80,7 @@
 ---++++  DELETE api/v1/projects/<project_pk>/tasks/<task_pk>/notes/<pk>/::destroy
 --+++++  DELETE api/v1/projects/<uuid:project_pk>/members/<uuid:pk>/::destroy
 -----++  DELETE api/v1/projects/<uuid:project_pk>/mention-groups/<uuid:pk>/::destroy
+-------  DELETE api/v1/reporting-lines/<int:user_id>/::delete
 -++++++  DELETE api/v1/retro-items/<pk>/::destroy
 -++++++  DELETE api/v1/sprints/<pk>/::destroy
 -------  DELETE api/v1/workspace/::delete
@@ -226,6 +227,8 @@
 -++++++  GET api/v1/me/notifications/<uuid:pk>/::retrieve
 -++++++  GET api/v1/me/people-load/::get
 -++++++  GET api/v1/me/recent-projects/::get
+-++++++  GET api/v1/me/reports/::get
+-++++++  GET api/v1/me/reports/<int:user_id>/timesheets/<str:week_start>/::get
 -++++++  GET api/v1/me/search/::get
 -++++++  GET api/v1/me/time-entries/::get
 -++++++  GET api/v1/me/timer/::get
@@ -329,6 +332,8 @@
 --+++++  GET api/v1/projects/<uuid:project_pk>/mention-groups/<uuid:pk>/::retrieve
 --+++++  GET api/v1/projects/<uuid:project_pk>/teams/::list
 +++++++  GET api/v1/readyz::get
+-------  GET api/v1/reporting-lines/::get
+-------  GET api/v1/reporting-lines/<int:user_id>/::get
 -++++++  GET api/v1/resolve/::get
 +++++++  GET api/v1/share/board/<token>/::get
 +++++++  GET api/v1/share/schedule/<token>/::get
@@ -516,6 +521,8 @@
 -++++++  POST api/v1/me/notification-preferences/apply-preset/::apply_preset
 -++++++  POST api/v1/me/notifications/<uuid:pk>/snooze/::snooze
 -++++++  POST api/v1/me/notifications/mark-all-read/::mark_all_read
+-++++++  POST api/v1/me/reports/<int:user_id>/timesheets/<str:week_start>/approve/::post
+-++++++  POST api/v1/me/reports/<int:user_id>/timesheets/<str:week_start>/return/::post
 -++++++  POST api/v1/poker/<pk>/cancel/::post
 -++++++  POST api/v1/poker/<pk>/commit/::post
 -++++++  POST api/v1/poker/<pk>/reopen/::post
@@ -659,6 +666,7 @@
 -----++  PUT api/v1/projects/<project_pk>/phases/<pk>/::update
 ---++++  PUT api/v1/projects/<project_pk>/risks/<pk>/::update
 -++++++  PUT api/v1/projects/<project_pk>/tasks/<task_pk>/field-values/<field_id>/::put
+-------  PUT api/v1/reporting-lines/<int:user_id>/::put
 -++++++  PUT api/v1/sprints/<pk>/::update
 -++++++  PUT api/v1/sprints/<pk>/pulse/::pulse
 -------  PUT api/v1/workspace/email-settings/::put

@@ -84,8 +84,8 @@ COST_DEFINITIONS: dict[str, str] = {
     ),
     "actual": (
         "Sum over everyone who logged time on this project's tasks of hours x the "
-        "current hourly rate of their resource. PTO and time on other projects are "
-        "not included. Changing a rate re-costs past hours."
+        "current hourly rate of their resource. PTO, admin and training time, and "
+        "time on other projects, are not included. Changing a rate re-costs past hours."
     ),
     "percent_complete": (
         "The percent complete earned value is computed from: each leaf work task's "
@@ -396,14 +396,18 @@ class _CostInputs:
 def _load_inputs(pids: list[Any]) -> _CostInputs:
     from trueppm_api.apps.projects.models import Project
     from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskResource
-    from trueppm_api.apps.timetracking.models import TimeEntry
+    from trueppm_api.apps.timetracking.models import COSTED_CATEGORIES, TimeEntry
 
     budgets = dict(Project.objects.filter(id__in=pids).values_list("id", "budget"))
     pct = project_percent_complete(pids)
     # Logged minutes per (project, user) — the aggregate is in SQL.
     time_rows: list[dict[str, Any]] = [
         dict(r)
-        for r in TimeEntry.objects.filter(task__project_id__in=pids, is_deleted=False)
+        # Only project work is costed: PTO, admin and training time is recorded but
+        # never actual cost (ADR-1495 §4).
+        for r in TimeEntry.objects.filter(
+            task__project_id__in=pids, is_deleted=False, category__in=COSTED_CATEGORIES
+        )
         .order_by()
         .values("task__project_id", "user_id")
         .annotate(m=Sum("minutes"))

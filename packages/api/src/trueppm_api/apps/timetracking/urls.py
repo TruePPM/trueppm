@@ -4,6 +4,14 @@ from __future__ import annotations
 
 from django.urls import path, re_path
 
+from trueppm_api.apps.timetracking.review_views import (
+    MeReportApproveView,
+    MeReportReturnView,
+    MeReportsView,
+    MeReportWeekView,
+    ReportingLineDetailView,
+    ReportingLineListView,
+)
 from trueppm_api.apps.timetracking.views import (
     MeTimeEntryDetailView,
     MeTimeEntryWeeklyView,
@@ -43,6 +51,30 @@ urlpatterns = [
         r"^me/timesheets/(?P<week_start>[^/]+)/submit/?$",
         MeTimesheetSubmitView.as_view(),
         name="me-timesheet-submit",
+    ),
+    # Timesheet review (ADR-1495): reporting lines (workspace Admin+) and the
+    # manager's review of their direct reports' weeks.
+    path("reporting-lines/", ReportingLineListView.as_view(), name="reporting-lines"),
+    path(
+        "reporting-lines/<int:user_id>/",
+        ReportingLineDetailView.as_view(),
+        name="reporting-line-detail",
+    ),
+    path("me/reports/", MeReportsView.as_view(), name="me-reports"),
+    path(
+        "me/reports/<int:user_id>/timesheets/<str:week_start>/",
+        MeReportWeekView.as_view(),
+        name="me-report-week",
+    ),
+    path(
+        "me/reports/<int:user_id>/timesheets/<str:week_start>/approve/",
+        MeReportApproveView.as_view(),
+        name="me-report-week-approve",
+    ),
+    path(
+        "me/reports/<int:user_id>/timesheets/<str:week_start>/return/",
+        MeReportReturnView.as_view(),
+        name="me-report-week-return",
     ),
     # Running timer (user singleton).
     path("me/timer/", MeTimerView.as_view(), name="me-timer"),

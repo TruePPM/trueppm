@@ -2672,6 +2672,18 @@ class IsNotTokenForScopeDecision(IsNotTokenAuthenticated):
         return False
 
 
+class IsNotTokenForTimesheetReview(IsNotTokenForScopeDecision):
+    """Refuse ``ApiToken`` callers on timesheet approve/return (ADR-1495 §5).
+
+    Approving or returning someone's time is a person's attestation, the same
+    human-only rule as a sprint scope decision: an agent may read the queue through a
+    session it was granted, never decide it. Inherits the identity-refusal mark and
+    the queued ``refused`` agent-action row, so the refusal is audited and explained.
+    """
+
+    message = "Approving or returning a timesheet requires a person, not an API token."
+
+
 def _queue_scope_decision_refusal(request: Request, view: APIView, token: Any) -> None:
     """Queue the ``refused``/``identity`` agent-action row for a token decision attempt."""
     # layering-ok: token-refusal audit (ADR-1485 D10), same edge as the MCP mixin
