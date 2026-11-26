@@ -65,6 +65,21 @@ export interface MobileScheduleProps {
    * reads as "the apply failed" rather than "it hasn't finished".
    */
   seeding?: boolean;
+  /**
+   * Shell v2 on a phone (#5106). The v2 toolbar sits above this list and its
+   * controls act here: the Filter's "Milestones only" and "Critical only" narrow
+   * the rows (summaries stay so each row keeps its phase), Today scrolls to and
+   * focuses the first row still running on or after today, and the legend is
+   * drawn above the list. The toolbar carries Add task, so the header's own
+   * "+ Task" steps aside.
+   */
+  v2?: {
+    criticalOnly: boolean;
+    milestonesOnly: boolean;
+    /** Bumped by the toolbar's Today; each change is one scroll. */
+    todaySignal: number;
+    legend: ReactNode;
+  };
 }
 
 /**
@@ -87,6 +102,7 @@ export function MobileSchedule({
   onAddTask,
   effectiveMethodology,
   seeding = false,
+  v2,
 }: MobileScheduleProps) {
   const queryClient = useQueryClient();
   const setSelectedTaskId = useScheduleStore((s) => s.setSelectedTaskId);
@@ -101,7 +117,34 @@ export function MobileSchedule({
     return tasks.filter((t) => !trayIds.has(t.id)).sort((a, b) => compareWbs(a.wbs, b.wbs));
   }, [tasks, unscheduled]);
 
+  // The window spans the whole list, filtered or not, so a filter never moves a bar.
   const window = useMemo(() => computeScheduleWindow(listTasks), [listTasks]);
+  const criticalOnly = v2?.criticalOnly ?? false;
+  const milestonesOnly = v2?.milestonesOnly ?? false;
+  const shownTasks = useMemo(() => {
+    if (!criticalOnly && !milestonesOnly) return listTasks;
+    return listTasks.filter(
+      (t) => t.isSummary || (criticalOnly && t.isCritical) || (milestonesOnly && t.isMilestone),
+    );
+  }, [listTasks, criticalOnly, milestonesOnly]);
+
+  const listRef = useRef<HTMLUListElement>(null);
+  const todaySignal = v2?.todaySignal ?? 0;
+  useEffect(() => {
+    if (todaySignal === 0) return;
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const target =
+      shownTasks.find((t) => !t.isSummary && t.finish !== null && t.finish >= todayIso) ??
+      shownTasks[shownTasks.length - 1];
+    if (!target) return;
+    const row = listRef.current?.querySelector<HTMLElement>(
+      `[data-task-id="${CSS.escape(target.id)}"]`,
+    );
+    row?.scrollIntoView({ block: 'start' });
+    row?.querySelector<HTMLElement>('button')?.focus({ preventScroll: true });
+    // Only the signal triggers a scroll; a later data refresh must not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [todaySignal]);
 
   const handleComplete = (task: Task) => {
     if (!projectId || task.isComplete) return;
@@ -119,7 +162,7 @@ export function MobileSchedule({
           {listTasks.length} task{listTasks.length === 1 ? '' : 's'}
         </p>
       </div>
-      {projectId && !readOnly && (
+      {projectId && !readOnly && !v2 && (
         <button
           type="button"
           onClick={onAddTask}
@@ -186,7 +229,9 @@ export function MobileSchedule({
         title={ROW_VOCABULARY.empty.title}
         description={ROW_VOCABULARY.empty.mobileDescription}
         action={
-          projectId && !readOnly ? <Button onClick={onAddTask}>{ROW_VOCABULARY.create.emptyStateButton}</Button> : undefined
+          projectId && !readOnly ? (
+            <Button onClick={onAddTask}>{ROW_VOCABULARY.create.emptyStateButton}</Button>
+          ) : undefined
         }
       />
     );
@@ -201,10 +246,22 @@ export function MobileSchedule({
         description="These tasks don't have dates yet. Open a task to set a start date, or run the scheduler, and the timeline will fill in."
       />
     );
+  } else if (shownTasks.length === 0) {
+    body = (
+      <p
+        className="px-4 py-6 text-sm text-neutral-text-secondary"
+        data-testid="mobile-filter-empty"
+      >
+        No rows match the filter.
+      </p>
+    );
   } else {
     body = (
-      <ul className="flex-1 divide-y divide-neutral-border overflow-y-auto overscroll-contain">
-        {listTasks.map((task) => (
+      <ul
+        ref={listRef}
+        className="flex-1 divide-y divide-neutral-border overflow-y-auto overscroll-contain"
+      >
+        {shownTasks.map((task) => (
           <MobileScheduleRow
             key={task.id}
             task={task}
@@ -236,6 +293,11 @@ export function MobileSchedule({
         />
       )}
       <UnscheduledTray tasks={unscheduled} onOpen={(id) => setSelectedTaskId(id)} />
+      {v2 && !isLoading && !error && listTasks.length > 0 && (
+        <div className="flex-shrink-0 border-b border-neutral-border bg-neutral-surface px-4 py-1.5">
+          {v2.legend}
+        </div>
+      )}
       {body}
     </div>
   );
@@ -417,7 +479,7 @@ function MobileScheduleRow({ task, window, onOpen, onComplete, completeDisabled 
     (task.isBlocked ? ', blocked' : '');
 
   return (
-    <li className="relative" style={{ paddingLeft: indentPx }}>
+    <li className="relative" style={{ paddingLeft: indentPx }} data-task-id={task.id}>
       {/* Full-bleed open target. An overlay button (not a wrapping button)
           keeps the complete control from nesting inside another button —
           invalid HTML that mis-announces for screen readers. The visual content

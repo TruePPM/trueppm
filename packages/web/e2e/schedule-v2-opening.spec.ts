@@ -35,7 +35,7 @@ const PROJECTS = [
   },
 ];
 
-function rows() {
+function rows(children = 13) {
   const out: Record<string, unknown>[] = [
     {
       ...base,
@@ -87,9 +87,11 @@ function rows() {
       planned_start: null,
     },
   ];
-  for (let i = 1; i <= 13; i += 1) {
+  for (let i = 1; i <= children; i += 1) {
     out.push({
       ...base,
+      // One blocked row, which is the only per-row warning v2 keeps.
+      is_blocked: i === 3,
       id: `k${i}`,
       wbs_path: `2.${i}`,
       name: `Work item ${i}`,
@@ -105,14 +107,18 @@ function rows() {
   return out;
 }
 
-async function open(page: Page) {
+async function open(page: Page, children = 13) {
   await page.addInitScript(() => {
     localStorage.setItem('trueppm.featureFlags', JSON.stringify({ shell_v2: true }));
   });
   await setupAuth(page);
   await setupCatchAll(page);
-  await setupApiMocks(page, { projects: PROJECTS, projectId: PROJECT_ID, tasks: rows() });
-  await setupTaskStore(page, { tasks: rows() });
+  await setupApiMocks(page, {
+    projects: PROJECTS,
+    projectId: PROJECT_ID,
+    tasks: rows(children),
+  });
+  await setupTaskStore(page, { tasks: rows(children) });
   await page.goto(BASE_URL);
 }
 
@@ -231,5 +237,37 @@ test.describe('shell v2 Schedule opening state (#5106)', () => {
     await expect(page.getByText('Work item 3', { exact: true })).toHaveCount(0);
     await filter.click();
     await expect(page.getByText('Work item 3', { exact: true })).toBeVisible();
+  });
+
+  test('a blocked row wears a Blocked pill, and only that row (#5106)', async ({ page }) => {
+    await open(page);
+    await expect(page.getByTestId('row-blocked-k3')).toHaveText('Blocked', { timeout: 10_000 });
+    await expect(page.locator('[data-testid^="row-blocked-"]')).toHaveCount(1);
+  });
+
+  test('a 300-task project opens with at most 3 chrome rows above the grid (#5106)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await open(page, 296);
+    const grid = page.getByRole('treegrid', { name: 'Item list' });
+    await expect(grid).toBeVisible({ timeout: 10_000 });
+    const chrome = await page.getByTestId('schedule-toolbar-v2').evaluate(
+      (bar, gridTop) => {
+        const column = bar.parentElement!;
+        return Array.from(column.children)
+          .filter((el) => {
+            const r = el.getBoundingClientRect();
+            return r.height > 2 && r.width > 2 && r.bottom <= gridTop + 1;
+          })
+          .map(
+            (el) =>
+              `${el.tagName}.${el.getAttribute('data-testid') ?? ''}.${(el.textContent ?? '').slice(0, 40)}`,
+          );
+      },
+      (await grid.boundingBox())!.y,
+    );
+    expect(chrome.length).toBeGreaterThanOrEqual(1);
+    expect(chrome.length, chrome.join(' | ')).toBeLessThanOrEqual(3);
   });
 });

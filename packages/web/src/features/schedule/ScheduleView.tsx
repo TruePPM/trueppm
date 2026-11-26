@@ -1,6 +1,6 @@
 import { ROW_VOCABULARY, countRows, outlineWidthValueText } from './rowVocabulary';
 import { useFeatureFlag } from '@/lib/featureFlags';
-import { ScheduleToolbarV2 } from './v2/ScheduleToolbarV2';
+import { ScheduleToolbarV2, type V2ActionItem, type V2ActionSection } from './v2/ScheduleToolbarV2';
 import { ScheduleLegendV2 } from './v2/ScheduleLegendV2';
 import { isMissingCommittedStart } from './missingCommittedStart';
 import {
@@ -1121,14 +1121,17 @@ export function ScheduleView() {
   const showAllChildren = useScheduleV2OpeningStore((s) => s.showAll);
   const setHiddenByCap = useScheduleV2OpeningStore((s) => s.setHidden);
   const [noStartOnly, setNoStartOnly] = useState(false);
-  // Constant (null) in v1 and in filter mode, so a row click or jump there never
-  // invalidates the row-derivation memo below; only the capped v2 list depends on them.
-  const selectedTaskIdForCap = useScheduleStore((s) =>
-    shellV2 && !noStartOnly ? s.selectedTaskId : null,
-  );
-  const scrollTargetIdForCap = useScheduleStore((s) =>
-    shellV2 && !noStartOnly ? s.scrollToTaskId : null,
-  );
+  // Today on a phone scrolls the list, not a canvas (#5106): a counter the list watches.
+  const [mobileTodaySignal, setMobileTodaySignal] = useState(0);
+  // Rows the 10-child cap is hiding right now (#5106). A selection or jump to a row
+  // that is ALREADY on screen needs no exemption, so these selectors stay null for it
+  // and a click in the capped v2 list does not rebuild the row list; only a reach for
+  // a hidden row (search, deep link, keyboard jump) changes the memo's input.
+  const capHiddenIdsRef = useRef<ReadonlySet<string>>(new Set());
+  const capExemptId = (id: string | null) =>
+    shellV2 && !noStartOnly && id !== null && capHiddenIdsRef.current.has(id) ? id : null;
+  const selectedTaskIdForCap = useScheduleStore((s) => capExemptId(s.selectedTaskId));
+  const scrollTargetIdForCap = useScheduleStore((s) => capExemptId(s.scrollToTaskId));
 
   // Sprint lookup for the Duplicate Undo affordance (#477).
   const { sprints } = useSprints(projectId);
@@ -1224,6 +1227,7 @@ export function ScheduleView() {
   const recordTrailAct = useTrailStore((st) => st.record);
   const attachTrailOperation = useTrailStore((st) => st.attachOperation);
   const markTrailUndone = useTrailStore((st) => st.markUndone);
+  const trailEntries = useTrailStore((st) => st.entries);
   const undoStructuralMut = useUndoStructuralOperation(projectId);
 
   // aria-live (polite) — drag announcements via DOM ref (rule 30)
@@ -1326,6 +1330,7 @@ export function ScheduleView() {
           cur = cur.parentId ? byId.get(cur.parentId) : undefined;
         }
       }
+      const preCap = filtered;
       const capped = capChildren(
         filtered,
         (t) => t.parentId ?? null,
@@ -1335,6 +1340,15 @@ export function ScheduleView() {
       );
       filtered = capped.rows;
       hiddenByCap = capped.hiddenByParent;
+      // What the cap hides, plus the rows it is exempting now: those stay in the
+      // set so the selectors keep returning them and the exemption holds while the
+      // row stays selected, rather than flickering away on the next store write.
+      const shown = new Set(capped.rows.map((t) => t.id));
+      const hidden = new Set(preCap.filter((t) => !shown.has(t.id)).map((t) => t.id));
+      for (const id of [selectedTaskIdForCap, scrollTargetIdForCap]) if (id) hidden.add(id);
+      capHiddenIdsRef.current = hidden;
+    } else {
+      capHiddenIdsRef.current = new Set();
     }
     return {
       visibleTasks: filtered,
@@ -1452,8 +1466,10 @@ export function ScheduleView() {
     const rootSummaryIds = tree.filter((n) => n.task.isSummary).map((n) => n.task.id);
     if (rootSummaryIds.length === 0) return;
     const allIds = collectAllIds(tree);
-    if (shellV2 && !isDemoReadOnly) {
-      // Only today's phase opens; the rest are one caret away (#5106).
+    if (shellV2) {
+      // Only today's phase opens; the rest are one caret away (#5106). The demo
+      // takes the same opening state under v2: today's phase IS the live work its
+      // done-phase collapse below was approximating.
       expandAll(openingExpandedIds(allTasks, new Date().toISOString().slice(0, 10)));
       return;
     }
@@ -1645,7 +1661,8 @@ export function ScheduleView() {
   // visibleTasks (filtered/collapsed rows draw nothing), the array the engine gets.
   const baselineSlipShown = useMemo(
     () =>
-      chartOptions.showBaselineBars === true && hasBaselineSlipMarks(visibleTasks, activeBaselineDates),
+      chartOptions.showBaselineBars === true &&
+      hasBaselineSlipMarks(visibleTasks, activeBaselineDates),
     [chartOptions.showBaselineBars, visibleTasks, activeBaselineDates],
   );
 
@@ -1965,7 +1982,7 @@ export function ScheduleView() {
     // Shell v2 (#5106): open on a 12-week window that starts 16 days before today,
     // so today sits in the left fifth. Independent of where the work is — the Fit
     // fallback below is v1's answer to an empty opening canvas.
-    if (shellV2 && !isDemoReadOnly) {
+    if (shellV2) {
       didInitialFrameRef.current = true;
       const w = openingWindow(todayIso, container.clientWidth);
       engine.setPxPerDay(w.pxPerDay);
@@ -4848,16 +4865,123 @@ export function ScheduleView() {
   // way replacing it with a nested `function MainView()` would be (that
   // would give the subtree a new component type every render and force
   // React to remount it, losing scroll/focus/animation state).
+  // v1 action parity under shell v2 (#5106, decided): every v1 act with no control of
+  // its own in the v2 bar lives in the one overflow menu, under the same gates v1
+  // uses. Deliberately NOT carried over: Focus mode, the canvas CP-only dim (v2's
+  // "Critical only" filter is the critical-path view), task-name placement,
+  // progress pills and sprint bands — v2 draws one fixed canvas vocabulary.
+  const canAuthorV2 = hasEditRights && !readOnly;
+  const undoTarget = newestUndoableEntry(trailEntries);
+  const v2StructureExtras: V2ActionItem[] = canAuthorV2
+    ? [
+        // Ungroup acts on the outline's cursor row, which the phone list has not got.
+        ...(isMobile
+          ? []
+          : [
+              {
+                label: 'Ungroup',
+                onSelect: handleUngroupRow,
+                disabled: ungroupTarget.blocked !== null || ungroupTasksMut.isPending,
+              },
+            ]),
+        {
+          label: 'Undo last change',
+          shortcut: 'Meta+Z',
+          disabled: undoTarget === null || undoStructuralMut.isPending,
+          onSelect: () => {
+            if (undoTarget?.operationId) undoStructuralAct(undoTarget.id, undoTarget.operationId);
+          },
+        },
+        {
+          label:
+            bulkEdit.selectedTasks.length > 0
+              ? `Edit ${countRows(bulkEdit.selectedTasks.length)}…`
+              : 'Edit selection…',
+          shortcut: 'Meta+Shift+K',
+          disabled: bulkEdit.selectedTasks.length === 0,
+          onSelect: bulkEdit.open,
+        },
+      ]
+    : [];
+  const v2ActionSections: V2ActionSection[] = [
+    {
+      heading: 'Add',
+      position: 'start',
+      items: canAuthorV2
+        ? [
+            {
+              label: 'Add milestone',
+              onSelect: handleAddMilestone,
+              disabled: createTaskMut.isPending,
+            },
+            { label: 'Add phase', onSelect: handleAddPhase, disabled: createTaskMut.isPending },
+          ]
+        : [],
+    },
+    {
+      heading: 'Baselines',
+      position: 'end',
+      items: projectId
+        ? [
+            ...(canCaptureBaseline
+              ? [{ label: 'Capture baseline', onSelect: () => setCaptureBaselineConfirmOpen(true) }]
+              : []),
+            { label: 'Baselines…', onSelect: () => setBaselineManagerOpen(true) },
+          ]
+        : [],
+    },
+    {
+      heading: 'Bring work in',
+      position: 'end',
+      items: projectId
+        ? [
+            ...(canImport
+              ? [{ label: 'Import from MS Project…', onSelect: () => setImportOpen(true) }]
+              : []),
+            ...(canImportCsv
+              ? [
+                  {
+                    label: 'Import from spreadsheet (CSV/Excel)…',
+                    onSelect: () => setCsvImportOpen(true),
+                  },
+                ]
+              : []),
+          ]
+        : [],
+    },
+    {
+      heading: 'Project',
+      position: 'end',
+      items: projectId
+        ? [
+            { label: 'Recently deleted…', onSelect: () => setTaskTrashOpen(true) },
+            // v2 has no mode chip, so without this row an editor who chose Read
+            // could never get back to Author under the flag.
+            ...(hasEditRights
+              ? [
+                  {
+                    label:
+                      authorMode.mode === 'read' ? 'Switch to Author mode' : 'Switch to Read mode',
+                    onSelect: requestAuthorToggle,
+                  },
+                ]
+              : []),
+          ]
+        : [],
+    },
+  ];
+
   const mainView = (() => (
     <div className="flex flex-col h-full overflow-hidden">
       <h1 className="sr-only">Schedule</h1>
-      {shellV2 && !isMobile ? (
+      {shellV2 ? (
         <ScheduleToolbarV2
+          phone={isMobile}
           onFit={() => engine?.fitToProject()}
           canAddTask={hasEditRights && !readOnly}
-          onAddTask={handleToolbarAddTask}
+          onAddTask={isMobile ? () => setShowAddForm(true) : handleToolbarAddTask}
           createPending={createTaskMut.isPending}
-          onToday={handleScrollToToday}
+          onToday={isMobile ? () => setMobileTodaySignal((n) => n + 1) : handleScrollToToday}
           baselineAvailable={hasActiveBaseline}
           baselineShown={chartPrefs.baselineBarsVisible}
           baselineBarsDrawn={chartOptions.showBaselineBars === true}
@@ -4890,7 +5014,12 @@ export function ScheduleView() {
                   },
                 ]
               : []),
+            ...(projectId && canShare
+              ? [{ label: 'Share this schedule…', onSelect: () => setShareOpen(true) }]
+              : []),
           ]}
+          structureExtras={v2StructureExtras}
+          actionSections={v2ActionSections}
           legend={(placement) => (
             <ScheduleLegendV2
               placement={placement}
@@ -5074,6 +5203,22 @@ export function ScheduleView() {
           ) : null
         }
         shellV2LegendPlacement={shellV2 ? legendV2Placement : null}
+        mobileV2={
+          shellV2 && isMobile
+            ? {
+                criticalOnly: showCriticalOnly,
+                milestonesOnly: showMilestonesOnly,
+                todaySignal: mobileTodaySignal,
+                legend: (
+                  <ScheduleLegendV2
+                    placement="timeline-header"
+                    baselineShown={false}
+                    baselineSlipShown={false}
+                  />
+                ),
+              }
+            : null
+        }
         isMobile={isMobile}
         allTasks={allTasks}
         projectId={projectId}
@@ -7011,6 +7156,8 @@ interface ScheduleMainAreaProps {
    * is the toolbar ladder's relocation rung; the legend itself never folds.
    */
   shellV2LegendPlacement: 'bar' | 'timeline-header' | null;
+  /** Shell v2 on a phone (#5106): the toolbar's filters, its Today, and the legend above the list. */
+  mobileV2: ComponentProps<typeof MobileSchedule>['v2'] | null;
   /**
    * Is drag-to-link on offer? (#3053) Distinct from `readOnly`, which is the
    * task-content gate — the two roles they admit are not nested. Threaded down so
@@ -7474,6 +7621,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
         onAddTask={() => setShowAddForm(true)}
         effectiveMethodology={effectiveMethodology}
         seeding={scheduleSeeding}
+        v2={props.mobileV2 ?? undefined}
       />
     );
   }

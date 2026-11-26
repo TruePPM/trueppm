@@ -153,15 +153,26 @@ drag-to-plan stay on the desktop canvas.
 This section describes the redesigned Schedule page that ships in 0.5 behind the `shell_v2` preview flag (add `?ff=shell_v2` to the URL). The current release uses the toolbar described in [Schedule toolbar](/features/schedule-toolbar/), with a show/hide **Legend** button and a forecast strip docked under the chart.
 :::
 
-In 0.5 the redesigned Schedule page will put a smaller set of controls in its toolbar. It does not yet offer every action the current toolbar has; the ones it leaves out are listed under [Not in the redesigned Schedule page yet](#not-in-the-redesigned-schedule-page-yet). With the preview flag on, those actions are not reachable from the Schedule page at all. The redesigned toolbar will hold:
+In 0.5 the redesigned Schedule page will put a smaller set of controls in its toolbar, and every action of the current toolbar that does not get a control of its own will move into its **More** menu. A few display options are removed rather than moved; they are listed under [Removed from the redesigned page](#removed-from-the-redesigned-page). The redesigned toolbar will hold:
 
 - **Filter**, **Zoom** and **Add task** will always stay in the bar.
 - **Today**, **Baseline** and **Critical only** will sit in the bar when the window has room, and move into the **More** menu as it narrows. **Baseline** will only appear when the project has an active baseline.
 - **Group**, **Columns**, **Expand all**, **Dependency links** (show or hide the arrows) and **Export** will live in the **More** menu. Its button will say how many actions it holds, and a control that moved there for lack of room will be listed under **Moved here: no room at this width**.
+- The rest of the current toolbar's actions will be in the **More** menu too, each under the same role as today:
+  - **Add**: **Add milestone** and **Add phase**.
+  - **Structure**: **Ungroup**, **Undo last change** (the newest structural change you can still undo, the same one `⌘Z` / `Ctrl+Z` undoes) and **Edit selection…** for bulk edit, beside **Group**. Each is disabled, with its name still shown, when there is nothing for it to act on.
+  - **Export**: **Share this schedule…** beside the exports.
+  - **Baselines**: **Capture baseline** and **Baselines…** (the baseline manager).
+  - **Bring work in**: **Import from MS Project…** and **Import from spreadsheet (CSV/Excel)…**.
+  - **Project**: **Recently deleted…** and **Switch to Read mode** / **Switch to Author mode**. The redesigned bar has no mode chip, so this row is how you change mode with the preview flag on.
 
 The toolbar will measure itself rather than switch at fixed screen sizes: it gives up room one step at a time until everything fits, so the exact width at which a control moves depends on your project and on whether the side rail is open. Zoom will first shrink to a single **Month ▾**-style button, then the legend will move into the timeline header, and **Add task** will become a `+` button only when nothing else is left to give up. Nothing in the bar is ever cut off.
 
-The toolbar will be a single stop for the `Tab` key. Use the left and right arrow keys, `Home` and `End` to move between its controls, and `Escape` to close the **More** menu.
+The toolbar will be a single stop for the `Tab` key. Use the left and right arrow keys, `Home` and `End` to move between its controls, and `Escape` to close the **More** menu. Inside a menu, the up and down arrow keys move between rows, and every row is 44 pixels tall.
+
+### On a phone
+
+Below 768 pixels wide the same 44-pixel toolbar will sit above the phone's schedule list, which draws each task as a row with its own bar track. The legend will sit between the toolbar and the list. The toolbar's controls act on the list: **Filter** (**Milestones only**) and **Critical only** narrow it, keeping each row's phase, and **Today** scrolls to the first task still running on or after today and puts focus on it. **Zoom** and **Baseline** are not offered on a phone, because the list always spans the whole project and draws no baseline bars. For the same reason the phone's **More** menu leaves out **Group**, **Ungroup**, **Expand all**, **Dependency links** and **Columns**, which act on the desktop item list and chart.
 
 ### Legend and the critical path
 
@@ -184,24 +195,25 @@ The forecast strip under the chart will go away in the redesigned page. The P80 
 
 A project will open on a fixed 448-pixel item list showing ID, task, owner, finish and float, and a 12-week window that starts about two weeks before today, so today sits in the left fifth of the chart. Only the phase that contains today will be expanded; the others stay folded one caret away. A phase shows its first ten children and a **N more** button that reveals the rest. Resizing a column or turning a column on in the Display menu overrides these defaults.
 
-The amber "no committed start" chip will no longer repeat on every row. The item list's footer will say how many tasks there are and how many are blocked, and one **N no committed start** button will filter the list to those tasks (select it again to show everything). An empty project will offer **Import plan** and **Add phase** next to **Add item**.
+The amber "no committed start" chip will no longer repeat on every row. The item list's footer will say how many tasks there are and how many are blocked, and one **N no committed start** button will filter the list to those tasks (select it again to show everything). The one warning a row still carries is a **Blocked** pill on a blocked task. An empty project will offer **Import plan** and **Add phase** next to **Add item**.
+
+The read-only demo will open the same way with the preview flag on: today's phase expanded and the 12-week window, rather than the whole-project **Fit** it opens on without the flag. Selecting a row will not reshuffle the list; only reaching a task that the ten-child cap is hiding (by search, a link or a keyboard jump) reveals it.
+
+### Removed from the redesigned page
+
+These current-toolbar options will not be part of the redesigned page, by decision rather than as unfinished work. Turn the preview flag off to use them:
+
+- **Focus mode**.
+- The critical-path-only view (**CP only**). The redesigned toolbar's **Critical only** filter is its critical-path view.
+- Display options for where task names sit on the bar, **progress pills** and **sprint bands**.
 
 ### Not in the redesigned Schedule page yet
 
-The redesigned page is a first pass, and so far it covers the toolbar, the legend and the critical-path outlines. These are not part of it yet, and no release is promised for any of them. Until they are, turn the preview flag off to use them:
+These are not part of the redesigned page yet, and no release is promised for any of them:
 
-- **Import** from Microsoft Project or CSV, and **Share**.
-- **Capture baseline**, the **baseline manager**, and **Trash** (deleted tasks).
-- **Undo** for structural changes, and **Bulk edit**.
-- The **Read** / **Author** mode toggle.
-- **Add milestone**, **Add phase** and **Ungroup**.
-- **Focus mode** and the critical-path-only view (**CP only**).
-- Display options: where task names sit on the bar, **progress pills** and **sprint bands**.
 - Filters other than **Milestones only**. The **Filter** menu holds that one filter for now.
-- Grouping recurring tasks under one row. Each occurrence is stored per task already; the plan is to group them for display in the browser from what the server sends, but nothing is built.
-- A phone layout for the toolbar. Below 768 pixels wide the redesigned toolbar is not shown at all; the phone's schedule list has no toolbar controls, as in the current release.
-- The page's states are partly redrawn: the loading skeleton lays down the rows and the today line first, and an empty task list will offer **Import plan** and **Add phase** next to **Add item**, while the blank-project canvas will offer **Add phase** beside **Import a file**. Naming the dependency loop in a failed load needs the server to report it, and does not yet.
-- A pill on a row for a blocked task. The footer counts blocked tasks, but no row pill for them is drawn yet.
+- Grouping recurring tasks under one row ([#4503](https://gitlab.com/trueppm/trueppm/-/issues/4503)).
+- Naming the dependency loop when the schedule cannot be computed. A failed load says the schedule could not be computed, with a retry and a support code, but does not yet say which tasks form the loop.
 - The **Commit** marker and the **P80** tick on the chart, with their definitions.
 - An as-of date beside the commitment and the P50 / P80 forecast dates, which depends on the server reporting when each was computed ([#4760](https://gitlab.com/trueppm/trueppm/-/issues/4760)).
 

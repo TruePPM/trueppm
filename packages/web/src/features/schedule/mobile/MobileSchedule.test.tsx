@@ -122,8 +122,20 @@ describe('MobileSchedule', () => {
   it('does not announce a computed phase status as a committed one (#3531)', () => {
     renderSchedule({
       tasks: [
-        makeTask({ id: 'e', name: 'Empty phase', status: 'NOT_STARTED', statusSource: 'none', statusRollupCount: 0 }),
-        makeTask({ id: 'd', name: 'Busy phase', status: 'IN_PROGRESS', statusSource: 'derived', statusRollupCount: 4 }),
+        makeTask({
+          id: 'e',
+          name: 'Empty phase',
+          status: 'NOT_STARTED',
+          statusSource: 'none',
+          statusRollupCount: 0,
+        }),
+        makeTask({
+          id: 'd',
+          name: 'Busy phase',
+          status: 'IN_PROGRESS',
+          statusSource: 'derived',
+          statusRollupCount: 4,
+        }),
       ],
     });
     const empty = screen.getByRole('button', { name: /^Empty phase/ });
@@ -178,9 +190,7 @@ describe('MobileSchedule', () => {
   // apply failed" — the one screen where the ordinary empty state is a lie.
   it('shows the seeding state instead of "No items yet" while a template apply runs', () => {
     renderSchedule({ tasks: [], seeding: true });
-    expect(
-      screen.getByRole('status', { name: 'Setting up your schedule' }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Setting up your schedule' })).toBeInTheDocument();
     expect(screen.queryByText('No items yet')).not.toBeInTheDocument();
   });
 
@@ -228,7 +238,7 @@ describe('MobileSchedule', () => {
     expect(screen.queryByRole('button', { name: 'Review methodology' })).not.toBeInTheDocument();
   });
 
-  it('shows no banner on an EMPTY schedule under AGILE — that is the empty state\'s job', () => {
+  it("shows no banner on an EMPTY schedule under AGILE — that is the empty state's job", () => {
     renderSchedule({ tasks: [], effectiveMethodology: 'AGILE' });
     expect(screen.getByText("Schedule isn't part of this project's workflow")).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Review methodology' })).not.toBeInTheDocument();
@@ -262,5 +272,92 @@ describe('MobileSchedule', () => {
   it('hides the "+ Task" action for read-only members', () => {
     renderSchedule({ tasks: [makeTask()], readOnly: true });
     expect(screen.queryByRole('button', { name: /^Task$/ })).not.toBeInTheDocument();
+  });
+
+  describe('shell v2 on a phone (#5106)', () => {
+    const v2 = (over: Partial<NonNullable<ComponentProps<typeof MobileSchedule>['v2']>> = {}) => ({
+      criticalOnly: false,
+      milestonesOnly: false,
+      todaySignal: 0,
+      legend: <ul aria-label="Schedule legend" />,
+      ...over,
+    });
+    const tasks = [
+      makeTask({ id: 'a', wbs: '1', name: 'Pour footings', isCritical: true }),
+      makeTask({ id: 'b', wbs: '2', name: 'Paint fence' }),
+      makeTask({ id: 'c', wbs: '3', name: 'Handover', isMilestone: true }),
+    ];
+
+    it('draws the legend above the list and leaves Add task to the toolbar', () => {
+      renderSchedule({ tasks, v2: v2() });
+      expect(screen.getByRole('list', { name: 'Schedule legend' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^Task$/ })).not.toBeInTheDocument();
+    });
+
+    it('Critical only and Milestones only narrow the rows', () => {
+      const { rerender } = renderSchedule({ tasks, v2: v2({ criticalOnly: true }) });
+      expect(screen.getByText('Pour footings')).toBeInTheDocument();
+      expect(screen.queryByText('Paint fence')).not.toBeInTheDocument();
+      expect(screen.queryByText('Handover')).not.toBeInTheDocument();
+      rerender(
+        <MobileSchedule
+          tasks={tasks}
+          projectId="p1"
+          readOnly={false}
+          isLoading={false}
+          error={null}
+          onAddTask={noop}
+          effectiveMethodology="HYBRID"
+          v2={v2({ milestonesOnly: true })}
+        />,
+      );
+      expect(screen.getByText('Handover')).toBeInTheDocument();
+      expect(screen.queryByText('Pour footings')).not.toBeInTheDocument();
+    });
+
+    it('says so when the filter leaves no row', () => {
+      renderSchedule({ tasks: [tasks[1]], v2: v2({ milestonesOnly: true }) });
+      expect(screen.getByTestId('mobile-filter-empty')).toHaveTextContent(
+        'No rows match the filter.',
+      );
+    });
+
+    it('Today scrolls to and focuses the first row still running on or after today', () => {
+      const scrolled: string[] = [];
+      const spy = vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(function (
+        this: HTMLElement,
+      ) {
+        scrolled.push(this.getAttribute('data-task-id') ?? '');
+      });
+      const future = makeTask({
+        id: 'f',
+        wbs: '2',
+        name: 'Future work',
+        start: '2999-01-01',
+        finish: '2999-01-09',
+      });
+      const past = makeTask({
+        id: 'p',
+        wbs: '1',
+        name: 'Past work',
+        start: '2000-01-01',
+        finish: '2000-01-09',
+      });
+      const base = {
+        tasks: [past, future],
+        projectId: 'p1',
+        readOnly: false,
+        isLoading: false,
+        error: null,
+        onAddTask: noop,
+        effectiveMethodology: 'HYBRID' as const,
+      };
+      const { rerender } = renderSchedule({ ...base, v2: v2() });
+      expect(scrolled).toEqual([]);
+      rerender(<MobileSchedule {...base} v2={v2({ todaySignal: 1 })} />);
+      expect(scrolled).toEqual(['f']);
+      expect(screen.getByRole('button', { name: /^Future work,/ })).toHaveFocus();
+      spy.mockRestore();
+    });
   });
 });

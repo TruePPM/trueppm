@@ -210,8 +210,8 @@ async function clipped(page: Page): Promise<string[] | null> {
 
 /**
  * Narrows the bar's own box (as a docked rail or detail panel would) so the
- * demotion rungs are reachable at a desktop viewport, where the phone layout
- * (below 768) replaces the bar and no viewport width demotes this fixture.
+ * demotion rungs are reachable at a desktop viewport: no desktop viewport width
+ * demotes this fixture, and below 768 the bar takes its phone form (#5106).
  */
 const narrowBar = (page: Page, px: number) =>
   page.getByTestId('schedule-toolbar-v2').evaluate((el, w) => {
@@ -275,10 +275,18 @@ test.describe('shell v2 Schedule toolbar (#4796)', () => {
       await trigger.click();
       const inMenu = await page.getByRole('menuitemcheckbox', { name: 'Critical only' }).count();
       expect(inBar + inMenu, `Critical only is in one place at ${width}`).toBe(1);
+      // The count names exactly the commands the menu renders (the v1 acts
+      // carried over in #5106 included), never a fixed number.
       const name = (await trigger.getAttribute('aria-label')) ?? '';
-      expect(name).toBe(
-        `More schedule actions, ${5 + (inMenu ? 1 : 0) + (await demotedOthers(page))} items`,
-      );
+      // Columns and Export are one command each however many rows they list;
+      // every other row is a command of its own.
+      const menuEl = page.getByRole('menu');
+      let rendered = await menuEl.locator('[role^="menuitem"]').count();
+      for (const grouped of ['Columns', 'Export']) {
+        const n = await menuEl.locator(`[role^="menuitem"][data-section="${grouped}"]`).count();
+        rendered += (n > 0 ? 1 : 0) - n;
+      }
+      expect(name).toBe(`More schedule actions, ${rendered} items`);
       // Whatever the bar has conceded, the legend never reaches the overflow
       // (checked while the menu is open): it stays in the bar or relocates to
       // the timeline header, and is visible in one of them.
@@ -289,16 +297,54 @@ test.describe('shell v2 Schedule toolbar (#4796)', () => {
     }
   });
 
-  test('on a phone the v2 toolbar is absent and the phone schedule still renders', async ({
+  test('on a phone the v2 toolbar drives the list: 44px bar, legend above the list, Critical only narrows it (#5106)', async ({
     page,
   }) => {
-    // MobileSchedule ignores every toolbar control, as v1's toolbar knows
-    // (it renders nothing on a phone), so a v2 bar here would be inert.
     await page.setViewportSize({ width: 390, height: 900 });
     await goto(page);
-    await expect(page.getByTestId('schedule-toolbar-v2')).toHaveCount(0);
-    await expect(page.getByRole('toolbar', { name: 'Schedule toolbar' })).toHaveCount(0);
-    await expect(page.getByText('Inventory legacy schemas')).toBeVisible({ timeout: 10_000 });
+    const bar = toolbar(page);
+    await expect(bar).toHaveAttribute('data-phone', 'true', { timeout: 10_000 });
+    expect((await bar.boundingBox())?.height).toBe(44);
+    // No canvas to zoom, no baseline bars to toggle: neither is offered.
+    await expect(bar.getByRole('button', { name: /^Zoom/ })).toHaveCount(0);
+    await expect(page.getByText('Inventory legacy schemas')).toBeVisible();
+    const legend = page.getByRole('list', { name: 'Schedule legend' });
+    await expect(legend).toBeVisible();
+    const legendBox = await legend.boundingBox();
+    const rowBox = await page
+      .getByRole('button', { name: /^Inventory legacy schemas,/ })
+      .boundingBox();
+    expect(legendBox!.y).toBeLessThan(rowBox!.y);
+    await expect.poll(() => clipped(page)).toEqual([]);
+
+    const inline = bar.getByRole('button', { name: 'Critical only' });
+    if ((await inline.count()) > 0) {
+      await inline.click();
+    } else {
+      await bar.getByRole('button', { name: /^More schedule actions/ }).click();
+      await page.getByRole('menuitemcheckbox', { name: 'Critical only' }).click();
+    }
+    await expect(page.getByText('Inventory legacy schemas')).toHaveCount(0);
+    await expect(page.getByText('Profile data quality')).toBeVisible();
+  });
+
+  test('v1 acts with no bar control are reachable from More under v2 (#5106)', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await goto(page);
+    await expect(toolbar(page)).toBeVisible({ timeout: 10_000 });
+    await toolbar(page)
+      .getByRole('button', { name: /^More schedule actions/ })
+      .click();
+    const menu = page.getByRole('menu');
+    for (const label of ['Baselines…', 'Recently deleted…']) {
+      await expect(menu.getByRole('menuitem', { name: label, exact: true })).toBeVisible();
+    }
+    // Removed deliberately, with no v2 replacement.
+    for (const gone of [/Focus mode/i, /progress pills/i, /sprint bands/i, /name placement/i]) {
+      await expect(menu.getByText(gone)).toHaveCount(0);
+    }
+    await menu.getByRole('menuitem', { name: 'Recently deleted…', exact: true }).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
   });
 
   test('demoting the focused control moves focus to More and says where it went', async ({
@@ -454,6 +500,31 @@ test.describe('shell v2 Schedule toolbar (#4796)', () => {
     });
   }
 
+  for (const scheme of ['light', 'dark'] as const) {
+    test(`timeline-header legend and collapsed Zoom menu are axe clean (${scheme})`, async ({
+      page,
+    }) => {
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await goto(page);
+      await expect(toolbar(page)).toBeVisible({ timeout: 10_000 });
+      await narrowBar(page, 340);
+      // The legend has left the bar for the timeline header; Zoom is one trigger.
+      await expect(toolbar(page).getByRole('list', { name: 'Schedule legend' })).toHaveCount(0);
+      await expect(page.getByRole('list', { name: 'Schedule legend' })).toBeVisible();
+      await toolbar(page)
+        .getByRole('button', { name: /^Zoom: / })
+        .click();
+      await expect(page.getByRole('menu')).toBeVisible();
+      const results = await new AxeBuilder({ page })
+        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+        .include('[role="list"][aria-label="Schedule legend"]')
+        .include('[role="menu"]')
+        .analyze();
+      expect(results.violations.map((v) => `${v.id}: ${v.nodes.length}`)).toEqual([]);
+    });
+  }
+
   test('flag off: v1 toolbar unchanged, no v2 surface', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await goto(page, { v2: false });
@@ -524,11 +595,3 @@ test.describe('shell v2 Schedule toolbar (#4796)', () => {
     await expect(page.getByText('SCHEDULE-LOAD')).toBeVisible();
   });
 });
-
-/** Today (menuitem) and Baseline (menuitemcheckbox) rows demoted alongside Critical only; each counts 0 while it is still inline in the bar. */
-async function demotedOthers(page: Page): Promise<number> {
-  return (
-    (await page.getByRole('menuitem', { name: 'Today', exact: true }).count()) +
-    (await page.getByRole('menuitemcheckbox', { name: 'Baseline', exact: true }).count())
-  );
-}
