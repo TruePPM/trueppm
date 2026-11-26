@@ -178,16 +178,58 @@ def test_actual_logged_after_the_run_marks_it_stale_without_altering_it(
     assert fresh["actual_to_date"] == "10100.00"
 
 
-def test_invalid_cost_input_still_forecasts_dates_and_records_no_cost(
-    scenario: dict[str, Any],
+def _counting_engine(monkeypatch: pytest.MonkeyPatch, raises: Exception | None = None) -> list[Any]:
+    """Wrap the engine's ``monte_carlo`` the view imports; record each call's ``cost``."""
+    import trueppm_scheduler.engine as engine
+
+    real = engine.monte_carlo
+    calls: list[Any] = []
+
+    def counted(*args: Any, **kwargs: Any) -> Any:
+        calls.append(kwargs.get("cost"))
+        if raises is not None:
+            raise raises
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(engine, "monte_carlo", counted)
+    return calls
+
+
+def test_invalid_cost_input_still_forecasts_dates_records_no_cost_and_marks_stale(
+    scenario: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Negative units can only be written around the API; they must not 400 the dates."""
+    """Negative units can only be written around the API; they must not 400 the dates.
+
+    The earlier, good run is kept: its figures are still served, but a newer run
+    exists that priced nothing, so they are not the latest simulation's and say so.
+    """
     c = h.client(scenario["pm"])
     good = _simulate(c, scenario["p"]).data
-    MonteCarloRun.objects.filter(project=scenario["p"]).delete()
+    assert _cost(c, scenario["p"])["p80_cost"]["stale"] is False
     TaskResource.objects.filter(task=scenario["b"]).update(units=Decimal("-1.00"))
+    calls = _counting_engine(monkeypatch)
     bad = _simulate(c, scenario["p"]).data
+    # Validated up front: one simulation, unpriced, never a priced attempt then a retry.
+    assert calls == [None]
     assert (bad["p50"], bad["p80"], bad["p95"]) == (good["p50"], good["p80"], good["p95"])
-    run = MonteCarloRun.objects.get(project=scenario["p"])
-    assert run.cost_forecast is None
-    assert _cost(c, scenario["p"])["p80_cost"]["reason"] == "no_simulation"
+    latest = MonteCarloRun.objects.filter(project=scenario["p"]).order_by("-taken_at").first()
+    assert latest is not None and latest.cost_forecast is None
+    assert MonteCarloRun.objects.filter(project=scenario["p"]).count() == 2
+    data = _cost(c, scenario["p"])
+    for key in ("p50_cost", "p80_cost"):
+        assert data[key]["value"] == "4700.00"  # the good run's, unadjusted
+        assert data[key]["stale"] is True
+
+
+def test_a_refused_schedule_is_simulated_once(
+    scenario: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A refusal from the schedule itself is not retried unpriced: one call, one 400."""
+    from trueppm_scheduler import InvalidScheduleInput
+
+    calls = _counting_engine(monkeypatch, raises=InvalidScheduleInput("bad schedule"))
+    r = h.client(scenario["pm"]).post(
+        f"/api/v1/projects/{scenario['p'].pk}/monte-carlo/", {"n_simulations": 50}, format="json"
+    )
+    assert r.status_code == 400, r.data
+    assert len(calls) == 1 and calls[0] is not None  # the priced, valid cost model

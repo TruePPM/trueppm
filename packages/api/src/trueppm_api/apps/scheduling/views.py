@@ -10,7 +10,6 @@ from collections.abc import Callable
 from datetime import date as _date
 from datetime import datetime as _datetime
 from datetime import timedelta
-from functools import partial
 from typing import Any, TypedDict, cast
 
 from django.conf import settings
@@ -1192,6 +1191,14 @@ def simulate_and_record_monte_carlo(
     cost_model, project_cost = mc_cost_inputs(
         project.pk, [t.id for t in graph.tasks], float(sched_calendar.hours_per_day)
     )
+    try:
+        # Checked here, before simulating, so a cost input the engine refuses (negative
+        # units or rate written outside the API) drops the cost and not the dates, and
+        # a refused schedule is still simulated, and refused, exactly once.
+        cost_model.validate(sched_project)
+    except InvalidScheduleInput:
+        cost_model = None
+        logger.warning("monte carlo: project %s has invalid cost inputs; run not priced", pk)
 
     try:
         # Manual Monte Carlo span (#709): times the simulation in the worker
@@ -1201,8 +1208,7 @@ def simulate_and_record_monte_carlo(
             if not admitted:
                 return busy_response()
             with monte_carlo_span(pk, simulation_count=n_simulations):
-                simulate = partial(
-                    monte_carlo,
+                mc_result = monte_carlo(
                     sched_project,
                     runs=n_simulations,
                     seed=_mc_input_seed(sched_project, n_simulations),
@@ -1210,19 +1216,8 @@ def simulate_and_record_monte_carlo(
                     max_tasks=settings.MC_TASK_CAP,
                     **_mc_lag_delta_kwargs(),
                     **mc_deadline_kwargs(),
+                    cost=cost_model,
                 )
-                try:
-                    mc_result = simulate(cost=cost_model)
-                except InvalidScheduleInput:
-                    # A cost input the engine refuses (a negative units or rate written
-                    # outside the API) must not withhold the dates. Re-run unpriced:
-                    # no cost is recorded for this run. If the schedule itself is what
-                    # is invalid, this raises again and is refused below as before.
-                    mc_result = simulate(cost=None)
-                    logger.warning(
-                        "monte carlo: project %s has invalid cost inputs; run not priced",
-                        project.pk,
-                    )
     except SimulationCapExceeded as exc:
         # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
         return _simulation_cap_response(exc)

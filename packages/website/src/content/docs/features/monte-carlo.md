@@ -225,7 +225,7 @@ The answer is per caller. Below the velocity audience you always get `velocity_w
 Cost percentiles ship in 0.5. In the current release a simulation prices nothing.
 :::
 
-Each run is also priced: actual cost to date plus every open task's remaining hours in that run at each assignee's current rate. The P50 and P80 cost therefore come from the same simulated schedules as the P50 and P80 dates, and pricing the runs does not move the dates. A Project Manager reads them on the project's [cost breakdown](/features/cost-model/#p50-and-p80-cost), not on the forecast. They are unavailable while anyone in scope has no rate.
+Each run is also priced: actual cost to date plus every open task's remaining hours in that run at each assignee's current rate. The P50 and P80 cost therefore come from the same simulated schedules as the P50 and P80 dates, and pricing the runs does not move the dates. A story forecast from velocity is priced by the sprint capacity it claims, not by the time it spends waiting for the team. A Project Manager reads them on the project's [cost breakdown](/features/cost-model/#p50-and-p80-cost), not on the forecast. They are unavailable while anyone in scope has no rate.
 
 ## Forecast history
 

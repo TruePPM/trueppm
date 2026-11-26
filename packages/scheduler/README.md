@@ -243,7 +243,12 @@ as `actual_to_date` plus every open task's remaining working days in that run x
 `hours_per_day` x `units` x `rate`, read from the same sampled durations the run's
 dates came from, so the cost and date percentiles describe one set of simulated
 schedules. Pricing draws nothing from the random stream: the dates are the same
-with or without it.
+with or without it. A velocity task (shared team capacity, ADR-1412) is the
+exception to "remaining days": its span includes time spent waiting for capacity
+other stories hold, so it is priced by the capacity it claims, each sprint's claimed
+points over that sprint's velocity x `sprint_length_days`. `CostModel.validate(project)`
+runs the same checks `monte_carlo(cost=...)` does, so a caller can drop a refused
+cost model before simulating instead of after.
 
 ```python
 from trueppm_scheduler import CostAssignment, CostModel

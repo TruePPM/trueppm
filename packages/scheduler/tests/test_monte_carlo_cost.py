@@ -236,3 +236,127 @@ def test_partly_done_velocity_task_prices_its_realized_days(
     # The velocity sampler ran: whole sprints of varying count, not the 10-day estimate.
     assert len(set(realized.tolist())) > 1
     np.testing.assert_allclose(per_run[0], 8 * 10.0 * realized)
+
+
+def _parallel_stories(rates: dict[str, float]) -> tuple[Project, CostModel]:
+    """Three independent 20-point stories on a 20-point-per-sprint team."""
+    project = _project(
+        *(_task(tid, 10, story_points=20.0, delivery_mode=DeliveryMode.SCRUM) for tid in rates),
+        status_date=MON,
+        velocity_samples=[20.0],
+        sprint_length_days=10,
+    )
+    model = CostModel(
+        assignments=[
+            CostAssignment(task_id=tid, resource_id=f"r-{tid}", rate=rate)
+            for tid, rate in rates.items()
+        ]
+    )
+    return project, model
+
+
+def test_parallel_velocity_stories_price_the_capacity_they_claim_not_the_wait() -> None:
+    """ADR-1412 serializes the stories into sprints 1, 2 and 3; each claims one sprint.
+
+    Pricing the span would bill 10, 20 and 30 days, and which person pays for the
+    wait would hang on the id tie-break. Each claims 20 of a 20-point sprint, 10 days:
+    10 x 8 x (10 + 20 + 30) = 4,800.
+    """
+    rates = {"a": 10.0, "b": 20.0, "c": 30.0}
+    project, model = _parallel_stories(rates)
+    result = monte_carlo(project, runs=50, seed=1, cost=model, return_samples=True)
+    assert result.samples is not None and result.cost is not None
+    assert sorted(set(result.samples.durations[0].tolist())) == [10.0, 20.0, 30.0]
+    assert result.cost.percentiles == {50: 4_800.0, 80: 4_800.0, 95: 4_800.0}
+    # Reverse which id holds which rate: the tie-break now serves the dearest first.
+    swapped, swapped_model = _parallel_stories(
+        dict(zip(rates, reversed(rates.values()), strict=True))
+    )
+    again = monte_carlo(swapped, runs=50, seed=1, cost=swapped_model)
+    assert again.cost is not None and again.cost.percentiles == result.cost.percentiles
+
+
+def test_partly_done_velocity_story_prices_only_its_remaining_points() -> None:
+    """40 points, half done: 20 remain, one 20-point sprint, 10 days x 8 h x 10 = 800."""
+    project = _project(
+        _task(
+            "a",
+            10,
+            story_points=40.0,
+            delivery_mode=DeliveryMode.SCRUM,
+            percent_complete=50.0,
+            actual_start=MON,
+        ),
+        status_date=MON + timedelta(days=7),
+        velocity_samples=[20.0],
+        sprint_length_days=10,
+    )
+    model = CostModel(assignments=[CostAssignment(task_id="a", resource_id="ana", rate=10.0)])
+    result = monte_carlo(project, runs=20, seed=1, cost=model)
+    assert result.cost is not None and result.cost.p95 == pytest.approx(800.0)
+
+
+def _golden_networks() -> dict[str, Project]:
+    def fs(a: str, b: str) -> Dependency:
+        return Dependency(predecessor_id=a, successor_id=b, dep_type=DependencyType.FS)
+
+    scrum: dict[str, object] = {"delivery_mode": DeliveryMode.SCRUM}
+    return {
+        "pert": _project(
+            _task("a", 5, (3, 5, 12)),
+            _task("b", 8, (6, 8, 20)),
+            _task("c", 3, (2, 3, 9)),
+            _task("d", 4),
+            deps=[fs("a", "c"), fs("b", "c"), fs("c", "d")],
+        ),
+        "velocity": _project(
+            _task("s1", 10, story_points=20.0, **scrum),
+            _task("s2", 10, story_points=13.0, **scrum),
+            _task("s3", 10, story_points=8.0, **scrum),
+            _task("w", 5, (3, 5, 11)),
+            deps=[fs("s1", "w"), fs("s2", "w"), fs("s3", "w")],
+            status_date=MON,
+            velocity_samples=[12.0, 20.0, 28.0],
+            sprint_length_days=10,
+        ),
+    }
+
+
+# Taken from origin/main's engine (61ec6c09e, before #4809) at runs=2000, seed=42:
+# (p50, p80, p95, sha256 of the comma-joined ISO distribution, first 16 hex).
+_GOLDEN = {
+    "pert": ("2026-01-28", "2026-01-30", "2026-02-04", "ae94a00c9d50c158"),
+    "velocity": ("2026-02-10", "2026-02-17", "2026-02-23", "41212a98736b8817"),
+}
+
+
+@pytest.mark.parametrize("name", sorted(_GOLDEN))
+@pytest.mark.parametrize("priced", [False, True])
+def test_date_percentiles_match_the_pre_cost_engine(name: str, priced: bool) -> None:
+    """Pricing (velocity claim tracking included) leaves every date where it was."""
+    import hashlib
+
+    project = _golden_networks()[name]
+    model = CostModel(
+        assignments=[
+            CostAssignment(task_id=t.id, resource_id=t.id, rate=1.0) for t in project.tasks
+        ]
+    )
+    result = monte_carlo(project, runs=2000, seed=42, cost=model if priced else None)
+    dist = ",".join(d.isoformat() for d in result.distribution)
+    got = (
+        result.p50.isoformat(),
+        result.p80.isoformat(),
+        result.p95.isoformat(),
+        hashlib.sha256(dist.encode()).hexdigest()[:16],
+    )
+    assert got == _GOLDEN[name]
+    assert (result.cost is not None) is priced
+
+
+def test_cost_model_validate_is_the_check_monte_carlo_applies() -> None:
+    project, model = _two_people()
+    model.validate(project)  # a valid model passes
+    bad = CostModel(assignments=[CostAssignment(task_id="a", resource_id="r", rate=-1.0)])
+    with pytest.raises(InvalidScheduleInput):
+        bad.validate(project)

@@ -330,7 +330,7 @@ def _replayed_chunks(
         block = durations.rows(lo, hi)
         out = forward(lo, hi, block)
         durations.keep_written(lo, block)
-        if pricer is not None:  # after forward: velocity days are written by then (#4809)
+        if pricer is not None:  # after forward: claimed velocity work is written then (#4809)
             pricer.add(lo, block)
         if collector is not None:
             collector.add(lo, block, out[1])
@@ -1355,8 +1355,7 @@ def monte_carlo(
         else None
     )
     target_collector = None if target_ids is None else _TargetCollector(target_ids, task_idx, runs)
-    velocity_ids = [] if velocity is None else list(velocity.points)
-    pricer = _cost_collector(cost, topo_order, task_map, elapsed_days, velocity_ids, runs)
+    pricer, velocity = _cost_collector(cost, topo_order, task_map, elapsed_days, runs, velocity)
 
     shown_offsets, completion_offsets, milestone_finish_floor = _mc_chunked_finishes(
         _replayed_chunks(

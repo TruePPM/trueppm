@@ -146,15 +146,17 @@ COST_DEFINITIONS: dict[str, str] = {
         "current rate. Priced from the same runs as the P50 date. as_of is when that run "
         "was recorded; rates have no history, so a rate change applies from the next run. "
         "actual_to_date is the actual cost that run started from; stale is true when "
-        "today's actual differs. The percentile is not adjusted, so a stale figure can "
-        "be below today's actual. Run the simulation again to refresh it."
+        "today's actual differs, or when a newer run recorded no cost. The percentile is "
+        "not adjusted, so a stale figure can be below today's actual. Run the simulation "
+        "again to refresh it."
     ),
     "p80_cost": (
         "80% of the simulated schedules in the latest recorded Monte Carlo run finish at "
         "or below this cost: actual to date + remaining assigned hours x each person's "
         "current rate. Priced from the same runs as the P80 date; n_simulations says how "
         "many schedules. actual_to_date is the actual cost that run started from; stale "
-        "is true when today's actual differs, and the percentile is not adjusted. "
+        "is true when today's actual differs or a newer run recorded no cost, and the "
+        "percentile is not adjusted. "
         "Unavailable (missing_rates) when anyone in scope had no rate at the run or has "
         "none now."
     ),
@@ -723,11 +725,23 @@ def mc_cost_entries(cost: ProjectCost) -> dict[str, dict[str, Any]]:
     cost can also move after a run. The stored percentiles are never adjusted for that
     (they belong to that run's schedules); ``stale`` says the run's ``actual_to_date``
     no longer matches, so a figure below today's actual is explained, not hidden.
+
+    ``stale`` is also true when a newer run recorded no cost (its cost inputs were
+    refused, so it simulated unpriced): the figure served is then not the latest
+    simulation's, and saying ``stale: false`` beside it would claim it is.
     """
+    from django.db.models import Exists, OuterRef
+
     from trueppm_api.apps.scheduling.models import MonteCarloRun
 
+    newer_unpriced = MonteCarloRun.objects.filter(
+        project_id=OuterRef("project_id"),
+        cost_forecast__isnull=True,
+        taken_at__gt=OuterRef("taken_at"),
+    )
     run = (
         MonteCarloRun.objects.filter(project_id=cost.project_id, cost_forecast__isnull=False)
+        .annotate(superseded=Exists(newer_unpriced))
         .order_by("-taken_at")
         .only("taken_at", "n_simulations", "cost_forecast")
         .first()
@@ -755,7 +769,7 @@ def mc_cost_entries(cost: ProjectCost) -> dict[str, dict[str, Any]]:
             as_of=run.taken_at,
             n_simulations=run.n_simulations,
             actual_to_date=run_actual,
-            stale=Decimal(run_actual) != cost.actual,
+            stale=bool(run.superseded) or Decimal(run_actual) != cost.actual,
         )
         for q in (50, 80)
     }

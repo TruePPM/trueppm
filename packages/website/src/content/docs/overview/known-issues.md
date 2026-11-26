@@ -123,10 +123,13 @@ relationship for a human to read; it does not reach the engine.
   actual cost from logged time
   ([#754](https://gitlab.com/trueppm/trueppm/-/issues/754)) <!-- known-issues-ack:closed -->
   (the issue is closed because that model merged — verified against `main` for #754:
-  `projects/cost.py` exists, but nothing in the scheduler's Monte Carlo prices a
-  sampled duration yet). The Monte Carlo is planned to report a P80 cost beside the
-  P80 date. That cost comes from duration uncertainty priced at resource rates, not
-  from risk-register impacts, which stay schedule-only. Non-labor direct costs follow later
+  `projects/cost.py` exists). From 0.5, the Python engine's Monte Carlo will price
+  each simulated schedule at resource rates and report a P50 and P80 cost beside the
+  dates, served on the cost breakdown
+  ([#4809](https://gitlab.com/trueppm/trueppm/-/issues/4809)). The browser's WASM
+  engine will not price runs in 0.5; that half of #4809 stays open. That cost comes
+  from duration uncertainty priced at resource rates, not from risk-register impacts,
+  which stay schedule-only. Non-labor direct costs follow later
   ([#2557](https://gitlab.com/trueppm/trueppm/-/issues/2557)). Risk impact on scope,
   quality, safety, and compliance is recorded but deliberately never simulated or
   folded into a combined score.

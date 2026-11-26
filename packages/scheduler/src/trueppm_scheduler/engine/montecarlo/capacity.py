@@ -83,6 +83,12 @@ class _VelocityCapacity:
             calendar and its finish mapped back, keeping the sprint span's calendar
             dates (#4529).
         draws: ``(chunk runs, sprints)`` points per sprint, set by :meth:`rows`.
+        work: ``None``, or per velocity task a ``(runs,)`` array that
+            :func:`_consume_capacity` fills with the working days of sprint capacity
+            the task actually claimed (each sprint's claimed points over that
+            sprint's velocity x ``sprint_days``). Its span also counts days spent
+            waiting for capacity, so cost reads this, not the span (#4809). Never
+            read by the forward pass.
     """
 
     observations: np.ndarray
@@ -96,6 +102,7 @@ class _VelocityCapacity:
     proj_ords: np.ndarray
     own_ords: dict[str, np.ndarray]
     draws: np.ndarray | None = None
+    work: dict[str, np.ndarray] | None = None
 
     def rows(self, lo: int, hi: int) -> _VelocityCapacity:
         """The capacity of runs ``[lo, hi)`` (a forward-pass chunk), drawn.
@@ -113,7 +120,8 @@ class _VelocityCapacity:
             values = gen.choice(self.observations, size=(rows, self.sprints), replace=True)
             a, z = max(lo, start), min(hi, start + rows)
             draws[a - lo : z - lo] = values[a - start : z - start]
-        return replace(self, draws=draws, saturated=self.saturated[lo:hi])
+        work = None if self.work is None else {t: w[lo:hi] for t, w in self.work.items()}
+        return replace(self, draws=draws, saturated=self.saturated[lo:hi], work=work)
 
 
 def _start_to_space(offsets: np.ndarray, src: np.ndarray, dst: np.ndarray) -> np.ndarray:
@@ -155,6 +163,7 @@ def _consume_capacity(
     ``es`` is the task's early start per run in its own column's working-day space;
     the return value is its early finish in the same space. ``used`` is the
     ``(runs, sprints)`` points already claimed in each sprint and is updated in place.
+    When ``cap.work`` tracks ``tid``, the days of capacity it claimed are written there.
     Each step looks at a window of sprints per run still burning down, doubling the
     window, so the cost is a few vectorized steps per task rather than one per sprint.
     """
@@ -173,6 +182,7 @@ def _consume_capacity(
     active = np.arange(runs)
     tol = need * _REACH_RTOL
     window = _FIRST_WINDOW
+    work = None if cap.work is None or tid not in cap.work else np.zeros(runs, dtype=np.float64)
     while active.size:
         over = k[active] >= horizon
         if over.any():
@@ -201,12 +211,18 @@ def _consume_capacity(
         j = np.where(hit, reached.argmax(axis=1), window)
         before = np.arange(window)[None, :] < j[:, None]
         new_level = np.where(before & valid, level + avail, used[rows, cols])
+        if work is not None:  # a share of each sprint's capacity, in sprint days
+            share = np.divide(avail, v, out=np.zeros_like(avail), where=before & valid & (v > 0))
+            work[active] += share.sum(axis=1) * length
         hit_rows = np.flatnonzero(hit)
         if hit_rows.size:
             jj = j[hit_rows]
             prior = np.where(jj > 0, cum[hit_rows, np.maximum(jj - 1, 0)], 0.0)
             end_level = level[hit_rows, jj] + (rem[hit_rows] - prior)
             end_level = np.minimum(end_level, v[hit_rows, jj])
+            if work is not None:
+                taken = end_level - level[hit_rows, jj]
+                work[active[hit_rows]] += taken / v[hit_rows, jj] * length
             new_level[hit_rows, jj] = end_level
             # A finishing run took points in sprint jj, so its velocity there is > 0.
             finish[active[hit_rows]] = (
@@ -221,4 +237,7 @@ def _consume_capacity(
         frac[active[miss]] = 0.0
         active = active[miss]
         window = min(window * 2, _MAX_WINDOW)
+    if work is not None:
+        assert cap.work is not None
+        cap.work[tid][:] = work
     return finish if own is None else _finish_to_space(finish, cap.proj_ords, own)
