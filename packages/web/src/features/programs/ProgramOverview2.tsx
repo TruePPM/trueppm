@@ -312,6 +312,15 @@ export function ProgramOverview2({ programId }: { programId: string }) {
   const wide = useMinWidth(768);
 
   const rows = rollup?.projects ?? [];
+  // The tiles count only projects the caller belongs to. Zero in scope with named rows is
+  // "unknown", not zero; a partial scope undercounts, so the sub-lines say so.
+  const inScope = rollup?.summary?.projects_in_scope_count ?? 0;
+  const inScopeNone = inScope === 0 && rows.length > 0;
+  const uncounted = Math.max(0, rows.length - inScope);
+  const notCounted =
+    !inScopeNone && uncounted > 0
+      ? `; ${uncounted} ${uncounted === 1 ? 'project' : 'projects'} not counted`
+      : '';
   const axis = buildAxis(rows.filter((r) => r.accessible));
   const forecast = rollup?.forecast;
   const p80 = typeof forecast?.value === 'string' ? forecast.value : null;
@@ -434,28 +443,32 @@ export function ProgramOverview2({ programId }: { programId: string }) {
                 data-testid="program-overview2-tiles"
               >
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  <ProgramTile
-                    term="Projects on track"
-                    definition={rollup.definitions?.projects_on_track}
-                    asOf={rollup.as_of}
-                    value={`${rollup.summary.projects_on_track} of ${rollup.summary.projects_in_scope_count}`}
-                    sub="by schedule health, in projects you belong to"
-                  />
-                  <ProgramTile
-                    term="Cross-project links"
-                    definition={rollup.definitions?.cross_project_link_count}
-                    asOf={rollup.as_of}
-                    value={String(rollup.summary.cross_project_link_count)}
-                    sub="accepted dependencies between projects"
-                    to={`/programs/${programId}/schedule`}
-                  />
-                  <ProgramTile
-                    term="Open risks"
-                    definition={rollup.definitions?.open_risk_count}
-                    asOf={rollup.as_of}
-                    value={String(rollup.summary.open_risk_count)}
-                    sub="open or mitigating"
-                  />
+                  {inScopeNone ? null : (
+                    <>
+                      <ProgramTile
+                        term="Projects on track"
+                        definition={rollup.definitions?.projects_on_track}
+                        asOf={rollup.as_of}
+                        value={`${rollup.summary.projects_on_track} of ${rollup.summary.projects_in_scope_count}`}
+                        sub={`by schedule health, in projects you belong to${notCounted}`}
+                      />
+                      <ProgramTile
+                        term="Cross-project links"
+                        definition={rollup.definitions?.cross_project_link_count}
+                        asOf={rollup.as_of}
+                        value={String(rollup.summary.cross_project_link_count)}
+                        sub={`accepted dependencies between projects${notCounted}`}
+                        to={`/programs/${programId}/schedule`}
+                      />
+                      <ProgramTile
+                        term="Open risks"
+                        definition={rollup.definitions?.open_risk_count}
+                        asOf={rollup.as_of}
+                        value={String(rollup.summary.open_risk_count)}
+                        sub={`open or mitigating${notCounted}`}
+                      />
+                    </>
+                  )}
                   {overAllocated?.kind === 'value' && (
                     <ProgramTile
                       term="Over-allocated"
@@ -467,6 +480,20 @@ export function ProgramOverview2({ programId }: { programId: string }) {
                     />
                   )}
                 </div>
+                {inScopeNone && (
+                  <NotComputable
+                    label="Projects on track, cross-project links and open risks"
+                    missing="you are not a member of any project in this program"
+                    fix={
+                      <Link
+                        className="text-p1-brand underline"
+                        to={`/programs/${programId}/projects`}
+                      >
+                        Open projects
+                      </Link>
+                    }
+                  />
+                )}
                 {overAllocated?.kind === 'missing' && (
                   <NotComputable
                     label="Over-allocated"

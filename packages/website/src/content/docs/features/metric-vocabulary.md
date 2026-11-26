@@ -86,8 +86,8 @@ owner's figures as they stood at post time, with the sentences above.
 One program's figures are owned by `GET /programs/{id}/rollup/`. It reads the
 program's own projects only, never several programs. The response carries
 `as_of` and a `definitions` map like the project endpoints. `definitions` always
-holds `program_health`, plus one sentence for each KPI the program has turned on,
-keyed by the KPI's name.
+holds `program_health`, the three summary figures below, and one sentence for each KPI
+the program has turned on, keyed by the KPI's name.
 
 | Metric | Field | Owner | As of | Definition |
 |---|---|---|---|---|
@@ -102,6 +102,9 @@ keyed by the KPI's name.
 | Cost variance | `kpis.cost_variance` | `GET /programs/{id}/rollup/` | `as_of` | Earned value (budget times the duration-weighted percent complete of the leaf tasks) minus actual cost, summed across the contributing projects, in the workspace currency; negative means over budget. |
 | Budget utilization | `kpis.budget_utilization` | `GET /programs/{id}/rollup/` | `as_of` | Actual cost across the contributing projects divided by their total budget; 1.0 means the whole budget is spent. It is spend against budget, not a cost performance index. |
 | P80 completion | `kpis.p80_completion` | `GET /programs/{id}/rollup/` | `kpis.p80_completion.as_of` | The latest P80 finish among the contributing projects' own Monte Carlo forecasts. Not a joint simulation of the program, whose P80 would be this date or later. |
+| Projects on track | `summary.projects_on_track` | `GET /programs/{id}/rollup/` | `as_of` | Projects whose schedule health band is on track, out of the projects in this program that you are a member of. Projects you cannot open are not counted. |
+| Open risks (program) | `summary.open_risk_count` | `GET /programs/{id}/rollup/` | `as_of` | Risks with status open or mitigating (not resolved, closed, accepted or deleted) on the projects in this program that you are a member of. |
+| Cross-project links | `summary.cross_project_link_count` | `GET /programs/{id}/rollup/` | `as_of` | Accepted dependencies, counted once per link, whose predecessor and successor sit in two different projects of this program that you are a member of. Pending proposals and links that leave the program are not counted. |
 | Project row | `projects[]` | `GET /programs/{id}/rollup/` | each row's `forecast_as_of`; the payload's `as_of` | One contributing project: its own latest forecast (P50 and P80) and the P80's working-day delta against its commitment, its schedule band, and its project manager's latest posted status update. Projects the caller is not a member of carry only their name. |
 
 **Program health is the schedule performance rollup, not the project health

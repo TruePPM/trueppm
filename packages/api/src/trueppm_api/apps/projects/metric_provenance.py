@@ -274,8 +274,8 @@ METRIC_DEFINITIONS: dict[str, str] = {
         "program that you are a member of. Projects you cannot open are not counted."
     ),
     "rollup.open_risk_count": (
-        "Risks with status open or mitigating (not closed, accepted or deleted) on the "
-        "projects in this program that you are a member of."
+        "Risks with status open or mitigating (not resolved, closed, accepted or deleted) "
+        "on the projects in this program that you are a member of."
     ),
     "rollup.cross_project_link_count": (
         "Accepted dependencies, counted once per link, whose predecessor and successor "
