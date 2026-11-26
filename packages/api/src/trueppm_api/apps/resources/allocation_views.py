@@ -1,4 +1,4 @@
-"""``POST /allocations/``: check a booking, or save it (#4806, ADR-@@)."""
+"""``POST /allocations/``: check a booking, or save it (#4806, ADR-1500)."""
 
 from __future__ import annotations
 
@@ -27,8 +27,9 @@ from trueppm_api.apps.access.permissions import (
 from trueppm_api.apps.notifications.models import NotificationEventType
 from trueppm_api.apps.notifications.services import create_event_notifications
 from trueppm_api.apps.projects.models import Project
-from trueppm_api.apps.resources.allocation import MAX_BOOKING_WEEKS, build_verdict
+from trueppm_api.apps.resources.allocation import MAX_BOOKING_WEEKS, WITHHELD, build_verdict
 from trueppm_api.apps.resources.models import ProjectResource, Resource
+from trueppm_api.core.openapi import validation_envelope_400
 
 logger = logging.getLogger(__name__)
 
@@ -72,14 +73,28 @@ class AllocationContributionSerializer(serializers.Serializer[dict[str, Any]]):
     )
     project_id = serializers.UUIDField(allow_null=True)
     project_name = serializers.CharField(allow_null=True)
-    pct = serializers.FloatField()
+    pct = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "Null only on `other_work`: load on projects whose per-person load you "
+            "may not read is counted but never shown as a number."
+        ),
+    )
 
 
 class AllocationBreakingWeekSerializer(serializers.Serializer[dict[str, Any]]):
     """The first week the booking takes the person over their ceiling."""
 
     week_start = serializers.DateField()
-    load_pct = serializers.FloatField()
+    load_pct = serializers.FloatField(allow_null=True)
+    reason = serializers.ChoiceField(
+        choices=[WITHHELD],
+        allow_null=True,
+        help_text=(
+            "`withheld` when the figure includes load on a project whose per-person "
+            "load you may not read; the figure is then null. Null otherwise."
+        ),
+    )
     contributions = AllocationContributionSerializer(many=True)
 
 
@@ -87,8 +102,23 @@ class AllocationWeekSerializer(serializers.Serializer[dict[str, Any]]):
     """One week of the proposed window."""
 
     week_start = serializers.DateField()
-    load_pct = serializers.FloatField()
-    over = serializers.BooleanField()
+    load_pct = serializers.FloatField(allow_null=True)
+    reason = serializers.ChoiceField(
+        choices=[WITHHELD],
+        allow_null=True,
+        help_text=(
+            "`withheld` when the figure includes load on a project whose per-person "
+            "load you may not read; the figure is then null. Null otherwise."
+        ),
+    )
+    over = serializers.BooleanField(help_text="With this change, the week is over the ceiling.")
+    breaks = serializers.BooleanField(
+        help_text=(
+            "Over the ceiling and higher than without this change. Only a breaking "
+            "week refuses a save; a week already over that this change does not raise "
+            "is `over` but not `breaks`."
+        )
+    )
 
 
 class AllocationResolutionSerializer(serializers.Serializer[dict[str, Any]]):
@@ -98,6 +128,14 @@ class AllocationResolutionSerializer(serializers.Serializer[dict[str, Any]]):
     start = serializers.DateField(allow_null=True)
     end = serializers.DateField(allow_null=True)
     peak_pct = serializers.FloatField(allow_null=True)
+    peak_reason = serializers.ChoiceField(
+        choices=[WITHHELD],
+        allow_null=True,
+        help_text=(
+            "`withheld` when the figure includes load on a project whose per-person "
+            "load you may not read; the figure is then null. Null otherwise."
+        ),
+    )
 
 
 class AllocationResolutionsSerializer(serializers.Serializer[dict[str, Any]]):
@@ -113,7 +151,15 @@ class AllocationVerdictSerializer(serializers.Serializer[dict[str, Any]]):
 
     fits = serializers.BooleanField()
     ceiling_pct = serializers.FloatField()
-    peak_pct = serializers.FloatField()
+    peak_pct = serializers.FloatField(allow_null=True)
+    peak_reason = serializers.ChoiceField(
+        choices=[WITHHELD],
+        allow_null=True,
+        help_text=(
+            "`withheld` when the figure includes load on a project whose per-person "
+            "load you may not read; the figure is then null. Null otherwise."
+        ),
+    )
     first_breaking_week = AllocationBreakingWeekSerializer(allow_null=True)
     weeks = AllocationWeekSerializer(many=True)
     resolutions = AllocationResolutionsSerializer(allow_null=True)
@@ -138,6 +184,13 @@ class AllocationRefusalSerializer(serializers.Serializer[dict[str, Any]]):
     code = serializers.CharField()
     detail = serializers.CharField()
     verdict = AllocationVerdictSerializer()
+
+
+class AllocationErrorSerializer(serializers.Serializer[dict[str, Any]]):
+    """Body of the 503 when the check could not complete."""
+
+    code = serializers.CharField()
+    detail = serializers.CharField()
 
 
 class AllocationCheckUnavailable(APIException):
@@ -165,8 +218,15 @@ class AllocationView(APIView):
     """Check or save a booking (a weekly share of one person on one project).
 
     Resource Manager (Scheduler) or above on the project, for the dry run as well as
-    the save: the verdict discloses the person's load across projects. Accepting an
-    overage needs the same role. Agent (read-only MCP) tokens are refused.
+    the save. Accepting an overage needs the same role. Agent (read-only MCP) tokens
+    are refused (agent access is #5146).
+
+    Visibility mirrors ``/me/people-load/`` (ADR-1314): the person must be on the
+    live roster of a live, non-draft project where the caller is Scheduler or above,
+    and load on any project whose per-person load the caller may not read there
+    (below Scheduler, or the ADR-0104 ``capacity`` signal not shared) is counted but
+    never shown as a number (ADR-1500 §7). A person outside the scope gets the same 400 as one that
+    does not exist, so the check is not a directory of who is booked where.
     """
 
     permission_classes = (
@@ -193,8 +253,13 @@ class AllocationView(APIView):
         request=AllocationRequestSerializer,
         responses={
             200: AllocationResultSerializer,
+            400: validation_envelope_400(
+                "The body failed validation (field-keyed), `accept_overage` came "
+                "without a `reason`, or `resource` is not on a roster you schedule "
+                "(the same body as an unknown resource)."
+            ),
             409: AllocationRefusalSerializer,
-            503: None,
+            503: AllocationErrorSerializer,
         },
     )
     def post(self, request: Request) -> Response:
@@ -211,6 +276,12 @@ class AllocationView(APIView):
             raise PermissionDenied("You need at least Resource Manager role to book people.")
         assert_project_not_archived(data["project"])
         project = Project.objects.select_related("calendar").get(pk=data["project"])
+        schedulable, visible = self._scope(request)
+        rostered = (
+            ProjectResource.objects.active()
+            .filter(resource_id=data["resource"], project_id__in=schedulable)
+            .exists()
+        )
 
         with transaction.atomic():
             resources = Resource.objects.filter(pk=data["resource"], is_deleted=False)
@@ -220,15 +291,19 @@ class AllocationView(APIView):
                 # exceed the ceiling.
                 resources = resources.select_for_update(of=("self",))
             resource = resources.select_related("calendar").first()
-            if resource is None:
-                raise ValidationError({"resource": "No active resource with this id."})
+            if resource is None or not rostered:
+                # One message for both: a missing person and one outside the caller's
+                # scope must be indistinguishable.
+                raise ValidationError(
+                    {"resource": "No active resource with this id on a roster you can read."}
+                )
             verdict = _check(
                 resource=resource,
                 project=project,
                 share_pct=data["share_pct"],
                 start=data["start"],
                 end=data["end"],
-                visible_projects=self._visible_projects(request),
+                visible_projects=visible,
             )
             result: dict[str, Any] = {
                 "dry_run": dry_run,
@@ -238,7 +313,7 @@ class AllocationView(APIView):
             }
             if dry_run:
                 return Response(result)
-            # Removing a booking (0) is never refused: it cannot add load.
+            # Removing a booking (0) is never refused: it cannot raise any week.
             over = not verdict["fits"] and data["share_pct"] > 0
             if over and not data["accept_overage"]:
                 return Response(
@@ -249,15 +324,37 @@ class AllocationView(APIView):
                     },
                     status=status.HTTP_409_CONFLICT,
                 )
-            row = self._save(request, project, resource, data, verdict if over else None)
+            row = self._save(request, project, resource, data, verdict, accepted=over)
         result.update(saved=True, allocation_id=str(row.pk) if row else None)
         return Response(result)
 
-    def _visible_projects(self, request: Request) -> dict[str, str]:
-        rows = ProjectMembership.objects.filter(
-            user_id=request.user.pk or 0, is_deleted=False, project__is_deleted=False
+    def _scope(self, request: Request) -> tuple[list[str], dict[str, str]]:
+        """``(schedulable ids, {readable id: name})`` for the caller.
+
+        The same two gates, in the same order, as ``MePeopleLoadView``. Gate 1,
+        Scheduler or above on a live non-draft project (the gate on
+        ``/projects/{id}/utilization/``), decides whom the caller may check: a person
+        on one of those rosters. Gate 2, the ADR-0104 ``capacity`` signal, decides
+        whose load the caller may read as a number. A project that passes gate 1 but
+        not gate 2 still counts, as fits or does not fit only, so a team's policy
+        withholds its figures without blocking its own Resource Manager from booking.
+        """
+        from trueppm_api.apps.projects.lifecycle import exclude_draft_projects
+        from trueppm_api.apps.projects.signal_privacy_services import (
+            can_read_signal_for_projects,
+        )
+
+        rows = exclude_draft_projects(
+            ProjectMembership.objects.filter(
+                user_id=request.user.pk or 0,
+                is_deleted=False,
+                project__is_deleted=False,
+                role__gte=Role.SCHEDULER,
+            )
         ).values_list("project_id", "project__name")
-        return {str(pid): name for pid, name in rows}
+        names = {str(pid): name for pid, name in rows}
+        readable = can_read_signal_for_projects(request, list(names), "capacity")
+        return list(names), {pid: name for pid, name in names.items() if readable.get(pid)}
 
     def _save(
         self,
@@ -265,8 +362,18 @@ class AllocationView(APIView):
         project: Project,
         resource: Resource,
         data: dict[str, Any],
-        overage: dict[str, Any] | None,
+        verdict: dict[str, Any],
+        *,
+        accepted: bool,
     ) -> ProjectResource | None:
+        """Write the booking; record the overage when one was accepted.
+
+        The accepted-overage record describes the current booking. A save that
+        breaks no week but leaves one ``over`` (lowering a booking while the person
+        stays over) keeps the record it already has; a save with no week over, or a
+        removal, clears it. No load figure is stored: the record holds the week and
+        the reason, never a percent that could include load its readers may not see.
+        """
         booked = data["share_pct"] > 0
         row = ProjectResource.objects.filter(project=project, resource=resource).first()
         if row is None:
@@ -278,16 +385,22 @@ class AllocationView(APIView):
         row.share_pct = data["share_pct"] if booked else None
         row.share_start = data["start"] if booked else None
         row.share_end = data["end"] if booked else None
-        week = overage["first_breaking_week"] if overage else None
-        row.overage_reason = data["reason"].strip() if overage else ""
-        row.overage_peak_pct = str(overage["peak_pct"]) if overage else None
-        row.overage_week = week["week_start"] if week else None
-        row.overage_accepted_by_id = request.user.pk if overage else None
-        row.overage_accepted_at = timezone.now() if overage else None
+        week = verdict["first_breaking_week"] if accepted else None
+        still_over = booked and any(w["over"] for w in verdict["weeks"])
+        if accepted and week:
+            row.overage_reason = data["reason"].strip()
+            row.overage_week = week["week_start"]
+            row.overage_accepted_by_id = request.user.pk
+            row.overage_accepted_at = timezone.now()
+        elif not still_over:
+            row.overage_reason = ""
+            row.overage_week = None
+            row.overage_accepted_by_id = None
+            row.overage_accepted_at = None
         row.save()
 
         # The person is told in the same transaction as the booking they are told about.
-        if overage and week and resource.user_id and resource.user_id != request.user.pk:
+        if accepted and week and resource.user_id and resource.user_id != request.user.pk:
             # The inbox blanks a project-scoped row for a non-member (#3510), and
             # being rostered is not membership. So a non-member gets an
             # account-scoped notice that does not name the project.
@@ -304,8 +417,9 @@ class AllocationView(APIView):
                 subject=f"You are booked over capacity on {where}",
                 body=(
                     f"A booking of {data['share_pct']}% from {data['start']} to {data['end']} "
-                    f"takes you to {overage['peak_pct']}% against a ceiling of "
-                    f"{overage['ceiling_pct']}%, first in the week of {week['week_start']}. "
+                    # No load figure: it can include projects the booker cannot read.
+                    f"takes you over your ceiling of {verdict['ceiling_pct']}%, first in "
+                    f"the week of {week['week_start']}. "
                     f"Reason given: {row.overage_reason}"
                 ),
                 project_id=project.pk if member else None,

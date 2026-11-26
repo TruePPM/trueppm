@@ -30,11 +30,6 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name="projectresource",
-            name="overage_peak_pct",
-            field=models.DecimalField(blank=True, decimal_places=1, max_digits=6, null=True),
-        ),
-        migrations.AddField(
-            model_name="projectresource",
             name="overage_reason",
             field=models.TextField(blank=True, db_default="", default=""),
         ),

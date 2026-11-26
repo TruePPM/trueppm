@@ -351,7 +351,6 @@ class ResourceSerializer(serializers.ModelSerializer[Resource]):
 
 _OVERAGE_FIELDS = (
     "overage_reason",
-    "overage_peak_pct",
     "overage_week",
     "overage_accepted_by",
     "overage_accepted_at",
@@ -389,7 +388,6 @@ class ProjectResourceSerializer(serializers.ModelSerializer[ProjectResource]):
             "share_start",
             "share_end",
             "overage_reason",
-            "overage_peak_pct",
             "overage_week",
             "overage_accepted_by",
             "overage_accepted_at",
@@ -405,7 +403,6 @@ class ProjectResourceSerializer(serializers.ModelSerializer[ProjectResource]):
             "share_start",
             "share_end",
             "overage_reason",
-            "overage_peak_pct",
             "overage_week",
             "overage_accepted_by",
             "overage_accepted_at",
@@ -440,7 +437,7 @@ class ProjectResourceSerializer(serializers.ModelSerializer[ProjectResource]):
     def to_representation(self, instance: ProjectResource) -> dict[str, Any]:
         """Withhold the accepted-overage record below Resource Manager.
 
-        ``overage_peak_pct`` and the free-text reason describe the person's load
+        The overage week and the free-text reason describe the person's load
         across *every* project, which a Member or Viewer of this one has no other
         way to read. The booked person always sees their own.
         """

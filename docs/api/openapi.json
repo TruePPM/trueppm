@@ -2300,37 +2300,7 @@
                         },
                         "description": ""
                     },
-                    "409": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/AllocationRefusal"
-                                }
-                            }
-                        },
-                        "description": ""
-                    },
-                    "503": {
-                        "description": "No response body"
-                    },
-                    "429": {
-                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string",
-                                            "example": "Request was throttled. Expected available in 42 seconds."
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
                     "400": {
-                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2357,6 +2327,43 @@
                                     },
                                     "additionalProperties": {
                                         "$ref": "#/components/schemas/ValidationErrorDetail"
+                                    }
+                                }
+                            }
+                        },
+                        "description": "The body failed validation (field-keyed), `accept_overage` came without a `reason`, or `resource` is not on a roster you schedule (the same body as an unknown resource)."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AllocationRefusal"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "503": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AllocationError"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
                                     }
                                 }
                             }
@@ -62042,7 +62049,20 @@
                     },
                     "load_pct": {
                         "type": "number",
-                        "format": "double"
+                        "format": "double",
+                        "nullable": true
+                    },
+                    "reason": {
+                        "nullable": true,
+                        "description": "`withheld` when the figure includes load on a project whose per-person load you may not read; the figure is then null. Null otherwise.\n\n* `withheld` - withheld",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/AllocationWithheldReasonEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
                     },
                     "contributions": {
                         "type": "array",
@@ -62054,6 +62074,7 @@
                 "required": [
                     "contributions",
                     "load_pct",
+                    "reason",
                     "week_start"
                 ]
             },
@@ -62075,7 +62096,9 @@
                     },
                     "pct": {
                         "type": "number",
-                        "format": "double"
+                        "format": "double",
+                        "nullable": true,
+                        "description": "Null only on `other_work`: load on projects whose per-person load you may not read is counted but never shown as a number."
                     }
                 },
                 "required": [
@@ -62095,6 +62118,22 @@
                 "type": "string",
                 "description": "* `this_change` - this_change\n* `other_project` - other_project\n* `other_work` - other_work\n* `time_off` - time_off",
                 "x-trueppm-enum": "open"
+            },
+            "AllocationError": {
+                "type": "object",
+                "description": "Body of the 503 when the check could not complete.",
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "detail": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "code",
+                    "detail"
+                ]
             },
             "AllocationRefusal": {
                 "type": "object",
@@ -62181,12 +62220,25 @@
                         "type": "number",
                         "format": "double",
                         "nullable": true
+                    },
+                    "peak_reason": {
+                        "nullable": true,
+                        "description": "`withheld` when the figure includes load on a project whose per-person load you may not read; the figure is then null. Null otherwise.\n\n* `withheld` - withheld",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/AllocationWithheldReasonEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
                     }
                 },
                 "required": [
                     "available",
                     "end",
                     "peak_pct",
+                    "peak_reason",
                     "start"
                 ]
             },
@@ -62250,7 +62302,20 @@
                     },
                     "peak_pct": {
                         "type": "number",
-                        "format": "double"
+                        "format": "double",
+                        "nullable": true
+                    },
+                    "peak_reason": {
+                        "nullable": true,
+                        "description": "`withheld` when the figure includes load on a project whose per-person load you may not read; the figure is then null. Null otherwise.\n\n* `withheld` - withheld",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/AllocationWithheldReasonEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
                     },
                     "first_breaking_week": {
                         "allOf": [
@@ -62292,6 +62357,7 @@
                     "first_breaking_week",
                     "fits",
                     "peak_pct",
+                    "peak_reason",
                     "resolutions",
                     "weeks"
                 ]
@@ -62306,17 +62372,45 @@
                     },
                     "load_pct": {
                         "type": "number",
-                        "format": "double"
+                        "format": "double",
+                        "nullable": true
+                    },
+                    "reason": {
+                        "nullable": true,
+                        "description": "`withheld` when the figure includes load on a project whose per-person load you may not read; the figure is then null. Null otherwise.\n\n* `withheld` - withheld",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/AllocationWithheldReasonEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
                     },
                     "over": {
-                        "type": "boolean"
+                        "type": "boolean",
+                        "description": "With this change, the week is over the ceiling."
+                    },
+                    "breaks": {
+                        "type": "boolean",
+                        "description": "Over the ceiling and higher than without this change. Only a breaking week refuses a save; a week already over that this change does not raise is `over` but not `breaks`."
                     }
                 },
                 "required": [
+                    "breaks",
                     "load_pct",
                     "over",
+                    "reason",
                     "week_start"
                 ]
+            },
+            "AllocationWithheldReasonEnum": {
+                "enum": [
+                    "withheld"
+                ],
+                "type": "string",
+                "description": "* `withheld` - withheld",
+                "x-trueppm-enum": "open"
             },
             "AnswerProvenance": {
                 "type": "object",
@@ -82382,13 +82476,6 @@
                         "type": "string",
                         "readOnly": true
                     },
-                    "overage_peak_pct": {
-                        "type": "string",
-                        "format": "decimal",
-                        "pattern": "^-?\\d{0,5}(?:\\.\\d{0,1})?$",
-                        "readOnly": true,
-                        "nullable": true
-                    },
                     "overage_week": {
                         "type": "string",
                         "format": "date",
@@ -82412,7 +82499,6 @@
                     "id",
                     "overage_accepted_at",
                     "overage_accepted_by",
-                    "overage_peak_pct",
                     "overage_reason",
                     "overage_week",
                     "project",

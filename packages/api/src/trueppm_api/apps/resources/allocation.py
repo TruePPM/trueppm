@@ -1,4 +1,4 @@
-"""Allocation conflict check: the weekly verdict for a proposed booking (#4806, ADR-@@).
+"""Allocation conflict check: the weekly verdict for a proposed booking (#4806, ADR-1500).
 
 One function, :func:`build_verdict`, answers both the dry run and the real save, so the
 two cannot disagree. It only reads.
@@ -9,6 +9,16 @@ project's draw on a person is the **larger** of its booked share and the person'
 assigned ``TaskResource.units`` there: a booking is a reservation that tasks draw
 down, so adding the two would count the same work twice. ``Task.assignee`` is never
 counted (``TaskResource`` is the capacity record).
+
+Only the days inside the proposed window are judged: a week the window starts or
+ends in is read over its overlap with the window, never over days the booking does
+not touch. And a week **breaks** only when the proposal leaves it over the ceiling
+*and* higher than it is today, so a change that lowers a booking, or that lands in a
+week already over for reasons it does not add to, is never refused.
+
+Load on a project whose per-person load the caller may not read (ADR-1500 §7) is
+counted in full but never disclosed as a number: any figure it is part of is
+``None``, and the verdict says only whether the week fits.
 
 This is load arithmetic, not scheduling: task spans are read from the CPM engine's own
 output and nothing here dates, snaps or samples a task.
@@ -25,6 +35,7 @@ from django.db.models import DateField
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
+from trueppm_api.apps.projects.lifecycle import exclude_draft_projects
 from trueppm_api.apps.projects.metric_provenance import definitions_for
 from trueppm_api.apps.projects.models import Task
 from trueppm_api.apps.projects.utilization import (
@@ -39,6 +50,8 @@ from trueppm_api.apps.resources.models import ProjectResource, Resource, TaskRes
 MAX_BOOKING_WEEKS = 104
 #: How far later the "move" resolution looks for a window that fits.
 MOVE_SEARCH_WEEKS = 26
+#: ``reason`` on a figure left out because it includes load the caller may not read.
+WITHHELD = "withheld"
 
 _ONE_WEEK = datetime.timedelta(weeks=1)
 _HUNDRED = Decimal("100")
@@ -53,6 +66,8 @@ class _Span(NamedTuple):
     pct: Decimal
     start: datetime.date
     end: datetime.date
+    hidden: bool  # The caller may not read this project's per-person load.
+    proposal: bool = False
 
 
 class _Week(NamedTuple):
@@ -60,6 +75,13 @@ class _Week(NamedTuple):
     load: Decimal
     time_off: Decimal
     by_project: dict[str, Decimal]
+    proposal: Decimal  # This change's share on the peak day.
+    withheld: bool  # Hidden load falls on the judged days.
+
+
+class _Judged(NamedTuple):
+    after: _Week  # With the proposal in place of this project's stored booking.
+    before: _Week  # As things stand.
 
 
 class _Calendar(NamedTuple):
@@ -76,84 +98,93 @@ def _pct(value: Decimal) -> float:
 
 
 def _week_load(
-    spans: list[_Span], calendar: _Calendar, week_start: datetime.date, ceiling: Decimal
+    spans: list[_Span],
+    calendar: _Calendar,
+    week_start: datetime.date,
+    window: tuple[datetime.date, datetime.date],
+    ceiling: Decimal,
 ) -> _Week:
-    """The busiest day of one week, plus that week's time off as a percent."""
-    week_end = week_start + _ONE_WEEK - week_start.resolution
+    """The busiest judged day of one week, plus time off on those days as a percent.
+
+    The judged days are the week's overlap with ``window``: a draw on a day the
+    booking does not cover says nothing about whether the booking fits.
+    """
+    part_start = max(week_start, window[0])
+    part_end = min(week_start + _ONE_WEEK - week_start.resolution, window[1])
     clipped = [
-        s._replace(start=max(s.start, week_start), end=min(s.end, week_end))
+        s._replace(start=max(s.start, part_start), end=min(s.end, part_end))
         for s in spans
-        if s.start <= week_end and s.end >= week_start
+        if s.start <= part_end and s.end >= part_start
     ]
-    nominal = bin(calendar.mask & 0x7F).count("1")
+    nominal = _count_working_days_in_range(calendar.mask, [], part_start, part_end)
     time_off = _ZERO
     if nominal:
         working = _count_working_days_in_range(
-            calendar.mask, calendar.exceptions, week_start, week_end
+            calendar.mask, calendar.exceptions, part_start, part_end
         )
         time_off = ceiling * Decimal(nominal - working) / Decimal(nominal)
 
-    best_total = _ZERO
+    best_total, best_proposal = _ZERO, _ZERO
     best: dict[str, Decimal] = {}
     # Judged on the calendar's weekdays *ignoring* exceptions: time off is charged
     # once, as ``time_off``, and a booking inside an all-off week must still count.
     days = _peak_candidate_days([(s.pct, s.start, s.end) for s in clipped], calendar.mask, [])
-    for day in sorted(set(days)):
+    for day in sorted({d for d in days if part_start <= d <= part_end}):
         share: dict[str, Decimal] = defaultdict(Decimal)
         tasks: dict[str, Decimal] = defaultdict(Decimal)
+        proposal = _ZERO
         for s in clipped:
             if s.start <= day <= s.end:
                 (share if s.booked else tasks)[s.project_id] += s.pct
+                if s.proposal:
+                    proposal += s.pct
         by_project = {pid: max(share[pid], tasks[pid]) for pid in {*share, *tasks}}
         total = sum(by_project.values(), _ZERO)
         if total > best_total:
-            best_total, best = total, by_project
-    return _Week(week_start, best_total + time_off, time_off, best)
+            best_total, best, best_proposal = total, by_project, proposal
+    withheld = any(s.hidden and s.pct > 0 for s in clipped)
+    return _Week(week_start, best_total + time_off, time_off, best, best_proposal, withheld)
 
 
-def _weeks(
-    spans: list[_Span],
-    calendar: _Calendar,
-    ceiling: Decimal,
-    start: datetime.date,
-    end: datetime.date,
-) -> list[_Week]:
-    out = []
-    cursor = _monday(start)
-    while cursor <= end:
-        out.append(_week_load(spans, calendar, cursor, ceiling))
-        cursor += _ONE_WEEK
-    return out
-
-
-def _other_spans(
-    resource: Resource, range_start: datetime.date, range_end: datetime.date, project_id: str
-) -> list[_Span]:
+def _spans(
+    resource: Resource,
+    range_start: datetime.date,
+    range_end: datetime.date,
+    project_id: str,
+    visible: dict[str, str],
+) -> tuple[list[_Span], list[_Span]]:
     """Every existing draw on the person that overlaps the range.
 
-    This project's stored booking is left out: the proposal replaces it.
+    Returns ``(others, stored)``: ``stored`` is this project's own booking, which the
+    proposal replaces; ``others`` is everything else, this project's tasks included.
+    Draft projects are left out, as on ``/me/people-load/`` (a half-built plan would
+    put someone over on paper); archived projects count, as they do there.
     """
-    spans = [
-        # The filter below excludes NULL share and window; ``cast`` narrows for mypy.
-        _Span(
-            str(pid),
-            True,
-            Decimal(cast("int", pct)),
-            cast("datetime.date", start),
-            cast("datetime.date", end),
-        )
-        for pid, pct, start, end in ProjectResource.objects.active()
-        .filter(
+    bookings = exclude_draft_projects(
+        ProjectResource.objects.active().filter(
             resource=resource,
             share_pct__isnull=False,
             share_start__lte=range_end,
             share_end__gte=range_start,
             project__is_deleted=False,
         )
-        .exclude(project_id=project_id)
-        .values_list("project_id", "share_pct", "share_start", "share_end")
-    ]
-    committed = Task.committed.filter(project__is_deleted=False).exclude(status="COMPLETE")
+    ).values_list("project_id", "share_pct", "share_start", "share_end")
+    others: list[_Span] = []
+    stored: list[_Span] = []
+    for pid, pct, start, end in bookings:
+        # The filter above excludes NULL share and window; ``cast`` narrows for mypy.
+        span = _Span(
+            str(pid),
+            True,
+            Decimal(cast("int", pct)),
+            cast("datetime.date", start),
+            cast("datetime.date", end),
+            str(pid) not in visible,
+        )
+        (stored if str(pid) == project_id else others).append(span)
+    committed = exclude_draft_projects(Task.committed.filter(project__is_deleted=False)).exclude(
+        status="COMPLETE"
+    )
     rows = (
         TaskResource.objects.filter(resource=resource, task_id__in=committed.values("pk"))
         .annotate(
@@ -164,41 +195,44 @@ def _other_spans(
         .filter(_span_start__lte=range_end, task__early_finish__gte=range_start)
         .values_list("task__project_id", "units", "_span_start", "task__early_finish")
     )
-    spans.extend(
+    others.extend(
         _Span(
             str(pid),
             False,
             units * _HUNDRED,
             cast("datetime.date", start),
             cast("datetime.date", end),
+            str(pid) not in visible,
         )
         for pid, units, start, end in rows
     )
-    return spans
+    return others, stored
 
 
-def _contributions(
-    week: _Week, project: Any, share: Decimal, visible: dict[str, str]
-) -> list[dict[str, Any]]:
+def _figure(value: Decimal, withheld: bool) -> float | None:
+    return None if withheld else _pct(value)
+
+
+def _contributions(week: _Week, project: Any, visible: dict[str, str]) -> list[dict[str, Any]]:
     """What adds up to a week's load.
 
-    A project the caller is not a member of is never named: its draw is folded into
-    one anonymous ``other_work`` line so the parts still sum to the total.
+    A project the caller may not read is never named and its draw never shown: it is
+    one ``other_work`` line with a null ``pct``, and the week's ``load_pct`` is null
+    too, so no visible figure is a total the hidden part could be subtracted from.
+    When nothing is hidden the parts sum to ``load_pct``.
     """
     own = str(project.pk)
+    own_value = week.by_project.get(own, _ZERO) if own in visible else week.proposal
     lines: list[dict[str, Any]] = [
         {
             "kind": "this_change",
             "project_id": own,
             "project_name": project.name,
-            "pct": _pct(week.by_project.get(own, share)),
+            "pct": _pct(own_value),
         }
     ]
-    hidden = _ZERO
     for pid, value in sorted(week.by_project.items()):
-        if pid == own:
-            continue
-        if pid in visible:
+        if pid != own and pid in visible:
             lines.append(
                 {
                     "kind": "other_project",
@@ -207,27 +241,38 @@ def _contributions(
                     "pct": _pct(value),
                 }
             )
-        else:
-            hidden += value
-    for kind, value in (("other_work", hidden), ("time_off", week.time_off)):
-        if value > 0:
-            lines.append(
-                {"kind": kind, "project_id": None, "project_name": None, "pct": _pct(value)}
-            )
+    if week.withheld:
+        lines.append({"kind": "other_work", "project_id": None, "project_name": None, "pct": None})
+    if week.time_off > 0:
+        lines.append(
+            {
+                "kind": "time_off",
+                "project_id": None,
+                "project_name": None,
+                "pct": _pct(week.time_off),
+            }
+        )
     return lines
+
+
+def _peak(weeks: list[_Judged]) -> float | None:
+    if not weeks or any(w.after.withheld for w in weeks):
+        return None
+    return _pct(max(w.after.load for w in weeks))
 
 
 def _resolution(
     available: bool,
     start: datetime.date | None,
     end: datetime.date | None,
-    weeks: list[_Week],
+    weeks: list[_Judged],
 ) -> dict[str, Any]:
     return {
         "available": available,
         "start": start.isoformat() if start else None,
         "end": end.isoformat() if end else None,
-        "peak_pct": _pct(max(w.load for w in weeks)) if weeks else None,
+        "peak_pct": _peak(weeks),
+        "peak_reason": WITHHELD if weeks and _peak(weeks) is None else None,
     }
 
 
@@ -248,7 +293,9 @@ def build_verdict(
         share_pct: Proposed share of full time, every week of the window.
         start: First day of the window (inclusive).
         end: Last day of the window (inclusive).
-        visible_projects: ``{project_id: name}`` the caller may see by name.
+        visible_projects: ``{project_id: name}`` whose per-person load the caller may
+            read (Scheduler or above, and the ADR-0104 ``capacity`` signal). Every
+            other project's load is counted but withheld.
 
     Returns:
         The verdict body described by ``AllocationVerdictSerializer``.
@@ -262,19 +309,37 @@ def build_verdict(
     # the check spans every project they are on (see ``capacity.py``).
     ceiling = resource.max_units * _HUNDRED
     share = Decimal(share_pct)
+    own = str(project.pk)
     horizon = end + _ONE_WEEK * MOVE_SEARCH_WEEKS
-    others = _other_spans(resource, _monday(start), horizon + _ONE_WEEK, str(project.pk))
+    others, stored = _spans(resource, _monday(start), horizon + _ONE_WEEK, own, visible_projects)
 
-    def evaluate(window_start: datetime.date, window_end: datetime.date) -> list[_Week]:
-        proposal = _Span(str(project.pk), True, share, window_start, window_end)
-        return _weeks([proposal, *others], calendar, ceiling, window_start, window_end)
+    def evaluate(window_start: datetime.date, window_end: datetime.date) -> list[_Judged]:
+        # The proposal is the caller's own input, so it is never hidden.
+        proposal = _Span(own, True, share, window_start, window_end, False, True)
+        after_spans = [proposal, *others]
+        before_spans = [*stored, *others]
+        window = (window_start, window_end)
+        out = []
+        cursor = _monday(window_start)
+        while cursor <= window_end:
+            out.append(
+                _Judged(
+                    _week_load(after_spans, calendar, cursor, window, ceiling),
+                    _week_load(before_spans, calendar, cursor, window, ceiling),
+                )
+            )
+            cursor += _ONE_WEEK
+        return out
 
     def over(week: _Week) -> bool:
         return _pct(week.load) > _pct(ceiling)
 
+    def breaks(judged: _Judged) -> bool:
+        # Over the ceiling *because of* this change: it raises the week's peak.
+        return over(judged.after) and _pct(judged.after.load) > _pct(judged.before.load)
+
     weeks = evaluate(start, end)
-    breaking = next((w for w in weeks if over(w)), None)
-    peak = max(weeks, key=lambda w: w.load)
+    breaking = next((w.after for w in weeks if breaks(w)), None)
 
     resolutions: dict[str, Any] | None = None
     if breaking is not None:
@@ -290,7 +355,7 @@ def build_verdict(
             moved_start = start + _ONE_WEEK * offset
             moved_end = end + _ONE_WEEK * offset
             moved = evaluate(moved_start, moved_end)
-            if not any(over(w) for w in moved):
+            if not any(breaks(w) for w in moved):
                 move = _resolution(True, moved_start, moved_end, moved)
                 break
         resolutions = {
@@ -299,19 +364,28 @@ def build_verdict(
             "accept": _resolution(True, start, end, weeks),
         }
 
+    peak = _peak(weeks)
     return {
         "fits": breaking is None,
         "ceiling_pct": _pct(ceiling),
-        "peak_pct": _pct(peak.load),
+        "peak_pct": peak,
+        "peak_reason": WITHHELD if peak is None else None,
         "first_breaking_week": None
         if breaking is None
         else {
             "week_start": breaking.week_start.isoformat(),
-            "load_pct": _pct(breaking.load),
-            "contributions": _contributions(breaking, project, share, visible_projects),
+            "load_pct": _figure(breaking.load, breaking.withheld),
+            "reason": WITHHELD if breaking.withheld else None,
+            "contributions": _contributions(breaking, project, visible_projects),
         },
         "weeks": [
-            {"week_start": w.week_start.isoformat(), "load_pct": _pct(w.load), "over": over(w)}
+            {
+                "week_start": w.after.week_start.isoformat(),
+                "load_pct": _figure(w.after.load, w.after.withheld),
+                "reason": WITHHELD if w.after.withheld else None,
+                "over": over(w.after),
+                "breaks": breaks(w),
+            }
             for w in weeks
         ],
         "resolutions": resolutions,

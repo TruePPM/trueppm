@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import datetime
+import re
 import secrets
 import time
+import uuid
 from decimal import Decimal
 from typing import Any
 
@@ -20,6 +22,7 @@ from trueppm_api.apps.projects.models import (
     Calendar,
     CalendarException,
     Project,
+    ProjectLifecycle,
     Task,
 )
 from trueppm_api.apps.resources import allocation_views
@@ -35,22 +38,26 @@ def day(offset: int) -> str:
     return (MON + datetime.timedelta(days=offset)).isoformat()
 
 
+def date(offset: int) -> datetime.date:
+    return MON + datetime.timedelta(days=offset)
+
+
 @pytest.fixture
 def world(db: Any) -> dict[str, Any]:
     cal = Calendar.objects.create(name="Std")
     booker = User.objects.create_user(username="rm", password="x")
     person_user = User.objects.create_user(username="aisha", password="x")
     mine = Project.objects.create(name="Mine", start_date=MON, calendar=cal)
+    home = Project.objects.create(name="Home", start_date=MON, calendar=cal)
     theirs = Project.objects.create(name="Secret", start_date=MON, calendar=cal)
     ProjectMembership.objects.create(user=booker, project=mine, role=Role.SCHEDULER)
+    ProjectMembership.objects.create(user=booker, project=home, role=Role.SCHEDULER)
     person = Resource.objects.create(name="Aisha", calendar=cal, user=person_user)
-    # 60% on another project in weeks 2 and 3.
+    # On a roster the booker schedules, so the booker may check her (ADR-1500 §7).
+    ProjectResource.objects.create(project=home, resource=person)
+    # 60% on a project the booker has no role on, in weeks 2 and 3.
     ProjectResource.objects.create(
-        project=theirs,
-        resource=person,
-        share_pct=60,
-        share_start=MON + datetime.timedelta(days=7),
-        share_end=MON + datetime.timedelta(days=20),
+        project=theirs, resource=person, share_pct=60, share_start=date(7), share_end=date(20)
     )
     client = APIClient()
     client.force_authenticate(booker)
@@ -58,6 +65,7 @@ def world(db: Any) -> dict[str, Any]:
         "cal": cal,
         "booker": booker,
         "mine": mine,
+        "home": home,
         "theirs": theirs,
         "person": person,
         "client": client,
@@ -87,6 +95,63 @@ def mine_row(world: dict[str, Any]) -> ProjectResource | None:
     return ProjectResource.objects.filter(project=world["mine"], resource=world["person"]).first()
 
 
+def task_on(
+    project: Project, resource: Resource, units: str, first: int, last: int, name: str = "t"
+) -> Task:
+    task = Task.objects.create(
+        project=project,
+        name=name,
+        duration=last - first + 1,
+        status="NOT_STARTED",
+        early_start=date(first),
+        early_finish=date(last),
+    )
+    TaskResource.objects.create(task=task, resource=resource, units=Decimal(units))
+    return task
+
+
+def side_project(world: dict[str, Any], role: int = Role.SCHEDULER) -> Project:
+    side = Project.objects.create(name="Side", start_date=MON, calendar=world["cal"])
+    ProjectMembership.objects.create(user=world["booker"], project=side, role=role)
+    return side
+
+
+def assert_parts_sum(verdict: dict[str, Any]) -> None:
+    """Every breaking week with a shown load: its parts add up to it."""
+    week = verdict["first_breaking_week"]
+    assert week is not None
+    assert week["load_pct"] is not None
+    total = sum(c["pct"] for c in week["contributions"])
+    assert round(total, 1) == week["load_pct"], week
+
+
+#: Keys whose values are identifiers or timestamps, not figures: their digits are noise.
+_NOT_FIGURES = ("id", "_by", "_at", "as_of")
+
+
+def numbers(value: Any) -> set[float]:
+    """Every figure anywhere in a JSON body, numbers written into text included.
+
+    Dates are skipped (a number touching a ``-`` is part of one), as are ids and
+    timestamps, whose digits would make an absence check flaky.
+    """
+    if isinstance(value, bool):
+        return set()
+    if isinstance(value, int | float):
+        return {float(value)}
+    if isinstance(value, str):
+        return {float(n) for n in re.findall(r"(?<![\w.-])\d+(?:\.\d+)?(?![\w-])", value)}
+    if isinstance(value, dict):
+        kept = [v for k, v in value.items() if not str(k).endswith(_NOT_FIGURES)]
+        return set().union(*(numbers(v) for v in kept)) if kept else set()
+    if isinstance(value, list):
+        return set().union(*(numbers(v) for v in value)) if value else set()
+    return set()
+
+
+# ── who may check whom ───────────────────────────────────────────────────
+
+
 @pytest.mark.parametrize("role", [None, Role.VIEWER, Role.MEMBER])
 @pytest.mark.parametrize("query", ["", "?dry_run=1"])
 def test_below_scheduler_is_refused(world: dict[str, Any], role: int | None, query: str) -> None:
@@ -106,6 +171,32 @@ def test_scheduler_and_above_may_book(world: dict[str, Any], role: int) -> None:
     assert save(world, share_pct=10).status_code == 200
     row = mine_row(world)
     assert row is not None and row.share_pct == 10
+
+
+@pytest.mark.parametrize("case", ["no_roster", "member_only", "draft_roster"])
+@pytest.mark.parametrize("query", ["", "?dry_run=1"])
+def test_person_off_every_schedulable_roster_is_indistinguishable_from_none(
+    world: dict[str, Any], case: str, query: str
+) -> None:
+    """The check reaches only people on a roster the caller schedules, as people-load does."""
+    if case == "no_roster":
+        ProjectResource.objects.filter(project=world["home"]).delete()
+    elif case == "member_only":
+        # On a roster, but of a project where the caller is only a Member.
+        ProjectResource.objects.filter(project=world["home"]).delete()
+        ProjectMembership.objects.create(
+            user=world["booker"], project=world["theirs"], role=Role.MEMBER
+        )
+    else:
+        Project.objects.filter(pk=world["home"].pk).update(lifecycle=ProjectLifecycle.DRAFT)
+    client = world["client"]
+    hidden = client.post(URL + query, body(world, share_pct=10), format="json")
+    missing = client.post(
+        URL + query, body(world, share_pct=10, resource=str(uuid.uuid4())), format="json"
+    )
+    assert hidden.status_code == missing.status_code == 400
+    assert hidden.data == missing.data
+    assert mine_row(world) is None
 
 
 def test_anonymous_and_agent_tokens_are_refused(world: dict[str, Any]) -> None:
@@ -130,6 +221,9 @@ def test_archived_project_is_refused(world: dict[str, Any]) -> None:
     assert save(world, share_pct=10).status_code == 403
 
 
+# ── what the caller may read ─────────────────────────────────────────────
+
+
 def test_dry_run_names_breaking_week_and_writes_nothing(world: dict[str, Any]) -> None:
     response = dry(world)
     assert response.status_code == 200, response.data
@@ -137,25 +231,113 @@ def test_dry_run_names_breaking_week_and_writes_nothing(world: dict[str, Any]) -
     verdict = response.data["verdict"]
     assert verdict["fits"] is False
     assert verdict["ceiling_pct"] == 100.0
-    assert verdict["peak_pct"] == 110.0
-    assert verdict["first_breaking_week"]["week_start"] == day(7)
-    # The other project is not the caller's, so it is counted but never named.
-    assert [
-        (c["kind"], c["project_name"], c["pct"])
-        for c in verdict["first_breaking_week"]["contributions"]
-    ] == [("this_change", "Mine", 50.0), ("other_work", None, 60.0)]
+    # Week 2 includes the hidden project, so no figure that contains it is shown.
+    assert (verdict["peak_pct"], verdict["peak_reason"]) == (None, "withheld")
+    week = verdict["first_breaking_week"]
+    assert (week["week_start"], week["load_pct"], week["reason"]) == (day(7), None, "withheld")
+    assert [(c["kind"], c["project_name"], c["pct"]) for c in week["contributions"]] == [
+        ("this_change", "Mine", 50.0),
+        ("other_work", None, None),
+    ]
+    assert [(w["load_pct"], w["over"], w["breaks"]) for w in verdict["weeks"]] == [
+        (50.0, False, False),
+        (None, True, True),
+        (None, True, True),
+    ]
     assert "Secret" not in str(response.data)
     assert verdict["definitions"]["allocation.load_pct"]
     assert verdict["as_of"]
     assert mine_row(world) is None
 
 
-def test_member_projects_are_named(world: dict[str, Any]) -> None:
-    ProjectMembership.objects.create(
-        user=world["booker"], project=world["theirs"], role=Role.VIEWER
+@pytest.mark.parametrize(
+    ("role", "readable"),
+    [
+        (Role.VIEWER, False),
+        (Role.MEMBER, False),
+        # Admin passes the role gate, but the ``capacity`` signal defaults to the
+        # team band (ADR-0104), which an Admin is outside of.
+        (Role.ADMIN, False),
+        (Role.SCHEDULER, True),
+    ],
+)
+def test_other_projects_are_shown_only_where_load_is_readable(
+    world: dict[str, Any], role: int, readable: bool
+) -> None:
+    ProjectMembership.objects.create(user=world["booker"], project=world["theirs"], role=role)
+    verdict = dry(world).data["verdict"]
+    lines = verdict["first_breaking_week"]["contributions"]
+    if readable:
+        assert ("other_project", "Secret", 60.0) in [
+            (c["kind"], c["project_name"], c["pct"]) for c in lines
+        ]
+        assert verdict["peak_pct"] == 110.0
+        assert_parts_sum(verdict)
+    else:
+        assert "Secret" not in str(verdict)
+        assert verdict["peak_pct"] is None
+        assert {60.0, 110.0}.isdisjoint(numbers(verdict))
+
+
+@pytest.mark.parametrize("hidden_pct", [55, 60, 75])
+def test_no_field_varies_with_a_hidden_percentage(world: dict[str, Any], hidden_pct: int) -> None:
+    """Two worlds that differ only in the hidden load answer identically, on every path."""
+    ProjectResource.objects.filter(project=world["theirs"]).update(share_pct=hidden_pct)
+
+    def strip(data: dict[str, Any]) -> dict[str, Any]:
+        verdict = dict(data["verdict"])
+        verdict.pop("as_of")
+        return {**data, "verdict": verdict}
+
+    reference = {
+        "dry": strip(dry(world).data),
+        "refused": strip(save(world).data),
+    }
+    accepted = save(world, accept_overage=True, reason="Launch week")
+    assert accepted.status_code == 200
+    row = world["client"].get(f"/api/v1/project-resources/?project={world['mine'].pk}").data
+    note = Notification.objects.get(recipient=world["person"].user)
+    observed = {
+        **reference,
+        "accepted": strip(accepted.data) | {"allocation_id": None},
+        "row": {k: v for k, v in row["results"][0].items() if k.startswith(("share", "overage"))}
+        | {"overage_accepted_at": None},
+        "note": (note.subject, note.body),
+    }
+    for value in (hidden_pct, 50 + hidden_pct):
+        assert float(value) not in numbers(observed), value
+    # Pin the whole observable shape to the 60% world.
+    ProjectResource.objects.filter(project=world["mine"]).delete()
+    Notification.objects.all().delete()
+    ProjectResource.objects.filter(project=world["theirs"]).update(share_pct=60)
+    assert strip(dry(world).data) == observed["dry"]
+    assert strip(save(world).data) == observed["refused"]
+
+
+def test_own_project_tasks_are_withheld_when_its_capacity_is_not_shared(
+    world: dict[str, Any],
+) -> None:
+    ProjectMembership.objects.filter(user=world["booker"], project=world["mine"]).update(
+        role=Role.ADMIN
     )
-    lines = dry(world).data["verdict"]["first_breaking_week"]["contributions"]
-    assert ("other_project", "Secret") in [(c["kind"], c["project_name"]) for c in lines]
+    task_on(world["mine"], world["person"], "0.80", 0, 4)
+    verdict = dry(world, share_pct=30, end=day(4)).data["verdict"]
+    assert verdict["fits"] is True
+    assert verdict["weeks"][0]["load_pct"] is None
+    assert 80.0 not in numbers(verdict)
+
+
+def test_draft_projects_do_not_count_and_archived_projects_do(world: dict[str, Any]) -> None:
+    Project.objects.filter(pk=world["theirs"].pk).update(lifecycle=ProjectLifecycle.DRAFT)
+    draft = dry(world).data["verdict"]
+    assert (draft["fits"], draft["peak_pct"]) == (True, 50.0)
+    Project.objects.filter(pk=world["theirs"].pk).update(
+        lifecycle=ProjectLifecycle.ACTIVE, is_archived=True
+    )
+    assert dry(world).data["verdict"]["fits"] is False
+
+
+# ── the judgment ─────────────────────────────────────────────────────────
 
 
 def test_three_resolutions(world: dict[str, Any]) -> None:
@@ -165,6 +347,7 @@ def test_three_resolutions(world: dict[str, Any]) -> None:
         "start": day(0),
         "end": day(6),
         "peak_pct": 50.0,
+        "peak_reason": None,
     }
     # The other booking ends in week 3, so the window can start in week 4.
     assert resolutions["move"] == {
@@ -172,8 +355,22 @@ def test_three_resolutions(world: dict[str, Any]) -> None:
         "start": day(21),
         "end": day(39),
         "peak_pct": 50.0,
+        "peak_reason": None,
     }
-    assert resolutions["accept"]["peak_pct"] == 110.0
+    # Accepting keeps the hidden weeks, so its peak is not shown.
+    assert (resolutions["accept"]["peak_pct"], resolutions["accept"]["peak_reason"]) == (
+        None,
+        "withheld",
+    )
+
+
+def test_resolution_peaks_are_shown_when_everything_is_readable(world: dict[str, Any]) -> None:
+    ProjectMembership.objects.create(
+        user=world["booker"], project=world["theirs"], role=Role.SCHEDULER
+    )
+    verdict = dry(world).data["verdict"]
+    assert verdict["resolutions"]["accept"]["peak_pct"] == 110.0
+    assert_parts_sum(verdict)
 
 
 def test_shorten_unavailable_when_first_week_breaks(world: dict[str, Any]) -> None:
@@ -181,11 +378,67 @@ def test_shorten_unavailable_when_first_week_breaks(world: dict[str, Any]) -> No
     assert resolutions["shorten"]["available"] is False
 
 
+def test_days_outside_the_window_are_not_judged(world: dict[str, Any]) -> None:
+    """Audit repro: 120% on Monday only, then a 10% Wed-Fri booking, fits."""
+    side = side_project(world)
+    task_on(side, world["person"], "1.20", 0, 0)
+    verdict = dry(world, share_pct=10, start=day(2), end=day(4)).data["verdict"]
+    assert (verdict["fits"], verdict["peak_pct"]) == (True, 10.0)
+    assert verdict["weeks"] == [
+        {"week_start": day(0), "load_pct": 10.0, "reason": None, "over": False, "breaks": False}
+    ]
+    assert save(world, share_pct=10, start=day(2), end=day(4)).status_code == 200
+
+
+def test_hidden_load_outside_the_window_is_not_judged(world: dict[str, Any]) -> None:
+    task_on(world["theirs"], world["person"], "1.20", 0, 0)
+    verdict = dry(world, share_pct=10, start=day(2), end=day(4)).data["verdict"]
+    assert verdict["fits"] is True
+    assert save(world, share_pct=10, start=day(2), end=day(4)).status_code == 200
+
+
+def test_a_week_already_over_that_this_change_does_not_raise_is_not_refused(
+    world: dict[str, Any],
+) -> None:
+    side = side_project(world)
+    task_on(side, world["person"], "1.20", 2, 4)
+    # This project already draws 50% there through a task; a 30% booking is inside it.
+    task_on(world["mine"], world["person"], "0.50", 2, 4, name="own")
+    verdict = dry(world, share_pct=30, start=day(2), end=day(4)).data["verdict"]
+    assert verdict["fits"] is True
+    assert [(w["load_pct"], w["over"], w["breaks"]) for w in verdict["weeks"]] == [
+        (170.0, True, False)
+    ]
+    assert save(world, share_pct=30, start=day(2), end=day(4)).status_code == 200
+    # Adding to that peak does break it, and the parts add up.
+    raised = dry(world, share_pct=60, start=day(2), end=day(4)).data["verdict"]
+    assert raised["fits"] is False
+    assert raised["first_breaking_week"]["load_pct"] == 180.0
+    assert_parts_sum(raised)
+
+
+def test_lowering_a_booking_while_still_over_is_not_refused(world: dict[str, Any]) -> None:
+    assert save(world, accept_overage=True, reason="Launch week").status_code == 200
+    verdict = dry(world, share_pct=45).data["verdict"]
+    assert verdict["fits"] is True
+    assert [(w["over"], w["breaks"]) for w in verdict["weeks"]] == [
+        (False, False),
+        (True, False),
+        (True, False),
+    ]
+    assert save(world, share_pct=45).status_code == 200
+    row = mine_row(world)
+    assert row is not None
+    # Still over, so the accepted overage stays on record.
+    assert (row.share_pct, row.overage_reason) == (45, "Launch week")
+
+
 def test_over_ceiling_without_accept_saves_nothing(world: dict[str, Any]) -> None:
     response = save(world)
     assert response.status_code == 409
     assert response.data["code"] == "allocation_over_ceiling"
     assert response.data["verdict"]["fits"] is False
+    assert response.data["verdict"]["peak_pct"] is None
     assert mine_row(world) is None
 
 
@@ -216,8 +469,7 @@ def test_accept_with_reason_records_and_notifies_and_matches_dry_run(
     assert row is not None
     assert response.data["allocation_id"] == str(row.pk)
     assert (row.share_pct, row.overage_reason) == (50, "Launch week")
-    assert row.overage_peak_pct == Decimal("110.0")
-    assert row.overage_week == MON + datetime.timedelta(days=7)
+    assert row.overage_week == date(7)
     assert row.overage_accepted_by_id == world["booker"].pk
     note = Notification.objects.get(recipient=world["person"].user)
     # Aisha is rostered but not a member: the notice must survive the #3510
@@ -226,10 +478,34 @@ def test_accept_with_reason_records_and_notifies_and_matches_dry_run(
     assert "Mine" not in note.subject
     assert note.event_type == "allocation.overage_accepted"
     assert "Launch week" in note.body
-    # And re-checking the stored booking gives the same answer as before it was saved.
+    assert "over your ceiling of 100.0%" in note.body
+    # Re-checking the stored booking: the same weeks are over, and none breaks,
+    # because the booking is already there.
     again = dry(world).data["verdict"]
-    again.pop("as_of")
-    assert again == preview
+    assert again["fits"] is True
+    assert [w["over"] for w in again["weeks"]] == [w["over"] for w in preview["weeks"]]
+
+
+@pytest.mark.parametrize("hidden", [True, False])
+def test_dry_run_equals_save_with_tasks_and_time_off(world: dict[str, Any], hidden: bool) -> None:
+    side = side_project(world)
+    task_on(side, world["person"], "0.30", 7, 11)
+    CalendarException.objects.create(calendar=world["cal"], exc_start=date(9), exc_end=date(9))
+    if not hidden:
+        ProjectResource.objects.filter(project=world["theirs"]).update(share_pct=None)
+        task_on(side, world["person"], "0.40", 14, 18, name="later")
+    preview = dry(world, share_pct=60).data["verdict"]
+    assert preview["fits"] is False
+    if not hidden:
+        assert_parts_sum(preview)
+        kinds = [c["kind"] for c in preview["first_breaking_week"]["contributions"]]
+        assert kinds == ["this_change", "other_project", "time_off"]
+    response = save(world, share_pct=60, accept_overage=True, reason="Peak")
+    assert response.status_code == 200, response.data
+    saved = response.data["verdict"]
+    preview.pop("as_of")
+    saved.pop("as_of")
+    assert preview == saved
 
 
 @pytest.mark.parametrize(
@@ -247,7 +523,8 @@ def test_overage_record_is_withheld_below_scheduler(
     data = listing["results"][0]
     assert data["share_pct"] == 50
     assert data["overage_reason"] == ("Launch week" if visible else "")
-    assert (data["overage_peak_pct"] is not None) is visible
+    assert (data["overage_week"] is not None) is visible
+    assert "overage_peak_pct" not in data
 
 
 def test_member_is_told_which_project_and_the_inbox_shows_it(world: dict[str, Any]) -> None:
@@ -282,6 +559,7 @@ def test_removing_a_booking_is_never_refused(world: dict[str, Any]) -> None:
     assert save(world, share_pct=0).status_code == 200
     row = mine_row(world)
     assert row is not None and row.share_pct is None and row.share_start is None
+    assert row.overage_reason == ""
 
 
 def test_removing_a_missing_booking_does_not_roster(world: dict[str, Any]) -> None:
@@ -293,11 +571,11 @@ def test_lower_ceiling_is_judged_against_itself(world: dict[str, Any]) -> None:
     Resource.objects.filter(pk=world["person"].pk).update(max_units=Decimal("0.60"))
     verdict = dry(world, share_pct=70, end=day(4)).data["verdict"]
     assert (verdict["fits"], verdict["ceiling_pct"], verdict["peak_pct"]) == (False, 60.0, 70.0)
+    assert_parts_sum(verdict)
 
 
 def test_time_off_is_removed_from_capacity(world: dict[str, Any]) -> None:
-    off = MON + datetime.timedelta(days=2)
-    CalendarException.objects.create(calendar=world["cal"], exc_start=off, exc_end=off)
+    CalendarException.objects.create(calendar=world["cal"], exc_start=date(2), exc_end=date(2))
     # 80% fills the ceiling exactly once one day in five (20%) is gone.
     assert dry(world, share_pct=80, end=day(4)).data["verdict"]["fits"] is True
     verdict = dry(world, share_pct=90, end=day(4)).data["verdict"]
@@ -308,33 +586,38 @@ def test_time_off_is_removed_from_capacity(world: dict[str, Any]) -> None:
         "project_name": None,
         "pct": 20.0,
     }
+    assert_parts_sum(verdict)
+
+
+def test_time_off_outside_the_window_is_not_charged(world: dict[str, Any]) -> None:
+    CalendarException.objects.create(calendar=world["cal"], exc_start=date(0), exc_end=date(0))
+    verdict = dry(world, share_pct=100, start=day(2), end=day(4)).data["verdict"]
+    assert (verdict["fits"], verdict["peak_pct"]) == (True, 100.0)
 
 
 def test_task_units_count_once_inside_a_booking_and_assignee_never(
     world: dict[str, Any],
 ) -> None:
-    def task(name: str, **kwargs: Any) -> Task:
-        return Task.objects.create(
-            project=world["mine"],
-            name=name,
-            duration=5,
-            status="NOT_STARTED",
-            early_start=MON,
-            early_finish=MON + datetime.timedelta(days=4),
-            **kwargs,
-        )
-
-    TaskResource.objects.create(task=task("a"), resource=world["person"], units=Decimal("0.40"))
-    task("bare", assignee=world["person"].user)
+    task_on(world["mine"], world["person"], "0.40", 0, 4, name="a")
+    Task.objects.create(
+        project=world["mine"],
+        name="bare",
+        duration=5,
+        status="NOT_STARTED",
+        early_start=MON,
+        early_finish=date(4),
+        assignee=world["person"].user,
+    )
     assert dry(world, share_pct=50, end=day(4)).data["verdict"]["peak_pct"] == 50.0
     assert dry(world, share_pct=30, end=day(4)).data["verdict"]["peak_pct"] == 40.0
 
 
 def test_second_booking_sees_the_first(world: dict[str, Any]) -> None:
-    other = Project.objects.create(name="Third", start_date=MON, calendar=world["cal"])
-    ProjectMembership.objects.create(user=world["booker"], project=other, role=Role.SCHEDULER)
+    other = side_project(world)
     assert save(world, share_pct=70, end=day(4)).status_code == 200
-    assert save(world, project=str(other.pk), share_pct=70, end=day(4)).status_code == 409
+    refused = save(world, project=str(other.pk), share_pct=70, end=day(4))
+    assert refused.status_code == 409
+    assert_parts_sum(refused.data["verdict"])
 
 
 def test_failed_check_holds_the_change(
@@ -347,6 +630,7 @@ def test_failed_check_holds_the_change(
     response = save(world, share_pct=10)
     assert response.status_code == 503
     assert response.data["code"] == "allocation_check_unavailable"
+    assert response.data["detail"]
     assert mine_row(world) is None
 
 
@@ -386,8 +670,7 @@ def test_concurrent_saves_cannot_jointly_exceed_the_ceiling(
 
     monkeypatch.setattr(allocation_views, "build_verdict", slow)
 
-    other = Project.objects.create(name="Third", start_date=MON, calendar=world["cal"])
-    ProjectMembership.objects.create(user=world["booker"], project=other, role=Role.SCHEDULER)
+    other = side_project(world)
 
     def book(project: Project) -> int:
         client = APIClient()

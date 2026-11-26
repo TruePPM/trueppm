@@ -241,10 +241,15 @@ METRIC_DEFINITIONS: dict[str, str] = {
     # ── allocation check (#4806) ───────────────────────────────────────
     "allocation.load_pct": (
         "Weekly load = the busiest working day's bookings plus time off, as a percent "
-        "of full time. Each project counts the larger of its booked share and its "
-        "assigned task units that day, across every project the person is booked on. "
-        "Time off is the share of the week's calendar days off, applied to the person's "
-        "own ceiling. A week is over when load exceeds that ceiling."
+        "of full time, over the days of the week inside the proposed window. Each "
+        "project counts the larger of its booked share and its assigned task units "
+        "that day, across every non-draft project the person is on (archived ones "
+        "included). Time off is the share of those days off, applied to the person's "
+        "own ceiling. A week is over when load exceeds that ceiling, and breaks when "
+        "it is over and higher than without the change. Bookings count here only: "
+        "people load, utilization and capacity read assigned task units, not "
+        "bookings. Load on a project whose per-person load you may not read is "
+        "counted but not shown, so a figure that includes it is null."
     ),
     # ── sprint-scoped capacity (#4777): named so it is not read as load ──
     "sprint_capacity.ratio": (
