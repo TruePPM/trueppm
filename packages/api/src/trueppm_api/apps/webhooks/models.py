@@ -51,19 +51,41 @@ class WebhookEventType(models.TextChoices):
     # ADR-1485 D4/D6 (#5130): the project's headline forecast kind switched
     # (CPM/Monte Carlo <-> team velocity). Ids and enums only, no velocity figures.
     SCHEDULE_FINISH_CHANGED = "schedule.finish_changed", "Schedule Finish Changed"
+    # ADR-1485 D6 (#5131): a structural act was reversed (references the reversed
+    # ledger ``event_id``), and a sprint scope change is awaiting a decision. The
+    # decided counterpart reuses ``sprint.scope_changed`` (one vocabulary with the
+    # WS ``sprint_scope_changed`` fact, #4406). ``sprint.commitment_at_risk`` is
+    # deliberately NOT registered here: #5127 owns its detection and its emit, and a
+    # catalog entry with no emitter is an advertised event that is never sent.
+    SCHEDULE_CHANGE_UNDONE = "schedule.change_undone", "Schedule Change Undone"
+    SPRINT_SCOPE_CHANGE_REQUESTED = (
+        "sprint.scope_change_requested",
+        "Sprint Scope Change Requested",
+    )
+    # ADR-1477 / #5121: the baseline changeset. changeset.opened fires on the first
+    # entry after a baseline is captured, changeset.entry_added on each later entry
+    # (once per entry, never per absorbed act), changeset.entry_reasoned when an
+    # unreasoned entry is answered; baseline.kept is the "Keep v1, let variance
+    # stand" exit (Take v2 stays baseline.captured, which gains the reason fields).
+    CHANGESET_OPENED = "changeset.opened", "Changeset Opened"
+    CHANGESET_ENTRY_ADDED = "changeset.entry_added", "Changeset Entry Added"
+    CHANGESET_ENTRY_REASONED = "changeset.entry_reasoned", "Changeset Entry Reasoned"
+    BASELINE_KEPT = "baseline.kept", "Baseline Kept"
 
 
 ALL_WEBHOOK_EVENTS = [e.value for e in WebhookEventType]
 
 # Hard cap on the number of OSS webhook event types (ADR-0083, raised 11→14 by
 # ADR-0147 for the agile trio, then 14→19 by ADR-0206 for the risk/baseline/comment
-# domain events), then 19→20 by ADR-1485 for schedule.finish_changed. Adding a
-# 21st event requires its own ADR — this is the gate
+# domain events), then 19→20 by ADR-1485 for schedule.finish_changed, then 20→26 by
+# ADR-1485 D6 (schedule.change_undone, sprint.scope_change_requested) and ADR-1477 /
+# #5121 (changeset.opened, changeset.entry_added, changeset.entry_reasoned,
+# baseline.kept). Adding a 27th event requires its own ADR — this is the gate
 # against the per-customer event proliferation that is the explicit Enterprise
 # upsell. These are all first-party domain events, not custom/user-defined events,
 # so the upsell line is unaffected. ``test_event_type_cap`` fails loudly if
 # WebhookEventType drifts from this number.
-OSS_WEBHOOK_EVENT_CAP = 20
+OSS_WEBHOOK_EVENT_CAP = 26
 
 # Reserved, non-domain event type used by the "Send test" action (#2884). It is
 # deliberately NOT a WebhookEventType member: no subscription can select it and
@@ -96,6 +118,12 @@ AUTO_DISABLE_CONSECUTIVE_FAILURES = 5
 # apart when no success lands between them. A genuinely dead endpoint is
 # deactivated on its next failure once the window has elapsed.
 AUTO_DISABLE_MIN_FAILURE_WINDOW = timedelta(minutes=5)
+
+# A permanently failed delivery is the dead-letter list (ADR-1485 D6): it stays
+# listable and replayable for at least this long, whatever shorter window the
+# operator set for successful rows. The purge applies ``max(retention, 14)`` to
+# FAILED rows only.
+DEAD_LETTER_RETENTION_DAYS = 14
 
 
 class Webhook(models.Model):

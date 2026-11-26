@@ -774,7 +774,32 @@ def undo_structural_operation(
         # payload and enqueue a recalculation; an undo is the same kind of mutation and
         # emits the same event.
         broadcast_tasks_restructured_and_recalc(locked.project_id)
+        _announce_undone(locked, summary)
         return summary
+
+
+def _announce_undone(operation: StructuralOperation, summary: dict[str, int]) -> None:
+    """``schedule.change_undone`` after commit (ADR-1485 D6, #5131).
+
+    ``event_id`` is the ledger row this undo reversed, the same id the operations
+    list serves, so a consumer can match the undo to the change it saw. Ids, enums
+    and counts only; the finish shift an undo causes is not known at commit (the
+    recalculation is asynchronous), so it is read from ``schedule.recalculated``.
+    ``_dispatch_webhooks`` is a registered outbox helper (rows before enqueue).
+    """
+    from trueppm_api.apps.projects.views import _dispatch_webhooks
+
+    pid = str(operation.project_id)
+    payload = {
+        "project": pid,
+        "event_id": str(operation.pk),
+        "operation_kind": operation.kind,
+        "undone_by": str(operation.undone_by_id) if operation.undone_by_id else None,
+        "applied_by": str(operation.applied_by_id) if operation.applied_by_id else None,
+        "undone_at": operation.undone_at.isoformat() if operation.undone_at else None,
+        "summary": dict(summary),
+    }
+    transaction.on_commit(lambda: _dispatch_webhooks(pid, "schedule.change_undone", payload))
 
 
 def _resync_shadow_values(operation: StructuralOperation) -> None:

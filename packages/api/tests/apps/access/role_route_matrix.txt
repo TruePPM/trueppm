@@ -460,6 +460,7 @@
 -++++++  POST api/v1/^programs/(?P<pk>[^/.]+)/split/$::split
 -++++++  POST api/v1/^programs/(?P<pk>[^/.]+)/transfer-sponsorship/$::transfer_sponsorship
 -----++  POST api/v1/^programs/(?P<program_pk>[^/.]+)/webhooks/$::create
+-----++  POST api/v1/^programs/(?P<program_pk>[^/.]+)/webhooks/(?P<pk>[^/.]+)/deliveries/(?P<delivery_id>[0-9a-fA-F-]{32,36})/replay/$::replay
 -----++  POST api/v1/^programs/(?P<program_pk>[^/.]+)/webhooks/(?P<pk>[^/.]+)/test/$::test_ping
 -------  POST api/v1/^programs/bulk-fields/$::bulk_fields
 -++++++  POST api/v1/^programs/import/$::import_seed
@@ -480,6 +481,7 @@
 -++++++  POST api/v1/^projects/(?P<pk>[^/.]+)/unarchive/$::unarchive
 -++++++  POST api/v1/^projects/(?P<pk>[^/.]+)/visit/$::visit
 -----++  POST api/v1/^projects/(?P<project_pk>[^/.]+)/webhooks/$::create
+-----++  POST api/v1/^projects/(?P<project_pk>[^/.]+)/webhooks/(?P<pk>[^/.]+)/deliveries/(?P<delivery_id>[0-9a-fA-F-]{32,36})/replay/$::replay
 -----++  POST api/v1/^projects/(?P<project_pk>[^/.]+)/webhooks/(?P<pk>[^/.]+)/test/$::test_ping
 -++++++  POST api/v1/^recurrence-rules/$::create
 ----+++  POST api/v1/^resource-skills/$::create

@@ -87,7 +87,12 @@ def _sample_url(path: str) -> str:
     the ``path()`` converter pattern would otherwise chew on.
     """
 
-    url = re.sub(r"\(\?P<\w+>[^)]*\)", "x", path)
+    # A hex-class group (a UUID-shaped ``re_path`` segment) would 404 on "x"; give it a UUID.
+    url = re.sub(
+        r"\(\?P<\w+>([^)]*)\)",
+        lambda m: _SAMPLES["uuid"] if "0-9a-fA-F" in m.group(1) else "x",
+        path,
+    )
     url = re.sub(r"<(?:(\w+):)?\w+>", lambda m: _SAMPLES[m.group(1) or "str"], url)
     url = url.replace("^", "").replace("$", "").replace("\\.", ".").replace("/?", "")
     return "/" + url

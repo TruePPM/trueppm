@@ -57,6 +57,7 @@ export const WEBHOOK_EVENT_CATALOG: WebhookEventGroup[] = [
     category: 'Schedule',
     events: [
       { id: 'schedule.recalculated', label: 'Schedule recalculated' },
+      { id: 'schedule.change_undone', label: 'Schedule change undone', isNew: true },
       {
         id: 'schedule.finish_changed',
         label: 'Headline forecast changed',
@@ -74,7 +75,12 @@ export const WEBHOOK_EVENT_CATALOG: WebhookEventGroup[] = [
     events: [
       { id: 'sprint.activated', label: 'Sprint started', isNew: true },
       { id: 'sprint.closed', label: 'Sprint closed', isNew: true },
-      { id: 'sprint.scope_changed', label: 'Scope accepted mid-sprint', isNew: true },
+      { id: 'sprint.scope_changed', label: 'Scope change decided', isNew: true },
+      {
+        id: 'sprint.scope_change_requested',
+        label: 'Scope change awaiting a decision',
+        isNew: true,
+      },
     ],
   },
   {
@@ -87,7 +93,13 @@ export const WEBHOOK_EVENT_CATALOG: WebhookEventGroup[] = [
   },
   {
     category: 'Baseline',
-    events: [{ id: 'baseline.captured', label: 'Baseline captured', isNew: true }],
+    events: [
+      { id: 'baseline.captured', label: 'Baseline captured', isNew: true },
+      { id: 'baseline.kept', label: 'Baseline kept (variance stands)', isNew: true },
+      { id: 'changeset.opened', label: 'Baseline changeset opened', isNew: true },
+      { id: 'changeset.entry_added', label: 'Baseline changeset entry added', isNew: true },
+      { id: 'changeset.entry_reasoned', label: 'Changeset entry given a reason', isNew: true },
+    ],
   },
   {
     category: 'Comment',

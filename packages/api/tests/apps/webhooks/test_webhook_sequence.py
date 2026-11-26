@@ -20,7 +20,7 @@ from django.utils import timezone
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Project
 from trueppm_api.apps.webhooks.backfill import backfill_sequence_numbers, reverse_backfill
-from trueppm_api.apps.webhooks.models import Webhook, WebhookDelivery
+from trueppm_api.apps.webhooks.models import DeliveryStatus, Webhook, WebhookDelivery
 
 User = get_user_model()
 
@@ -335,6 +335,9 @@ def test_delivered_body_carries_sequence_stable_across_retries(webhook: Webhook)
         patch.object(wh_tasks._no_redirect_opener, "open", side_effect=capture_open),
     ):
         wh_tasks.deliver_webhook.run(str(delivery.pk))  # first attempt
+        # A real retry only ever runs on a PENDING row (a SUCCESS row is terminal and
+        # deliver_webhook skips it), so put the row back where a 5xx would leave it.
+        WebhookDelivery.objects.filter(pk=delivery.pk).update(status=DeliveryStatus.PENDING)
         wh_tasks.deliver_webhook.run(str(delivery.pk))  # simulated retry
 
     bodies = [json.loads(b) for b in captured]

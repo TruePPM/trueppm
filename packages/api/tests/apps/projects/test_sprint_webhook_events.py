@@ -2,11 +2,12 @@
 
 sprint.activated fires from SprintViewSet.activate (sync); sprint.closed fires
 from the close_sprint Celery task (async outbox); sprint.scope_changed fires from
-the ADR-0102 scope-accept service — and only on accept, never on reject or silent
-injection. All three dispatch inside transaction.on_commit, so the API/service
-tests use django_capture_on_commit_callbacks(execute=True) and assert against a
-patched views._dispatch_webhooks trampoline (the close/accept paths import the
-trampoline lazily from views at call time, so patching the views attribute catches
+the ADR-0102 scope-accept service — on accept, and since ADR-1485 D6 (#5131) on a
+reject too, never on a silent injection. All three dispatch inside
+transaction.on_commit, so the API/service tests use
+django_capture_on_commit_callbacks(execute=True) and assert against a patched
+views._dispatch_webhooks trampoline (the close/accept paths import the trampoline
+lazily from views at call time, so patching the views attribute catches
 them too).
 
 The sprint.closed payload carries the completion snapshot (velocity). Per ADR-0147
@@ -282,13 +283,13 @@ def test_accept_fires_sprint_scope_changed(
 
 
 @pytest.mark.django_db
-def test_reject_does_not_fire_sprint_scope_changed(
+def test_reject_fires_sprint_scope_changed_with_the_decision(
     project: Project,
     owner: Any,
     django_capture_on_commit_callbacks: Callable[..., Any],
 ) -> None:
-    """Reject is a scope *decision*, but the event models scope that landed in the
-    commitment — so it fires only on accept, never on reject (ADR-0147)."""
+    """ADR-1485 D6 amends ADR-0147: a rejection is a decision too, so it is announced
+    (``status`` carries which way it went)."""
     sprint = _active_sprint(project)
     pending = _task(project, "Injected", sprint, story_points=3)
     sc = _inject(pending, sprint, owner)
@@ -297,7 +298,11 @@ def test_reject_does_not_fire_sprint_scope_changed(
         django_capture_on_commit_callbacks(execute=True),
     ):
         reject_scope_change(sc, owner)
-    assert "sprint.scope_changed" not in _fired_events(mock_dispatch)
+    assert _fired_events(mock_dispatch).count("sprint.scope_changed") == 1
+    payload = next(
+        c.args[2] for c in mock_dispatch.call_args_list if c.args[1] == "sprint.scope_changed"
+    )
+    assert payload["status"] == ScopeChangeStatus.REJECTED
 
 
 @pytest.mark.django_db

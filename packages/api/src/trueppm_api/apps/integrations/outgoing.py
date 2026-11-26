@@ -56,6 +56,12 @@ _SLACK_EVENT_META: dict[str, tuple[str, str]] = {
     "risk.escalated": ("Risk escalated", _SLACK_COLOR_CRITICAL),
     "risk.closed": ("Risk closed", _SLACK_COLOR),
     "baseline.captured": ("Baseline captured", _SLACK_COLOR),
+    "baseline.kept": ("Baseline kept", _SLACK_COLOR_NEUTRAL),
+    "changeset.opened": ("Baseline changeset opened", _SLACK_COLOR_NEUTRAL),
+    "changeset.entry_added": ("Baseline changeset entry added", _SLACK_COLOR_NEUTRAL),
+    "changeset.entry_reasoned": ("Baseline changeset entry reasoned", _SLACK_COLOR_NEUTRAL),
+    "schedule.change_undone": ("Schedule change undone", _SLACK_COLOR_NEUTRAL),
+    "sprint.scope_change_requested": ("Sprint scope change requested", _SLACK_COLOR_CRITICAL),
     "schedule.finish_changed": ("Headline forecast changed", _SLACK_COLOR_NEUTRAL),
     "comment.created": ("New comment", _SLACK_COLOR_NEUTRAL),
     # Reserved, non-domain: the "Send test" ping now renders through this provider
@@ -99,6 +105,10 @@ _SLACK_FIELDS_BY_FAMILY: dict[str, tuple[tuple[str, str], ...]] = {
         ("Tasks captured", "task_count"),
         ("Has CPM dates", "has_cpm_dates"),
     ),
+    "changeset": (
+        ("Baseline version", "baseline_version"),
+        ("Baseline", "baseline_id"),
+    ),
     "comment": (
         ("Author", "author_display"),
         ("Status", "status"),
@@ -113,6 +123,13 @@ _SLACK_FIELDS_BY_EVENT: dict[str, tuple[tuple[str, str], ...]] = {
     "sprint.scope_changed": (
         ("Item", "item_name"),
         ("Decision", "status"),
+        ("Closed by", "closed_by"),
+        ("Goal impact", "goal_impact"),
+    ),
+    # No item name: the event is new under ADR-1485 D6 ("no names beyond the
+    # actor"), so it carries ids only and the title falls back to the row id.
+    "sprint.scope_change_requested": (
+        ("Kind", "kind"),
         ("Goal impact", "goal_impact"),
     ),
 }

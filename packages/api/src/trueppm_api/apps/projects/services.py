@@ -3375,6 +3375,7 @@ def record_sprint_scope_change(
             # bulk .update().
             task.sprint_pending = True
             task.save(update_fields=["sprint_pending"])
+        _on_commit_scope_webhook(scope_change, "sprint.scope_change_requested")
 
     # sprint_scope_changed is the OSS extension point Enterprise connects
     # against. A raising receiver must not propagate out of and break this OSS
@@ -3488,9 +3489,11 @@ def accept_scope_change(
         sprint_id_str = str(sprint.pk)
         task_id_str = str(task.pk)
         # ADR-0147: build the sprint.scope_changed webhook payload while the row is
-        # loaded inside the transaction, fired only here (accept), never on reject or
+        # loaded inside the transaction. Since ADR-1485 D6 the event fires on every
+        # decision (this accept, reject_scope_change, a decided slip), never on a
         # silent injection. Carries no velocity signal, so no privacy gate applies.
         scope_payload = _sprint_scope_change_webhook_payload(locked, source="api")
+        scope_payload["closed_by"] = _scope_closed_by(locked)
 
         # #1009: capture only plain values (the sprint pk, not the ORM instance) and
         # re-fetch the Sprint inside the closure. A Sprint instance captured across
@@ -3523,7 +3526,7 @@ def reject_scope_change(
     in one transaction, writes ``history_change_reason`` (ADR-0102 §4 — so the
     timeline shows "removed from sprint" not a bare "Updated" pill), and rides the
     recompute + broadcast on commit. The REJECTED row is retained for the audit
-    trail (cleared on sprint close like every other row). Idempotent.
+    trail (it stays on the sprint after close). Idempotent.
     """
     from trueppm_api.apps.projects.models import (
         ScopeChangeKind,
@@ -3566,6 +3569,7 @@ def reject_scope_change(
         project_id_str = str(task.project_id)
         sprint_id_str = str(sprint.pk)
         task_id_str = str(task.pk)
+        _on_commit_scope_webhook(locked, "sprint.scope_changed")
 
         # #1009: capture only plain values (the sprint pk, not the ORM instance) and
         # re-fetch the Sprint inside the closure. A Sprint instance captured across
@@ -3921,6 +3925,10 @@ def record_commitment_slip(
     setattr(row, _SLIP_CURRENT_FINISH_ATTR, current_finish)
     if accepted:
         _record_decision_note(row, actor, reason)
+    # Direct-with-reason is a decision made at creation; anything else awaits one.
+    _on_commit_scope_webhook(
+        row, "sprint.scope_changed" if accepted else "sprint.scope_change_requested"
+    )
     if request is not None and not accepted:
         setattr(_host(request), SLIP_PENDING_ATTR, True)
     _on_commit_scope_broadcast(row)
@@ -3931,11 +3939,12 @@ def record_commitment_slip(
 
 
 def _signal_slip_decided(row: Any, task: Any) -> None:
-    """Tell ``sprint_scope_changed`` receivers a slip row left PENDING.
+    """Tell ``sprint_scope_changed`` receivers and webhook subscribers a slip left PENDING.
 
     Covers both a person's accept or reject and a closure the system makes.
 
-    Without this an audit receiver sees the row open and never sees it close.
+    Without this an audit receiver, or a consumer mirroring
+    ``sprint.scope_change_requested``, sees the row open and never sees it close.
     """
     from trueppm_api.apps.projects.models import SprintScopeChange
     from trueppm_api.apps.projects.signals import sprint_scope_changed
@@ -3944,6 +3953,11 @@ def _signal_slip_decided(row: Any, task: Any) -> None:
     dispatch_extension_signal(
         sprint_scope_changed, sender=SprintScopeChange, scope_change=row, task=task
     )
+    # Every row that left PENDING is announced, so a consumer holding the
+    # ``sprint.scope_change_requested`` it got can close it. A system closure
+    # (superseded, stale on accept, another slip accepted, sprint closed) has no
+    # decider: ``decided_by`` is null and ``closed_by`` is ``"system"``.
+    _on_commit_scope_webhook(row, "sprint.scope_changed")
 
 
 def _close_pending_slips(
@@ -4053,6 +4067,44 @@ def _record_decision_note(row: Any, author: Any, reason: str) -> None:
         body=f"{what} {row.status} for {row.sprint.name}: {reason.strip()}",
         decision=True,
     )
+
+
+def _on_commit_scope_webhook(row: Any, event_type: str, *, source: str = "api") -> None:
+    """Send ``sprint.scope_changed`` / ``sprint.scope_change_requested`` after commit.
+
+    The payload is built now, inside the write transaction, and captured by value.
+    ``_dispatch_webhooks`` inserts the delivery rows before enqueueing, so a lost
+    broker call is replayed by the drain; but it runs in the on-commit callback,
+    not in the write transaction, so a crash between the commit and the callback
+    loses the event (the pre-existing pattern for every webhook).
+
+    ``sprint.scope_change_requested`` is new under ADR-1485 D6 and carries no
+    ``item_name`` (no names beyond the actor). ``sprint.scope_changed`` keeps it for
+    its existing subscribers (recorded as a D6 amendment).
+    """
+    from trueppm_api.apps.projects.views import (
+        _dispatch_webhooks,
+        _sprint_scope_change_webhook_payload,
+    )
+
+    payload = _sprint_scope_change_webhook_payload(row, source=source)
+    if event_type == "sprint.scope_change_requested":
+        payload.pop("item_name", None)
+    else:
+        payload["closed_by"] = _scope_closed_by(row)
+    pid = payload["project"]
+    transaction.on_commit(lambda: _dispatch_webhooks(pid, event_type, payload))
+
+
+def _scope_closed_by(row: Any) -> str:
+    """``"person"`` when someone decided the row, ``"system"`` when TruePPM closed it.
+
+    ``sprint.scope_changed``'s enum for who ended a request: a superseded slip, a
+    slip found stale on accept, a sibling closed by another accept, and a slip
+    closed at sprint close all carry no decider, and saying so as an enum keeps
+    the payload free of the free-text ``decision_reason``.
+    """
+    return "person" if row.decided_by_id is not None else "system"
 
 
 def _on_commit_scope_broadcast(row: Any) -> None:
@@ -4305,8 +4357,9 @@ def apply_pending_disposition(sprint: Any, disposition: str, by: Any = None) -> 
       SprintScopeChange against that sprint, so the injection stays gated in the
       next sprint rather than being silently committed. Tasks carried to backlog
       (sprint=None) or to "none" have their pending flag cleared (no sprint to be
-      pending in). The closing sprint's PENDING rows clear with all other rows on
-      close.
+      pending in). The closing sprint's own PENDING injection row is left as is
+      (still PENDING on the closed sprint) and no closing webhook is sent for
+      it; see #5153.
 
     PENDING ``slip`` rows (ADR-1485 D1) take neither path, under either
     disposition: they are closed by :func:`_expire_pending_slips`, which never
@@ -4394,7 +4447,8 @@ def _carry_pending_rows(sprint: Any, pending_rows: list[Any], by: Any) -> None:
 
     The close's carry-over already moved incomplete tasks to the incoming sprint.
     Re-recording there keeps the injection gated in the next sprint rather than
-    letting it be silently committed; the closing sprint's own row clears on close.
+    letting it be silently committed; the closing sprint's own row stays PENDING
+    on the closed sprint and no closing webhook is sent for it (#5153).
     """
     from trueppm_api.apps.projects.models import Sprint, Task
 

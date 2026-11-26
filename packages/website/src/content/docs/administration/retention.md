@@ -84,7 +84,7 @@ current release the value is accepted and the data is lost on the next purge.
 | `TRUEPPM_HISTORY_RETENTION_DAYS` | `90` | days | django-simple-history object-change records |
 | `TRUEPPM_TASK_RUN_RETENTION_DAYS` | `30` | days | Completed/failed/canceled `TaskRun` records |
 | `TRUEPPM_IMPORT_RETENTION_DAYS` | `7` | days | Terminal (`DONE`/`DEAD`) `ImportRequest` rows, including their multi-MB `file_content_b64` blobs; also terminal `ProgramImportJob` rows and their stored seed payloads |
-| `TRUEPPM_WEBHOOK_RETENTION_DAYS` | `7` | days | Terminal (`SUCCESS`/`FAILED`) `WebhookDelivery` rows |
+| `TRUEPPM_WEBHOOK_RETENTION_DAYS` | `7` | days | Terminal `WebhookDelivery` rows. `SUCCESS` rows purge after this window; from 0.5, `FAILED` rows (the dead-letter list) are kept for `max(TRUEPPM_WEBHOOK_RETENTION_DAYS, 14)` days so they can be replayed |
 | `TRUEPPM_SYNC_BATCH_RETENTION_HOURS` | `24` | hours | `SyncBatch` mobile-upload idempotency rows past the dedup window (ADR-0082) |
 | `TRUEPPM_PROJECT_SOFT_DELETE_RETENTION_DAYS` | `30` | days | Soft-deleted ("trashed") `Project` rows, hard-deleted with all child data (see [Trashed projects](#trashed-projects-are-hard-deleted-after-the-window) below) |
 | `TRUEPPM_TOMBSTONE_RETENTION_DAYS` | `90` | days | Per-row soft-delete tombstones (`Task`, `Dependency`, `TaskRelation`, `Risk`, `Sprint`; more models from 0.5, see below) in live projects. This is also the window a deleted **task** stays restorable — see [What you can get back](#what-you-can-get-back) |

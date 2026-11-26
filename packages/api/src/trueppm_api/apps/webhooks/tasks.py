@@ -372,10 +372,24 @@ def deliver_webhook(self: object, delivery_id: str) -> None:
     """
     from trueppm_api.apps.webhooks.models import DeliveryStatus, WebhookDelivery
 
+    # Terminal-state guard: a SUCCESS or FAILED row is never sent again, so a
+    # second dispatch of one row (the on-commit enqueue and a drain tick, or a
+    # replay's enqueue and a drain tick) that runs after the first finished does
+    # nothing. Only terminal states are refused, so a Celery retry or an
+    # acks_late redelivery of a PENDING row still proceeds (at-least-once). Two
+    # dispatches in flight at the same moment can still both send; consumers
+    # deduplicate on X-TruePPM-Delivery. A lock held across the HTTP call would
+    # close that too, but would also hold a transaction open for up to the
+    # 30-second soft limit and roll back the pre-retry save on ``task.retry``.
     try:
         delivery = WebhookDelivery.objects.select_related("webhook").get(pk=delivery_id)
     except WebhookDelivery.DoesNotExist:
         logger.warning("deliver_webhook: delivery %s not found, skipping", delivery_id)
+        return
+    if delivery.status != DeliveryStatus.PENDING:
+        logger.info(
+            "deliver_webhook: delivery %s is already %s, skipping", delivery_id, delivery.status
+        )
         return
 
     webhook = delivery.webhook
@@ -678,10 +692,17 @@ def _do_webhook_purge(*, dry_run: bool = False, override_value: int | None = Non
     if retention_days is None:
         return 0
 
-    cutoff = timezone.now() - timedelta(days=retention_days)
+    from django.db.models import Q
+
+    from trueppm_api.apps.webhooks.models import DEAD_LETTER_RETENTION_DAYS
+
+    now = timezone.now()
+    # Dead letters (FAILED) outlive the shared window: an operator who shortened
+    # retention for volume must still be able to replay what failed (ADR-1485 D6).
+    dead_letter_days = max(retention_days, DEAD_LETTER_RETENTION_DAYS)
     qs = WebhookDelivery.objects.filter(
-        status__in=[DeliveryStatus.SUCCESS, DeliveryStatus.FAILED],
-        created_at__lt=cutoff,
+        Q(status=DeliveryStatus.SUCCESS, created_at__lt=now - timedelta(days=retention_days))
+        | Q(status=DeliveryStatus.FAILED, created_at__lt=now - timedelta(days=dead_letter_days))
     )
     if dry_run:
         return qs.count()

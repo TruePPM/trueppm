@@ -7,8 +7,10 @@ import logging
 import redis as redis_lib
 from django.db import transaction
 from django.db.models import QuerySet
+from django.utils import timezone
 from django.utils.translation import gettext as _
 from drf_spectacular.utils import (
+    OpenApiParameter,
     OpenApiResponse,
     extend_schema,
     extend_schema_view,
@@ -20,7 +22,12 @@ from kombu.exceptions import (
 from rest_framework import serializers, status
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.decorators import action
-from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
+from rest_framework.exceptions import (
+    APIException,
+    AuthenticationFailed,
+    PermissionDenied,
+    ValidationError,
+)
 from rest_framework.mixins import (
     CreateModelMixin,
     DestroyModelMixin,
@@ -52,6 +59,7 @@ from trueppm_api.apps.projects.models import ApiToken, Program, Project
 from trueppm_api.apps.webhooks.dispatch import build_delivery_body
 from trueppm_api.apps.webhooks.models import (
     PING_EVENT_TYPE,
+    DeliveryStatus,
     Webhook,
     WebhookDelivery,
     WebhookEditor,
@@ -124,6 +132,14 @@ def _lock_credentials_for_webhook_grant(request: Request) -> None:
         raise AuthenticationFailed(_("This token has been revoked."))
 
 
+class ReplayRefused(APIException):
+    """409: the delivery is not dead-lettered, or its subscription is inactive."""
+
+    status_code = status.HTTP_409_CONFLICT
+    default_code = "delivery_not_replayable"
+    default_detail = _("Only a failed delivery on an active webhook can be replayed.")
+
+
 class WebhookDeliveryCursorPagination(CursorPagination):
     """Depth-independent pagination for a webhook's delivery log (#1317).
 
@@ -149,6 +165,15 @@ class WebhookDeliveryCursorPagination(CursorPagination):
 # class as #2583's named instances: a client typing `count` as non-optional breaks
 # on first call. Declare the envelope rather than lean on a heuristic that cannot
 # see which paginator actually runs.
+DELIVERY_STATUS_PARAMETER = OpenApiParameter(
+    name="status",
+    type=str,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    enum=list(DeliveryStatus.values),
+    description="Only deliveries in this state. `failed` is the dead-letter list.",
+)
+
 WEBHOOK_DELIVERY_PAGE = inline_serializer(
     name="WebhookDeliveryCursorPage",
     fields={
@@ -242,10 +267,22 @@ class WebhookViewSet(
     # Single source for both the runtime guard below and the schema: the OpenAPI
     # hook reads this set to strip the token security schemes from these actions
     # (``get_permissions`` is invisible to schema generation, #4665).
-    full_token_refused_actions = frozenset({"create", "update", "partial_update"})
+    # `replay` re-sends a stored payload to the *current* url under a still-live secret:
+    # it is allowed for a session or a `webhooks:manage` token and refused for a
+    # full-access token (ADR-1485 D6, the #4461 reasoning).
+    full_token_refused_actions = frozenset({"create", "update", "partial_update", "replay"})
     # Read by the OpenAPI hook alongside the set above: `deliveries` is the one action
     # a `webhooks:manage` token cannot reach (#2414).
     narrow_token_refused_actions = frozenset({"deliveries"})
+    # Read by the route-table invariant (#2745): replay re-sends a stored payload and
+    # writes only the delivery row, never project data, so it survives archiving.
+    archived_write_exempt = {
+        "replay": (
+            "re-sends a stored dead-lettered payload and touches only the delivery row, "
+            "not the project; failures from before archiving must stay recoverable, "
+            "and the delivery history that lists them is readable while archived too"
+        ),
+    }
 
     def get_authenticators(self) -> list[BaseAuthentication]:
         # Prepended so a `webhooks:manage` token is recognized here and nowhere else
@@ -261,6 +298,13 @@ class WebhookViewSet(
         if self.action == "deliveries":
             # A read. Archived projects stay readable, so no lifecycle gate here.
             return [IsAuthenticated(), IsProjectAdmin(), IsNotNarrowScopedToken()]
+        if self.action == "replay":
+            # Refused for a full-access token (it stays in full_token_refused_actions
+            # for the schema), but with no lifecycle gate, like `deliveries`: a replay
+            # re-sends a stored payload and changes no project state, and the dead
+            # letters an archived project's webhook already holds must stay
+            # recoverable.
+            return [IsAuthenticated(), IsProjectAdmin(), IsNotFullTokenAuthenticated()]
         if self.action in self.full_token_refused_actions:
             # IsNotTokenAuthenticated (#4461): create mints a durable HMAC signing
             # secret, and update can repoint the delivery URL or rotate that secret
@@ -451,7 +495,7 @@ class WebhookViewSet(
 
     @extend_schema(
         summary="List recent webhook deliveries",
-        parameters=CURSOR_PAGINATION_PARAMETERS,
+        parameters=[*CURSOR_PAGINATION_PARAMETERS, DELIVERY_STATUS_PARAMETER],
         responses={200: WEBHOOK_DELIVERY_PAGE},
         # Pinned because declaring the envelope changes what drf-spectacular
         # thinks this operation is. It derives the operationId's `_list`/
@@ -475,10 +519,115 @@ class WebhookViewSet(
         webhook = self.get_object()
         self._check_delivery_log_access(webhook)
         qs = WebhookDelivery.objects.filter(webhook=webhook)
+        # `?status=failed` is the dead-letter list (ADR-1485 D6): permanently failed
+        # deliveries, kept for DEAD_LETTER_RETENTION_DAYS and replayable.
+        status_filter = request.query_params.get("status")
+        if status_filter:
+            if status_filter not in DeliveryStatus.values:
+                raise ValidationError(
+                    {
+                        "status": _("Must be one of: %(v)s.")
+                        % {"v": ", ".join(DeliveryStatus.values)}
+                    }
+                )
+            qs = qs.filter(status=status_filter)
         paginator = WebhookDeliveryCursorPagination()
         page = paginator.paginate_queryset(qs, request, view=self)
         serializer = WebhookDeliverySerializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)
+
+    @extend_schema(
+        summary="Replay a dead-lettered webhook delivery",
+        request=None,
+        responses={
+            202: inline_serializer(
+                name="WebhookDeliveryReplayResponse",
+                fields={
+                    "queued": serializers.BooleanField(),
+                    "delivery_id": serializers.CharField(),
+                },
+            ),
+            403: OpenApiResponse(
+                description=(
+                    "Caller lacks Admin on the webhook's scope, or the token is a "
+                    "full-access (`api:full`) token: replay is for a session or a "
+                    "`webhooks:manage` token."
+                )
+            ),
+            404: OpenApiResponse(description="No such delivery on this webhook."),
+            409: OpenApiResponse(
+                description=(
+                    "The delivery is not dead-lettered (`status` is not `failed`), or "
+                    "the subscription is inactive, so a replay could not be sent."
+                )
+            ),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path=r"deliveries/(?P<delivery_id>[0-9a-fA-F-]{32,36})/replay",
+        url_name="delivery-replay",
+        throttle_classes=[WebhookTestPingThrottle],
+    )
+    def replay(self, request: Request, delivery_id: str, **kwargs: object) -> Response:
+        """Re-send a permanently failed delivery to the webhook's current URL.
+
+        At-least-once, same identity: the delivery keeps its ``delivery_id``
+        (``X-TruePPM-Delivery``) and its per-subscription sequence number, so a
+        consumer that already saw it deduplicates on those. Only a ``failed``
+        delivery is replayable, and only while the subscription is active. The
+        stored payload is re-sent byte for byte; the signature is recomputed.
+        """
+        webhook = self.get_object()
+        self._check_delivery_log_access(webhook)
+        with transaction.atomic():
+            try:
+                delivery = WebhookDelivery.objects.select_for_update().get(
+                    pk=delivery_id, webhook=webhook
+                )
+            except WebhookDelivery.DoesNotExist:
+                from rest_framework.exceptions import NotFound
+
+                raise NotFound("Delivery not found.") from None
+            if delivery.status != DeliveryStatus.FAILED or not webhook.is_active:
+                raise ReplayRefused()
+            # Back to the state a freshly written delivery has, created_at included.
+            # The drain re-dispatches PENDING, attempt_count=0 rows older than
+            # _DRAIN_ORPHAN_MINUTES; a replayed row keeping its original (old)
+            # created_at would be re-dispatched by the next drain tick alongside the
+            # on-commit enqueue below, so every replay would send twice. Restarting
+            # the clock gives the enqueue the same head start a new delivery gets, and
+            # a lost broker call is still drained, just after the usual window.
+            # deliver_webhook's terminal-state guard makes a late second dispatch a
+            # no-op.
+            delivery.status = DeliveryStatus.PENDING
+            delivery.attempt_count = 0
+            delivery.response_status = None
+            delivery.completed_at = None
+            delivery.created_at = timezone.now()
+            delivery.save(
+                update_fields=[
+                    "status",
+                    "attempt_count",
+                    "response_status",
+                    "completed_at",
+                    "created_at",
+                ]
+            )
+            replay_id = str(delivery.pk)
+
+            def _enqueue_replay() -> None:
+                try:
+                    deliver_webhook.delay(replay_id)
+                except _BROKER_ERRORS:
+                    logger.warning(
+                        "replay: broker unavailable — delivery %s will be drained", replay_id
+                    )
+
+            # on-commit-ok: the PENDING row is committed first and drain_webhook_queue replays it
+            transaction.on_commit(_enqueue_replay)
+        return Response({"queued": True, "delivery_id": replay_id}, status=status.HTTP_202_ACCEPTED)
 
 
 @extend_schema_view(
@@ -491,7 +640,7 @@ class WebhookViewSet(
     # and why the id is pinned at all (#2583).
     deliveries=extend_schema(
         summary="List recent webhook deliveries",
-        parameters=CURSOR_PAGINATION_PARAMETERS,
+        parameters=[*CURSOR_PAGINATION_PARAMETERS, DELIVERY_STATUS_PARAMETER],
         responses={
             200: WEBHOOK_DELIVERY_PAGE,
             403: OpenApiResponse(
@@ -566,7 +715,12 @@ class ProgramWebhookViewSet(WebhookViewSet):
         # events to an external URL, and deleting it is the only way to stop that
         # outbound flow without reopening the program — the same containment argument
         # as program token revocation. `test_ping` and `deliveries` touch no program
-        # state and stay available for diagnosing a still-live webhook.
+        # state and stay available for diagnosing a still-live webhook. `replay` is
+        # the same: the webhook keeps delivering child-project events after close, so
+        # its dead letters keep accruing and must stay replayable. It is refused for a
+        # full-access token only.
+        if self.action == "replay":
+            return [IsAuthenticated(), IsProgramAdmin(), IsNotFullTokenAuthenticated()]
         if self.action in self.full_token_refused_actions:
             # IsNotFullTokenAuthenticated (#4461, #2414): see WebhookViewSet.get_permissions —
             # same durable-grant shape, mint/repoint/rotate only through a session

@@ -260,28 +260,107 @@ def record_structural_change(
         entry.save(update_fields=["task_ids", "task_names", "last_act_at", "finish_after"])
     else:
         new_ids = ids
-        entry = ChangesetEntry.objects.create(
-            project_id=project.pk,
-            baseline=Baseline.objects.filter(
-                project_id=project.pk, is_active=True, is_deleted=False
-            ).first(),
-            kind=kind,
-            surface=surface,
-            author=author,
-            task_ids=ids,
-            task_names=names,
-            reason=reason,
-            reason_by=author if reason else None,
-            reason_at=now if reason else None,
-            closed_at=now if reason else None,
-            finish_before=current_finish(project.pk),
-            opened_at=now,
-            last_act_at=now,
+        # Lock the active baseline row before the "first entry since this baseline"
+        # read: two concurrent first entries with different (kind, surface, author)
+        # keys match no shared entry row, so without this lock both would read
+        # "none yet" and both announce changeset.opened (#5121). The atomic makes
+        # the lock legal for a caller that holds no transaction; ``savepoint=False``
+        # adds no SAVEPOINT round trips inside one that does.
+        with transaction.atomic(savepoint=False):
+            active_baseline = (
+                Baseline.objects.select_for_update()
+                .filter(project_id=project.pk, is_active=True, is_deleted=False)
+                .first()
+            )
+            opens_changeset = (
+                active_baseline is not None
+                and not ChangesetEntry.objects.filter(baseline=active_baseline).exists()
+            )
+            entry = ChangesetEntry.objects.create(
+                project_id=project.pk,
+                baseline=active_baseline,
+                kind=kind,
+                surface=surface,
+                author=author,
+                task_ids=ids,
+                task_names=names,
+                reason=reason,
+                reason_by=author if reason else None,
+                reason_at=now if reason else None,
+                closed_at=now if reason else None,
+                finish_before=current_finish(project.pk),
+                opened_at=now,
+                last_act_at=now,
+            )
+        # One event per entry, never per act: an act absorbed into an open group
+        # (the branch above) announces nothing.
+        announce_entry(
+            project, entry, "changeset.opened" if opens_changeset else "changeset.entry_added"
         )
 
     _notify_entry(entry, new_ids, actor=actor)
     broadcast_changeset(project.pk)
     return entry
+
+
+def entry_webhook_payload(entry: Any) -> dict[str, Any]:
+    """The ``entry`` object every changeset webhook carries (#5121, ADR-1485 D6).
+
+    Ids, enums and dates only: no task names and no reason text (the trail is the
+    read for those). ``actor`` names the ADR-0112 agent and the human it acted
+    ``on_behalf_of`` (the entry's author, the token owner) when an agent made the
+    change; both are null for a person's own edit. No write path sets
+    ``agent_actor_id`` in 0.5, so today the agent half is always null.
+    ``finish_impact`` is persisted CPM output: ``after`` is null until the
+    recalculation that follows the act stamps it.
+    """
+    agent = str(entry.agent_actor_id) if entry.agent_actor_id else None
+    author = str(entry.author_id) if entry.author_id else None
+    return {
+        "id": str(entry.pk),
+        "kind": entry.kind,
+        "surface": entry.surface,
+        "reason_state": "reasoned" if entry.reason is not None else "unreasoned",
+        "task_ids": list(entry.task_ids),
+        "author": author,
+        "actor": {
+            "agent_actor_id": agent,
+            "on_behalf_of": author if agent is not None else None,
+        },
+        "finish_impact": {
+            "before": entry.finish_before.isoformat() if entry.finish_before else None,
+            "after": entry.finish_after.isoformat() if entry.finish_after else None,
+            "_provenance": {
+                "source": "cpm_early_finish",
+                "computed": entry.finish_after is not None,
+            },
+        },
+        "opened_at": entry.opened_at.isoformat(),
+    }
+
+
+def announce_entry(project: Project, entry: Any, event_type: str) -> None:
+    """Send one changeset webhook for ``entry`` after commit (#5121).
+
+    ``changeset.opened`` for the first entry since a baseline was taken (it adds
+    ``baseline_version``), ``changeset.entry_added`` for each later entry, and
+    ``changeset.entry_reasoned`` when an unreasoned entry is answered. The payload
+    is built now, inside the write transaction; the delivery rows are written by
+    ``_dispatch_webhooks`` in the on-commit callback, so a crash between the commit
+    and that callback loses the event (the pre-existing pattern for every webhook).
+    """
+    from . import baselines
+    from .views import _dispatch_webhooks
+
+    pid = str(project.pk)
+    payload: dict[str, Any] = {
+        "project": pid,
+        "baseline_id": str(entry.baseline_id) if entry.baseline_id else None,
+        "entry": entry_webhook_payload(entry),
+    }
+    if event_type == "changeset.opened":
+        payload["baseline_version"] = baselines.baseline_version(project.pk)
+    transaction.on_commit(lambda: _dispatch_webhooks(pid, event_type, payload))
 
 
 def _assignee_pairs(task_ids: list[Any]) -> list[tuple[Any, str]]:

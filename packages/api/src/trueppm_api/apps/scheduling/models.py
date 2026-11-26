@@ -576,6 +576,9 @@ class HeadlineForecastState(models.Model):
         related_name="headline_forecast_state",
     )
     kind = models.CharField(max_length=20)
+    # The project finish (max live early_finish) seen at the last check, so the
+    # event can carry the shift since then (ADR-1485 D6). Null before CPM has run.
+    finish = models.DateField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self) -> str:
