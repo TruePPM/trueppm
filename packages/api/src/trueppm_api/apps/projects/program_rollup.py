@@ -400,16 +400,21 @@ def program_summary(project_ids: list[Any], schedule_bands: dict[Any, str]) -> d
     """The overview's supporting-tile counts for one program's projects (#4799).
 
     Server facts rather than client tallies (ADR-0599): the page lays them out and
-    counts nothing itself. ``project_ids`` is the same set the rows and KPIs reduce,
-    so a tile cannot disagree with them. Intra-program only (ADR-0070): a dependency
-    counts only when both endpoints are in ``project_ids``.
+    counts nothing itself. ``project_ids`` is the projects the CALLER can access (the
+    rows with ``accessible: True``), not every project in the program: program roles do
+    not grant a project's figures (ADR-1324 §4), and a count over a project whose row
+    is redacted would let a caller recover its band or risk count by subtraction. The
+    ``projects_in_scope_count`` it returns is the matching denominator. Intra-program
+    only (ADR-0070): a dependency counts only when both endpoints are in ``project_ids``.
     """
     from trueppm_api.apps.projects.models import Dependency
 
     bands = {str(k): v for k, v in schedule_bands.items()}
     on_track = sum(1 for pid in project_ids if bands.get(str(pid)) == "on_track")
     risks = Risk.objects.filter(
-        project_id__in=project_ids, status__in=[RiskStatus.OPEN, RiskStatus.MITIGATING]
+        project_id__in=project_ids,
+        is_deleted=False,
+        status__in=[RiskStatus.OPEN, RiskStatus.MITIGATING],
     ).count()
     links = (
         Dependency.objects.filter(
@@ -424,6 +429,7 @@ def program_summary(project_ids: list[Any], schedule_bands: dict[Any, str]) -> d
         else 0
     )
     return {
+        "projects_in_scope_count": len(project_ids),
         "projects_on_track": on_track,
         "open_risk_count": risks,
         "cross_project_link_count": links,

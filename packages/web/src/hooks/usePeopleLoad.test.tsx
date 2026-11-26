@@ -36,6 +36,15 @@ describe('usePeopleLoad', () => {
     expect(getMock).toHaveBeenCalledWith('/me/people-load/', { params: { weeks: 4 } });
   });
 
+  it('narrows the read to one program with ?program=', async () => {
+    getMock.mockResolvedValue({ data: { people: [] } });
+    const { result } = renderHook(() => usePeopleLoad(8, 'prog-1'), { wrapper: wrapper() });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(getMock).toHaveBeenCalledWith('/me/people-load/', {
+      params: { weeks: 8, program: 'prog-1' },
+    });
+  });
+
   it('surfaces a request failure as an error state', async () => {
     getMock.mockRejectedValueOnce(new Error('boom'));
     const { result } = renderHook(() => usePeopleLoad(), { wrapper: wrapper() });

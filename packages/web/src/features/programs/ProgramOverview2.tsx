@@ -11,6 +11,8 @@ import { commitmentChip } from '@/features/project/ProjectOverview2';
 import { CallChip } from '@/features/project/statusUpdates/StatusUpdatesSection';
 import { useMinWidth } from '@/features/shell2/useMinWidth';
 import { useProgram } from '@/hooks/useProgram';
+import { usePeopleLoad, PEOPLE_LOAD_WEEKS } from '@/hooks/usePeopleLoad';
+import type { PeopleLoadResponse } from '@/api/types';
 import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 import { fmtUtcLong, fmtUtcMedium } from '@/lib/formatUtcDate';
 import { asHealthBand } from '@/lib/ragBand';
@@ -66,15 +68,60 @@ export function budgetBurnMissing(rollup: Pick<ProgramRollup, 'kpis' | 'projects
   return n === 1 ? 'a project has no budget baseline' : `${n} projects have no budget baseline`;
 }
 
+/**
+ * The Over-allocated figure for the program (#4799), from the server's `over_allocated_count`
+ * on `/me/people-load/?program=`. That count is scoped to the projects the caller may read
+ * per-person load on, so the line says how many it leaves out. A figure is withheld
+ * (not zero) when no project is in scope, and an error or a malformed payload is the
+ * not-computable line, never a 0.
+ */
+export type OverAllocated =
+  | { kind: 'value'; count: number; sub: string }
+  | { kind: 'missing'; missing: string };
+
+export function overAllocatedFigure(
+  data: Pick<PeopleLoadResponse, 'over_allocated_count' | 'reason' | 'scope'> | undefined,
+  failed: boolean,
+): OverAllocated {
+  if (failed || !data || typeof data.over_allocated_count !== 'number') {
+    return { kind: 'missing', missing: 'the load figure did not load' };
+  }
+  if (data.reason === 'no_projects') {
+    return {
+      kind: 'missing',
+      missing: 'you do not hold a Scheduler role on any project in this program',
+    };
+  }
+  if (data.reason === 'all_withheld') {
+    return {
+      kind: 'missing',
+      missing: 'the teams have not shared their capacity with your role',
+    };
+  }
+  const withheld = data.scope?.withheld_project_count ?? 0;
+  const counted = data.scope?.project_count ?? 0;
+  const base = `people over 100% in ${counted} ${counted === 1 ? 'project' : 'projects'} you can schedule`;
+  return {
+    kind: 'value',
+    count: data.over_allocated_count,
+    sub:
+      withheld > 0
+        ? `${base}; ${withheld} ${withheld === 1 ? 'project' : 'projects'} withheld`
+        : base,
+  };
+}
+
 function ProgramTile({
   term,
   definition,
+  asOf,
   value,
   sub,
   to,
 }: {
   term: string;
   definition?: string;
+  asOf?: string;
   value: string;
   sub?: string;
   to?: string;
@@ -82,7 +129,7 @@ function ProgramTile({
   return (
     <div className={CARD} data-testid="program-overview2-tile">
       <div className="text-xs text-p1-text-2">
-        <DefinitionTip term={term} definition={definition} />
+        <DefinitionTip term={term} definition={definition} asOf={asOf} />
       </div>
       <div className={`${TYPE.tile} mt-1 text-p1-text-1`}>{value}</div>
       {sub && <div className="text-xs text-p1-text-2">{sub}</div>}
@@ -260,6 +307,7 @@ function ProjectRow({
  */
 export function ProgramOverview2({ programId }: { programId: string }) {
   const { data: rollup, isLoading, error, refetch } = useProgramRollup(programId);
+  const load = usePeopleLoad(PEOPLE_LOAD_WEEKS, programId);
   const { formatInstant } = useUserDateFormat();
   const wide = useMinWidth(768);
 
@@ -270,6 +318,12 @@ export function ProgramOverview2({ programId }: { programId: string }) {
   const driver = rows.find((r) => r.id === forecast?.driver_project_id);
   const partial = rollup ? partialRollupLine(rollup) : null;
   const budgetMissing = rollup ? budgetBurnMissing(rollup) : null;
+  // Nothing while the load query is in flight: a not-computable line that flashes and
+  // then becomes a tile reads as the figure changing its mind.
+  const overAllocated =
+    load.isLoading || (load.isFetching && !load.data && !load.error)
+      ? null
+      : overAllocatedFigure(load.data, Boolean(load.error));
 
   // Same states as V1 (#3875): stale, anchor-unknown, and the owner-name line for
   // non-owners, who cannot shift or remove a sample.
@@ -379,38 +433,54 @@ export function ProgramOverview2({ programId }: { programId: string }) {
                 className="flex flex-col gap-3"
                 data-testid="program-overview2-tiles"
               >
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                   <ProgramTile
                     term="Projects on track"
-                    value={`${rollup.summary.projects_on_track} of ${rollup.project_count}`}
-                    sub="by schedule health"
+                    definition={rollup.definitions?.projects_on_track}
+                    asOf={rollup.as_of}
+                    value={`${rollup.summary.projects_on_track} of ${rollup.summary.projects_in_scope_count}`}
+                    sub="by schedule health, in projects you belong to"
                   />
                   <ProgramTile
                     term="Cross-project links"
+                    definition={rollup.definitions?.cross_project_link_count}
+                    asOf={rollup.as_of}
                     value={String(rollup.summary.cross_project_link_count)}
                     sub="accepted dependencies between projects"
                     to={`/programs/${programId}/schedule`}
                   />
                   <ProgramTile
                     term="Open risks"
+                    definition={rollup.definitions?.open_risk_count}
+                    asOf={rollup.as_of}
                     value={String(rollup.summary.open_risk_count)}
                     sub="open or mitigating"
                   />
-                </div>
-                {/* No program-level over-allocation figure is served: utilization is
-                    project-scoped, and the page must not count people itself (ADR-0599). */}
-                <NotComputable
-                  label="Over-allocated"
-                  missing="the server serves no program-wide over-allocation figure yet"
-                  fix={
-                    <Link
-                      className="text-p1-brand underline"
+                  {overAllocated?.kind === 'value' && (
+                    <ProgramTile
+                      term="Over-allocated"
+                      definition={load.data?.definitions?.over_allocated_count}
+                      asOf={load.data?.as_of}
+                      value={String(overAllocated.count)}
+                      sub={overAllocated.sub}
                       to={`/programs/${programId}/resources`}
-                    >
-                      Open program resources
-                    </Link>
-                  }
-                />
+                    />
+                  )}
+                </div>
+                {overAllocated?.kind === 'missing' && (
+                  <NotComputable
+                    label="Over-allocated"
+                    missing={overAllocated.missing}
+                    fix={
+                      <Link
+                        className="text-p1-brand underline"
+                        to={`/programs/${programId}/resources`}
+                      >
+                        Open program resources
+                      </Link>
+                    }
+                  />
+                )}
                 {budgetMissing && (
                   <NotComputable
                     label="Program budget burn"

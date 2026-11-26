@@ -1,6 +1,11 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { Band, budgetBurnMissing, partialRollupLine } from './ProgramOverview2';
+import {
+  Band,
+  budgetBurnMissing,
+  overAllocatedFigure,
+  partialRollupLine,
+} from './ProgramOverview2';
 import { buildAxis } from './programAxis';
 import type { ProgramRollupRow } from './ProgramOverviewPage';
 
@@ -106,11 +111,71 @@ describe('budgetBurnMissing', () => {
     ).toBe('2 projects have no budget baseline');
   });
 
+  it('names missing rates, not a project, when logged time has no cost rate', () => {
+    expect(
+      budgetBurnMissing({
+        projects,
+        kpis: kpis({ available: false, reason: 'missing_rates', missing_rate_count: 3 }),
+      }),
+    ).toBe('some logged time has no cost rate');
+  });
+
   it('says nothing when restricted, computed, or not configured', () => {
     expect(
       budgetBurnMissing({ projects, kpis: kpis({ available: false, reason: 'cost_restricted' }) }),
     ).toBeNull();
     expect(budgetBurnMissing({ projects, kpis: kpis({ available: true, value: 0.4 }) })).toBeNull();
     expect(budgetBurnMissing({ projects, kpis: {} })).toBeNull();
+  });
+});
+
+describe('overAllocatedFigure', () => {
+  const scope = {
+    project_count: 2,
+    withheld_project_count: 1,
+    capacity_withheld_project_count: 0,
+    program_id: 'p',
+  };
+
+  it('states the count and how many projects it leaves out', () => {
+    expect(overAllocatedFigure({ over_allocated_count: 3, reason: null, scope }, false)).toEqual({
+      kind: 'value',
+      count: 3,
+      sub: 'people over 100% in 2 projects you can schedule; 1 project withheld',
+    });
+  });
+
+  it('keeps a real zero a zero, with no withheld clause when nothing is withheld', () => {
+    expect(
+      overAllocatedFigure(
+        {
+          over_allocated_count: 0,
+          reason: 'no_people',
+          scope: { ...scope, project_count: 1, withheld_project_count: 0 },
+        },
+        false,
+      ),
+    ).toEqual({ kind: 'value', count: 0, sub: 'people over 100% in 1 project you can schedule' });
+  });
+
+  it('is not computable, never zero, when no project is in scope or all are withheld', () => {
+    const none = overAllocatedFigure(
+      { over_allocated_count: 0, reason: 'no_projects', scope },
+      false,
+    );
+    expect(none.kind).toBe('missing');
+    const withheld = overAllocatedFigure(
+      { over_allocated_count: 0, reason: 'all_withheld', scope },
+      false,
+    );
+    expect(withheld).toEqual({
+      kind: 'missing',
+      missing: 'the teams have not shared their capacity with your role',
+    });
+  });
+
+  it('is not computable on an error or a malformed payload', () => {
+    expect(overAllocatedFigure(undefined, true).kind).toBe('missing');
+    expect(overAllocatedFigure({ count: 0 } as never, false).kind).toBe('missing');
   });
 });

@@ -108,6 +108,8 @@ export interface ProgramRollupRow {
 
 /** The overview's supporting-tile counts, all server facts (#4799). */
 export interface ProgramRollupSummary {
+  /** Projects the caller is a member of: what every count here is over. */
+  projects_in_scope_count: number;
   projects_on_track: number;
   open_risk_count: number;
   cross_project_link_count: number;

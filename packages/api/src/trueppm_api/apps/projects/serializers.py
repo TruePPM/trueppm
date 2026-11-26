@@ -3708,17 +3708,36 @@ class ProgramRollupDefinitionsSerializer(serializers.Serializer[dict[str, str]])
     projects = serializers.CharField(
         read_only=True, required=False, help_text=METRIC_DEFINITIONS["rollup.project_row"]
     )
+    projects_on_track = serializers.CharField(
+        read_only=True, required=False, help_text=METRIC_DEFINITIONS["rollup.projects_on_track"]
+    )
+    open_risk_count = serializers.CharField(
+        read_only=True, required=False, help_text=METRIC_DEFINITIONS["rollup.open_risk_count"]
+    )
+    cross_project_link_count = serializers.CharField(
+        read_only=True,
+        required=False,
+        help_text=METRIC_DEFINITIONS["rollup.cross_project_link_count"],
+    )
 
 
 class ProgramRollupSummarySerializer(serializers.Serializer[dict[str, Any]]):
     """Supporting-tile counts on the program rollup (#4799). One program only."""
 
+    projects_in_scope_count = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Projects the caller is a member of: the set every count below is over, and "
+            "the denominator of projects_on_track."
+        ),
+    )
     projects_on_track = serializers.IntegerField(
         read_only=True,
-        help_text="Projects whose schedule health band is on_track, of project_count.",
+        help_text="Projects whose schedule health band is on_track, of projects_in_scope_count.",
     )
     open_risk_count = serializers.IntegerField(
-        read_only=True, help_text="Open or mitigating risks across the program's projects."
+        read_only=True,
+        help_text="Open or mitigating, non-deleted risks across the caller's projects.",
     )
     cross_project_link_count = serializers.IntegerField(
         read_only=True,
@@ -3790,8 +3809,9 @@ class ProgramRollupSerializer(serializers.Serializer[dict[str, Any]]):
     summary = ProgramRollupSummarySerializer(
         read_only=True,
         help_text=(
-            "The overview's supporting tiles: counts over this program's own projects, "
-            "served whether or not the matching KPI is enabled (#4799)."
+            "The overview's supporting tiles: counts over the projects of this program the "
+            "caller is a member of, served whether or not the matching KPI is enabled "
+            "(#4799)."
         ),
     )
 
