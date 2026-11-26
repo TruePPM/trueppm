@@ -603,6 +603,58 @@ def test_a_slip_found_stale_on_accept_is_closed_by_the_system_on_the_wire(
 
 
 @pytest.mark.django_db
+def test_accepting_one_slip_closes_its_sibling_by_the_system_on_the_wire(
+    committed: Project, owner: Any, active_sprint: Sprint, django_capture_on_commit_callbacks: Any
+) -> None:
+    """Two requesters' pending slips: the accepted one is a person's, the sibling the system's."""
+    from trueppm_api.apps.projects.services import accept_scope_change
+
+    other = get_user_model().objects.create_user(username="other-requester", password="x")
+    task = Task.objects.filter(project=committed).first()
+    assert task is not None
+    first = _slip(task, active_sprint, owner)
+    sibling = _slip(task, active_sprint, other)
+    with (
+        patch.object(views, "_dispatch_webhooks") as dispatch,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        accept_scope_change(first, owner, reason="Fine")
+    sibling.refresh_from_db()
+    assert sibling.status == "rejected" and sibling.decided_by_id is None
+    by_id = {e["id"]: e for e in _events(dispatch, "sprint.scope_changed")}
+    assert set(by_id) == {str(first.pk), str(sibling.pk)}
+    assert by_id[str(first.pk)]["closed_by"] == "person"
+    assert by_id[str(first.pk)]["status"] == "accepted"
+    assert by_id[str(sibling.pk)]["closed_by"] == "system"
+    assert by_id[str(sibling.pk)]["status"] == "rejected"
+    assert by_id[str(sibling.pk)]["decided_by"] is None
+
+
+@pytest.mark.django_db
+def test_a_pending_slip_closed_at_sprint_close_is_closed_by_the_system_on_the_wire(
+    committed: Project, owner: Any, active_sprint: Sprint, django_capture_on_commit_callbacks: Any
+) -> None:
+    """Sprint close expires a pending slip; the wire says the system did it."""
+    from trueppm_api.apps.projects.services import apply_pending_disposition
+
+    task = Task.objects.filter(project=committed).first()
+    assert task is not None
+    row = _slip(task, active_sprint, owner)
+    with (
+        patch.object(views, "_dispatch_webhooks") as dispatch,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        apply_pending_disposition(active_sprint, "carry")
+    row.refresh_from_db()
+    assert row.status == "rejected" and row.decided_by_id is None
+    (closed,) = _events(dispatch, "sprint.scope_changed")
+    assert closed["id"] == str(row.pk)
+    assert closed["status"] == "rejected"
+    assert closed["decided_by"] is None
+    assert closed["closed_by"] == "system"
+
+
+@pytest.mark.django_db
 def test_an_injection_request_fires_scope_change_requested(
     committed: Project, owner: Any, django_capture_on_commit_callbacks: Any
 ) -> None:

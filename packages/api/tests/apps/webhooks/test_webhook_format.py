@@ -295,6 +295,7 @@ def test_slack_render_scope_change_uses_item_name() -> None:
         "sprint": "s1",
         "item_name": "Hotfix the export",
         "status": "accepted",
+        "closed_by": "person",
         "goal_impact": "at_risk",
     }
     event = OutgoingChannelEvent(
@@ -307,6 +308,7 @@ def test_slack_render_scope_change_uses_item_name() -> None:
     assert fields == {
         "Item": "Hotfix the export",
         "Decision": "accepted",
+        "Closed by": "person",
         "Goal impact": "at_risk",
     }
 

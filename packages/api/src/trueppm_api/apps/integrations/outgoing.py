@@ -123,6 +123,7 @@ _SLACK_FIELDS_BY_EVENT: dict[str, tuple[tuple[str, str], ...]] = {
     "sprint.scope_changed": (
         ("Item", "item_name"),
         ("Decision", "status"),
+        ("Closed by", "closed_by"),
         ("Goal impact", "goal_impact"),
     ),
     # No item name: the event is new under ADR-1485 D6 ("no names beyond the

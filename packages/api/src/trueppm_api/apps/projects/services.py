@@ -3526,7 +3526,7 @@ def reject_scope_change(
     in one transaction, writes ``history_change_reason`` (ADR-0102 §4 — so the
     timeline shows "removed from sprint" not a bare "Updated" pill), and rides the
     recompute + broadcast on commit. The REJECTED row is retained for the audit
-    trail (cleared on sprint close like every other row). Idempotent.
+    trail (it stays on the sprint after close). Idempotent.
     """
     from trueppm_api.apps.projects.models import (
         ScopeChangeKind,
@@ -4357,8 +4357,9 @@ def apply_pending_disposition(sprint: Any, disposition: str, by: Any = None) -> 
       SprintScopeChange against that sprint, so the injection stays gated in the
       next sprint rather than being silently committed. Tasks carried to backlog
       (sprint=None) or to "none" have their pending flag cleared (no sprint to be
-      pending in). The closing sprint's PENDING rows clear with all other rows on
-      close.
+      pending in). The closing sprint's own PENDING injection row is left as is
+      (still PENDING on the closed sprint) and no closing webhook is sent for
+      it; see #5153.
 
     PENDING ``slip`` rows (ADR-1485 D1) take neither path, under either
     disposition: they are closed by :func:`_expire_pending_slips`, which never
@@ -4446,7 +4447,8 @@ def _carry_pending_rows(sprint: Any, pending_rows: list[Any], by: Any) -> None:
 
     The close's carry-over already moved incomplete tasks to the incoming sprint.
     Re-recording there keeps the injection gated in the next sprint rather than
-    letting it be silently committed; the closing sprint's own row clears on close.
+    letting it be silently committed; the closing sprint's own row stays PENDING
+    on the closed sprint and no closing webhook is sent for it (#5153).
     """
     from trueppm_api.apps.projects.models import Sprint, Task
 
