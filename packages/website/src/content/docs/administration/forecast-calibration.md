@@ -14,12 +14,14 @@ A P80 is a claim: across many forecasts, about 80% of forecast items should fini
 
 Each baseline of an opted-in project records one forecast. That covers the commit baseline, a named baseline, and a new version taken through a baseline decision (recorded as a *replan*). A forecast holds:
 
-- **Project level**: the deterministic CPM finish, plus the P50/P80/P95 of the project's most recent Monte Carlo run, with the time that run was computed and its iteration count. The percentiles are empty if Monte Carlo has never run.
-- **Each committed task**: the deterministic CPM finish and whether it is a milestone. Per-task P50/P80/P95 are left empty for now.
+- **Project level**: the deterministic CPM finish, plus the P50/P80/P95 of the project's most recent Monte Carlo run, with each one's day edge, the time that run was computed and its iteration count. The percentiles are empty if Monte Carlo has never run.
+- **Each committed task**: the deterministic CPM finish, whether it is a milestone, and its estimate as it stood at that moment (duration, the three-point estimate, and the estimate's approval status). Per-task P50/P80/P95 are left empty for now.
 
-Backlog and epic items are not recorded. Nothing personal is stored: no user, assignee, task or project name, or free text.
+Work that had already finished when a baseline was taken is recorded too, marked `finished_at_capture`. Leave those rows out when you measure how often a forecast held.
 
-The actual finish is not copied when work completes. The export reads it from the task at the time you export, so a corrected actual date is always the one you get.
+Backlog and epic items are not recorded. Nothing personal is stored: no user, assignee, team, task type, task or project name, or free text.
+
+Actual dates are not copied when work starts or completes. The export reads them from the task at the time you export, so a corrected actual date is always the one you get.
 
 ## Turn it on for a project
 
@@ -67,9 +69,15 @@ Each following line is one forecast:
 | `forecast_kind` | `baseline` or `replan` |
 | `scope` | `project` or `task` (`task_id` is `null` for `project`) |
 | `is_milestone` | Whether the task is a milestone |
+| `finished_at_capture` | `true` if the work already had an actual finish when this was recorded (project scope: every committed task had one) |
+| `duration` | Duration in working days at capture (`null` for `project`) |
+| `optimistic_duration`, `most_likely_duration`, `pessimistic_duration` | The three-point estimate at capture, or `null` |
+| `estimate_status` | The estimate's approval status at capture, or `null` |
 | `deterministic_finish`, `deterministic_finish_at_day_start` | The CPM finish at capture, and whether it falls at the start of that day |
 | `p50`, `p80`, `p95` | Forecast percentiles, or `null` |
+| `p50_at_day_start`, `p80_at_day_start`, `p95_at_day_start` | Whether each percentile falls at the start of its day, or `null` |
 | `distribution_computed_at`, `mc_iterations` | When the Monte Carlo run behind the percentiles was computed, and its iteration count |
+| `actual_start` | The task's actual start as of the export, or `null` (always `null` for `project`) |
 | `actual_finish` | The actual finish as of the export, or `null` |
 | `outcome` | `finished`, `open`, or `deleted` (the task was deleted; its forecast is kept) |
 

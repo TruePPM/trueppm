@@ -31,6 +31,7 @@ from trueppm_api.apps.projects.models import (
     Task,
     TaskStatus,
 )
+from trueppm_api.apps.projects.seed import export_project, import_seed
 from trueppm_api.apps.scheduling.models import MonteCarloRun
 
 API = "/api/v1"
@@ -46,6 +47,16 @@ FORECAST_KEYS = {
     "scope",
     "task_id",
     "is_milestone",
+    "finished_at_capture",
+    "duration",
+    "optimistic_duration",
+    "most_likely_duration",
+    "pessimistic_duration",
+    "estimate_status",
+    "p50_at_day_start",
+    "p80_at_day_start",
+    "p95_at_day_start",
+    "actual_start",
     "deterministic_finish",
     "deterministic_finish_at_day_start",
     "p50",
@@ -151,6 +162,9 @@ class TestCapture:
             p50=date(2026, 3, 23),
             p80=date(2026, 3, 25),
             p95=date(2026, 3, 30),
+            p50_at_day_start=True,
+            p80_at_day_start=False,
+            p95_at_day_start=True,
             n_simulations=1000,
         )
         commit_project(p, user=owner)
@@ -161,6 +175,9 @@ class TestCapture:
             date(2026, 3, 30),
         )
         assert row.mc_iterations == 1000
+        [exported] = [r for r in _forecasts() if r["scope"] == "project"]
+        flags = [exported[f"p{n}_at_day_start"] for n in (50, 80, 95)]
+        assert flags == [True, False, True]
         assert row.distribution_computed_at == latest.taken_at
 
     def test_taken_decision_capture_is_a_replan(self, owner: object) -> None:
@@ -176,6 +193,57 @@ class TestCapture:
         p = _project(owner, opted_in=True)
         r = _client(owner).post(f"{API}/projects/{p.pk}/baselines/", {"name": "Q1"})
         assert r.status_code == 201, r.content
+        assert ForecastCalibrationRecord.objects.filter(project=p, kind="baseline").count() == 4
+
+    def test_estimate_is_frozen_at_capture_not_read_at_export(self, owner: object) -> None:
+        p = _project(owner, opted_in=True)
+        tasks = Task.objects.filter(project=p, name="Permits")
+        tasks.update(
+            optimistic_duration=3,
+            most_likely_duration=5,
+            pessimistic_duration=9,
+            estimate_status="accepted",
+        )
+        commit_project(p, user=owner)
+        tasks.update(
+            duration=40,
+            optimistic_duration=30,
+            most_likely_duration=40,
+            pessimistic_duration=50,
+            estimate_status="pending",
+            actual_start=date(2026, 3, 3),
+        )
+        [row] = [r for r in _forecasts() if r["task_id"] == str(tasks.get().pk)]
+        assert row["duration"] == 5
+        assert (
+            row["optimistic_duration"],
+            row["most_likely_duration"],
+            row["pessimistic_duration"],
+        ) == (3, 5, 9)
+        assert row["estimate_status"] == "accepted"
+        assert row["actual_start"] == "2026-03-03"
+        [proj] = [r for r in _forecasts() if r["scope"] == "project"]
+        assert (proj["duration"], proj["actual_start"]) == (None, None)
+
+    def test_work_finished_before_capture_is_marked(self, owner: object) -> None:
+        p = _project(owner, opted_in=True)
+        Task.objects.filter(project=p, name="Permits").update(actual_finish=date(2026, 3, 5))
+        commit_project(p, user=owner)
+        permits = Task.objects.get(project=p, name="Permits")
+        by_task = {r["task_id"]: r["finished_at_capture"] for r in _forecasts()}
+        assert by_task.pop(str(permits.pk)) is True
+        assert set(by_task.values()) == {False}  # other tasks and the project row
+
+        Task.objects.filter(project=p).update(actual_finish=date(2026, 3, 24))
+        baselines.capture(p, owner, "Baseline v2", source="decision")
+        replan = [r for r in _forecasts() if r["forecast_kind"] == "replan"]
+        assert len(replan) == 4
+        assert all(r["finished_at_capture"] is True for r in replan)
+
+    def test_rest_commit_captures(self, owner: object) -> None:
+        p = _project(owner, opted_in=True)
+        r = _client(owner).post(f"{API}/projects/{p.pk}/commit/")
+        assert r.status_code in (200, 201), r.content
         assert ForecastCalibrationRecord.objects.filter(project=p, kind="baseline").count() == 4
 
     def test_opted_out_project_captures_nothing(self, owner: object) -> None:
@@ -285,6 +353,32 @@ class TestExport:
     def test_command_rejects_a_non_uuid_project(self, db: object) -> None:
         with pytest.raises(CommandError):
             call_command("export_forecast_calibration", "--project", "nope")
+
+
+@pytest.mark.django_db
+class TestConsentDoesNotTravel:
+    def test_settings_template_does_not_copy_the_opt_in(self, owner: object) -> None:
+        source = _project(owner, opted_in=True)
+        r = _client(owner).post(
+            f"{API}/projects/",
+            {
+                "name": "From template",
+                "start_date": "2026-04-06",
+                "copy_settings_from": str(source.pk),
+            },
+            format="json",
+        )
+        assert r.status_code == 201, r.content
+        assert Project.objects.get(pk=r.data["id"]).forecast_calibration_capture is False
+
+    def test_seed_export_import_does_not_carry_the_opt_in(self, owner: object) -> None:
+        source = _project(owner, opted_in=True)
+        doc = export_project(source)
+        assert "forecast_calibration_capture" not in json.dumps(doc)
+        program = import_seed(doc, owner=owner)
+        [copy] = Project.objects.filter(program=program)
+        assert copy.pk != source.pk
+        assert copy.forecast_calibration_capture is False
 
 
 @pytest.mark.django_db

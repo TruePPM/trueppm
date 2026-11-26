@@ -37,8 +37,18 @@ call. A capture is therefore taken once per baseline, on every path.
   carry no forecast and are skipped.
 - Every row stores `capture_id`, `captured_at` (the forecast timestamp),
   `kind`, `deterministic_finish` and `deterministic_finish_at_day_start` (the
-  CPM finish and its day edge, #4178), and `p50`/`p80`/`p95`.
-- Project scope: the percentiles, `distribution_computed_at` and
+  CPM finish and its day edge, #4178), `p50`/`p80`/`p95` with their three
+  `*_at_day_start` flags, and `finished_at_capture`.
+- `finished_at_capture` is true when the task already had an actual finish at
+  capture (project scope: every committed task had one). A later baseline
+  re-records finished work, and that row is not a forecast. It is flagged, not
+  skipped, so an analysis drops it and the capture stays a complete picture.
+- Task scope also freezes the estimate as it stood: `duration`,
+  `optimistic_duration`, `most_likely_duration`, `pessimistic_duration` and
+  `estimate_status`. #2299 compares actual with estimated duration, a task is
+  re-estimated during execution, and a past estimate cannot be backfilled.
+- Project scope: the percentiles, their day-start flags,
+  `distribution_computed_at` and
   `mc_iterations` are **copied** from the project's latest `MonteCarloRun`.
   They are null when Monte Carlo has never run. `distribution_computed_at` can
   be earlier than `captured_at`, and an analysis should decide how stale a
@@ -49,9 +59,10 @@ call. A capture is therefore taken once per baseline, on every path.
   logged and never raised, because instrumentation must not be able to block a
   baseline.
 
-### When the actual finish is joined
+### When the actuals are joined
 
-**At export, from `Task.actual_finish`. It is never copied onto the row.**
+**At export, from `Task.actual_start` and `Task.actual_finish`. They are never
+copied onto the row** (`actual_start` is task scope only).
 `Task.actual_finish` is the system of record, and a PM can correct it. A copy
 taken at completion would then contradict the corrected value. A copy would
 also need a hook on every completion path: REST PATCH, sync push, import,
@@ -76,9 +87,17 @@ visible sign. A read-time join covers every path at once.
   export**. The rows themselves are kept, so the project can opt back in
   without losing history. The rows are deleted when the project is deleted
   (CASCADE).
-- Aggregate only. A row holds dates, UUIDs and a milestone bit, never a user,
-  an assignee, a task or project name, or free text. Calibration measures the
-  forecast, not the people doing the work.
+- Aggregate only. A row holds dates, UUIDs, durations, the estimate approval
+  state and two bits, never a user, an assignee, a task or project name, or free
+  text. Calibration measures the forecast, not the people doing the work.
+- **No team or task-type key**, although #2299 wants to group by them. The
+  consent given here is for aggregate schedule facts (ADR-0104). A team key
+  would turn the export into a comparison between teams, which is a different
+  and broader consent than the one this flag asks for; a task-type key is
+  derived from labels or custom fields, which are free text a team wrote. Either
+  needs its own consent decision in #2299 and is not collected speculatively.
+  The accepted cost: rows captured before that decision carry no such key unless
+  it is joined from the live task.
 
 ### Retention, and #952
 
@@ -107,11 +126,17 @@ The export is `manage.py export_forecast_calibration [--project <uuid>]...
 | `scope` | `project` \| `task` | Grain |
 | `task_id` | UUID string \| null | Null on project scope |
 | `is_milestone` | bool | Task is a milestone |
+| `finished_at_capture` | bool | Already finished when recorded |
+| `duration` | int \| null | Working days at capture; null on project scope |
+| `optimistic_duration`, `most_likely_duration`, `pessimistic_duration` | int \| null | Three-point estimate at capture |
+| `estimate_status` | string \| null | Estimate approval state at capture |
 | `deterministic_finish` | ISO date \| null | CPM finish at capture |
 | `deterministic_finish_at_day_start` | bool \| null | Day edge of that finish |
 | `p50`, `p80`, `p95` | ISO date \| null | Forecast percentiles |
+| `p50_at_day_start`, `p80_at_day_start`, `p95_at_day_start` | bool \| null | Day edge of each percentile |
 | `distribution_computed_at` | ISO datetime \| null | When the copied distribution ran |
 | `mc_iterations` | int \| null | Runs behind it |
+| `actual_start` | ISO date \| null | Joined at export; task scope only |
 | `actual_finish` | ISO date \| null | Joined at export |
 | `outcome` | `finished` \| `open` \| `deleted` | Join result |
 
@@ -137,7 +162,7 @@ opt-in setting itself is in the API, as API-first requires.
 - **Join from `BaselineTask` at export, with no new table.** Rejected because
   `BaselineTask` cascades when its baseline is deleted, and it holds no
   distribution.
-- **Stamp the actual on completion.** Rejected; see *When the actual finish is
+- **Stamp the actual on completion.** Rejected; see *When the actuals are
   joined*.
 - **An HTTP export behind `IsWorkspaceAdminStrict`.** Possible later, if design
   partners need an export without shell access. Not needed for the dogfooding

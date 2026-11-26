@@ -6,8 +6,8 @@ no calibration analysis — that is #2299.
 
 Consent (ADR-0104): capture and export are per project and opt-in
 (``Project.forecast_calibration_capture``). The rows are aggregate schedule facts
-— dates, UUIDs, a milestone bit — and never carry a user, an assignee, a name or
-free text.
+— dates, UUIDs, durations, estimate approval state and two bits — and never carry
+a user, an assignee, a name or free text.
 """
 
 from __future__ import annotations
@@ -84,13 +84,28 @@ def record_capture(
         return 0
 
 
+# The estimate frozen onto each task-scope row, named as on ``Task``.
+_ESTIMATE_FIELDS = (
+    "duration",
+    "optimistic_duration",
+    "most_likely_duration",
+    "pessimistic_duration",
+    "estimate_status",
+)
+
+
 def _write_capture(
     project: Project, baseline: Baseline, rows: list[dict[str, Any]], kind: str
 ) -> int:
     from trueppm_api.apps.scheduling.models import MonteCarloRun
 
-    committed_ids = set(Task.committed.filter(project_id=project.pk).values_list("id", flat=True))
-    committed = [r for r in rows if r["id"] in committed_ids]
+    tasks = {
+        t["id"]: t
+        for t in Task.committed.filter(project_id=project.pk).values(
+            "id", "actual_finish", *_ESTIMATE_FIELDS
+        )
+    }
+    committed = [r for r in rows if r["id"] in tasks]
     if not committed:
         return 0
 
@@ -101,7 +116,16 @@ def _write_capture(
     run = (
         MonteCarloRun.objects.filter(project_id=project.pk)
         .order_by("-taken_at")
-        .only("p50", "p80", "p95", "taken_at", "n_simulations")
+        .only(
+            "p50",
+            "p80",
+            "p95",
+            "p50_at_day_start",
+            "p80_at_day_start",
+            "p95_at_day_start",
+            "taken_at",
+            "n_simulations",
+        )
         .first()
     )
     finish, at_day_start = _project_finish(committed)
@@ -117,11 +141,15 @@ def _write_capture(
             **common,
             scope=ForecastCalibrationScope.PROJECT,
             task_id=None,
+            finished_at_capture=all(t["actual_finish"] is not None for t in tasks.values()),
             deterministic_finish=finish,
             deterministic_finish_at_day_start=at_day_start,
             p50=run.p50 if run else None,
             p80=run.p80 if run else None,
             p95=run.p95 if run else None,
+            p50_at_day_start=run.p50_at_day_start if run else None,
+            p80_at_day_start=run.p80_at_day_start if run else None,
+            p95_at_day_start=run.p95_at_day_start if run else None,
             distribution_computed_at=run.taken_at if run else None,
             mc_iterations=run.n_simulations if run else None,
         )
@@ -132,6 +160,8 @@ def _write_capture(
             scope=ForecastCalibrationScope.TASK,
             task_id=r["id"],
             is_milestone=bool(r["is_milestone"]),
+            finished_at_capture=tasks[r["id"]]["actual_finish"] is not None,
+            **{name: tasks[r["id"]][name] for name in _ESTIMATE_FIELDS},
             deterministic_finish=r["early_finish"],
             deterministic_finish_at_day_start=(
                 values_finish_at_day_start(r) if r["early_finish"] is not None else None
@@ -153,7 +183,8 @@ def export_records(project_ids: list[Any] | None = None) -> Iterator[dict[str, A
 
     Only projects whose ``forecast_calibration_capture`` is on *now* are emitted:
     withdrawing consent removes a project from every later export without deleting
-    its rows. The actual finish is joined here, at read time, from the live task.
+    its rows. The actual start and finish are joined here, at read time, from the
+    live task.
     """
     projects = Project.objects.filter(forecast_calibration_capture=True)
     if project_ids:
@@ -178,7 +209,7 @@ def export_records(project_ids: list[Any] | None = None) -> Iterator[dict[str, A
         actuals = {
             row["id"]: row
             for row in Task.objects.filter(project_id=project_id, id__in=task_ids).values(
-                "id", "actual_finish", "is_deleted"
+                "id", "actual_start", "actual_finish", "is_deleted"
             )
         }
         project_actual = Task.committed.filter(project_id=project_id).aggregate(
@@ -189,6 +220,8 @@ def export_records(project_ids: list[Any] | None = None) -> Iterator[dict[str, A
         project_done = bool(project_actual["total"]) and project_actual["open"] == 0
 
         for rec in ForecastCalibrationRecord.objects.filter(project_id=project_id).iterator():
+            # A start is a task fact; the project row has none.
+            actual_start = None
             if rec.scope == ForecastCalibrationScope.PROJECT:
                 actual = project_actual["latest"] if project_done else None
                 outcome = "finished" if project_done else "open"
@@ -196,10 +229,10 @@ def export_records(project_ids: list[Any] | None = None) -> Iterator[dict[str, A
                 task = actuals.get(rec.task_id) if rec.task_id else None
                 if task is None or task["is_deleted"]:
                     actual, outcome = None, "deleted"
-                elif task["actual_finish"] is not None:
-                    actual, outcome = task["actual_finish"], "finished"
                 else:
-                    actual, outcome = None, "open"
+                    actual_start = task["actual_start"]
+                    actual = task["actual_finish"]
+                    outcome = "finished" if actual is not None else "open"
             yield {
                 "record": "forecast",
                 "project_id": str(rec.project_id),
@@ -209,13 +242,19 @@ def export_records(project_ids: list[Any] | None = None) -> Iterator[dict[str, A
                 "scope": rec.scope,
                 "task_id": str(rec.task_id) if rec.task_id else None,
                 "is_milestone": rec.is_milestone,
+                "finished_at_capture": rec.finished_at_capture,
+                **{name: getattr(rec, name) for name in _ESTIMATE_FIELDS},
                 "deterministic_finish": _iso(rec.deterministic_finish),
                 "deterministic_finish_at_day_start": rec.deterministic_finish_at_day_start,
                 "p50": _iso(rec.p50),
                 "p80": _iso(rec.p80),
                 "p95": _iso(rec.p95),
+                "p50_at_day_start": rec.p50_at_day_start,
+                "p80_at_day_start": rec.p80_at_day_start,
+                "p95_at_day_start": rec.p95_at_day_start,
                 "distribution_computed_at": _iso(rec.distribution_computed_at),
                 "mc_iterations": rec.mc_iterations,
+                "actual_start": _iso(actual_start),
                 "actual_finish": _iso(actual),
                 "outcome": outcome,
             }

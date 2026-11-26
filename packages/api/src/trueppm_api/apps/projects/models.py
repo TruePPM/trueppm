@@ -9836,7 +9836,7 @@ class ForecastCalibrationRecord(models.Model):
 
     Captured only for a project whose ``forecast_calibration_capture`` is on, at
     every baseline snapshot. Holds what was forecast and when, never the actual:
-    the actual finish is joined at export from ``Task.actual_finish``, the system
+    actual start and finish are joined at export from ``Task``, the system
     of record, so a corrected actual is never contradicted by a stale copy and no
     completion path needs a hook.
 
@@ -9871,6 +9871,20 @@ class ForecastCalibrationRecord(models.Model):
     # Null on the project-scope row.
     task_id = models.UUIDField(null=True, blank=True)
     is_milestone = models.BooleanField(default=False)
+    # Whether the work already had an actual finish when this row was written. Such
+    # a row is a record of history, not a forecast, and an analysis must be able to
+    # drop it or it inflates the hit rate. Project scope: every committed task had one.
+    finished_at_capture = models.BooleanField(default=False)
+    # The estimate as it stood at capture, task scope only (null on the project
+    # row). Frozen here because the live task's values are re-estimated later and
+    # #2299's actual-vs-estimated duration cannot be backfilled.
+    duration = models.IntegerField(null=True, blank=True)
+    optimistic_duration = models.IntegerField(null=True, blank=True)
+    most_likely_duration = models.IntegerField(null=True, blank=True)
+    pessimistic_duration = models.IntegerField(null=True, blank=True)
+    estimate_status = models.CharField(  # noqa: DJ001 — mirrors Task: null is "unset"
+        max_length=12, null=True, blank=True
+    )
     # The CPM finish at capture time (the task's early_finish, or the project's
     # latest committed finish) and which edge of that day it sits on (#4178).
     deterministic_finish = models.DateField(null=True, blank=True)
@@ -9881,6 +9895,10 @@ class ForecastCalibrationRecord(models.Model):
     p50 = models.DateField(null=True, blank=True)
     p80 = models.DateField(null=True, blank=True)
     p95 = models.DateField(null=True, blank=True)
+    # Which edge of its day each copied percentile sits on (#4178), as on MonteCarloRun.
+    p50_at_day_start = models.BooleanField(null=True, blank=True)
+    p80_at_day_start = models.BooleanField(null=True, blank=True)
+    p95_at_day_start = models.BooleanField(null=True, blank=True)
     # When the copied distribution was computed — it can predate captured_at.
     distribution_computed_at = models.DateTimeField(null=True, blank=True)
     mc_iterations = models.PositiveIntegerField(null=True, blank=True)
