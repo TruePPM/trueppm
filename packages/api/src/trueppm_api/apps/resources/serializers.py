@@ -10,6 +10,8 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
 from rest_framework import serializers
 
+from trueppm_api.apps.access.models import Role
+from trueppm_api.apps.access.permissions import _membership_role
 from trueppm_api.apps.resources.models import (
     ProjectResource,
     Resource,
@@ -347,6 +349,15 @@ class ResourceSerializer(serializers.ModelSerializer[Resource]):
         return attrs
 
 
+_OVERAGE_FIELDS = (
+    "overage_reason",
+    "overage_peak_pct",
+    "overage_week",
+    "overage_accepted_by",
+    "overage_accepted_at",
+)
+
+
 class ProjectResourceSerializer(serializers.ModelSerializer[ProjectResource]):
     """Read/write serializer for project roster membership.
 
@@ -425,6 +436,27 @@ class ProjectResourceSerializer(serializers.ModelSerializer[ProjectResource]):
         if engaged_from is not None and engaged_to is not None and engaged_from > engaged_to:
             raise serializers.ValidationError({"engaged_to": "Must be on or after engaged_from."})
         return attrs
+
+    def to_representation(self, instance: ProjectResource) -> dict[str, Any]:
+        """Withhold the accepted-overage record below Resource Manager.
+
+        ``overage_peak_pct`` and the free-text reason describe the person's load
+        across *every* project, which a Member or Viewer of this one has no other
+        way to read. The booked person always sees their own.
+        """
+        data = super().to_representation(instance)
+        if instance.overage_accepted_at is None:
+            return data
+        request = self.context.get("request")
+        if request is not None:
+            role = _membership_role(request, instance.project_id)
+            if role is not None and role >= Role.SCHEDULER:
+                return data
+            if instance.resource.user_id == request.user.pk:
+                return data
+        for field in _OVERAGE_FIELDS:
+            data[field] = "" if field == "overage_reason" else None
+        return data
 
     def get_effective_max_units(self, obj: ProjectResource) -> str:
         """This resource's capacity on this project.

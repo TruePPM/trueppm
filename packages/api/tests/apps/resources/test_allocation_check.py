@@ -228,6 +228,24 @@ def test_accept_with_reason_records_and_notifies_and_matches_dry_run(
     assert again == preview
 
 
+@pytest.mark.parametrize(
+    ("role", "visible"), [(Role.VIEWER, False), (Role.MEMBER, False), (Role.SCHEDULER, True)]
+)
+def test_overage_record_is_withheld_below_scheduler(
+    world: dict[str, Any], role: int, visible: bool
+) -> None:
+    save(world, accept_overage=True, reason="Launch week")
+    reader = User.objects.create_user(username="reader", password="x")
+    ProjectMembership.objects.create(user=reader, project=world["mine"], role=role)
+    client = APIClient()
+    client.force_authenticate(reader)
+    listing = client.get(f"/api/v1/project-resources/?project={world['mine'].pk}").data
+    data = listing["results"][0]
+    assert data["share_pct"] == 50
+    assert data["overage_reason"] == ("Launch week" if visible else "")
+    assert (data["overage_peak_pct"] is not None) is visible
+
+
 def test_a_later_fitting_save_clears_the_overage(world: dict[str, Any]) -> None:
     save(world, accept_overage=True, reason="Launch week")
     assert save(world, share_pct=20).status_code == 200

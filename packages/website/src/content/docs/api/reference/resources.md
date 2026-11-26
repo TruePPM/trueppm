@@ -272,7 +272,8 @@ Saves for one person are serialized, so two concurrent bookings cannot jointly
 pass the ceiling. A full-scope personal access token acts as its owner; a
 read-only agent token is refused, including for a dry run. `share_pct`,
 `share_start`, `share_end` and the `overage_*` fields are read-only on
-`/api/v1/project-resources/`.
+`/api/v1/project-resources/`. The `overage_*` values are returned only to the
+Resource Manager role or above and to the booked person; others read them empty.
 
 ## Load across your projects
 
