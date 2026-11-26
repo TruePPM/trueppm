@@ -19,6 +19,7 @@ import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useCanManageBacklog } from '@/hooks/useMyFacets';
 import { MethodologyEmptyState } from '@/features/shell/MethodologyEmptyState';
 import { MethodologyMismatchBanner } from '@/features/shell/MethodologyMismatchBanner';
+import { SprintForecastWidget } from '@/features/project/SprintForecastWidget';
 import type { Methodology, Task } from '@/types';
 import type { ProductBacklog } from '../../types';
 import { filterBacklog } from '../../filter';
@@ -126,6 +127,17 @@ function MobileGroomingBody({
         />
         <HealthStat value={`${health.unestimated}`} label="Unestimated" />
       </div>
+
+      {/* The release forecast beneath the health strip, as on desktop (#2411). The
+          same widget, so the gated / warming-up / throughput states come with it. */}
+      {projectId && (
+        <div
+          className="border-b border-neutral-border px-4 py-3"
+          data-testid="backlog-forecast-strip"
+        >
+          <SprintForecastWidget projectId={projectId} />
+        </div>
+      )}
 
       {/* Filter toolbar */}
       <div className="space-y-2 border-b border-neutral-border px-4 py-2.5">

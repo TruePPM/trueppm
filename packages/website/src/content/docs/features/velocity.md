@@ -66,10 +66,13 @@ The active-sprint panel at the top of the **Board** carries a compact version of
 
 A **backlog delivery forecast** was added in 0.3. It answers "when is the whole backlog done?" without spreadsheet math, from a **velocity Monte Carlo**: it bootstrap-samples the team's historical per-sprint throughput a thousand times to clear the remaining committed backlog, and reports **P50 / P80** sprint counts and calendar dates.
 
-Because this is a real simulation — not the deterministic velocity *band* the milestone reforecast uses — the **P50/P80 percentile vocabulary is honest here** and is shown as such. It surfaces in two places, both reading the same `/sprint-forecast/` endpoint (no duplicate computation):
+Because this is a real simulation — not the deterministic velocity *band* the milestone reforecast uses — the **P50/P80 percentile vocabulary is honest here** and is shown as such. It surfaces in the places below, all reading the same `/sprint-forecast/` endpoint (no duplicate computation):
 
 - **Project overview** — a *Backlog forecast* card: "At current velocity, the remaining backlog is forecast to clear by *[P50 date]*", with the P80 date and sprint counts below.
 - **Board sprint panel** — two compact projection chips beneath the burndown: a **sprint-finish** chip ("on track to finish ahead" / "*N* pts behind at this pace", from the current sprint's burn pace) and a **release-horizon** chip ("at this pace, the backlog clears in ~*N* sprints"). Both link to the overview forecast.
+- **Product backlog** (planned for 0.5) — the same *Backlog forecast* card, beneath the grooming-health strip, so the Product Owner reads it where the backlog is groomed. See [Product backlog](/features/product-backlog/#backlog-forecast).
+
+The velocity trend itself (the last closed sprints, the rolling average and the forecast range) is planned for 0.5 over MCP as `get_sprint_velocity`, behind the same team-private gate. See [MCP server](/features/mcp-server/).
 
 Like every velocity surface it is **team-private by default** (ADR-0104): a reader below the velocity audience sees a "team-private" state, never the horizon, since the backlog horizon is reversible into the team's throughput. A forecast appears only once **two sprints have closed** — one observation cannot express the velocity variance the forecast is built on.
 
@@ -77,7 +80,7 @@ Like every velocity surface it is **team-private by default** (ADR-0104): a read
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| `GET` | `/api/v1/projects/{id}/velocity/` | Last-8 closed sprint points/tasks (each with `exclude_from_velocity`) + rolling stats + forecast range + `team_velocity_per_day` + `excluded_count` |
+| `GET` | `/api/v1/projects/{id}/velocity/` | Last-8 closed sprint points/tasks (each with `exclude_from_velocity`) + rolling stats + forecast range + `team_velocity_per_day` + `excluded_count`. Planned for 0.5: a `_provenance` stamp, and reads by `mcp:read` tokens, which get the same team-private suppression as the token's owner |
 | `GET` | `/api/v1/projects/{id}/sprint-forecast/` | Backlog delivery forecast — P50/P80 sprint counts + calendar dates from a velocity Monte Carlo (computed on read, cached; `velocity_suppressed` for below-audience readers) |
 
 The `team_velocity_per_day` field is the same rolling per-day average used by [velocity calibration](/features/velocity-calibration/) suggestions on sprint close. The response also carries an `excluded_count` and a per-sprint `exclude_from_velocity` flag (see [Setup work & Sprint 0](#setup-work--sprint-0)).

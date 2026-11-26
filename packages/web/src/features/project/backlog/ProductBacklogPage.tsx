@@ -71,6 +71,7 @@ import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import { useCanManageBacklog } from '@/hooks/useMyFacets';
 import { useSprintsByState } from '@/hooks/useSprints';
+import { SprintForecastWidget } from '@/features/project/SprintForecastWidget';
 import type { Task } from '@/types';
 import { loadedStoryCount, type ReorderEntry } from './api';
 import { BacklogTruncatedNotice } from './components/BacklogTruncatedNotice';
@@ -1137,6 +1138,20 @@ function DesktopGroomingView({ seed }: { seed: BacklogSeedState }) {
         </header>
 
         <HealthStrip health={health} iterationLower={itl.lower} />
+        {/* The release forecast where the Product Owner grooms (#2411): the same
+            /sprint-forecast/ answer the `get_release_forecast` MCP tool returns, so
+            the PO need not point an AI client at their own instance to read it. It
+            forecasts the whole committed backlog, not one epic, and says so; the
+            per-epic chip is #1474. The widget owns the gated, warming-up and
+            throughput states, so this page adds no branch of its own. */}
+        {!allEmpty && projectId && (
+          <div
+            className="border-b border-neutral-border px-6 py-3"
+            data-testid="backlog-forecast-strip"
+          >
+            <SprintForecastWidget projectId={projectId} />
+          </div>
+        )}
         <LegendStrip />
 
         {/* Filter bar (issue 1044) — pinned left, outside the horizontal-scroll table. */}

@@ -84,6 +84,11 @@ vi.mock('@/hooks/useProject', () => ({
 vi.mock('@/hooks/useIterationLabel', () => ({
   useIterationLabel: () => ({ lower: 'sprint', lowerPlural: 'sprints', singular: 'Sprint' }),
 }));
+vi.mock('@/features/project/SprintForecastWidget', () => ({
+  SprintForecastWidget: ({ projectId }: { projectId: string }) => (
+    <div data-testid="sprint-forecast-widget">{projectId}</div>
+  ),
+}));
 vi.mock('@/hooks/useMyFacets', () => ({ useCanManageBacklog: () => h.canManage }));
 vi.mock('../StoryDetailDrawer', () => ({
   StoryDetailDrawer: ({ story: s, onClose }: { story: Task; onClose: () => void }) => (
@@ -123,6 +128,20 @@ afterEach(() => {
 });
 
 describe('MobileGroomingPage (issue 1044)', () => {
+  it('renders the backlog forecast beneath the health strip, and not on an empty backlog (#2411)', () => {
+    render(<MobileGroomingPage />);
+    const strip = screen.getByTestId('backlog-forecast-strip');
+    expect(within(strip).getByTestId('sprint-forecast-widget')).toHaveTextContent('proj-1');
+    const health = screen.getByText('Ready (DoR)');
+    expect(health.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('omits the forecast on an empty backlog (#2411)', () => {
+    h.data = { ...makeBacklog(), epics: [], ungrouped: [] };
+    render(<MobileGroomingPage />);
+    expect(screen.queryByTestId('backlog-forecast-strip')).toBeNull();
+  });
+
   it('shows a loading state while the backlog query is in flight', () => {
     h.isLoading = true;
     h.data = undefined;

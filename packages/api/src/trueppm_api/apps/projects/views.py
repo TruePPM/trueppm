@@ -20584,8 +20584,17 @@ def _retro_owned_rows(
         },
     )
 )
-class ProjectVelocityView(APIView):
-    """``GET /api/v1/projects/<pk>/velocity/`` — last 8 closed sprints + stats."""
+class ProjectVelocityView(McpReadableViewMixin, APIView):
+    """``GET /api/v1/projects/<pk>/velocity/`` — last 8 closed sprints + stats.
+
+    Also the read behind the ``get_sprint_velocity`` MCP tool. An ``mcp:read`` token
+    is owner-scoped, so it reads exactly as its owner would: the ADR-0104 gate in ``get``
+    runs on the token owner's membership band, and an Admin token at the default TEAM
+    audience gets the suppressed shape, not a 403 and not the numbers.
+    """
+
+    # ADR-0678 (#2482): projects/<pk>/velocity/
+    mcp_scope = McpScope.PATH
 
     # Route is `projects/<pk>/…`, so `pk` names the PROJECT here (#2745). Without
     # this the project-scoped classes below resolve nothing and `has_permission`
@@ -20618,7 +20627,13 @@ class ProjectVelocityView(APIView):
         # the readership rather than narrowing it, and takes majority team
         # ratification with no management bypass.
         summary = velocity_summary_for(request, project.pk)
-        return Response(summary, status=status.HTTP_200_OK)
+        # ADR-0112 §2.1 answer stamp. The hash is over the payload AFTER the gate, so
+        # a suppressed response carries a hash of the suppressed shape: hashing the
+        # unfiltered summary would hand a below-audience reader a fingerprint of the
+        # team-private series to test guesses against.
+        from trueppm_api.apps.scheduling.answer_stamp import stamp_answer
+
+        return Response(stamp_answer(summary, engine_inputs=summary), status=status.HTTP_200_OK)
 
 
 @extend_schema(

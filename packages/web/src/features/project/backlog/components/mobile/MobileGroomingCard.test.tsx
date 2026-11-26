@@ -38,7 +38,11 @@ function renderCard(props: Partial<Parameters<typeof MobileGroomingCard>[0]> = {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const utils = render(
     <QueryClientProvider client={qc}>
-      <MobileGroomingCard story={props.story ?? story()} onOpen={onOpen} onToggleDor={onToggleDor} />
+      <MobileGroomingCard
+        story={props.story ?? story()}
+        onOpen={onOpen}
+        onToggleDor={onToggleDor}
+      />
     </QueryClientProvider>,
   );
   return { onOpen, onToggleDor, ...utils };

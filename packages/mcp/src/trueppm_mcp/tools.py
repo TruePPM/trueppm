@@ -873,6 +873,24 @@ async def _get_sprint(client: TruePPMClient, sprint_id: str) -> dict[str, Any]:
     return result
 
 
+async def _get_sprint_velocity(client: TruePPMClient, project_id: str) -> dict[str, Any]:
+    """The team's velocity trend and forecast range, as the server's privacy gate renders it.
+
+    Reads ``/velocity/`` and nothing else. That endpoint applies the ADR-0104 audience
+    gate, so a caller outside the team's velocity audience receives
+    ``velocity_suppressed: true`` with the series and point figures stripped. Never
+    rebuild these numbers from ``list_sprints``: that would skip the gate.
+    """
+    payload = await client.get(f"projects/{project_id}/velocity/")
+    return _compact_mapping(payload if isinstance(payload, Mapping) else {})
+
+
+async def _get_sprint_burndown(client: TruePPMClient, sprint_id: str) -> dict[str, Any]:
+    """The sprint's burn series and the server-computed burn pace verdict."""
+    payload = await client.get(f"sprints/{sprint_id}/burndown/")
+    return _compact_mapping(payload if isinstance(payload, Mapping) else {})
+
+
 async def _get_sprint_close_request(client: TruePPMClient, sprint_id: str) -> dict[str, Any]:
     """The outcome of the sprint's most recent close attempt."""
     payload = await client.get(f"sprints/{sprint_id}/close-request/")
@@ -1410,6 +1428,46 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         """
         _require_uuid("sprint_id", sprint_id)
         return await _get_sprint(client, sprint_id)
+
+    @server.tool()
+    async def get_sprint_velocity(project_id: str) -> dict[str, Any]:
+        """The team's sprint velocity trend: last closed sprints plus the forecast range.
+
+        Returns up to the last 8 closed sprints, oldest first, each with its
+        ``committed_points`` / ``completed_points`` (and task counts) and the change
+        against the prior sprint, plus ``rolling_avg_points`` and the
+        ``forecast_range_low`` / ``forecast_range_high`` band (average plus or minus
+        one standard deviation). Sprints the team flagged ``exclude_from_velocity``
+        are listed but left out of every statistic.
+
+        Velocity belongs to the team. If your token's owner is outside the team's
+        velocity audience (a project Admin or Owner is, until the team shares it
+        upward), the answer carries ``velocity_suppressed: true`` and no series or
+        point figures. That is a normal answer, not a failure: say the team keeps
+        velocity private, and do not rebuild it from other tools' sprint figures.
+        Null and empty fields are omitted. Carries a ``_provenance`` stamp.
+
+        Args:
+            project_id: The project's UUID.
+        """
+        _require_uuid("project_id", project_id)
+        return await _get_sprint_velocity(client, project_id)
+
+    @server.tool()
+    async def get_sprint_burndown(sprint_id: str) -> dict[str, Any]:
+        """One sprint's burndown: the daily burn series and the pace verdict.
+
+        Returns the sprint, its daily ``snapshots`` (remaining and completed points
+        and task counts, scope changes), and the server's pace verdict:
+        ``burn_status`` with its reason, ``trend_points`` and
+        ``projected_finish_date``. ``as_of`` is when the pace was computed. Read the
+        verdict as given rather than re-deriving it from the series.
+
+        Args:
+            sprint_id: The sprint's UUID.
+        """
+        _require_uuid("sprint_id", sprint_id)
+        return await _get_sprint_burndown(client, sprint_id)
 
     @server.tool()
     async def get_sprint_close_request(sprint_id: str) -> dict[str, Any]:
