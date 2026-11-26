@@ -338,10 +338,11 @@ non-draft project where you hold the Resource Manager role or above; anyone else
 gets the same answer as a person who does not exist. Load on a project whose
 per-person load you can read there (Resource Manager or above, and the team shares
 its capacity signal with your role) is shown by name and percent. Load on any other
-project still counts toward the verdict, but it is never shown as a number: it
+project still counts toward the verdict, but it is not displayed as a number: it
 appears as one unnamed **other work** line with no percent, and every figure that
 includes it (that week's load, the peak, a resolution's peak) is empty and marked
-`withheld`. You still see whether each week fits.
+`withheld`. This is not a privacy guarantee: because the check answers whether a
+booking fits, load you cannot see can be inferred from repeated checks.
 
 Bookings count only in this check. The people load view, project utilization and
 sprint capacity read assigned task units, not bookings, so a booking with no tasks

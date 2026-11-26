@@ -47,11 +47,12 @@ The Pass 3 design checks an allocation before it is saved and assumes
    an unknown resource. A project's load is shown as a number only where the
    caller is Scheduler or above *and* the project's `capacity` signal reaches the
    caller's role band; this includes the target project's own task units. All other
-   load counts in full toward `fits`, `over` and `breaks`, but it is never a
-   number: it is one unnamed `other_work` line with a null `pct`, and every figure
+   load counts in full toward `fits`, `over` and `breaks`, but it is never
+   displayed as a number: it is one unnamed `other_work` line with a null `pct`, and every figure
    it is part of (the week's `load_pct`, `peak_pct`, each resolution's
    `peak_pct`) is null with reason `withheld`, in the 200, the 409 body and the
-   notification alike. The proposal's own share is always shown. A project that
+   notification alike (see Consequences for what the verdict
+   itself implies). The proposal's own share is always shown. A project that
    passes the role gate but not the signal gate still lets its Resource Manager
    book; its team's policy withholds the figures, not the booking.
 8. Bookings count only in this check. People load, utilization and capacity read
@@ -63,7 +64,8 @@ The Pass 3 design checks an allocation before it is saved and assumes
 - The ceiling is enforced on bookings only. A task assignment still warns and
   saves (ADR-0028); a booking check sees that load afterwards.
 - Tasks with no scheduled dates are not counted, as on the heat map.
-- The verdict still says whether each week fits, which bounds load the caller
-  cannot read. The decision accepts that one fact; no percentage that includes
-  unreadable load is returned.
+- Load the caller cannot see is never displayed as a number, and the ceiling is
+  still enforced against it. It is not private from the caller: because the check
+  answers fits or does not fit, that load can be inferred from repeated checks.
+  This is accepted.
 - A second, differently shared window on one project needs a booking table (#741).

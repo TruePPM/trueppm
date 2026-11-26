@@ -280,8 +280,12 @@ def test_other_projects_are_shown_only_where_load_is_readable(
 
 
 @pytest.mark.parametrize("hidden_pct", [55, 60, 75])
-def test_no_field_varies_with_a_hidden_percentage(world: dict[str, Any], hidden_pct: int) -> None:
-    """Two worlds that differ only in the hidden load answer identically, on every path."""
+def test_each_response_omits_the_hidden_percentage(world: dict[str, Any], hidden_pct: int) -> None:
+    """Per response only: no field carries the hidden figure when the verdicts agree.
+
+    This is not a non-disclosure proof. Fits / does-not-fit depends on hidden load,
+    so it can be inferred across repeated checks (ADR-1500, Consequences).
+    """
     ProjectResource.objects.filter(project=world["theirs"]).update(share_pct=hidden_pct)
 
     def strip(data: dict[str, Any]) -> dict[str, Any]:
@@ -631,6 +635,24 @@ def test_failed_check_holds_the_change(
     assert response.status_code == 503
     assert response.data["code"] == "allocation_check_unavailable"
     assert response.data["detail"]
+    assert mine_row(world) is None
+
+
+@pytest.mark.parametrize("failing", ["_scope", "after_write"])
+def test_failure_anywhere_in_check_and_save_is_503_and_saves_nothing(
+    world: dict[str, Any], monkeypatch: pytest.MonkeyPatch, failing: str
+) -> None:
+    def boom(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("boom")
+
+    if failing == "_scope":
+        monkeypatch.setattr(allocation_views.AllocationView, "_scope", boom)
+    else:
+        # Raises inside ``_save`` after the booking row is written: it must roll back.
+        monkeypatch.setattr(allocation_views, "create_event_notifications", boom)
+    response = save(world, accept_overage=True, reason="Launch week")
+    assert response.status_code == 503
+    assert response.data["code"] == "allocation_check_unavailable"
     assert mine_row(world) is None
 
 

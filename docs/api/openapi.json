@@ -62098,7 +62098,7 @@
                         "type": "number",
                         "format": "double",
                         "nullable": true,
-                        "description": "Null only on `other_work`: load on projects whose per-person load you may not read is counted but never shown as a number."
+                        "description": "Null only on `other_work`: load on projects whose per-person load you may not read is counted but not returned as a number. It can still be inferred from repeated checks."
                     }
                 },
                 "required": [

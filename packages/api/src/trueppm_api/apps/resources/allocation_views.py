@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from django.core.exceptions import PermissionDenied as DjangoPermissionDenied
 from django.db import transaction
+from django.http import Http404
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import serializers, status
@@ -77,7 +79,8 @@ class AllocationContributionSerializer(serializers.Serializer[dict[str, Any]]):
         allow_null=True,
         help_text=(
             "Null only on `other_work`: load on projects whose per-person load you "
-            "may not read is counted but never shown as a number."
+            "may not read is counted but not returned as a number. It can still be "
+            "inferred from repeated checks."
         ),
     )
 
@@ -201,19 +204,6 @@ class AllocationCheckUnavailable(APIException):
     default_detail = "The allocation check could not complete. Nothing was saved."
 
 
-def _check(**kwargs: Any) -> dict[str, Any]:
-    try:
-        return build_verdict(**kwargs)
-    except Exception as exc:
-        logger.exception("allocation check failed")
-        raise AllocationCheckUnavailable(
-            {
-                "code": AllocationCheckUnavailable.default_code,
-                "detail": AllocationCheckUnavailable.default_detail,
-            }
-        ) from exc
-
-
 class AllocationView(APIView):
     """Check or save a booking (a weekly share of one person on one project).
 
@@ -225,7 +215,8 @@ class AllocationView(APIView):
     live roster of a live, non-draft project where the caller is Scheduler or above,
     and load on any project whose per-person load the caller may not read there
     (below Scheduler, or the ADR-0104 ``capacity`` signal not shared) is counted but
-    never shown as a number (ADR-1500 §7). A person outside the scope gets the same 400 as one that
+    never shown as a number (ADR-1500 §7), though it can be inferred from repeated
+    checks. A person outside the scope gets the same 400 as one that
     does not exist, so the check is not a directory of who is booked where.
     """
 
@@ -270,7 +261,22 @@ class AllocationView(APIView):
         dry_run = serializers.BooleanField().to_internal_value(
             request.query_params.get("dry_run", "false")
         )
+        try:
+            return self._check_and_save(request, data, dry_run=dry_run)
+        except (APIException, Http404, DjangoPermissionDenied):
+            raise  # a refusal, not a failure: keep its own status
+        except Exception as exc:
+            # The transaction has unwound by here, so "nothing was saved" holds.
+            logger.exception("allocation check failed")
+            raise AllocationCheckUnavailable(
+                {
+                    "code": AllocationCheckUnavailable.default_code,
+                    "detail": AllocationCheckUnavailable.default_detail,
+                }
+            ) from exc
 
+    def _check_and_save(self, request: Request, data: dict[str, Any], *, dry_run: bool) -> Response:
+        """Authorize, judge and (unless ``dry_run``) save; ``post`` maps failures to 503."""
         role = _membership_role(request, data["project"])
         if role is None or role < Role.SCHEDULER:
             raise PermissionDenied("You need at least Resource Manager role to book people.")
@@ -297,7 +303,7 @@ class AllocationView(APIView):
                 raise ValidationError(
                     {"resource": "No active resource with this id on a roster you can read."}
                 )
-            verdict = _check(
+            verdict = build_verdict(
                 resource=resource,
                 project=project,
                 share_pct=data["share_pct"],

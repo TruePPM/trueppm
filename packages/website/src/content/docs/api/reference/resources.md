@@ -268,9 +268,11 @@ The person must be on the roster of a live, non-draft project where you hold
 Resource Manager or above, or the request is a `400` identical to an unknown
 `resource`. Load on a project whose per-person load you cannot read (below
 Resource Manager there, or its team does not share the ADR-0104 `capacity`
-signal with your role) counts toward `fits`, `over` and `breaks` but is never a
-number: its `other_work` line has `pct: null`, and any `load_pct` or `peak_pct`
+signal with your role) counts toward `fits`, `over` and `breaks` but is not
+returned as a number: its `other_work` line has `pct: null`, and any `load_pct` or `peak_pct`
 that includes it is `null` with `reason` / `peak_reason` set to `withheld`.
+Because the verdict says whether a booking fits, that load can be inferred from
+repeated checks.
 Draft projects are not counted; archived projects are. Bookings count only here:
 people load, utilization and capacity read task units. A save judges the same
 way as a dry run, so on unchanged data the two verdicts differ only in `as_of`.

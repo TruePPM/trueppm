@@ -17,7 +17,7 @@ not touch. And a week **breaks** only when the proposal leaves it over the ceili
 week already over for reasons it does not add to, is never refused.
 
 Load on a project whose per-person load the caller may not read (ADR-1500 §7) is
-counted in full but never disclosed as a number: any figure it is part of is
+counted in full but never displayed as a number: any figure it is part of is
 ``None``, and the verdict says only whether the week fits.
 
 This is load arithmetic, not scheduling: task spans are read from the CPM engine's own
@@ -219,7 +219,8 @@ def _contributions(week: _Week, project: Any, visible: dict[str, str]) -> list[d
     A project the caller may not read is never named and its draw never shown: it is
     one ``other_work`` line with a null ``pct``, and the week's ``load_pct`` is null
     too, so no visible figure is a total the hidden part could be subtracted from.
-    When nothing is hidden the parts sum to ``load_pct``.
+    The hidden part can still be inferred across repeated checks (ADR-1500). When
+    nothing is hidden the parts sum to ``load_pct``.
     """
     own = str(project.pk)
     own_value = week.by_project.get(own, _ZERO) if own in visible else week.proposal
