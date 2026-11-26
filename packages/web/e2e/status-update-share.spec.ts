@@ -91,6 +91,8 @@ test.describe('Public status update share', () => {
     );
     await page.goto('/share/status-update/tok123');
     await expect(page.getByText('Vendor slipped the API drop.')).toBeVisible();
+    // A dark-OS visitor with nothing stored gets the dark theme on the share page too.
+    await expect(page.locator('html')).toHaveClass(/dark/);
     await expect(page.getByText('Next call Friday.')).toHaveCount(0);
     await page.getByRole('button', { name: 'Read all 3 paragraphs' }).click();
     await expect(page.getByText('Next call Friday.')).toBeVisible();

@@ -293,16 +293,42 @@ def _longest_facts() -> status_update_pdf.PdfFacts:
     )
 
 
+#: The narrative is the only text drawn in regular 10pt ink.
+_NARRATIVE_OP = re.compile(
+    rb"/F1 10\.00 Tf 0\.110 0\.120 0\.140 rg [\d.]+ [\d.]+ Td \((.*?)\) Tj ET"
+)
+
+
+def _drawn_narrative(text: bytes) -> str:
+    """Every character the page drew for the narrative, in order, without whitespace."""
+    drawn = [
+        re.sub(rb"\\(.)", rb"\1", m.group(1)).decode("latin-1")
+        for m in _NARRATIVE_OP.finditer(text)
+    ]
+    return "".join("".join(drawn).split())
+
+
+def _widest_lines(chars: int) -> str:
+    """Lines of '@' (the widest glyph) just too wide for two to share a run-in line."""
+    return (("@" * 25 + "\n") * 30)[:chars]
+
+
 @pytest.mark.parametrize("size", ["letter", "a4"])
 @pytest.mark.parametrize(
     "narrative",
     [
         ("Wide words like MMMMMMMM make the longest wrap. " * 13)[:600],
         "a\n" * 300,  # the most lines 600 characters can ask for
+        "a\n\n" * 200,  # the most lines and paragraph gaps
         "W" * 600,  # one unbroken word
+        "@" * 600,  # the widest glyph, unbroken
+        _widest_lines(600),
     ],
+    ids=["wide-words", "300-lines", "200-paragraphs", "600-W", "600-at", "widest-lines"],
 )
 def test_longest_content_fits_one_page(size: str, narrative: str) -> None:
+    """Any legal narrative prints in full, with every list at its longest, on one page."""
+    assert len(narrative) <= 600
     facts = _longest_facts()
     facts = status_update_pdf.PdfFacts(**{**facts.__dict__, "narrative": narrative})
     page = status_update_pdf.layout_status_update(facts, size)
@@ -318,6 +344,40 @@ def test_longest_content_fits_one_page(size: str, narrative: str) -> None:
     assert page.lowest <= height - status_update_pdf.MARGIN + 10
     pdf = status_update_pdf.render_pdf(facts, size)
     assert _pages(pdf) == 1
+    # Every character of the narrative is on the page; a run-in narrative adds only
+    # the break marks.
+    drawn = _drawn_narrative(_text(pdf))
+    assert drawn.replace("/", "") == "".join(narrative.split())
+
+
+def test_run_in_only_when_the_line_breaks_cannot_fit() -> None:
+    facts = status_update_pdf.PdfFacts(**{**_longest_facts().__dict__, "narrative": "a\n" * 300})
+    text = _text(status_update_pdf.render_pdf(facts, "letter"))
+    assert b"(a / a / a" in text
+    fits = status_update_pdf.PdfFacts(**{**facts.__dict__, "narrative": TWENTY_BULLETS})
+    assert b" / " not in b"".join(
+        m.group(1) for m in _NARRATIVE_OP.finditer(_text(status_update_pdf.render_pdf(fits, "a4")))
+    )
+    assert status_update_pdf.run_in("one\r\n\n  two \nthree") == "one / two / three"
+
+
+#: Twenty bulleted lines of 29 characters each (579 characters with the breaks): legal,
+#: and taller than the narrative's share of the page while every list is full.
+TWENTY_BULLETS = "\n".join(f"- Bullet {i:02d} of the update xxxx"[:29] for i in range(20))
+
+
+@pytest.mark.parametrize("size", ["letter", "a4"])
+def test_a_many_line_narrative_prints_in_full_and_lists_give_way(size: str) -> None:
+    assert len(TWENTY_BULLETS) <= 600
+    assert all(len(ln) == 29 for ln in TWENTY_BULLETS.split("\n"))
+    facts = status_update_pdf.PdfFacts(**{**_longest_facts().__dict__, "narrative": TWENTY_BULLETS})
+    page = status_update_pdf.layout_status_update(facts, size)
+    assert page.body_bottom < page.footer_top, "body runs into the footer"
+    text = _text(status_update_pdf.render_pdf(facts, size))
+    for line in TWENTY_BULLETS.split("\n"):
+        assert status_update_pdf._pdf_string(line) + b" Tj" in text, line
+    # The milestone rows gave way first, and their count line still names them all.
+    assert b"(50+ milestones in TruePPM)" in text or b"more milestones in TruePPM" in text
 
 
 def test_text_is_escaped_and_out_of_range_characters_are_replaced() -> None:

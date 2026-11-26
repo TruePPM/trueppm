@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { StatusUpdate } from '@/api/types';
 import type { Rag } from '@/lib/ragBand';
+import { shareLinksKey } from '@/features/settings/hooks/useShareLinks';
 
 interface StatusUpdatePage {
   count: number;
@@ -111,6 +112,7 @@ export interface StatusUpdateShareInput {
  * token is returned once and never stored by the client beyond the reveal.
  */
 export function useCreateStatusUpdateShareLink(projectId: string) {
+  const queryClient = useQueryClient();
   return useMutation<StatusUpdateShareLink, unknown, StatusUpdateShareInput>({
     mutationFn: async ({ updateId, expiresInDays, showRisks, showDecisions }) =>
       (
@@ -122,5 +124,10 @@ export function useCreateStatusUpdateShareLink(projectId: string) {
           show_decisions: showDecisions,
         })
       ).data,
+    // The project's share-links list (Settings -> Sharing, where a link is revoked)
+    // must show the new link without a reload, as for a board link.
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: shareLinksKey(projectId) });
+    },
   });
 }

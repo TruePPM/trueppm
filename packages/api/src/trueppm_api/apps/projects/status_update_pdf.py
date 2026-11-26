@@ -11,11 +11,14 @@ purpose:
   attacker-influenced markup and grows CVEs. This writer emits only text operators in
   the two built-in Helvetica faces and filled paths: no fonts or images to embed, no
   JavaScript, no annotations, no links (so no link into the workspace), no forms.
-* **One page by construction.** There is one page object. Every section is bounded
-  (the snapshot caps risks at 3, the narrative at 600 characters, and this module caps
-  the rows it draws and the lines the narrative may wrap to), and
-  :func:`layout_status_update` reports the lowest point it drew so a test can prove
-  the longest allowed content still clears the footer on both page sizes.
+* **One page by construction, and the whole narrative on it.** There is one page
+  object. The narrative is the PM's own words and is never cut: list rows give way to
+  it instead (milestones first, then decisions and risks, each leaving a "+N more"
+  line), and a narrative whose line breaks are taller than the page even then is run
+  in as one paragraph with a visible break mark, which fits any legal narrative (the
+  field caps it at 600 characters). :func:`layout_status_update` reports the lowest
+  body point and the top of the footer so a test can prove the longest allowed
+  content still clears the footer on both page sizes.
 
 Bytes are deterministic for a given update and size (the creation date is the post
 time), so the rendered file is cached per update.
@@ -38,13 +41,28 @@ PAGE_SIZES: dict[str, tuple[float, float]] = {
 }
 
 MARGIN = 48.0
-#: The rows of each list the page draws; the rest are counted in a "+N more" line.
+#: The most rows of each list the page draws; the rest are counted in a "+N more" line.
 MAX_MILESTONE_ROWS = 6
 MAX_RISK_ROWS = 3
 MAX_DECISION_ROWS = 3
-#: Wrapped narrative lines. 600 characters wrap to about 8 lines on either page; the
-#: cap only bites on a narrative of many short lines, which ends in an ellipsis.
-MAX_NARRATIVE_LINES = 14
+#: Leading of a narrative line, and of the gap one blank line (a paragraph break)
+#: leaves. Runs of blank lines collapse to one gap, so whitespace never costs more
+#: than a half line.
+NARRATIVE_LEADING = 13.0
+PARAGRAPH_GAP = 6.5
+#: The list rows (milestones, risks, decisions) to try, fullest first. The narrative is
+#: the PM's own words and is never cut while a list row can give way: milestones go
+#: first (their "+N more" line names the rest), then decisions and risks together,
+#: since the two sit side by side and only the taller column costs height.
+LIST_ROWS: tuple[tuple[int, int, int], ...] = (
+    *((m, MAX_RISK_ROWS, MAX_DECISION_ROWS) for m in range(MAX_MILESTONE_ROWS, -1, -1)),
+    (0, 3, 2),
+    (0, 2, 2),
+    (0, 2, 1),
+    (0, 1, 1),
+    (0, 1, 0),
+    (0, 0, 0),
+)
 #: Per footer paragraph. Three paragraphs at three lines each reach up into the
 #: longest body on Letter, so each is held to two and ellipsized past that.
 MAX_FOOTER_PARAGRAPH_LINES = 2
@@ -154,6 +172,20 @@ def text_width(text: str, size: float, *, bold: bool = False) -> float:
     return total * size / 1000.0
 
 
+def _longest_prefix(text: str, width: float, size: float, *, bold: bool) -> int:
+    """How many leading characters of ``text`` fit in ``width`` points (linear, not
+    re-measuring each candidate prefix: the page lays out up to 26 times)."""
+    budget = width * 1000.0 / size
+    total = 0
+    for i, ch in enumerate(_clean(text)):
+        enc = _encode_char(ch)
+        assert enc is not None
+        total += enc[2] if bold else enc[1]
+        if total > budget:
+            return i
+    return len(text)
+
+
 def _pdf_string(text: str) -> bytes:
     """A PDF literal string in WinAnsiEncoding, with ``\\``, ``(`` and ``)`` escaped."""
     raw = bytearray()
@@ -184,9 +216,7 @@ def wrap(text: str, width: float, size: float, *, bold: bool = False) -> list[st
             if line:
                 lines.append(line)
             while text_width(word, size, bold=bold) > width:
-                cut = len(word)
-                while cut > 1 and text_width(word[:cut], size, bold=bold) > width:
-                    cut -= 1
+                cut = max(1, _longest_prefix(word, width, size, bold=bold))
                 lines.append(word[:cut])
                 word = word[cut:]
             line = word
@@ -207,9 +237,8 @@ def fit(text: str, width: float, size: float, *, bold: bool = False) -> str:
     text = _clean(text)
     if text_width(text, size, bold=bold) <= width:
         return text
-    while text and text_width(text + ELLIPSIS, size, bold=bold) > width:
-        text = text[:-1]
-    return text.rstrip() + ELLIPSIS
+    room = width - text_width(ELLIPSIS, size, bold=bold)
+    return text[: _longest_prefix(text, room, size, bold=bold)].rstrip() + ELLIPSIS
 
 
 def _fmt_day(value: Any) -> str | None:
@@ -379,23 +408,25 @@ def facts_for(update: Any) -> PdfFacts:
 
 
 def _draw_milestones(
-    page: _Page, snap: dict[str, Any], left: float, inner: float, y: float
+    page: _Page, snap: dict[str, Any], left: float, inner: float, y: float, rows: int
 ) -> float:
-    """Milestones with variance, at most ``MAX_MILESTONE_ROWS`` rows. Returns the new y."""
+    """Milestones with variance, at most ``rows`` rows. Returns the new y."""
     milestones = list(snap.get("milestones") or [])
     y += 22
     page.text(left, y, "Milestones", 9, bold=True, color=MUTED)
     cols = (left, left + inner * 0.52, left + inner * 0.70, left + inner * 0.86)
+    shown = milestones[:rows]
     if not milestones:
         y += 13
         page.text(left, y, "No milestones in the plan.", 9, color=MUTED)
     else:
-        y += 13
-        for x, head in zip(
-            cols, ("Milestone", "CPM finish", "Commitment", "Variance"), strict=True
-        ):
-            page.text(x, y, head, 8, color=MUTED)
-        for m in milestones[:MAX_MILESTONE_ROWS]:
+        if shown:
+            y += 13
+            for x, head in zip(
+                cols, ("Milestone", "CPM finish", "Commitment", "Variance"), strict=True
+            ):
+                page.text(x, y, head, 8, color=MUTED)
+        for m in shown:
             y += 13
             page.text(cols[0], y, fit(str(m.get("name", "")), cols[1] - cols[0] - 8, 9), 9)
             page.text(cols[1], y, _fmt_day(m.get("cpm_finish")) or EM_DASH, 9)
@@ -404,17 +435,24 @@ def _draw_milestones(
             page.text(
                 cols[3], y, EM_DASH if vd is None else f"{int(vd):+d}d".replace("-", MINUS), 9
             )
-        more = len(milestones) - MAX_MILESTONE_ROWS
+        more = len(milestones) - len(shown)
         if more > 0:
             # A truncated snapshot froze only the first rows, so the count is a floor.
             plus = "+" if snap.get("milestones_truncated") else ""
+            what = "more milestones" if shown else "milestones"
             y += 13
-            page.text(left, y, f"{more}{plus} more milestones in TruePPM", 8, color=MUTED)
+            page.text(left, y, f"{more}{plus} {what} in TruePPM", 8, color=MUTED)
     return y
 
 
 def _draw_risks_and_decisions(
-    page: _Page, snap: dict[str, Any], left: float, inner: float, y: float
+    page: _Page,
+    snap: dict[str, Any],
+    left: float,
+    inner: float,
+    y: float,
+    risk_rows: int,
+    decision_rows: int,
 ) -> float:
     """Top risks and open decisions side by side. Returns the lower column's bottom."""
     y += 22
@@ -428,7 +466,7 @@ def _draw_risks_and_decisions(
     if not risks:
         ry += 13
         page.text(rx, ry, "No open risks.", 9, color=MUTED)
-    for r in risks[:MAX_RISK_ROWS]:
+    for r in risks[:risk_rows]:
         ry += 13
         page.text(rx, ry, fit(str(r.get("title", "")), half, 9, bold=True), 9, bold=True)
         ry += 11
@@ -436,10 +474,13 @@ def _draw_risks_and_decisions(
             f" {MIDDOT} {r['owner']}" if r.get("owner") else ""
         )
         page.text(rx, ry, fit(detail, half, 8), 8, color=MUTED)
+    if len(risks) > risk_rows:
+        ry += 12 if risk_rows else 13
+        page.text(rx, ry, f"+{len(risks) - risk_rows} more in TruePPM", 8, color=MUTED)
     if not decisions:
         dy += 13
         page.text(dx, dy, "No open decisions.", 9, color=MUTED)
-    for d in decisions[:MAX_DECISION_ROWS]:
+    for d in decisions[:decision_rows]:
         dy += 13
         page.text(dx, dy, fit(str(d.get("title", "")), half, 9, bold=True), 9, bold=True)
         dy += 11
@@ -448,14 +489,59 @@ def _draw_risks_and_decisions(
             f" {MIDDOT} {d['owner']}" if d.get("owner") else ""
         )
         page.text(dx, dy, fit(detail, half, 8), 8, color=MUTED)
-    if len(decisions) > MAX_DECISION_ROWS:
-        dy += 12
-        page.text(dx, dy, f"+{len(decisions) - MAX_DECISION_ROWS} more in TruePPM", 8, color=MUTED)
+    if len(decisions) > decision_rows:
+        dy += 12 if decision_rows else 13
+        page.text(dx, dy, f"+{len(decisions) - decision_rows} more in TruePPM", 8, color=MUTED)
     return max(ry, dy)
 
 
 def layout_status_update(facts: PdfFacts, size: str) -> _Page:
-    """Draw the page. Returns it with ``lowest`` set, for the one-page assertion."""
+    """Draw the page with the whole narrative and as many list rows as still fit.
+
+    Tries :data:`LIST_ROWS` fullest first and returns the first layout whose body
+    clears the footer, so list rows give way to the narrative and never the reverse.
+    Only when the narrative's own line breaks are taller than the page with every
+    list collapsed (600 characters can ask for 300 one-character lines, about 3900
+    points against the 350 or so the body has) is it run in: printed as one flowing
+    paragraph with :data:`BREAK_MARK` where each line break was, which fits any
+    legal narrative. Every character still prints; only the layout gives way.
+    """
+    inner = PAGE_SIZES[size][0] - 2 * MARGIN
+    page = _first_fit(facts, size, narrative_lines(facts.narrative, inner))
+    if page.body_bottom < page.footer_top:
+        return page
+    return _first_fit(facts, size, narrative_lines(run_in(facts.narrative), inner))
+
+
+def _first_fit(facts: PdfFacts, size: str, lines: list[str]) -> _Page:
+    """The fullest :data:`LIST_ROWS` layout that clears the footer, else the emptiest."""
+    page = _layout(facts, size, lines, LIST_ROWS[0])
+    for rows in LIST_ROWS[1:]:
+        if page.body_bottom < page.footer_top:
+            break
+        page = _layout(facts, size, lines, rows)
+    return page
+
+
+#: What a line break becomes in a run-in narrative. ASCII, so both faces draw it.
+BREAK_MARK = " / "
+
+
+def run_in(narrative: str) -> str:
+    """The narrative as one paragraph: each non-blank line, joined by :data:`BREAK_MARK`."""
+    return BREAK_MARK.join(
+        ln.strip() for ln in narrative.replace("\r\n", "\n").split("\n") if ln.strip()
+    )
+
+
+def narrative_lines(narrative: str, inner: float) -> list[str]:
+    """The narrative wrapped to the body width; ``""`` marks a paragraph break."""
+    return wrap(narrative, inner, 10) or ["No narrative."]
+
+
+def _layout(facts: PdfFacts, size: str, lines: list[str], rows: tuple[int, int, int]) -> _Page:
+    """One attempt at the page with ``rows`` (milestone, risk, decision) list rows."""
+    milestone_rows, risk_rows, decision_rows = rows
     pw, ph = PAGE_SIZES[size]
     page = _Page(pw, ph)
     left, inner = MARGIN, pw - 2 * MARGIN
@@ -498,12 +584,8 @@ def layout_status_update(facts: PdfFacts, size: str) -> _Page:
     # Narrative.
     y += 22
     page.text(left, y, "Narrative", 9, bold=True, color=MUTED)
-    lines = wrap(facts.narrative, inner, 10) or ["No narrative."]
-    if len(lines) > MAX_NARRATIVE_LINES:
-        lines = lines[:MAX_NARRATIVE_LINES]
-        lines[-1] = fit(lines[-1] + ELLIPSIS, inner, 10)
     for ln in lines:
-        y += 13
+        y += NARRATIVE_LEADING if ln else PARAGRAPH_GAP
         page.text(left, y, ln, 10)
 
     # The forecast strip: P80, P50, commitment, CPM finish.
@@ -564,8 +646,8 @@ def layout_status_update(facts: PdfFacts, size: str) -> _Page:
         )
     page.text(left, y, fit(since, inner, 9), 9)
 
-    y = _draw_milestones(page, snap, left, inner, y)
-    lowest_body = _draw_risks_and_decisions(page, snap, left, inner, y)
+    y = _draw_milestones(page, snap, left, inner, y, milestone_rows)
+    lowest_body = _draw_risks_and_decisions(page, snap, left, inner, y, risk_rows, decision_rows)
 
     # Footer, anchored to the bottom margin: the frozen-facts statement and definitions.
     p80_def = (forecast.get("p80") or {}).get("definition") or ""

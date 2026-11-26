@@ -89,4 +89,22 @@ describe('useCreateStatusUpdateShareLink', () => {
     expect(body).not.toHaveProperty('show_assignees');
     expect(result.current.data?.share_path).toBe('/share/status-update/tok');
   });
+
+  it("invalidates the project's share-links list so the new link can be revoked at once", async () => {
+    h.post.mockResolvedValue({ data: { id: 'l1', share_path: '/share/status-update/tok' } });
+    const qc = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => useCreateStatusUpdateShareLink('p1'), { wrapper });
+    result.current.mutate({
+      updateId: 'u1',
+      expiresInDays: 7,
+      showRisks: false,
+      showDecisions: false,
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['share-links', 'p1'] });
+  });
 });

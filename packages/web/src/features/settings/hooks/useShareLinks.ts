@@ -82,7 +82,8 @@ function mapLink(raw: ShareLinkRaw): ShareLink {
   };
 }
 
-function shareLinksKey(projectId: string) {
+/** TanStack key for a project's share links; every link-minting mutation invalidates it. */
+export function shareLinksKey(projectId: string) {
   return ['share-links', projectId] as const;
 }
 

@@ -80,12 +80,17 @@ update's frozen snapshot, never the live plan:
 - P80, P50, the commitment (the active baseline's finish) and the CPM finish, with
   the CPM finish's variance against the commitment;
 - what was completed and what slipped since the previous update;
-- up to six milestones with their variance, then a count of the rest;
-- the top three risks and up to three open decisions, then a count of the rest;
+- the milestones with their variance (up to six), then a count of the rest;
+- the top risks (up to three) and the open decisions (up to three), then a count of
+  the rest;
 - a footer that says the facts were frozen when the update was posted, and that
   defines P80 and the CPM finish.
 
-The longest narrative and the full lists still fit one page on both sizes. A figure
+The narrative always prints in full, on one page, on both sizes. When a long
+narrative needs the room, the lists give way first: milestone rows, then decisions
+and risks, each replaced by a count of what is left out. A narrative of so many short
+lines that its line breaks cannot fit even then prints as one flowing paragraph, with
+" / " where each line break was. A figure
 the server could not compute prints as "Not computable" with the reason. The PDF
 carries no cost figures, no links and no scripts. If the stored update no longer
 matches the record taken when it was posted, the PDF is refused (`409`) rather than
