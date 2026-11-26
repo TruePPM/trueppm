@@ -334,8 +334,10 @@ class TestExport:
         assert header["version"] == EXPORT_SCHEMA_VERSION == 1
         assert header["project_count"] == 1
         assert len(out) == 5
+        baseline = Baseline.objects.get(project=p)
         for rec in out[1:]:
             assert set(rec) == FORECAST_KEYS
+            assert rec["baseline_id"] == str(baseline.pk)
         # No user, name or free text anywhere in the export (ADR-0104 aggregate-only).
         blob = json.dumps(out)
         for needle in ("Permits", "Survey", "Pad 39C", "fc-owner"):
