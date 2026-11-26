@@ -189,7 +189,11 @@ test.describe('shell v2 project overview', () => {
     }, testInfo) => {
       await open(page, 'stale');
       await expect(page.getByTestId('overview2-lead')).toHaveAttribute('data-layout', 'phone');
-      await expect(page.getByTestId('overview2-lead').locator('svg').first()).toBeVisible();
+      const svg = page.getByTestId('overview2-lead').locator('svg[viewBox]');
+      await expect(svg).toBeVisible();
+      // The S-curve is drawn at the phone size, not the 640-wide desktop viewBox scaled down.
+      await expect(svg).toHaveAttribute('viewBox', /^0 0 340 220$/);
+      // TODO(#5148): screenshot baselines (CI image, both themes) go here.
       await expect(page.getByTestId('overview2-tile')).toHaveCount(3);
       await expect(page.getByTestId('not-computable')).toContainText('Cost variance');
       const why = await page.getByRole('link', { name: /Why this date\?/ }).boundingBox();
