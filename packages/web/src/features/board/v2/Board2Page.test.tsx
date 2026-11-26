@@ -241,7 +241,7 @@ describe('Board2Page', () => {
     h.search = { matchIds: new Set(['Write brief']), matchCount: 1, isSearching: false };
     renderWithRouter(<Board2Page />, { initialEntries: ['/?q=brief'] });
     expect(
-      (screen.getByRole('searchbox', { name: 'Search cards' }) as HTMLInputElement).value,
+      (screen.getByRole('searchbox', { name: 'Search cards' })).value,
     ).toBe('brief');
     expect(screen.getByText('Write brief').closest('button')!.className).not.toContain(
       'opacity-50',
@@ -280,7 +280,7 @@ describe('Board2Page', () => {
     ]);
     renderWithRouter(<Board2Page />);
     fireEvent.dragStart(screen.getByText('Idea').closest('button')!);
-    fireEvent.drop(screen.getAllByTestId('board2-cell-NOT_STARTED')[0]!);
+    fireEvent.drop(screen.getAllByTestId('board2-cell-NOT_STARTED')[0]);
     expect(h.move).toHaveBeenCalledWith({
       projectId: 'p1',
       taskId: 'Idea',

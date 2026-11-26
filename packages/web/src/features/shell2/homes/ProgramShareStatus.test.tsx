@@ -55,7 +55,7 @@ describe('ProgramShareStatus', () => {
     expect(h.revoke).not.toHaveBeenCalled();
     const group = screen.getByRole('group', { name: 'Revoke Client review' });
     fireEvent.click(within(group).getByRole('button', { name: 'Revoke link' }));
-    expect(h.revoke.mock.calls[0]![0]).toBe('l1');
+    expect(h.revoke.mock.calls[0][0]).toBe('l1');
   });
 
   it('"Keep it" backs out without a write', () => {
