@@ -4,12 +4,15 @@ import { HeatGrid13 } from '@/components/page2/HeatGrid13';
 import { ModalDialog } from '@/components/page2/ModalDialog';
 import { NonHumanTile } from '@/components/page2/NonHumanTile';
 import { SectionHeading } from '@/components/page2/PageTitle';
+import { RagRadio } from '@/components/page2/RagRadio';
 import { ReasonRadioGroup } from '@/components/page2/ReasonRadioGroup';
 import { ScopeMatrix, type ScopeArea } from '@/components/page2/ScopeMatrix';
+import { SnapshotPanel, type SnapshotRow } from '@/components/page2/SnapshotPanel';
 import { SplitBar } from '@/components/page2/SplitBar';
 import { Stepper } from '@/components/page2/Stepper';
 import { TrailTimeline } from '@/components/page2/TrailTimeline';
 import { PAGE_BUTTON } from '@/components/page2/classes';
+import type { Rag } from '@/lib/ragBand';
 
 const WEEKS = Array.from({ length: 13 }, (_, i) =>
   new Date(Date.UTC(2026, 10, 2 + i * 7)).toISOString().slice(0, 10),
@@ -26,12 +29,24 @@ const AREAS: ScopeArea[] = [
   { id: 'budget', label: 'Budget', access: { read: true, propose: null, write: false } },
 ];
 
+const SNAPSHOT: SnapshotRow[] = [
+  {
+    id: 'forecast.p80',
+    label: 'P80 finish',
+    value: '11 Dec 2026',
+    definition: '80% of simulated runs finish on or before this date.',
+    now: '18 Dec 2026',
+  },
+  { id: 'schedule.variance', label: 'Variance', value: null, notComputable: 'no baseline is set' },
+];
+
 /** The Pass 3 half of the page-kit fixture (#4802): static data, no requests. */
 export function KitPass3() {
   const [share, setShare] = useState(50);
   const [reason, setReason] = useState<string | null>(null);
   const [areas, setAreas] = useState(AREAS);
   const [open, setOpen] = useState(false);
+  const [rag, setRag] = useState<Rag | null>(null);
 
   return (
     <div className="flex flex-col gap-8">
@@ -43,6 +58,12 @@ export function KitPass3() {
           <NonHumanTile kind="cog" label="Job: nightly forecast" />
           <NonHumanTile kind="hard-hat" label="Modeled seat" />
         </div>
+      </section>
+      <section aria-labelledby="kit-status-update" className="flex flex-col gap-3">
+        <SectionHeading id="kit-status-update">Status update</SectionHeading>
+        <RagRadio legend="Your call" name="kit-rag" value={rag} onChange={setRag} />
+        <SnapshotPanel mode="live" heading="Live snapshot" rows={SNAPSHOT} />
+        <SnapshotPanel mode="frozen" heading="Posted snapshot" rows={SNAPSHOT} />
       </section>
       <section aria-labelledby="kit-capacity" className="flex flex-col gap-3">
         <SectionHeading id="kit-capacity">Capacity</SectionHeading>

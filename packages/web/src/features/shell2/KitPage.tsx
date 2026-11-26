@@ -179,7 +179,9 @@ function KitPageBody() {
       }
       toolbarOverride={
         banner ? (
-          <Banner tone="critical">The last update didn’t post.</Banner>
+          <Banner tone="critical" row="toolbar">
+            The last update didn’t post.
+          </Banner>
         ) : filtered ? (
           <>
             <span className={`${TYPE.body} text-p1-text-2`}>2 filters applied</span>

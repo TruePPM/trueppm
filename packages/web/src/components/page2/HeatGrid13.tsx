@@ -55,7 +55,7 @@ export function HeatGrid13({
     <tr key={row.id} data-modeled={modeled || undefined}>
       <th
         scope="row"
-        className="sticky left-0 h-11 whitespace-nowrap bg-p1-surface-1 px-2 text-left text-sm font-normal text-p1-text-1"
+        className="sticky left-0 z-[1] h-11 whitespace-nowrap bg-p1-surface-1 px-2 text-left text-sm font-normal text-p1-text-1"
       >
         {row.name}
         {modeled && <span className="ml-1 text-xs text-p1-text-2">(modeled seat)</span>}
@@ -107,7 +107,10 @@ export function HeatGrid13({
         <table aria-label={label} className="border-separate border-spacing-px">
           <thead>
             <tr>
-              <th scope="col" className="sticky left-0 bg-p1-surface-1 px-2 text-left text-xs">
+              <th
+                scope="col"
+                className="sticky left-0 z-[1] bg-p1-surface-1 px-2 text-left text-xs"
+              >
                 <span className="text-p1-text-3">Person</span>
               </th>
               {weeks.map((week) => (

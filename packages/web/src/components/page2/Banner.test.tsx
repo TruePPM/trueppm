@@ -18,4 +18,15 @@ describe('Banner', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Saved');
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
   });
+
+  it('takes the compact toolbar height only when asked', () => {
+    const { rerender } = render(<Banner tone="info">Saved</Banner>);
+    expect(screen.getByRole('status').className).not.toContain('md:min-h-9');
+    rerender(
+      <Banner tone="info" row="toolbar">
+        Saved
+      </Banner>,
+    );
+    expect(screen.getByRole('status').className).toContain('md:min-h-9');
+  });
 });

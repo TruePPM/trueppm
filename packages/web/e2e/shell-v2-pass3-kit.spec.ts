@@ -98,6 +98,25 @@ test.describe('shell v2 Pass 3 primitives at phone width', () => {
       390,
     );
   });
+
+  test('the grid name column stays on top when scrolled sideways', async ({ page }) => {
+    await open(page);
+    const grid = page.getByRole('region', { name: 'Team load, next 13 weeks, scrollable' });
+    await grid.scrollIntoViewIfNeeded();
+    expect(await grid.evaluate((el) => (el.scrollLeft = 200))).toBe(200);
+    for (const header of await grid.locator('tbody th').all()) {
+      await header.scrollIntoViewIfNeeded();
+      // A later positioned cell that paints over the sticky header would be the hit.
+      const onTop = await header.evaluate((th) => {
+        const box = th.getBoundingClientRect();
+        return th.contains(
+          document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2),
+        );
+      });
+      expect(onTop).toBe(true);
+    }
+    expect(await grid.evaluate((el) => el.scrollLeft)).toBe(200);
+  });
 });
 
 test.describe('shell v2 Pass 3 primitives under a coarse pointer', () => {
