@@ -384,6 +384,22 @@ lists are also read under their bare names (`JWT_SIGNING_KEY_FALLBACKS`,
 `INTEGRATION_ENCRYPTION_KEY_FALLBACKS`) as a legacy fallback; the `TRUEPPM_` name wins
 when both are set.
 
+An empty value counts as unset. For the JWT list this means "inherit", not "no
+fallbacks": when `JWT_SIGNING_KEY` is unset and both JWT list names are empty or
+absent, the API verifies tokens against `SECRET_KEY_FALLBACKS`. An empty
+`TRUEPPM_JWT_SIGNING_KEY_FALLBACKS` also does not override a non-empty bare
+`JWT_SIGNING_KEY_FALLBACKS`. To stop tokens signed under an old key from
+verifying, make sure that key is not the primary, remove it from both JWT list
+names, and then:
+
+- if `JWT_SIGNING_KEY` is unset, also remove it from `SECRET_KEY_FALLBACKS` (this
+  retires it for signed cookies and password-reset links too), or set
+  `JWT_SIGNING_KEY` to a new value, which stops the inheritance;
+- if `JWT_SIGNING_KEY` is set, nothing more is needed, because
+  `SECRET_KEY_FALLBACKS` is not used for tokens.
+
+Restart the api, celery-worker, and celery-beat Deployments afterwards.
+
 Every fallback entry is validated at boot exactly like its primary (length,
 placeholder, Fernet format). A malformed or empty entry (for example a stray comma)
 stops the process from starting with an error naming the list and the position

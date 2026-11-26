@@ -68,7 +68,6 @@ def test_response_shape(authed_client: APIClient) -> None:
     for bucket in body["changes"].values():
         assert set(bucket) == {"created", "updated", "deleted"}
     assert body["next_cursor"] is None
-    assert body["next_cursor"] is None
 
 
 @pytest.mark.django_db

@@ -489,10 +489,8 @@ def _drain(
             assert page_rows <= page_size, f"page exceeded page_size: {page_rows} > {page_size}"
             pages += 1
             cursor = resp.data["next_cursor"]
-            if resp.data["next_cursor"] is None:
-                assert cursor is None
+            if cursor is None:
                 break
-            assert cursor is not None
             assert pages < 10_000, "pager failed to terminate"
     return emitted, pages
 
@@ -578,7 +576,6 @@ def test_sync_single_page_is_backward_compatible(
     ):
         resp = authed_client.get(_url(project), {"since": "0"})
     assert resp.status_code == 200
-    assert resp.data["next_cursor"] is None
     assert resp.data["next_cursor"] is None
     task_ids = [t["id"] for t in resp.data["changes"]["tasks"]["updated"]]
     assert len(task_ids) == 5

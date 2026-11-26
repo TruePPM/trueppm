@@ -357,6 +357,32 @@ def test_grandfathered_bare_names_are_read_bare_and_documented(name: str) -> Non
     assert f"`{name}`" in docs
 
 
+@pytest.mark.parametrize("name", ["TRUEPPM_JWT_SIGNING_KEY_FALLBACKS", "JWT_SIGNING_KEY_FALLBACKS"])
+@pytest.mark.parametrize(
+    ("jwt_signing_key", "expected"), [(None, ["old-secret"]), ("new-jwt-key", [])]
+)
+def test_empty_jwt_fallbacks_means_inherit(
+    name: str, jwt_signing_key: str | None, expected: list[str]
+) -> None:
+    """An empty list is "unset", not "no fallbacks" (#5048).
+
+    Without an explicit JWT_SIGNING_KEY it therefore inherits SECRET_KEY_FALLBACKS.
+    """
+    with mock.patch.dict(os.environ):
+        for key in (
+            "JWT_SIGNING_KEY",
+            "JWT_SIGNING_KEY_FALLBACKS",
+            "TRUEPPM_JWT_SIGNING_KEY_FALLBACKS",
+        ):
+            os.environ.pop(key, None)
+        os.environ["SECRET_KEY_FALLBACKS"] = "old-secret"
+        os.environ[name] = ""
+        if jwt_signing_key is not None:
+            os.environ["JWT_SIGNING_KEY"] = jwt_signing_key
+        importlib.reload(base)
+        assert expected == base.JWT_SIGNING_KEY_FALLBACKS
+
+
 # --- #4482 test plan: four cases over every converted name -------------------
 
 # name -> (legacy raw, legacy expected, prefixed raw, prefixed expected)
