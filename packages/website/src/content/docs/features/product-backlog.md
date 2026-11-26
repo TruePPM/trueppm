@@ -1,6 +1,7 @@
 ---
 title: Product backlog & scoring
 description: The Product Owner's priority-ordered backlog — epics and stories, acceptance criteria, Definition of Ready, and WSJF/RICE prioritization.
+documentedFor: "0.5"
 ---
 
 :::note[Added in 0.3]
@@ -53,6 +54,30 @@ points. A **grooming-health strip** across the top summarizes:
 - **Ready for next sprint** — ready story points against the active sprint's capacity
 - **Unestimated** — stories still missing points
 - **Acceptance criteria** — criteria met across the whole backlog
+
+### Backlog forecast
+
+:::note[Ships in 0.5]
+The backlog forecast on this page is not in the current release. Today the same
+forecast is on the project overview's *Backlog forecast* card and on the Board sprint
+panel's release-horizon chip.
+:::
+
+Beneath the grooming-health strip, a **Backlog forecast** card answers "when is the
+committed backlog done?" from a Monte Carlo over the team's velocity: the P50 date,
+the P80 date, and the sprint counts behind each. It is the same answer the
+`get_release_forecast` [MCP tool](/features/mcp-server/) returns, so you can read it
+here rather than asking an assistant. The card covers the **whole committed backlog**,
+not a single epic. A per-epic forecast is not available.
+
+- Until two sprints have closed, the card says so instead of showing a date.
+- A team that works in continuous flow sees an item count and dates from its weekly
+  throughput instead of sprint counts.
+- Velocity is **team-private by default** ([velocity privacy](/features/velocity/)). A
+  project Owner or Admin outside the team's velocity audience sees a "team-private"
+  note, never the dates, because the horizon can be worked back into the team's
+  velocity.
+- The card does not appear on an empty backlog.
 
 A dashed **next-sprint ready line** is drawn where the cumulative ready points reach
 the active sprint's capacity, so the Product Owner can see at a glance what fits the next

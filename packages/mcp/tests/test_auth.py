@@ -173,6 +173,8 @@ async def test_server_registers_read_tool_surface(settings: Settings) -> None:
         "list_calendars",
         "list_sprints",
         "get_sprint",
+        "get_sprint_velocity",
+        "get_sprint_burndown",
         "get_sprint_close_request",
         "list_my_work",
         "list_programs",

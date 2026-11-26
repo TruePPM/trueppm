@@ -43,7 +43,9 @@ from trueppm_mcp.tools import (
     _get_schedule_driving_chain,
     _get_schedule_summary,
     _get_sprint,
+    _get_sprint_burndown,
     _get_sprint_close_request,
+    _get_sprint_velocity,
     _get_task,
     _list_baseline_decisions,
     _list_baselines,
@@ -1159,6 +1161,89 @@ async def test_get_sprint_without_project_skips_health_call(settings: Settings) 
         result = await _get_sprint(client, "s-1")
     assert result == {"id": "s-1", "name": "Orphan"}
     assert "health" not in result
+
+
+async def test_get_sprint_velocity_returns_series_and_forecast_range(settings: Settings) -> None:
+    """A team-band reader gets the last-N committed/completed series and the range."""
+    routes: Routes = {
+        "projects/p-1/velocity/": _json(
+            {
+                "sprints": [
+                    {"id": "s-1", "name": "S1", "committed_points": 22, "completed_points": 20},
+                    {"id": "s-2", "name": "S2", "committed_points": 24, "completed_points": 22},
+                ],
+                "rolling_avg_points": 21.0,
+                "rolling_stdev_points": 1.4,
+                "forecast_range_low": 20,
+                "forecast_range_high": 22,
+                "excluded_count": 0,
+                "_provenance": {"schema_version": 1, "input_hash": "sha256:ab"},
+            }
+        )
+    }
+    async with _client(settings, routes) as client:
+        result = await _get_sprint_velocity(client, "p-1")
+    assert [s["completed_points"] for s in result["sprints"]] == [20, 22]
+    assert [s["committed_points"] for s in result["sprints"]] == [22, 24]
+    assert (result["forecast_range_low"], result["forecast_range_high"]) == (20, 22)
+    # Zero is kept: "no sprints excluded" is an answer, not an empty field.
+    assert result["excluded_count"] == 0
+    assert result["_provenance"]["input_hash"] == "sha256:ab"
+
+
+async def test_get_sprint_velocity_passes_the_suppressed_shape_through(settings: Settings) -> None:
+    """Below the velocity audience the server strips the figures; the tool must not
+    refill them from anywhere, and the discriminator must survive compaction."""
+    seen: list[str] = []
+    suppressed = {
+        "sprints": [],
+        "rolling_avg_points": None,
+        "rolling_stdev_points": None,
+        "forecast_range_low": None,
+        "forecast_range_high": None,
+        "team_velocity_per_day": None,
+        "rolling_avg_tasks": 4.0,
+        "rolling_stdev_tasks": 0.0,
+        "excluded_count": 0,
+        "velocity_suppressed": True,
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        return httpx.Response(200, json=suppressed)
+
+    client = TruePPMClient(settings, transport=httpx.MockTransport(handler))
+    try:
+        result = await _get_sprint_velocity(client, "p-1")
+    finally:
+        await client.aclose()
+    assert result["velocity_suppressed"] is True
+    for field in ("sprints", "rolling_avg_points", "forecast_range_low", "forecast_range_high"):
+        assert field not in result
+    # One read of the gated endpoint and nothing else: no sprint-list fallback.
+    assert seen == ["/api/v1/projects/p-1/velocity/"]
+
+
+async def test_get_sprint_burndown_returns_series_and_pace(settings: Settings) -> None:
+    routes: Routes = {
+        "sprints/s-1/burndown/": _json(
+            {
+                "sprint": {"id": "s-1", "name": "Sprint 1"},
+                "snapshots": [{"snapshot_date": "2026-11-20", "remaining_points": 30}],
+                "burn_status": "BEHIND",
+                "burn_status_reason": "Remaining work is above the ideal line.",
+                "trend_points": None,
+                "projected_finish_date": "2026-12-04",
+                "as_of": "2026-11-26T12:00:00Z",
+            }
+        )
+    }
+    async with _client(settings, routes) as client:
+        result = await _get_sprint_burndown(client, "s-1")
+    assert result["burn_status"] == "BEHIND"
+    assert result["snapshots"][0]["remaining_points"] == 30
+    assert result["projected_finish_date"] == "2026-12-04"
+    assert "trend_points" not in result
 
 
 async def test_get_sprint_close_request_reports_a_terminal_failure(settings: Settings) -> None:

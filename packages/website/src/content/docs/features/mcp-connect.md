@@ -171,7 +171,7 @@ endpoint and returning only what your role permits:
   `list_risks`.
 - **Cost** — `get_project_cost` (planned for 0.5; project Admins and Owners only,
   anyone else gets a structured `cost_restricted` result with no figures).
-- **Sprints** — `list_sprints`, `get_sprint` (aggregates and health bands only), `get_sprint_close_request` (why a sprint asked to close is still open).
+- **Sprints** — `list_sprints`, `get_sprint` (aggregates and health bands only), `get_sprint_close_request` (why a sprint asked to close is still open). Planned for 0.5: `get_sprint_velocity` (the team's velocity trend and forecast range, suppressed unless the team's velocity audience includes you) and `get_sprint_burndown`.
 - **Identity** — `whoami`.
 
 For the full per-tool argument reference and example prompts, see the

@@ -29097,7 +29097,7 @@
         "/api/v1/projects/{id}/velocity/": {
             "get": {
                 "operationId": "v1_projects_velocity_retrieve",
-                "description": "``GET /api/v1/projects/<pk>/velocity/`` — last 8 closed sprints + stats.",
+                "description": "``GET /api/v1/projects/<pk>/velocity/`` — last 8 closed sprints + stats.\n\nAlso the read behind the ``get_sprint_velocity`` MCP tool. An ``mcp:read`` token\nis owner-scoped, so it reads exactly as its owner would: the ADR-0104 gate in ``get``\nruns on the token owner's membership band, and an Admin token at the default TEAM\naudience gets the suppressed shape, not a 403 and not the numbers.",
                 "summary": "Velocity summary — last 8 closed sprints plus rolling stats",
                 "parameters": [
                     {
@@ -29114,6 +29114,9 @@
                     "sprints"
                 ],
                 "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
                     {
                         "personalApiTokenAuth": []
                     },
@@ -84703,9 +84706,18 @@
                     "velocity_suppressed": {
                         "type": "boolean",
                         "readOnly": true
+                    },
+                    "_provenance": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/AnswerProvenance"
+                            }
+                        ],
+                        "title": " provenance"
                     }
                 },
                 "required": [
+                    "_provenance",
                     "excluded_count",
                     "forecast_range_high",
                     "forecast_range_low",

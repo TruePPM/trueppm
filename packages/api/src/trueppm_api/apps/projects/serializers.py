@@ -27,6 +27,7 @@ from trueppm_api.apps.scheduling.headline_forecast import (
     HeadlineForecastKind,
     HeadlineForecastReason,
 )
+from trueppm_api.apps.scheduling.serializers import AnswerProvenanceSerializer
 
 if TYPE_CHECKING:
     from rest_framework.views import APIView
@@ -11544,6 +11545,12 @@ class ProjectVelocitySerializer(serializers.Serializer[dict[str, Any]]):
     # also carries its own `exclude_from_velocity` flag for per-bar marking.
     excluded_count = serializers.IntegerField()
     velocity_suppressed = serializers.BooleanField(read_only=True, required=False)
+
+
+# The answer stamp (ADR-0112 §2.1) is assigned after the class body because a leading
+# underscore is not a valid declarative field name; same pattern as
+# ScheduleDrivingChainSerializer.
+ProjectVelocitySerializer._declared_fields["_provenance"] = AnswerProvenanceSerializer()
 
 
 class PromoteToMilestoneRequestSerializer(serializers.Serializer[dict[str, Any]]):

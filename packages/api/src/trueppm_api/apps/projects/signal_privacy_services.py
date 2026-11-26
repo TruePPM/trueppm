@@ -290,7 +290,7 @@ def suppress_velocity_summary(summary: dict[str, Any]) -> dict[str, Any]:
     return redacted
 
 
-def velocity_summary_for(request: Request, project_id: Any) -> dict[str, Any]:
+def velocity_summary_for(request: Request | None, project_id: Any) -> dict[str, Any]:
     """The ordinary way to read a project's velocity summary: already privacy-gated.
 
     Returns :func:`~trueppm_api.apps.projects.services.velocity_summary_unfiltered`
@@ -303,12 +303,15 @@ def velocity_summary_for(request: Request, project_id: Any) -> dict[str, Any]:
     reforecasts, derived payloads that a view gates field by field), and every call
     to it must carry a ``velocity-unfiltered-ok:`` comment — enforced by
     ``tests/apps/projects/test_velocity_unfiltered_guard.py``.
+
+    Fails closed: with no request there is no reader whose band could be
+    resolved, so the summary comes back suppressed rather than in full.
     """
     from trueppm_api.apps.projects.services import velocity_summary_unfiltered
 
     # velocity-unfiltered-ok: this IS the gated accessor; suppression is on the next line.
     summary = velocity_summary_unfiltered(project_id)
-    if not can_read_signal(request, project_id, "velocity"):
+    if request is None or not can_read_signal(request, project_id, "velocity"):
         return suppress_velocity_summary(summary)
     return summary
 

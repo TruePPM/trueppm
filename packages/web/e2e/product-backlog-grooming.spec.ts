@@ -280,6 +280,60 @@ test.describe('Product backlog grooming (#494/#921/#922)', () => {
     await expect(page.getByTestId('backlog-truncated-notice')).toHaveCount(0);
   });
 
+  // #2411: the release forecast (the `get_release_forecast` MCP answer) on the
+  // Product Owner's own surface. setupApiMocks serves the warming-up shape by default;
+  // the golden path overrides it with a ready Monte Carlo answer.
+  test('shows the backlog release forecast range on the grooming view (#2411)', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/sprint-forecast/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          status: 'ready',
+          remaining_points: 42,
+          remaining_count: null,
+          sample_count: 4,
+          p50_sprints: 3,
+          p80_sprints: 4,
+          p50_date: '2026-12-01',
+          p80_date: '2026-12-15',
+          p95_date: '2026-12-29',
+          basis: 'monte_carlo',
+          forecast_basis: 'velocity',
+          velocity_suppressed: false,
+          horizon_saturated: false,
+        }),
+      }),
+    );
+    await page.goto(`${BASE_URL}/product-backlog`);
+    await expect(page.getByRole('heading', { name: 'Product backlog' })).toBeVisible({
+      timeout: 10_000,
+    });
+    const forecast = page.getByRole('region', { name: 'Backlog forecast' });
+    await expect(forecast.getByTestId('forecast-ready')).toContainText('42');
+    await expect(forecast.getByTestId('forecast-ready')).toContainText('P80');
+  });
+
+  test('shows the warming-up state, not a date, before two sprints close (#2411)', async ({
+    page,
+  }) => {
+    await setup(page);
+    await page.goto(`${BASE_URL}/product-backlog`);
+    const forecast = page.getByRole('region', { name: 'Backlog forecast' });
+    await expect(forecast.getByTestId('forecast-warming-up')).toBeVisible({ timeout: 10_000 });
+    await expect(forecast.getByTestId('forecast-ready')).toHaveCount(0);
+  });
+
+  test('omits the forecast strip on an empty backlog (#2411)', async ({ page }) => {
+    await setup(page, { empty: true });
+    await page.goto(`${BASE_URL}/product-backlog`);
+    await expect(page.getByText('No stories yet')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId('backlog-forecast-strip')).toHaveCount(0);
+  });
+
   test('renders epics, stories, and the active-model score column', async ({ page }) => {
     await setup(page);
     await page.goto(`${BASE_URL}/product-backlog`);

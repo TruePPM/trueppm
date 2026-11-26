@@ -126,7 +126,7 @@ the [MCP server administration guide](/administration/mcp-server/).
 
 Comments on tasks and risks are not readable by agents yet; they are user-authored text and mentions, and a later release (0.5 or after) will decide whether to open them.
 
-The server registers **19 read-only tools** (eleven more are planned for 0.5: `get_project_cost`, `get_schedule_driving_chain`, `get_project_history`, `get_project_views`, `list_dependencies`, `list_baselines`, `get_changeset`, `list_baseline_decisions`, `list_phases`, `list_calendars`, and `get_baseline_variance`), each mapping to one existing REST
+The server registers **19 read-only tools** (thirteen more are planned for 0.5: `get_project_cost`, `get_schedule_driving_chain`, `get_project_history`, `get_project_views`, `list_dependencies`, `list_baselines`, `get_changeset`, `list_baseline_decisions`, `list_phases`, `list_calendars`, `get_baseline_variance`, `get_sprint_velocity`, and `get_sprint_burndown`), each mapping to one existing REST
 endpoint and returning only what your role permits. Results are compacted for an
 LLM context budget: empty and null fields are omitted, long free-text fields are
 truncated (with a `"truncated": true` marker), and project/program results carry
@@ -205,6 +205,8 @@ Planned for 0.5: `get_project_cost` ships in 0.5, with the cost model. Cost is v
 |------|-----------|---------|
 | `list_sprints` | `project_id` | The project's sprints (health bands and aggregates only — no per-person velocity). |
 | `get_sprint` | `sprint_id` | One sprint with its project's health band (aggregates only). |
+| `get_sprint_velocity` | `project_id` | The team's velocity trend: up to the last 8 closed sprints, oldest first, each with committed and completed points and task counts and the change against the prior sprint, plus the rolling average and the forecast **range** (`forecast_range_low` to `forecast_range_high`). Sprints the team excluded from velocity are listed but left out of every statistic. Velocity belongs to the team ([team-private by default](/features/velocity/)): when your token's owner is outside the team's velocity audience, which a project Admin or Owner is until the team shares it upward, the answer is `velocity_suppressed: true` with no series and no point figures. That is a normal answer, not a refusal. Carries a `_provenance` stamp. Ships in 0.5. |
+| `get_sprint_burndown` | `sprint_id` | One sprint's burndown: the daily snapshots (remaining and completed points and task counts, scope changes) and the server's pace verdict (`burn_status` with its reason, `projected_finish_date`), with `as_of` for when the pace was computed. Ships in 0.5. |
 | `get_sprint_close_request` | `sprint_id` | The outcome of the sprint's most recent close attempt — closing is asynchronous, so this is what distinguishes "still running" from "abandoned, and the sprint stays open". Branch on `terminal`, not `status`. |
 
 ### Identity

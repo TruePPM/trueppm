@@ -409,6 +409,7 @@ _PATH_ROUTES = [
     "sprint-health/",
     "forecast/",
     "sprint-forecast/",
+    "velocity/",
     "monte-carlo/latest/",
     "schedule/derivation/",
     "schedule/driving-chain/",

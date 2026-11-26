@@ -26,6 +26,8 @@ const h = vi.hoisted(() => ({
   /** Drives `useSortable().isDragging` so the lifted-row branch is reachable. */
   rowDragging: false,
   planned: [] as Array<{ id: string; name: string }>,
+  /** The /sprint-forecast/ answer the backlog forecast strip renders (#2411). */
+  forecast: undefined as Record<string, unknown> | undefined,
   filters: {
     query: '',
     dorStates: [] as string[],
@@ -179,7 +181,10 @@ vi.mock('@/hooks/useProjectTemplates', () => ({
   useApplyTemplate: () => ({ mutate: h.applyMutate, isPending: false }),
 }));
 
-vi.mock('@/hooks/useSprints', () => ({ useSprintsByState: () => ({ planned: h.planned }) }));
+vi.mock('@/hooks/useSprints', () => ({
+  useSprintsByState: () => ({ planned: h.planned }),
+  useSprintForecast: () => ({ data: h.forecast, isLoading: false }),
+}));
 
 vi.mock('@/stores/createIntentStore', () => ({
   useCreateIntentStore: (sel: (s: { intent: unknown; close: () => void }) => unknown) =>
@@ -548,6 +553,55 @@ describe('ProductBacklogPage truncation notice (#2344)', () => {
 });
 
 // ── Loading / error / empty gates ───────────────────────────────────────────
+const READY_FORECAST = {
+  status: 'ready',
+  remaining_points: 42,
+  remaining_count: null,
+  sample_count: 4,
+  p50_sprints: 3,
+  p80_sprints: 4,
+  p50_date: '2026-12-01',
+  p80_date: '2026-12-15',
+  p95_date: '2026-12-29',
+  basis: 'monte_carlo',
+  forecast_basis: 'velocity',
+  velocity_suppressed: false,
+  horizon_saturated: false,
+};
+
+// #2411: the release forecast the `get_release_forecast` MCP tool returns, shown
+// where the Product Owner grooms instead of only on the project overview.
+describe('backlog release forecast strip', () => {
+  afterEach(() => {
+    h.forecast = undefined;
+  });
+
+  it('renders the P50/P80 backlog forecast on a populated backlog', () => {
+    h.forecast = READY_FORECAST;
+    setData(makeBacklog());
+    renderPage();
+    const strip = screen.getByTestId('backlog-forecast-strip');
+    expect(within(strip).getByRole('region', { name: 'Backlog forecast' })).toBeInTheDocument();
+    expect(within(strip).getByTestId('forecast-ready')).toHaveTextContent('42');
+    expect(within(strip).getByTestId('forecast-ready')).toHaveTextContent('P80');
+  });
+
+  it('shows the team-private state, not figures, when velocity is suppressed', () => {
+    h.forecast = { ...READY_FORECAST, velocity_suppressed: true, p50_sprints: null };
+    setData(makeBacklog());
+    renderPage();
+    expect(screen.getByTestId('forecast-suppressed')).toHaveTextContent('team-private');
+    expect(screen.queryByTestId('forecast-ready')).not.toBeInTheDocument();
+  });
+
+  it('is absent on an empty backlog', () => {
+    h.forecast = READY_FORECAST;
+    setData(makeBacklog({ epics: [], ungrouped: [] }));
+    renderPage();
+    expect(screen.queryByTestId('backlog-forecast-strip')).not.toBeInTheDocument();
+  });
+});
+
 describe('DesktopGroomingView data gates', () => {
   it('shows a skeleton status region while loading', () => {
     h.backlog = { isLoading: true, isError: false, data: undefined };
