@@ -1269,6 +1269,23 @@ export interface WorstMilestone {
   milestoneAtDayEnd?: boolean;
 }
 
+/**
+ * What a gesture's live CPM preview says moves with the dragged task — the data
+ * behind the commit popover's cascade line (#4314). Survives `commitDrag`, which
+ * clears the per-bar preview but not this, because the popover opens on release.
+ */
+export interface DragCascadeSummary {
+  /** The dragged or resized task this summary describes. */
+  taskId: string;
+  /** Downstream tasks whose finish moves. */
+  movedCount: number;
+  /**
+   * Signed calendar-day shift of the project's latest finish (positive = later),
+   * or null when it cannot be stated (no subgraph for this gesture).
+   */
+  finishDeltaDays: number | null;
+}
+
 /** Drag state machine phases */
 export type DragPhase = 'idle' | 'dragging' | 'committing' | 'error' | 'building';
 

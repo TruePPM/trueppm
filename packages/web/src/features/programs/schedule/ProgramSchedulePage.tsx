@@ -20,9 +20,14 @@ import {
   getProgramScheduleInvalidInput,
   type ProgramScheduleExternalTask,
 } from '../hooks/useProgramSchedule';
-import { transformProgramSchedule } from './transformProgramSchedule';
+import {
+  isLaneId,
+  projectIdFromLaneId,
+  transformProgramSchedule,
+} from './transformProgramSchedule';
 import { ProgramScheduleLegend } from './ProgramScheduleLegend';
 import { ExternalTaskHoverCard } from './ExternalTaskHoverCard';
+import { ProgramScheduleMobileList } from './ProgramScheduleMobileList';
 import { ProgramScheduleLiveSync } from './ProgramScheduleLiveSync';
 
 interface HoveredExternal {
@@ -129,6 +134,25 @@ export function ProgramSchedulePage() {
     });
   }, [engine, externalById]);
 
+  // Open a bar (double-click — the engine's `task-open`) on its own
+  // project's schedule, with the task drawer open via the `?task=` deep link
+  // (#3896). Browser Back returns here: the program route is URL-addressable.
+  // A redacted external task is skipped (the viewer cannot open that project);
+  // a synthetic lane row opens its project's schedule.
+  const taskById = useMemo(() => new Map((data?.tasks ?? []).map((t) => [t.id, t])), [data]);
+  useEffect(() => {
+    if (!engine) return;
+    return engine.on('task-open', ({ id }) => {
+      if (isLaneId(id)) {
+        void navigate(`/projects/${projectIdFromLaneId(id)}/schedule`);
+        return;
+      }
+      const task = taskById.get(id);
+      if (!task || task.is_external) return;
+      void navigate(`/projects/${task.project_id}/schedule?task=${task.id}`);
+    });
+  }, [engine, taskById, navigate]);
+
   // Frame the whole program once after the tasks first render — the program may
   // start far from "today", so the default viewport would show empty space.
   useEffect(() => {
@@ -149,17 +173,9 @@ export function ProgramSchedulePage() {
 
   const programName = program?.name ?? 'Program';
 
-  // --- Small viewport: the canvas Gantt is desktop-first; don't mount it. ---
-  if (breakpoint === 'sm') {
-    return (
-      <EmptyState
-        className="h-full"
-        icon={GanttIcon}
-        title="Best viewed on a larger screen"
-        description="The program schedule is a wide timeline. Open it on a tablet or desktop to explore the cross-project critical path."
-      />
-    );
-  }
+  // Phone: the canvas Gantt is desktop-first and is not mounted; the same header
+  // and states frame a project-grouped critical-path list instead (#3480).
+  const isPhone = breakpoint === 'sm';
 
   // A 429 on a refetch is transient (#2839): keep charting the schedule already
   // loaded instead of replacing it with an error, and say the view is not live.
@@ -193,9 +209,11 @@ export function ProgramSchedulePage() {
             </p>
           )}
         </div>
-        {data && data.tasks.length > 0 && <ZoomControl onFit={() => engine?.fitToProject()} />}
+        {!isPhone && data && data.tasks.length > 0 && (
+          <ZoomControl onFit={() => engine?.fitToProject()} />
+        )}
       </div>
-      {data && data.tasks.length > 0 && (
+      {!isPhone && data && data.tasks.length > 0 && (
         <div className="mt-2">
           <ProgramScheduleLegend hasExternalTasks={externalById.size > 0} />
         </div>
@@ -244,6 +262,13 @@ export function ProgramSchedulePage() {
     );
   } else if (!data || data.tasks.length === 0) {
     body = <NoScheduleEmptyState programId={programId} navigate={navigate} />;
+  } else if (isPhone) {
+    body = (
+      <>
+        <ProgramScheduleMobileList data={data} programId={programId} />
+        <ProgramScheduleLiveSync programId={programId ?? ''} projectIds={memberProjectIds} />
+      </>
+    );
   } else {
     body = (
       <div
@@ -321,7 +346,12 @@ export function ProgramSchedulePage() {
  *  pages' `animate-pulse` idiom (e.g. KpiSkeleton). */
 function LoadingSkeleton() {
   return (
-    <div role="status" className="flex-1 space-y-3 p-4" aria-busy="true" aria-label="Loading program schedule">
+    <div
+      role="status"
+      className="flex-1 space-y-3 p-4"
+      aria-busy="true"
+      aria-label="Loading program schedule"
+    >
       {[0, 1, 2].map((lane) => (
         <div key={lane} className="space-y-2">
           <div className="h-4 w-40 motion-safe:animate-pulse rounded-chip bg-neutral-surface-raised" />
