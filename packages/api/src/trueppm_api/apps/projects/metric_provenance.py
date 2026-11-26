@@ -269,6 +269,19 @@ METRIC_DEFINITIONS: dict[str, str] = {
         "manager's latest posted status update. Projects the caller is not a member of "
         "carry only their name."
     ),
+    "rollup.projects_on_track": (
+        "Projects whose schedule health band is on track, out of the projects in this "
+        "program that you are a member of. Projects you cannot open are not counted."
+    ),
+    "rollup.open_risk_count": (
+        "Risks with status open or mitigating (not resolved, closed, accepted or deleted) "
+        "on the projects in this program that you are a member of."
+    ),
+    "rollup.cross_project_link_count": (
+        "Accepted dependencies, counted once per link, whose predecessor and successor "
+        "sit in two different projects of this program that you are a member of. "
+        "Pending proposals and links that leave the program are not counted."
+    ),
 }
 
 #: The figures each owning endpoint defines in its ``definitions`` map (ADR-1314).

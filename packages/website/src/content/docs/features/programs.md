@@ -226,10 +226,30 @@ report (Identity Consolidation); the program P80 excludes it until it reports."
 A project you are not a member of shows only its name: program roles do not
 grant access to a project's figures or its status updates.
 
+Between the lead figure and the rows sit supporting tiles: **Projects on
+track** (by schedule health), **Cross-project links** (accepted dependencies
+between two projects of this program, counted once per link), **Open risks**
+(open or mitigating, not deleted), and **Over-allocated** (people over 100% in at
+least one week). Each is a count the server returns, not one the page tallies,
+and each carries its definition and an "as of" time.
+
+The first three count only the projects you are a member of, because program
+roles do not grant access to a project's figures: counting a project you cannot
+open would let you work out its health or risk count by subtraction. The "of N"
+on **Projects on track** is that same set. **Over-allocated** comes from the
+people-load read for this program, so it covers the projects where you hold
+Scheduler or above and the team has shared its capacity; the tile says how many
+of your projects it leaves out. When no project qualifies, or the read fails, the
+figure is stated on one line instead of shown as a zero. The same line appears
+for **Program budget burn** when the budget-utilization KPI is on and you may see
+cost ("Identity Consolidation has no budget baseline").
+
 The rows come from `GET /programs/{id}/rollup/`, which now carries `projects`
-(one row per project) and `forecast` (the program P80, served whether or not the
-P80 KPI is enabled), and names the projects without a forecast in
-`projects_without_forecast_ids`.
+(one row per project), `forecast` (the program P80, served whether or not the
+P80 KPI is enabled), and `summary` (the three tile counts), and names the
+projects without a forecast in `projects_without_forecast_ids` and, for a caller
+who may see cost, the projects without a budget in
+`kpis.budget_utilization.projects_without_budget_ids`.
 
 ## Program settings
 

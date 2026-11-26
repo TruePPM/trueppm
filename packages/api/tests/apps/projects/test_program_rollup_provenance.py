@@ -147,6 +147,10 @@ def test_carries_as_of_and_a_definition_per_figure(member: Any, program: Program
         "p80_completion": METRIC_DEFINITIONS["rollup.p80_completion"],
         # The overview's rows are always served, so their definition always is.
         "projects": METRIC_DEFINITIONS["rollup.project_row"],
+        # So are the supporting tiles' counts.
+        "projects_on_track": METRIC_DEFINITIONS["rollup.projects_on_track"],
+        "open_risk_count": METRIC_DEFINITIONS["rollup.open_risk_count"],
+        "cross_project_link_count": METRIC_DEFINITIONS["rollup.cross_project_link_count"],
     }
 
 
@@ -154,7 +158,8 @@ def test_carries_as_of_and_a_definition_per_figure(member: Any, program: Program
 def test_every_kpi_has_a_definition(member: Any, program: Program) -> None:
     _configure(program, ALL_KPIS)
     defs = _get(member, program)["definitions"]
-    assert set(defs) == {"program_health", "projects", *ALL_KPIS}
+    tiles = {"projects_on_track", "open_risk_count", "cross_project_link_count"}
+    assert set(defs) == {"program_health", "projects", *tiles, *ALL_KPIS}
     assert all(defs[k] == METRIC_DEFINITIONS[ROLLUP_DEFINITION_KEY[k]] for k in ALL_KPIS)
 
 
@@ -461,3 +466,154 @@ def test_query_count_does_not_grow_with_projects(program: Program, calendar: Cal
         _critical(p)
         _run(p, datetime.date(2027, 1, 1 + i), timezone.now())
     assert count() == two
+
+
+# ---------------------------------------------------------------------------
+# Overview summary tiles (#4799)
+# ---------------------------------------------------------------------------
+
+
+def _on_track(project: Project) -> None:
+    """Two tasks due by today and complete against an active baseline: SPI 1.0."""
+    from trueppm_api.apps.projects.models import Baseline, BaselineTask
+
+    b = Baseline.objects.create(project=project, name="B", is_active=True, has_cpm_dates=True)
+    for i in range(2):
+        t = Task.objects.create(
+            project=project,
+            name=f"done{i}",
+            duration=1,
+            early_finish=TODAY,
+            status=TaskStatus.COMPLETE,
+            actual_finish=TODAY,
+        )
+        BaselineTask.objects.create(
+            baseline=b, task_id=t.pk, task_name=t.name, finish=TODAY, duration=1
+        )
+
+
+@pytest.fixture
+def two_member_projects(member: Any, program: Program, calendar: Calendar) -> tuple[Any, Any]:
+    a = _project(program, calendar, "A")
+    b = _project(program, calendar, "B")
+    for p in (a, b):
+        ProjectMembership.objects.create(project=p, user=member, role=Role.MEMBER)
+    return a, b
+
+
+@pytest.mark.django_db
+def test_summary_counts_risks_and_only_cross_project_accepted_links(
+    member: Any, program: Program, calendar: Calendar, two_member_projects: tuple[Any, Any]
+) -> None:
+    from trueppm_api.apps.projects.models import Dependency, Risk, RiskStatus
+
+    a, b = two_member_projects
+    other = Project.objects.create(
+        name="Elsewhere", start_date=datetime.date(2026, 1, 1), calendar=calendar
+    )
+    ta = Task.objects.create(project=a, name="a1", duration=1)
+    ta2 = Task.objects.create(project=a, name="a2", duration=1)
+    tb = Task.objects.create(project=b, name="b1", duration=1)
+    to = Task.objects.create(project=other, name="o1", duration=1)
+    Dependency.objects.create(predecessor=ta, successor=tb)  # counts
+    Dependency.objects.create(predecessor=ta, successor=ta2)  # same project
+    Dependency.objects.create(predecessor=ta2, successor=to)  # leaves the program
+    Dependency.objects.create(predecessor=tb, successor=ta2, pending_acceptance=True)  # inert
+    Dependency.objects.create(
+        predecessor=tb, successor=ta, is_deleted=True
+    )  # soft-deleted: not a link
+    _on_track(b)
+    Risk.objects.create(project=a, title="r", probability=2, impact=2, status=RiskStatus.OPEN)
+    Risk.objects.create(project=b, title="r", probability=2, impact=2, status=RiskStatus.CLOSED)
+    Risk.objects.create(project=b, title="r", probability=2, impact=2, status=RiskStatus.MITIGATING)
+    Risk.objects.create(
+        project=a, title="gone", probability=2, impact=2, status=RiskStatus.OPEN, is_deleted=True
+    )
+
+    summary = _get(member, program)["summary"]
+
+    assert summary["cross_project_link_count"] == 1
+    assert summary["open_risk_count"] == 2  # OPEN + MITIGATING; CLOSED and soft-deleted drop
+    assert summary["projects_on_track"] == 1
+    assert summary["projects_in_scope_count"] == 2
+
+
+@pytest.mark.django_db
+def test_cross_project_links_are_counted_per_edge(
+    member: Any, program: Program, two_member_projects: tuple[Any, Any]
+) -> None:
+    from trueppm_api.apps.projects.models import Dependency
+
+    a, b = two_member_projects
+    ta = Task.objects.create(project=a, name="a1", duration=1)
+    tb = Task.objects.create(project=b, name="b1", duration=1)
+    Dependency.objects.create(predecessor=ta, successor=tb)
+    Dependency.objects.create(predecessor=tb, successor=ta)  # A→B and B→A: two edges
+
+    assert _get(member, program)["summary"]["cross_project_link_count"] == 2
+
+
+@pytest.mark.django_db
+def test_summary_counts_only_projects_the_caller_can_open(
+    member: Any, program: Program, calendar: Calendar, two_member_projects: tuple[Any, Any]
+) -> None:
+    """A redacted project's band, risks and links cannot be recovered by subtraction."""
+    from trueppm_api.apps.projects.models import Dependency, Risk, RiskStatus
+
+    a, _b = two_member_projects
+    hidden = _project(program, calendar, "Hidden")  # the caller holds no membership on it
+    _on_track(hidden)
+    Risk.objects.create(project=hidden, title="r", probability=2, impact=2, status=RiskStatus.OPEN)
+    Dependency.objects.create(
+        predecessor=Task.objects.create(project=a, name="a1", duration=1),
+        successor=Task.objects.create(project=hidden, name="h1", duration=1),
+    )
+
+    data = _get(member, program)
+
+    assert data["project_count"] == 3  # the program's own figure still spans every project
+    assert data["summary"] == {
+        "projects_in_scope_count": 2,
+        "projects_on_track": 0,
+        "open_risk_count": 0,
+        "cross_project_link_count": 0,
+    }
+
+
+@pytest.mark.django_db
+def test_summary_of_a_caller_with_no_project_membership_is_zeros(
+    member: Any, program: Program, calendar: Calendar
+) -> None:
+    _on_track(_project(program, calendar, "Hidden"))
+    assert _get(member, program)["summary"] == {
+        "projects_in_scope_count": 0,
+        "projects_on_track": 0,
+        "open_risk_count": 0,
+        "cross_project_link_count": 0,
+    }
+
+
+@pytest.mark.django_db
+def test_summary_of_an_empty_program_is_zeros(member: Any, program: Program) -> None:
+    assert _get(member, program)["summary"] == {
+        "projects_in_scope_count": 0,
+        "projects_on_track": 0,
+        "open_risk_count": 0,
+        "cross_project_link_count": 0,
+    }
+
+
+def test_budget_gap_names_the_projects_without_a_budget(
+    owner: Any, program: Program, calendar: Calendar
+) -> None:
+    _configure(program, [RollupKpi.BUDGET_UTILIZATION.value])
+    ProjectMembership.objects.create(
+        project=(unbudgeted := _project(program, calendar, "No budget")),
+        user=owner,
+        role=Role.ADMIN,
+    )
+
+    entry = _get(owner, program)["kpis"]["budget_utilization"]
+
+    assert entry["reason"] == "no_budget"
+    assert entry["projects_without_budget_ids"] == [str(unbudgeted.pk)]

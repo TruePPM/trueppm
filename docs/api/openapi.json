@@ -79175,6 +79175,15 @@
                         ],
                         "readOnly": true,
                         "description": "The p80_completion figure, served whether or not that KPI is enabled, so the overview's lead figure and its partial-rollup line always have a source."
+                    },
+                    "summary": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProgramRollupSummary"
+                            }
+                        ],
+                        "readOnly": true,
+                        "description": "The overview's supporting tiles: counts over the projects of this program the caller is a member of, served whether or not the matching KPI is enabled (#4799)."
                     }
                 },
                 "required": [
@@ -79188,7 +79197,8 @@
                     "program_health",
                     "program_health_reason",
                     "project_count",
-                    "projects"
+                    "projects",
+                    "summary"
                 ]
             },
             "ProgramRollupConfig": {
@@ -79284,6 +79294,21 @@
                         "type": "string",
                         "readOnly": true,
                         "description": "One contributing project: its own latest forecast (P50 and P80) and the P80's working-day delta against its commitment, its schedule band, and its project manager's latest posted status update. Projects the caller is not a member of carry only their name."
+                    },
+                    "projects_on_track": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "Projects whose schedule health band is on track, out of the projects in this program that you are a member of. Projects you cannot open are not counted."
+                    },
+                    "open_risk_count": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "Risks with status open or mitigating (not resolved, closed, accepted or deleted) on the projects in this program that you are a member of."
+                    },
+                    "cross_project_link_count": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "Accepted dependencies, counted once per link, whose predecessor and successor sit in two different projects of this program that you are a member of. Pending proposals and links that leave the program are not counted."
                     }
                 },
                 "required": [
@@ -79292,10 +79317,13 @@
                     "budget_utilization",
                     "cost_variance",
                     "critical_tasks",
+                    "cross_project_link_count",
                     "milestone_health",
+                    "open_risk_count",
                     "p80_completion",
                     "program_health",
                     "projects",
+                    "projects_on_track",
                     "risk_score",
                     "schedule_health",
                     "schedule_variance"
@@ -79326,6 +79354,15 @@
                     "projects_without_budget": {
                         "type": "integer",
                         "readOnly": true
+                    },
+                    "projects_without_budget_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "readOnly": true,
+                        "description": "Which projects projects_without_budget counts (cost-gated callers only)."
                     },
                     "missing_rate_count": {
                         "type": "integer",
@@ -79371,6 +79408,7 @@
                     "driver_project_id",
                     "missing_rate_count",
                     "projects_without_budget",
+                    "projects_without_budget_ids",
                     "projects_without_forecast",
                     "projects_without_forecast_ids",
                     "projects_without_planned_duration",
@@ -79532,6 +79570,38 @@
                     "p80_delta_vs_commitment_days",
                     "p80_delta_vs_commitment_reason",
                     "schedule_health"
+                ]
+            },
+            "ProgramRollupSummary": {
+                "type": "object",
+                "description": "Supporting-tile counts on the program rollup (#4799). One program only.",
+                "properties": {
+                    "projects_in_scope_count": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "description": "Projects the caller is a member of: the set every count below is over, and the denominator of projects_on_track."
+                    },
+                    "projects_on_track": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "description": "Projects whose schedule health band is on_track, of projects_in_scope_count."
+                    },
+                    "open_risk_count": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "description": "Open or mitigating, non-deleted risks across the caller's projects."
+                    },
+                    "cross_project_link_count": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "description": "Accepted dependencies whose predecessor and successor sit in two different projects of this program."
+                    }
+                },
+                "required": [
+                    "cross_project_link_count",
+                    "open_risk_count",
+                    "projects_in_scope_count",
+                    "projects_on_track"
                 ]
             },
             "ProgramSchedule": {

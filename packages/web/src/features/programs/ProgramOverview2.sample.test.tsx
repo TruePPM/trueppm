@@ -9,7 +9,7 @@ vi.mock('@/api/client', () => ({ apiClient: { get: mockGet } }));
 
 const membersFetched = () => mockGet.mock.calls.some(([u]) => String(u).includes('/members'));
 
-function mockApi(program: Record<string, unknown>) {
+function mockApi(program: Record<string, unknown>, rollupData?: Record<string, unknown>) {
   mockGet.mockImplementation((url?: string) => {
     if (typeof url !== 'string') return Promise.resolve({ data: {} });
     if (url.includes('/members')) {
@@ -22,7 +22,12 @@ function mockApi(program: Record<string, unknown>) {
     }
     if (url.includes('/rollup')) {
       return Promise.resolve({
-        data: { project_count: 0, program_health: 'on_track', kpis: {}, projects: [] },
+        data: rollupData ?? {
+          project_count: 0,
+          program_health: 'on_track',
+          kpis: {},
+          projects: [],
+        },
       });
     }
     return Promise.resolve({
@@ -71,5 +76,68 @@ describe('ProgramOverview2 sample banner (#5123)', () => {
     renderV2();
     expect(await screen.findByTestId('program-overview2-empty')).toBeInTheDocument();
     expect(screen.queryByText(/dates may be out of date/i)).not.toBeInTheDocument();
+  });
+});
+
+const rrow = (id: string, name: string) => ({
+  id,
+  name,
+  accessible: false,
+  schedule_health: null,
+  p50: null,
+  p80: null,
+  forecast_as_of: null,
+  commitment_date: null,
+  p80_delta_vs_commitment_days: null,
+  p80_delta_vs_commitment_reason: null,
+  lead_name: null,
+  latest_update: null,
+});
+
+function scopedRollup(inScope: number) {
+  return {
+    project_count: 3,
+    program_health: 'on_track',
+    kpis: {},
+    projects: [rrow('a', 'Alpha'), rrow('b', 'Beta'), rrow('c', 'Gamma')],
+    summary: {
+      projects_in_scope_count: inScope,
+      projects_on_track: 0,
+      open_risk_count: 0,
+      cross_project_link_count: 0,
+    },
+  };
+}
+
+describe('ProgramOverview2 summary scope (#4799)', () => {
+  beforeEach(() => mockGet.mockReset());
+
+  it('shows a not-computable line, never 0 of 0, when no listed project is in scope', async () => {
+    mockApi({ is_sample: false, my_role: 400 }, scopedRollup(0));
+    renderV2();
+    expect(
+      await screen.findByText(/not a member of any project in this program/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Open risks')).not.toBeInTheDocument();
+    expect(screen.queryByText(/0 of 0/)).not.toBeInTheDocument();
+  });
+
+  it('says how many projects the counts leave out on a partial scope', async () => {
+    mockApi({ is_sample: false, my_role: 400 }, scopedRollup(1));
+    renderV2();
+    expect(
+      await screen.findByText('open or mitigating; 2 projects not counted'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/accepted dependencies between projects; 2 projects not counted/),
+    ).toBeInTheDocument();
+  });
+
+  it('uses the singular when exactly one project is left out', async () => {
+    mockApi({ is_sample: false, my_role: 400 }, scopedRollup(2));
+    renderV2();
+    expect(
+      await screen.findByText('open or mitigating; 1 project not counted'),
+    ).toBeInTheDocument();
   });
 });

@@ -77,7 +77,7 @@ const ROWS = [
   row(C, 'Identity Consolidation'),
 ];
 
-function rollup(projects: unknown[], withoutIds: string[]) {
+function rollup(projects: unknown[], withoutIds: string[], budget?: unknown) {
   const forecast = {
     available: true,
     unit: 'date',
@@ -95,7 +95,7 @@ function rollup(projects: unknown[], withoutIds: string[]) {
     project_count: projects.length,
     program_health: projects.length ? 'at_risk' : 'unknown',
     program_health_reason: projects.length ? null : 'no_projects',
-    kpis: { p80_completion: forecast },
+    kpis: { p80_completion: forecast, ...(budget ? { budget_utilization: budget } : {}) },
     as_of: '2026-11-20T09:12:00Z',
     definitions: {
       program_health: 'Server program health sentence.',
@@ -103,10 +103,32 @@ function rollup(projects: unknown[], withoutIds: string[]) {
     },
     projects,
     forecast,
+    summary: {
+      projects_in_scope_count: 3,
+      projects_on_track: 1,
+      open_risk_count: 4,
+      cross_project_link_count: 2,
+    },
   };
 }
 
-async function open(page: Page, body: unknown) {
+const LOAD = (over: number, reason: string | null, withheld = 1) => ({
+  as_of: '2026-11-20T09:12:00Z',
+  window: { start: '2026-11-16', end: '2027-01-10' },
+  weeks: ['2026-11-16'],
+  scope: {
+    project_count: 2,
+    withheld_project_count: withheld,
+    capacity_withheld_project_count: 0,
+    program_id: PROGRAM_ID,
+  },
+  people: [],
+  over_allocated_count: over,
+  reason,
+  definitions: { load_pct: 'Load sentence.', over_allocated_count: 'Over-allocated sentence.' },
+});
+
+async function open(page: Page, body: unknown, load: unknown = LOAD(2, null)) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -136,6 +158,9 @@ async function open(page: Page, body: unknown) {
   await page.route('**/api/v1/edition/', (r) => r.fulfill(json({ edition: 'community' })));
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/`, (r) => r.fulfill(json(PROGRAM)));
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/projects/`, (r) => r.fulfill(json([])));
+  await page.route('**/api/v1/me/people-load/**', (r) =>
+    load === 'fail' ? r.fulfill({ status: 500, body: '{}' }) : r.fulfill(json(load)),
+  );
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/rollup/`, (r) => r.fulfill(json(body)));
   await page.goto(`/programs/${PROGRAM_ID}?ff=shell_v2`);
   await expect(page.getByTestId('program-overview2')).toBeVisible({ timeout: 10_000 });
@@ -160,6 +185,85 @@ test.describe('shell v2 program overview', () => {
     await expect(page.getByTestId('program-overview2-partial')).toHaveCount(0);
     await expect(page.getByText(/Enterprise/)).toHaveCount(0);
     await expectNoA11yViolationsBothThemes(page, testInfo);
+  });
+
+  test('supporting tiles are the server counts; over-allocated is the scoped people-load figure', async ({
+    page,
+  }) => {
+    await open(
+      page,
+      rollup(ROWS, [], {
+        available: false,
+        reason: 'no_budget',
+        projects_without_budget: 1,
+        projects_without_budget_ids: [C],
+      }),
+    );
+    const tiles = page.getByTestId('program-overview2-tile');
+    await expect(tiles).toHaveCount(4);
+    await expect(tiles.nth(0)).toContainText('1 of 3');
+    await expect(tiles.nth(1)).toContainText('2');
+    await expect(tiles.nth(2)).toContainText('4');
+    await expect(tiles.nth(3)).toContainText('Over-allocated');
+    await expect(tiles.nth(3)).toContainText('1 project withheld');
+    const lines = page.getByTestId('not-computable');
+    await expect(lines).toHaveCount(1);
+    await expect(lines.nth(0)).toContainText(
+      'Program budget burn can’t be computed: Identity Consolidation has no budget baseline.',
+    );
+  });
+
+  test('no project in scope: not-computable line, never 0 of 0', async ({ page }, testInfo) => {
+    const body = rollup(
+      ROWS.map((r) => ({ ...r, accessible: false })),
+      [],
+    );
+    body.summary.projects_in_scope_count = 0;
+    body.summary.projects_on_track = 0;
+    await open(page, body);
+    await expect(page.getByTestId('not-computable').first()).toContainText(
+      'not a member of any project in this program',
+    );
+    await expect(
+      page.getByTestId('program-overview2-tile').filter({ hasText: 'Open risks' }),
+    ).toHaveCount(0);
+    await expect(page.getByText('0 of 0')).toHaveCount(0);
+    await expectNoA11yViolationsBothThemes(page, testInfo);
+  });
+
+  test('partial scope: the count tiles say how many projects they leave out', async ({ page }) => {
+    const body = rollup(
+      ROWS.map((r, i) => ({ ...r, accessible: i === 0 })),
+      [],
+    );
+    body.summary.projects_in_scope_count = 1;
+    await open(page, body);
+    await expect(page.getByTestId('program-overview2-tile').nth(2)).toContainText(
+      '2 projects not counted',
+    );
+  });
+
+  test('no budget line when the budget KPI is not configured', async ({ page }) => {
+    await open(page, rollup(ROWS, []));
+    await expect(page.getByTestId('program-overview2-tile')).toHaveCount(4);
+    await expect(page.getByTestId('not-computable')).toHaveCount(0);
+    await expect(page.getByText('Program budget burn')).toHaveCount(0);
+  });
+
+  test('over-allocated says why not when the caller schedules no project, or the read fails', async ({
+    page,
+  }) => {
+    await open(page, rollup(ROWS, []), LOAD(0, 'no_projects', 0));
+    await expect(page.getByTestId('program-overview2-tile')).toHaveCount(3);
+    await expect(page.getByTestId('not-computable')).toContainText(
+      'Over-allocated can’t be computed: you do not hold a Scheduler role',
+    );
+  });
+
+  test('a failed people-load read leaves a not-computable line, never a zero', async ({ page }) => {
+    await open(page, rollup(ROWS, []), 'fail');
+    await expect(page.getByTestId('not-computable')).toContainText('the load figure did not load');
+    await expect(page.getByTestId('program-overview2-tile')).toHaveCount(3);
   });
 
   test('empty program: one add action, no upsell', async ({ page }) => {

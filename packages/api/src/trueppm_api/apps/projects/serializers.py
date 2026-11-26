@@ -3561,6 +3561,12 @@ class ProgramRollupKpiEntrySerializer(serializers.Serializer[dict[str, Any]]):
     # Cost-KPI detail (ADR-1324 §3) — present on cost_variance / budget_utilization
     # whenever the caller may see cost, so a reason names how much is missing.
     projects_without_budget = serializers.IntegerField(read_only=True, required=False)
+    projects_without_budget_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        read_only=True,
+        required=False,
+        help_text="Which projects projects_without_budget counts (cost-gated callers only).",
+    )
     missing_rate_count = serializers.IntegerField(read_only=True, required=False)
     projects_without_planned_duration = serializers.IntegerField(
         read_only=True,
@@ -3702,6 +3708,44 @@ class ProgramRollupDefinitionsSerializer(serializers.Serializer[dict[str, str]])
     projects = serializers.CharField(
         read_only=True, required=False, help_text=METRIC_DEFINITIONS["rollup.project_row"]
     )
+    projects_on_track = serializers.CharField(
+        read_only=True, required=False, help_text=METRIC_DEFINITIONS["rollup.projects_on_track"]
+    )
+    open_risk_count = serializers.CharField(
+        read_only=True, required=False, help_text=METRIC_DEFINITIONS["rollup.open_risk_count"]
+    )
+    cross_project_link_count = serializers.CharField(
+        read_only=True,
+        required=False,
+        help_text=METRIC_DEFINITIONS["rollup.cross_project_link_count"],
+    )
+
+
+class ProgramRollupSummarySerializer(serializers.Serializer[dict[str, Any]]):
+    """Supporting-tile counts on the program rollup (#4799). One program only."""
+
+    projects_in_scope_count = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Projects the caller is a member of: the set every count below is over, and "
+            "the denominator of projects_on_track."
+        ),
+    )
+    projects_on_track = serializers.IntegerField(
+        read_only=True,
+        help_text="Projects whose schedule health band is on_track, of projects_in_scope_count.",
+    )
+    open_risk_count = serializers.IntegerField(
+        read_only=True,
+        help_text="Open or mitigating, non-deleted risks across the caller's projects.",
+    )
+    cross_project_link_count = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Accepted dependencies whose predecessor and successor sit in two different "
+            "projects of this program."
+        ),
+    )
 
 
 class ProgramRollupSerializer(serializers.Serializer[dict[str, Any]]):
@@ -3760,6 +3804,14 @@ class ProgramRollupSerializer(serializers.Serializer[dict[str, Any]]):
         help_text=(
             "The p80_completion figure, served whether or not that KPI is enabled, so the "
             "overview's lead figure and its partial-rollup line always have a source."
+        ),
+    )
+    summary = ProgramRollupSummarySerializer(
+        read_only=True,
+        help_text=(
+            "The overview's supporting tiles: counts over the projects of this program the "
+            "caller is a member of, served whether or not the matching KPI is enabled "
+            "(#4799)."
         ),
     )
 

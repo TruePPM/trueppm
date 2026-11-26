@@ -42,6 +42,8 @@ interface AvailableKpi {
   unit?: string;
   reason?: string;
   projects_without_budget?: number;
+  /** Which projects `projects_without_budget` counts; served only to a cost-gated caller (#4799). */
+  projects_without_budget_ids?: string[];
   missing_rate_count?: number;
   projects_without_planned_duration?: number;
   as_of?: string | null;
@@ -67,6 +69,7 @@ interface UnavailableKpi {
     | 'no_planned_duration'
     | 'cost_restricted';
   projects_without_budget?: number;
+  projects_without_budget_ids?: string[];
   missing_rate_count?: number;
   projects_without_planned_duration?: number;
 }
@@ -103,6 +106,15 @@ export interface ProgramRollupRow {
   latest_update: ProgramRollupLatestUpdate | null;
 }
 
+/** The overview's supporting-tile counts, all server facts (#4799). */
+export interface ProgramRollupSummary {
+  /** Projects the caller is a member of: what every count here is over. */
+  projects_in_scope_count: number;
+  projects_on_track: number;
+  open_risk_count: number;
+  cross_project_link_count: number;
+}
+
 export interface ProgramRollup {
   aggregation_policy: AggregationPolicy;
   policy_available: boolean;
@@ -125,6 +137,8 @@ export interface ProgramRollup {
   projects?: ProgramRollupRow[];
   /** The p80_completion figure, served whether or not that KPI is enabled (#4799). */
   forecast?: AvailableKpi;
+  /** Counts behind the supporting tiles (#4799). */
+  summary?: ProgramRollupSummary;
 }
 
 // ---------------------------------------------------------------------------

@@ -3327,6 +3327,7 @@ class ProgramViewSet(
             compute_program_rollup,
             p80_completion_entry,
             program_project_rows,
+            program_summary,
         )
 
         program = self.get_object()
@@ -3372,9 +3373,16 @@ class ProgramViewSet(
             if kpi_entry is not None and kpi_entry.get("available")
             else p80_completion_entry([row["id"] for row in payload["projects"]])
         )
+        # Counts only over the projects the caller can open: a count that included a
+        # redacted project would disclose its band or risk total by subtraction.
+        payload["summary"] = program_summary(
+            [row["id"] for row in payload["projects"] if row["accessible"]], schedule_bands
+        )
         # The lead P80 and the rows are defined whether or not the KPI is enabled.
         payload["definitions"]["p80_completion"] = METRIC_DEFINITIONS["rollup.p80_completion"]
         payload["definitions"]["projects"] = METRIC_DEFINITIONS["rollup.project_row"]
+        for key in ("projects_on_track", "open_risk_count", "cross_project_link_count"):
+            payload["definitions"][key] = METRIC_DEFINITIONS[f"rollup.{key}"]
         return Response(payload)
 
     @extend_schema(
