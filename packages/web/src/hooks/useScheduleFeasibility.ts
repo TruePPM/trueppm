@@ -11,12 +11,13 @@ export function scheduleFeasibilityKey(projectId: string) {
 export function isScheduleFeasibility(data: unknown): data is ScheduleFeasibility {
   if (typeof data !== 'object' || data === null) return false;
   const d = data as Record<string, unknown>;
-  return typeof d.computable === 'boolean' && Array.isArray(d.cycle) && Array.isArray(d.tasks);
+  return typeof d.computable === 'boolean' && Array.isArray(d.cycle);
 }
 
 /**
- * Whether the server can compute this project's schedule
- * (`GET /projects/{id}/schedule/feasibility/`, #5106).
+ * Whether this project's dependency links form a loop
+ * (`GET /projects/{id}/schedule/feasibility/`, #5106). It answers only that:
+ * `computable: true` means no loop was found, not that every scheduler check passes.
  *
  * The loop and its definition are server facts — the engine's own cycle check —
  * so the page never infers a loop from the links it holds. Refetched every 30 s

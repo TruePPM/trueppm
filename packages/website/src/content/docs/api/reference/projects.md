@@ -231,20 +231,21 @@ The driving-chain endpoint ships in 0.5 (ADR-1381). In 0.4, call
 
 ### Schedule feasibility
 
-`GET /api/v1/projects/{id}/schedule/feasibility/` says whether the scheduler can
-compute the project's stored network and, if not, why. It builds the scheduler input
-the same way the background recalculation does and asks the engine's own cycle check
-for a loop, so a client never has to infer a loop from the links it holds. No CPM pass
-runs. Any project member (Viewer and up) and an `mcp:read` token may read it; a
-non-member gets 403 and an unknown or trashed project 404.
+`GET /api/v1/projects/{id}/schedule/feasibility/` answers one question: do the
+project's dependency links form a loop? It builds the scheduler input the same way the
+background recalculation does and asks the engine's own cycle check, so a client never
+has to infer a loop from the links it holds. No CPM pass runs, so `computable: true`
+means no loop was found, not that every other scheduler check passes. Any project
+member (Viewer and up) and an `mcp:read` token may read it; a non-member gets 403 and
+an unknown or trashed project 404. If the scheduler input cannot be built at all, the
+answer is 422 with a fixed `detail`, and no verdict either way. Reads share the
+`cpm_on_read` rate limit with the derivation and driving-chain reads.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `computable` | `boolean` | `false` when the stored network is one the scheduler refuses |
-| `code` | `string \| null` | `cyclic_dependency` (the links form a loop) or `invalid_input` (another input the scheduler refuses). `null` exactly when `computable` is `true` |
+| `computable` | `boolean` | `false` when the dependency links form a loop |
+| `code` | `string \| null` | `cyclic_dependency` when the links form a loop. `null` exactly when `computable` is `true` |
 | `cycle` | `array` | `{id, name}` for each task in the loop, in order, each once (the path returns to the first). Empty unless `code` is `cyclic_dependency` |
-| `tasks` | `array` | `{id, name}` for the tasks the scheduler's message names, for `invalid_input`. Empty otherwise |
-| `detail` | `string \| null` | The scheduler's refusal message for `invalid_input` |
 | `definition` | `string \| null` | One sentence defining `code`; `null` when computable |
 | `as_of` | `datetime` | When the server checked the network |
 

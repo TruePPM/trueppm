@@ -52,7 +52,8 @@ def test_acyclic_network_is_computable(project: Project, tasks: dict[str, Task])
     assert body["computable"] is True
     assert body["code"] is None
     assert body["cycle"] == []
-    assert body["tasks"] == []
+    assert "tasks" not in body
+    assert "detail" not in body
     assert body["definition"] is None
     assert body["as_of"]
 
@@ -118,3 +119,121 @@ def test_unknown_and_trashed_project_404(project: Project) -> None:
 @pytest.mark.parametrize("role", [Role.VIEWER, Role.MEMBER, Role.SCHEDULER, Role.ADMIN, Role.OWNER])
 def test_every_member_role_reads_it(project: Project, role: str) -> None:
     assert _client(project, role).get(url(project.pk)).status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# The contract is "is there a dependency loop", and nothing more (#5106)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_a_non_loop_refusal_is_not_reported_as_a_loop(project: Project) -> None:
+    """``computable`` means "no loop found", not "schedule() would succeed".
+
+    An empty project is one ``schedule()`` refuses (``InvalidScheduleInput``: no
+    tasks), and the endpoint never runs ``schedule()`` — so it must not answer as if it
+    had found something, and in particular must not call it a loop.
+    """
+    from trueppm_scheduler import CyclicDependencyError, InvalidScheduleInput, schedule
+
+    from trueppm_api.apps.scheduling.views import _build_cpm_sched_project
+
+    with pytest.raises(InvalidScheduleInput) as refused:
+        schedule(_build_cpm_sched_project(project, str(project.pk)))
+    assert not isinstance(refused.value, CyclicDependencyError)
+
+    body = _client(project, Role.VIEWER).get(url(project.pk)).json()
+    assert body["computable"] is True
+    assert body["code"] is None
+    assert body["cycle"] == []
+
+
+def test_the_contract_names_only_the_loop() -> None:
+    """Neither the payload, its definitions nor the published docs claim more."""
+    import json
+    from pathlib import Path
+
+    from trueppm_api.apps.scheduling.serializers import (
+        SCHEDULE_FEASIBILITY_CODE_CHOICES,
+        ScheduleFeasibilitySerializer,
+    )
+    from trueppm_api.apps.scheduling.views import SCHEDULE_FEASIBILITY_DEFINITIONS
+
+    assert SCHEDULE_FEASIBILITY_CODE_CHOICES == ["cyclic_dependency"]
+    assert set(SCHEDULE_FEASIBILITY_DEFINITIONS) == {"cyclic_dependency"}
+    assert set(ScheduleFeasibilitySerializer().fields) == {
+        "project_id",
+        "computable",
+        "code",
+        "cycle",
+        "definition",
+        "as_of",
+    }
+
+    root = Path(__file__).resolve().parents[5]
+    schema = json.loads((root / "docs/api/openapi.json").read_text())
+    component = schema["components"]["schemas"]["ScheduleFeasibility"]
+    assert set(component["properties"]) == set(ScheduleFeasibilitySerializer().fields)
+    assert "invalid_input" not in json.dumps(component)
+    docs = root / "packages/website/src/content/docs"
+    for page in ("api/reference/projects.md", "features/schedule/index.md"):
+        assert "invalid_input" not in (docs / page).read_text(), page
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "exc",
+    [
+        "scheduler",
+        "value",
+    ],
+)
+def test_an_input_that_cannot_be_built_answers_422_with_fixed_text(
+    project: Project, tasks: dict[str, Task], exc: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The builder's message never reaches a Viewer: it can name ids and limits."""
+    from trueppm_scheduler import InvalidScheduleInput
+
+    from trueppm_api.apps.scheduling import views
+
+    secret = f"task {tasks['A'].pk} exceeds internal limit 12345"
+    error: Exception = InvalidScheduleInput(secret) if exc == "scheduler" else ValueError(secret)
+
+    def _boom(*_a: object, **_k: object) -> object:
+        raise error
+
+    monkeypatch.setattr(views, "_build_cpm_sched_project", _boom)
+    resp = _client(project, Role.VIEWER).get(url(project.pk))
+    assert resp.status_code == 422, resp.content
+    assert resp.json() == {"detail": views.SCHEDULE_FEASIBILITY_UNCHECKED_DETAIL}
+    assert str(tasks["A"].pk) not in resp.content.decode()
+    assert "12345" not in resp.content.decode()
+
+
+@pytest.mark.django_db
+def test_an_unexpected_error_is_not_swallowed(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only SchedulerError and ValueError are answered; anything else is a real fault."""
+    from trueppm_api.apps.scheduling import views
+
+    def _boom(*_a: object, **_k: object) -> object:
+        raise KeyError("x")
+
+    monkeypatch.setattr(views, "_build_cpm_sched_project", _boom)
+    c = _client(project, Role.VIEWER)
+    c.raise_request_exception = True
+    with pytest.raises(KeyError):
+        c.get(url(project.pk))
+
+
+@pytest.mark.django_db
+def test_session_caller_is_throttled_by_cpm_on_read(
+    project: Project, tasks: dict[str, Task], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rest_framework.throttling import ScopedRateThrottle
+
+    monkeypatch.setitem(ScopedRateThrottle.THROTTLE_RATES, "cpm_on_read", "2/min")
+    c = _client(project, Role.VIEWER)
+    statuses = [c.get(url(project.pk)).status_code for _ in range(3)]
+    assert statuses == [200, 200, 429]

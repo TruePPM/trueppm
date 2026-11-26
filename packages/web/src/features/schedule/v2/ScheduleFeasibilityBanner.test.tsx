@@ -16,8 +16,6 @@ const LOOP: ScheduleFeasibility = {
   computable: false,
   code: 'cyclic_dependency',
   cycle: [t('Design'), t('Build'), t('Test')],
-  tasks: [],
-  detail: null,
   definition: 'Server sentence about loops.',
   as_of: '2026-11-26T10:00:00Z',
 };
@@ -50,11 +48,12 @@ describe('ScheduleFeasibilityBanner', () => {
     expect(screen.getByText('Server sentence about loops.')).toBeInTheDocument();
   });
 
-  it('shows the scheduler detail for a non-loop refusal', () => {
-    data = { ...LOOP, code: 'invalid_input', cycle: [], detail: 'Bad SS link.' };
+  it('never renders scheduler text the payload does not carry', () => {
+    // The endpoint reports loops only (#5106): an extra field a server might send is
+    // not shown, so the banner cannot become a channel for raw engine messages.
+    data = { ...LOOP, detail: 'raw engine text' } as ScheduleFeasibility;
     render(<ScheduleFeasibilityBanner projectId="p1" />);
-    expect(screen.getByText('Bad SS link.')).toBeInTheDocument();
-    expect(screen.queryByTestId('schedule-feasibility-loop')).not.toBeInTheDocument();
+    expect(screen.queryByText('raw engine text')).not.toBeInTheDocument();
   });
 
   it.each([

@@ -1142,29 +1142,29 @@ export interface DrivingChainEdge {
   via_summary: DrivingChainViaSummary[] | null
 }
 
-/** Bounded, provenance-stamped driving chain through one task (ADR-1381, #4891). */
-/** One task a schedule-feasibility refusal names (#5106). */
+/** One task in a dependency loop the schedule-feasibility check found (#5106). */
 export interface ScheduleFeasibilityTask {
   id: string
   name: string
 }
 
 /**
- * `GET /projects/{id}/schedule/feasibility/` (#5106): whether the scheduler can
- * compute the stored network. The loop is the engine's `find_cycle` result, served
- * in order with each task once; `definition` is the server's sentence for `code`.
+ * `GET /projects/{id}/schedule/feasibility/` (#5106): whether the project's
+ * dependency links form a loop. It answers only that question — `computable` means
+ * "no loop found", not that every other scheduler check passes. The loop is the
+ * engine's `find_cycle` result, served in order with each task once; `definition`
+ * is the server's sentence for `code`.
  */
 export interface ScheduleFeasibility {
   project_id: string
   computable: boolean
-  code: 'cyclic_dependency' | 'invalid_input' | null
+  code: 'cyclic_dependency' | null
   cycle: ScheduleFeasibilityTask[]
-  tasks: ScheduleFeasibilityTask[]
-  detail: string | null
   definition: string | null
   as_of: string
 }
 
+/** Bounded, provenance-stamped driving chain through one task (ADR-1381, #4891). */
 export interface ScheduleDrivingChain {
   schema_version: number
   project_id: string

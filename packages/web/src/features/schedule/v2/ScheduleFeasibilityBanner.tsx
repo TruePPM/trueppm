@@ -19,13 +19,14 @@ export function describeLoop(cycle: ScheduleFeasibility['cycle']): string {
 
 /**
  * Shell v2 Schedule error state (#5106): "Schedule couldn't be computed", naming
- * the tasks the server's cycle check found. Renders nothing while the verdict is
- * loading, failed, or computable — a missing verdict is never shown as a refusal.
+ * the dependency loop the server's cycle check found. The check reports loops and
+ * nothing else, so this banner is only ever about a loop. Renders nothing while the
+ * verdict is loading, failed, or computable — a missing verdict is never shown as a
+ * refusal.
  */
 export function ScheduleFeasibilityBanner({ projectId }: { projectId: string }) {
   const { data } = useScheduleFeasibility(projectId);
   if (!data || data.computable) return null;
-  const isLoop = data.code === 'cyclic_dependency' && data.cycle.length > 0;
   return (
     <div
       role="alert"
@@ -33,13 +34,11 @@ export function ScheduleFeasibilityBanner({ projectId }: { projectId: string }) 
       className="flex flex-col gap-1 border-b border-semantic-critical/40 bg-semantic-critical-bg px-4 py-2 text-sm text-neutral-text-primary"
     >
       <p className="font-semibold text-semantic-critical">Schedule couldn&apos;t be computed</p>
-      {isLoop ? (
+      {data.cycle.length > 0 && (
         <p>
           Dependency loop:{' '}
           <span data-testid="schedule-feasibility-loop">{describeLoop(data.cycle)}</span>
         </p>
-      ) : (
-        data.detail && <p>{data.detail}</p>
       )}
       {data.definition && <p className="text-neutral-text-secondary">{data.definition}</p>}
       <p className="text-neutral-text-secondary">

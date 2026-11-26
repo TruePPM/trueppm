@@ -141,8 +141,6 @@ function feasibility(loop: boolean) {
           { id: '00000000-0000-4000-8000-0000000000a3', name: 'Work item 6' },
         ]
       : [],
-    tasks: [],
-    detail: null,
     definition: loop
       ? 'These tasks wait on each other in a loop, so none of them can start first and no dates can be computed. Remove or reverse one link in the loop.'
       : null,

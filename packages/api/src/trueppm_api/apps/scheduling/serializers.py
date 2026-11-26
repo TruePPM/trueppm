@@ -1087,36 +1087,39 @@ class ScheduleDrivingChainSerializer(serializers.Serializer[dict[str, Any]]):
 ScheduleDrivingChainSerializer._declared_fields["_provenance"] = AnswerProvenanceSerializer()
 
 
-SCHEDULE_FEASIBILITY_CODE_CHOICES = ["cyclic_dependency", "invalid_input"]
+SCHEDULE_FEASIBILITY_CODE_CHOICES = ["cyclic_dependency"]
 
 
 class ScheduleFeasibilityTaskSerializer(serializers.Serializer[dict[str, Any]]):
-    """One task the scheduler's refusal names."""
+    """One task in a dependency loop."""
 
     id = serializers.UUIDField()
     name = serializers.CharField()
 
 
 class ScheduleFeasibilitySerializer(serializers.Serializer[dict[str, Any]]):
-    """Whether the scheduler can compute this project's schedule, and if not why (#5106).
+    """Whether this project's dependency links form a loop (#5106).
 
     The verdict is the engine's own: shaping runs through the same converters the
     deterministic pass uses, and a loop is found by ``trueppm_scheduler.find_cycle``.
     Nothing here is re-derived in the API, so the Schedule page's error state names the
-    same tasks the recalculation refused on.
+    same tasks the recalculation refused on. It answers only the loop question: the
+    engine's other refusals are raised inside ``schedule()``, which this read never runs.
     """
 
     project_id = serializers.UUIDField()
     computable = serializers.BooleanField(
-        help_text="False when the stored network is one the scheduler refuses."
+        help_text=(
+            "False when the dependency links form a loop. True means no loop was found, "
+            "not that every other scheduler check passes."
+        )
     )
     code = serializers.ChoiceField(
         choices=SCHEDULE_FEASIBILITY_CODE_CHOICES,
         allow_null=True,
         help_text=(
-            "Why the schedule cannot be computed: `cyclic_dependency` — the dependency "
-            "links form a loop (`cycle` lists it); `invalid_input` — another input the "
-            "scheduler refuses (`detail` says which). Null exactly when computable."
+            "`cyclic_dependency` when the dependency links form a loop (`cycle` lists "
+            "it). Null exactly when computable."
         ),
     )
     cycle = ScheduleFeasibilityTaskSerializer(
@@ -1126,18 +1129,8 @@ class ScheduleFeasibilitySerializer(serializers.Serializer[dict[str, Any]]):
             "unless code is `cyclic_dependency`."
         ),
     )
-    tasks = ScheduleFeasibilityTaskSerializer(
-        many=True,
-        help_text=(
-            "For `invalid_input`, the tasks the scheduler's message names. Empty otherwise."
-        ),
-    )
-    detail = serializers.CharField(
-        allow_null=True,
-        help_text="The scheduler's refusal message for `invalid_input`; null otherwise.",
-    )
     definition = serializers.CharField(
         allow_null=True,
-        help_text="One sentence defining the refusal `code`; null when computable.",
+        help_text="One sentence defining `code`; null when computable.",
     )
     as_of = serializers.DateTimeField(help_text="When the server checked the network.")

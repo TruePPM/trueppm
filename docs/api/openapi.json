@@ -27309,8 +27309,8 @@
         "/api/v1/projects/{id}/schedule/feasibility/": {
             "get": {
                 "operationId": "project_schedule_feasibility",
-                "description": "Whether this project's stored network can be scheduled, and why not (#5106).\n\n``GET /projects/<pk>/schedule/feasibility/``\n\nThe interactive write path refuses a link that closes a loop, but older writes,\nimports and structural edits can still leave one behind; the background\nrecalculation then fails with the engine's message held Admin-only on the failed\nrun, and every reader of the Schedule page sees stale dates with no reason. This\nread gives the page the reason as a fact: it builds the scheduler input through\nthe shared converters ``_run_schedule`` uses and asks the engine's\n:func:`trueppm_scheduler.find_cycle` for a loop. No CPM pass runs, so it holds no\nCPM slot; the cost is the task/dependency read the page already pays for.\n\nRBAC mirrors :class:`ScheduleDrivingChainView`: any project member (Viewer+), plus\nan ``mcp:read`` token on safe methods. Task names are already readable at Viewer.",
-                "summary": "Whether the project's schedule can be computed",
+                "description": "Whether this project's dependency links form a loop (#5106).\n\n``GET /projects/<pk>/schedule/feasibility/``\n\nThe interactive write path refuses a link that closes a loop, but older writes,\nimports and structural edits can still leave one behind; the background\nrecalculation then fails with the engine's message held Admin-only on the failed\nrun, and every reader of the Schedule page sees stale dates with no reason. This\nread gives the page that reason as a fact: it builds the scheduler input through\nthe shared converters ``_run_schedule`` uses and asks the engine's\n:func:`trueppm_scheduler.find_cycle` for a loop.\n\nThe contract is deliberately that one question. ``computable`` means \"no\ndependency loop found\", not \"``schedule()`` would succeed\": the engine's other\nrefusals (an unknown calendar, a summary SS/SF link, an empty project, …) are\nraised inside ``schedule()``, which this view never calls — no CPM pass runs. If\nthe input cannot even be built, the view answers 422 with a fixed message rather\nthan guess a verdict either way.\n\nRBAC mirrors :class:`ScheduleDrivingChainView`: any project member (Viewer+), plus\nan ``mcp:read`` token on safe methods. Task names are already readable at Viewer.",
+                "summary": "Whether the project's dependency links form a loop",
                 "parameters": [
                     {
                         "in": "path",
@@ -27348,13 +27348,16 @@
                                 }
                             }
                         },
-                        "description": "computable=true, or computable=false with code cyclic_dependency (cycle lists the loop) or invalid_input."
+                        "description": "computable=true when no dependency loop was found, or computable=false with code cyclic_dependency and the loop in cycle."
                     },
                     "403": {
                         "description": "Not a member of the project."
                     },
                     "404": {
                         "description": "Unknown project."
+                    },
+                    "422": {
+                        "description": "The loop check could not run on the stored network."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -88064,7 +88067,7 @@
             },
             "ScheduleFeasibility": {
                 "type": "object",
-                "description": "Whether the scheduler can compute this project's schedule, and if not why (#5106).\n\nThe verdict is the engine's own: shaping runs through the same converters the\ndeterministic pass uses, and a loop is found by ``trueppm_scheduler.find_cycle``.\nNothing here is re-derived in the API, so the Schedule page's error state names the\nsame tasks the recalculation refused on.",
+                "description": "Whether this project's dependency links form a loop (#5106).\n\nThe verdict is the engine's own: shaping runs through the same converters the\ndeterministic pass uses, and a loop is found by ``trueppm_scheduler.find_cycle``.\nNothing here is re-derived in the API, so the Schedule page's error state names the\nsame tasks the recalculation refused on. It answers only the loop question: the\nengine's other refusals are raised inside ``schedule()``, which this read never runs.",
                 "properties": {
                     "project_id": {
                         "type": "string",
@@ -88072,11 +88075,11 @@
                     },
                     "computable": {
                         "type": "boolean",
-                        "description": "False when the stored network is one the scheduler refuses."
+                        "description": "False when the dependency links form a loop. True means no loop was found, not that every other scheduler check passes."
                     },
                     "code": {
                         "nullable": true,
-                        "description": "Why the schedule cannot be computed: `cyclic_dependency` — the dependency links form a loop (`cycle` lists it); `invalid_input` — another input the scheduler refuses (`detail` says which). Null exactly when computable.\n\n* `cyclic_dependency` - cyclic_dependency\n* `invalid_input` - invalid_input",
+                        "description": "`cyclic_dependency` when the dependency links form a loop (`cycle` lists it). Null exactly when computable.\n\n* `cyclic_dependency` - cyclic_dependency",
                         "oneOf": [
                             {
                                 "$ref": "#/components/schemas/ScheduleFeasibilityCodeEnum"
@@ -88093,22 +88096,10 @@
                         },
                         "description": "The loop in order, each task once (the path returns to the first). Empty unless code is `cyclic_dependency`."
                     },
-                    "tasks": {
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/ScheduleFeasibilityTask"
-                        },
-                        "description": "For `invalid_input`, the tasks the scheduler's message names. Empty otherwise."
-                    },
-                    "detail": {
-                        "type": "string",
-                        "nullable": true,
-                        "description": "The scheduler's refusal message for `invalid_input`; null otherwise."
-                    },
                     "definition": {
                         "type": "string",
                         "nullable": true,
-                        "description": "One sentence defining the refusal `code`; null when computable."
+                        "description": "One sentence defining `code`; null when computable."
                     },
                     "as_of": {
                         "type": "string",
@@ -88122,23 +88113,20 @@
                     "computable",
                     "cycle",
                     "definition",
-                    "detail",
-                    "project_id",
-                    "tasks"
+                    "project_id"
                 ]
             },
             "ScheduleFeasibilityCodeEnum": {
                 "enum": [
-                    "cyclic_dependency",
-                    "invalid_input"
+                    "cyclic_dependency"
                 ],
                 "type": "string",
-                "description": "* `cyclic_dependency` - cyclic_dependency\n* `invalid_input` - invalid_input",
+                "description": "* `cyclic_dependency` - cyclic_dependency",
                 "x-trueppm-enum": "open"
             },
             "ScheduleFeasibilityTask": {
                 "type": "object",
-                "description": "One task the scheduler's refusal names.",
+                "description": "One task in a dependency loop.",
                 "properties": {
                     "id": {
                         "type": "string",
