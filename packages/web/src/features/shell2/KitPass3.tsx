@@ -34,7 +34,7 @@ const SNAPSHOT: SnapshotRow[] = [
     id: 'forecast.p80',
     label: 'P80 finish',
     value: '11 Dec 2026',
-    definition: '80% of simulated runs finish on or before this date.',
+    definition: 'Placeholder for the definition sentence the server sends.',
     now: '18 Dec 2026',
   },
   { id: 'schedule.variance', label: 'Variance', value: null, notComputable: 'no baseline is set' },
@@ -73,7 +73,7 @@ export function KitPass3() {
           label="Team load, next 13 weeks"
           weeks={WEEKS}
           startWeek={WEEKS[3]}
-          definition="Booked hours as a share of working time."
+          definition="Placeholder for the definition sentence the server sends."
           asOf="2026-11-02T00:00:00Z"
           rows={[{ id: 'ana', name: 'Ana Lee', loads: LOADS }]}
           modeledSeat={{ id: 'seat', name: 'Backend engineer', loads: LOADS }}
