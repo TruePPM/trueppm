@@ -116,6 +116,21 @@ describe('useScheduleTasks mapper', () => {
     expect(task.deliveryMode).toBeUndefined();
   });
 
+  it('maps the agent-task fields, undefined when absent (ADR-1485 child 14)', () => {
+    const task = mapTask({
+      ...base,
+      executor_kind: 'agent',
+      agent_state: 'refused',
+      agent_refusal_reason: 'out of scope',
+      on_behalf_of: 7,
+    });
+    expect(task.executorKind).toBe('agent');
+    expect(task.agentState).toBe('refused');
+    expect(task.agentRefusalReason).toBe('out of scope');
+    expect(task.onBehalfOf).toBe(7);
+    expect(mapTask(base).executorKind).toBeUndefined();
+  });
+
   it('maps the server-declared sprint date lock, undefined when absent (#2984)', () => {
     expect(mapTask({ ...base, dates_locked_by_sprint: true }).datesLockedBySprint).toBe(true);
     expect(mapTask({ ...base, dates_locked_by_sprint: false }).datesLockedBySprint).toBe(false);

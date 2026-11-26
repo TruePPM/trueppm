@@ -52,7 +52,17 @@ from trueppm_mcp.client import ApiError, AuthError, TruePPMClient, TruePPMError
 _TASKS_PATH = "tasks/"
 
 #: Free-text fields truncated to keep tool results within an LLM context budget.
-_TEXT_FIELDS = frozenset({"description", "notes", "mitigation", "response", "summary", "narrative"})
+_TEXT_FIELDS = frozenset(
+    {
+        "description",
+        "notes",
+        "mitigation",
+        "response",
+        "summary",
+        "narrative",
+        "agent_refusal_reason",
+    }
+)
 
 #: Maximum length (characters) of a retained free-text field before truncation.
 _TEXT_LIMIT = 200

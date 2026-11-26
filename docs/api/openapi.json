@@ -62991,6 +62991,18 @@
                     "name"
                 ]
             },
+            "AgentStateEnum": {
+                "enum": [
+                    "queued",
+                    "running",
+                    "done",
+                    "needs_review",
+                    "refused"
+                ],
+                "type": "string",
+                "description": "* `queued` - Queued\n* `running` - Running\n* `done` - Done\n* `needs_review` - Needs review\n* `refused` - Refused",
+                "x-trueppm-enum": "open"
+            },
             "AggregationPolicyEnum": {
                 "enum": [
                     "worst",
@@ -67735,6 +67747,15 @@
                 ],
                 "type": "string",
                 "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed\n* `risk.opened` - Risk Opened\n* `risk.escalated` - Risk Escalated\n* `risk.closed` - Risk Closed\n* `baseline.captured` - Baseline Captured\n* `comment.created` - Comment Created\n* `schedule.finish_changed` - Schedule Finish Changed",
+                "x-trueppm-enum": "open"
+            },
+            "ExecutorKindEnum": {
+                "enum": [
+                    "human",
+                    "agent"
+                ],
+                "type": "string",
+                "description": "* `human` - Human\n* `agent` - Agent",
                 "x-trueppm-enum": "open"
             },
             "ExternalConnectionError": {
@@ -76306,6 +76327,34 @@
                     "effort_estimate": {
                         "type": "number",
                         "format": "double",
+                        "nullable": true
+                    },
+                    "executor_kind": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ExecutorKindEnum"
+                            }
+                        ],
+                        "description": "Whether a person or an agent performs this task.\n\n* `human` - Human\n* `agent` - Agent"
+                    },
+                    "agent_state": {
+                        "description": "Agent lifecycle state; empty unless executor_kind is 'agent'.\n\n* `queued` - Queued\n* `running` - Running\n* `done` - Done\n* `needs_review` - Needs review\n* `refused` - Refused",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/AgentStateEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            }
+                        ]
+                    },
+                    "agent_refusal_reason": {
+                        "type": "string",
+                        "description": "Why the agent refused the task; non-empty only when agent_state is 'refused'.",
+                        "maxLength": 500
+                    },
+                    "on_behalf_of": {
+                        "type": "integer",
                         "nullable": true
                     }
                 }
@@ -92304,6 +92353,34 @@
                     "is_untouched_seed": {
                         "type": "boolean",
                         "readOnly": true
+                    },
+                    "executor_kind": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ExecutorKindEnum"
+                            }
+                        ],
+                        "description": "Whether a person or an agent performs this task.\n\n* `human` - Human\n* `agent` - Agent"
+                    },
+                    "agent_state": {
+                        "description": "Agent lifecycle state; empty unless executor_kind is 'agent'.\n\n* `queued` - Queued\n* `running` - Running\n* `done` - Done\n* `needs_review` - Needs review\n* `refused` - Refused",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/AgentStateEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            }
+                        ]
+                    },
+                    "agent_refusal_reason": {
+                        "type": "string",
+                        "description": "Why the agent refused the task; non-empty only when agent_state is 'refused'.",
+                        "maxLength": 500
+                    },
+                    "on_behalf_of": {
+                        "type": "integer",
+                        "nullable": true
                     }
                 },
                 "required": [
@@ -93498,6 +93575,34 @@
                     "effort_estimate": {
                         "type": "number",
                         "format": "double",
+                        "nullable": true
+                    },
+                    "executor_kind": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ExecutorKindEnum"
+                            }
+                        ],
+                        "description": "Whether a person or an agent performs this task.\n\n* `human` - Human\n* `agent` - Agent"
+                    },
+                    "agent_state": {
+                        "description": "Agent lifecycle state; empty unless executor_kind is 'agent'.\n\n* `queued` - Queued\n* `running` - Running\n* `done` - Done\n* `needs_review` - Needs review\n* `refused` - Refused",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/AgentStateEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            }
+                        ]
+                    },
+                    "agent_refusal_reason": {
+                        "type": "string",
+                        "description": "Why the agent refused the task; non-empty only when agent_state is 'refused'.",
+                        "maxLength": 500
+                    },
+                    "on_behalf_of": {
+                        "type": "integer",
                         "nullable": true
                     }
                 },
@@ -94799,6 +94904,34 @@
                         "type": "number",
                         "format": "double",
                         "nullable": true
+                    },
+                    "executor_kind": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ExecutorKindEnum"
+                            }
+                        ],
+                        "description": "Whether a person or an agent performs this task.\n\n* `human` - Human\n* `agent` - Agent"
+                    },
+                    "agent_state": {
+                        "description": "Agent lifecycle state; empty unless executor_kind is 'agent'.\n\n* `queued` - Queued\n* `running` - Running\n* `done` - Done\n* `needs_review` - Needs review\n* `refused` - Refused",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/AgentStateEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            }
+                        ]
+                    },
+                    "agent_refusal_reason": {
+                        "type": "string",
+                        "description": "Why the agent refused the task; non-empty only when agent_state is 'refused'.",
+                        "maxLength": 500
+                    },
+                    "on_behalf_of": {
+                        "type": "integer",
+                        "nullable": true
                     }
                 },
                 "required": [
@@ -96020,6 +96153,34 @@
                     "is_untouched_seed": {
                         "type": "boolean",
                         "readOnly": true
+                    },
+                    "executor_kind": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ExecutorKindEnum"
+                            }
+                        ],
+                        "description": "Whether a person or an agent performs this task.\n\n* `human` - Human\n* `agent` - Agent"
+                    },
+                    "agent_state": {
+                        "description": "Agent lifecycle state; empty unless executor_kind is 'agent'.\n\n* `queued` - Queued\n* `running` - Running\n* `done` - Done\n* `needs_review` - Needs review\n* `refused` - Refused",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/AgentStateEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            }
+                        ]
+                    },
+                    "agent_refusal_reason": {
+                        "type": "string",
+                        "description": "Why the agent refused the task; non-empty only when agent_state is 'refused'.",
+                        "maxLength": 500
+                    },
+                    "on_behalf_of": {
+                        "type": "integer",
+                        "nullable": true
                     },
                     "warnings": {
                         "type": "array",

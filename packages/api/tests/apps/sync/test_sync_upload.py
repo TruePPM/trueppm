@@ -1921,3 +1921,107 @@ def test_upload_project_reads_are_constant_in_the_row_count(
     small = _project_row_selects(admin_client, project, rows=3)
     large = _project_row_selects(admin_client, project, rows=12)
     assert large == small, f"project re-read per row: {small} for 3 rows, {large} for 12"
+
+
+# ---------------------------------------------------------------------------
+# Agent-task fields (ADR-1485 child 14) round-trip through upload
+# ---------------------------------------------------------------------------
+
+
+def _member_client(project: Project, name: str, role: int) -> tuple[Any, APIClient]:
+    u = User.objects.create_user(username=name, password="pw")
+    _make_membership(project, u, role)
+    c = APIClient()
+    c.force_authenticate(user=u)
+    return u, c
+
+
+@pytest.mark.django_db
+def test_upload_carries_agent_fields_and_bumps_version(
+    admin_client: APIClient, project: Project, user: Any
+) -> None:
+    task_id = str(uuid.uuid4())
+    create = _payload(
+        created=[
+            {
+                "id": task_id,
+                "name": "Agent",
+                "executor_kind": "agent",
+                "agent_state": "queued",
+                "on_behalf_of": user.pk,
+            }
+        ]
+    )
+    assert admin_client.post(_url(project), create, format="json").status_code == 200
+    t = Task.objects.get(pk=task_id)
+    assert (t.executor_kind, t.agent_state, t.on_behalf_of_id) == ("agent", "queued", user.pk)
+    v1 = t.server_version
+
+    upd = _payload(
+        updated=[{"id": task_id, "agent_state": "refused", "agent_refusal_reason": "no"}]
+    )
+    assert admin_client.post(_url(project), upd, format="json").status_code == 200
+    t.refresh_from_db()
+    assert (t.agent_state, t.agent_refusal_reason) == ("refused", "no")
+    assert t.server_version > v1
+
+
+@pytest.mark.django_db
+def test_member_upload_setting_executor_kind_is_refused(project: Project) -> None:
+    _, member_client = _member_client(project, "m_up", Role.MEMBER)
+    t = Task.objects.create(project=project, name="T", duration=1)
+    resp = member_client.post(
+        _url(project),
+        _payload(updated=[{"id": str(t.pk), "executor_kind": "agent"}]),
+        format="json",
+    )
+    assert resp.status_code == 403
+    t.refresh_from_db()
+    assert t.executor_kind == "human"
+
+
+@pytest.mark.django_db
+def test_member_upload_echoing_unchanged_on_behalf_of_succeeds(project: Project, user: Any) -> None:
+    _make_membership(project, user, Role.ADMIN)
+    m, member_client = _member_client(project, "m_echo", Role.MEMBER)
+    t = Task.objects.create(
+        project=project,
+        name="T",
+        duration=1,
+        assignee=m,
+        executor_kind="agent",
+        on_behalf_of=user,
+    )
+    row = {"id": str(t.pk), "name": "Renamed", "executor_kind": "agent", "on_behalf_of": user.pk}
+    resp = member_client.post(_url(project), _payload(updated=[row]), format="json")
+    assert resp.status_code == 200, resp.content
+    t.refresh_from_db()
+    assert (t.name, t.on_behalf_of_id) == ("Renamed", user.pk)
+
+
+@pytest.mark.django_db
+def test_member_upload_echoing_string_on_behalf_of_with_deactivated_principal(
+    project: Project, user: Any
+) -> None:
+    """A string-typed echo of the unchanged id is a no-op even once the principal is inactive."""
+    _make_membership(project, user, Role.ADMIN)
+    m, member_client = _member_client(project, "m_echo_str", Role.MEMBER)
+    t = Task.objects.create(
+        project=project,
+        name="T",
+        duration=1,
+        assignee=m,
+        executor_kind="agent",
+        on_behalf_of=user,
+    )
+    type(user).objects.filter(pk=user.pk).update(is_active=False)
+    row = {
+        "id": str(t.pk),
+        "name": "Renamed",
+        "executor_kind": "agent",
+        "on_behalf_of": str(user.pk),
+    }
+    resp = member_client.post(_url(project), _payload(updated=[row]), format="json")
+    assert resp.status_code == 200, resp.content
+    t.refresh_from_db()
+    assert (t.name, t.on_behalf_of_id) == ("Renamed", user.pk)
