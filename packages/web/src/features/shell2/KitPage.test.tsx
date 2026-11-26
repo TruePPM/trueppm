@@ -37,6 +37,16 @@ describe('KitPage', () => {
     expect(screen.getByRole('button', { name: 'Filter' })).toBeInTheDocument();
   });
 
+  it('mounts the Pass 3 primitives and a banner in place of the toolbar', () => {
+    renderWithRouter(<KitPage />, { initialEntries: ['/shell2/kit?p3=1&banner=1'] });
+    expect(screen.getByRole('list', { name: 'Change trail' })).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: 'Team load, next 13 weeks' })).toBeInTheDocument();
+    expect(screen.getByRole('table', { name: 'Agent scope' })).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('didn’t post');
+    expect(screen.queryByRole('button', { name: 'Filter' })).toBeNull();
+    expect(screen.queryByRole('table', { name: 'Fixture tasks' })).toBeNull();
+  });
+
   it('hides the page title visually when mounted under a project context', () => {
     projectId.current = 'p-1';
     renderWithRouter(<KitPage />, { initialEntries: ['/projects/p-1/shell2-kit'] });

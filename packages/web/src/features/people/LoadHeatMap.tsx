@@ -240,7 +240,7 @@ function HeatGrid({ data, label }: { data: PeopleLoadResponse; label: string }) 
 }
 
 /** "<40 · 40–59 · 60–79 · 80–100 · ▲ 101–115 · ▲ >115", each with its swatch. */
-function HeatLegendLine() {
+export function HeatLegendLine() {
   return (
     <ul
       aria-label="Load legend"

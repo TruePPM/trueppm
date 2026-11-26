@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { HEAT_SEAT_MARK, HEAT_START_MARK } from '@/components/page2/heatGridMarks';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -224,6 +225,32 @@ describe.each([
 
   it('focus ring clears 3:1 against the sheet (WCAG 1.4.11)', () => {
     expect(contrast(tokens.focus, tokens['surface-1'])).toBeGreaterThanOrEqual(AA_NON_TEXT);
+  });
+
+  // Pass 3 primitives (#4802): the marks that carry meaning without text.
+  it('the heat grid seat outline and start marker clear 3:1 against their own backing', () => {
+    // Both are drawn over heat fills, so each must bring the ground it is read
+    // against with it; the pairing comes from the classes the grid renders.
+    for (const mark of [HEAT_SEAT_MARK, HEAT_START_MARK]) {
+      const ink = /\bborder-p1-(text-\d)\b/.exec(mark)?.[1] ?? '';
+      const ground = /(?:bg|outline)-p1-(surface-\d)/.exec(mark)?.[1] ?? '';
+      expect(ink && ground).toBeTruthy();
+      expect(contrast(tokens[ink], tokens[ground])).toBeGreaterThanOrEqual(AA_NON_TEXT);
+    }
+  });
+
+  it('the split bar ink segment clears 3:1 against the load-3 segment beside it', () => {
+    // load-3 is text-1 at 22% over the sheet (tailwind.config.ts).
+    const sheet = tokens['surface-1'];
+    const load3 = over({ ...tokens['text-1'], a: 0.22 }, sheet);
+    const ink = oklchToLinearSrgb(tokens['text-1']).map(clamp01) as [number, number, number];
+    expect(ratio(luminance(ink), luminance(load3))).toBeGreaterThanOrEqual(AA_NON_TEXT);
+  });
+
+  it('the checked reason row border (brand) clears 3:1 on the sheet and its fill', () => {
+    for (const ground of ['surface-1', 'surface-2']) {
+      expect(contrast(tokens.brand, tokens[ground])).toBeGreaterThanOrEqual(AA_NON_TEXT);
+    }
   });
 
   it('surfaces step monotonically in lightness so depth reads without shadows', () => {

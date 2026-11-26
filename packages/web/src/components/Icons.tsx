@@ -1901,3 +1901,86 @@ export function UserPlusIcon({ className, ...rest }: IconProps) {
     </svg>
   );
 }
+
+/** Robot head — an AI agent actor (#4802) */
+export function BotIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <rect x="2.5" y="5" width="11" height="8.5" rx="2" />
+      <path d="M8 5V2.5M6 8.5v1M10 8.5v1M1 8.5v2M15 8.5v2" />
+    </svg>
+  );
+}
+
+/** Chip with pins — a system or service actor (#4802) */
+export function CpuIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <rect x="4" y="4" width="8" height="8" rx="1" />
+      <path d="M6 1.5V4M10 1.5V4M6 12v2.5M10 12v2.5M1.5 6H4M1.5 10H4M12 6h2.5M12 10h2.5" />
+    </svg>
+  );
+}
+
+/** Toothed gear — an automation or scheduled job actor (#4802) */
+export function CogIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <circle cx="8" cy="8" r="2" />
+      <path d="M6.8 1.8h2.4l.3 1.7 1.4.8 1.6-.6 1.2 2.1-1.3 1.1v1.6l1.3 1.1-1.2 2.1-1.6-.6-1.4.8-.3 1.7H6.8l-.3-1.7-1.4-.8-1.6.6-1.2-2.1 1.3-1.1V6.9L2.3 5.8l1.2-2.1 1.6.6 1.4-.8.3-1.7Z" />
+    </svg>
+  );
+}
+
+/** Hard hat — a modeled or unfilled field resource (#4802) */
+export function HardHatIcon({ className, ...rest }: IconProps) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      {...rest}
+    >
+      <path d="M2.5 11a5.5 5.5 0 0 1 11 0M1.5 11h13v2h-13zM6.5 6V3.5h3V6" />
+    </svg>
+  );
+}
