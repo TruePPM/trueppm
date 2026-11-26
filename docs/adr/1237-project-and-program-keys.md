@@ -10,8 +10,20 @@ Accepted (2026-09-26)
 > `apps/projects/services.py`; the resolver and key-suggestion endpoints are
 > `apps/projects/key_views.py`; the web route boundary is
 > `packages/web/src/router/RefBoundary.tsx`. Still open, by design: dropping the
-> blank-code exclusion and adding `CheckConstraint(code <> "")` in 0.5 (§4), and the
-> #3888 surfaces (MCP, `⌘K`, citation display).
+> blank-code exclusion and adding `CheckConstraint(code <> "")` in 0.5 (§4).
+> Part of #3888's scope builds on this without changing it and has shipped: the MCP
+> `resolve_reference` tool and an instruction to cite by `qualified_id` where a payload
+> carries it (`packages/mcp`), the `⌘K` **Reference** row
+> (`packages/web/src/features/shell/commandPalette/refSearch.ts`), and project jump
+> rows that match on the key. Both lookups send the raw string to `/resolve/`; neither
+> parses a reference. Still open in #3888:
+>
+> - the full display form wherever an object is cited (web sprint and risk surfaces
+>   such as `RiskRegisterView.tsx`, `SprintPanel.tsx` and `StoryPickerModal.tsx` still
+>   show the bare `short_id_display`);
+> - the rename UX beyond the settings field;
+> - `qualified_id` on `get_schedule_driving_chain` nodes and `list_dependencies` rows,
+>   which carry tasks by UUID only.
 
 ## Context
 
@@ -124,7 +136,7 @@ service-layer check across two tables.
   row flips `is_current=False`, a new current row is inserted, `Project.code` /
   `Program.code` is updated — one transaction, one `assign_key()` service. The resolver
   honors retired rows, so every shared link keeps working and is rewritten to the
-  current key. At most 10 retired keys per object (see Threat model). #3888 keeps the rename UX, MCP payloads, `⌘K`, and the citation display.
+  current key. At most 10 retired keys per object (see Threat model). #3888 keeps the rename UX, MCP payloads, `⌘K`, and the citation display (what has shipped since, and what is still open, is in the status note at the top).
 - **Trash / restore:** a trashed project keeps its rows; its key stays reserved, so
   restore can never collide.
 - **Purge (hard delete):** `SET_NULL` leaves the rows as tombstones. A purged project's
@@ -299,7 +311,8 @@ CC6.6 / A1.1 (protection against abuse, capacity).
 - Upgrade note: blank and duplicate codes are backfilled, and the notes say how to list
   the rewritten ones.
 - Out of scope (stay in #3888, 0.5): MCP payloads, `⌘K` lookup, citation display
-  everywhere, and the rename UX beyond the settings field.
+  everywhere, and the rename UX beyond the settings field. (The status note at the top
+  records which of these have shipped and which are still open.)
 
 ### Durable Execution
 

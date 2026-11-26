@@ -150,7 +150,7 @@ clear message rather than letting every later query fail.
 
 ## What you can ask
 
-The server exposes **19 read-only tools** (thirteen more are planned for 0.5: `get_project_cost`, `get_schedule_driving_chain`, `get_project_history`, `get_project_views`, `list_dependencies`, `list_baselines`, `get_changeset`, `list_baseline_decisions`, `list_phases`, `list_calendars`, `get_baseline_variance`, `get_sprint_velocity`, and `get_sprint_burndown`), each mapping to one existing REST
+The server exposes **19 read-only tools** (fourteen more are planned for 0.5: `get_project_cost`, `get_schedule_driving_chain`, `get_project_history`, `get_project_views`, `list_dependencies`, `list_baselines`, `get_changeset`, `list_baseline_decisions`, `list_phases`, `list_calendars`, `get_baseline_variance`, `get_sprint_velocity`, `get_sprint_burndown`, and `resolve_reference`), each mapping to one existing REST
 endpoint and returning only what your role permits:
 
 - **Projects & programs** — `list_projects`, `get_project`, `list_programs`,
@@ -172,7 +172,8 @@ endpoint and returning only what your role permits:
 - **Cost** — `get_project_cost` (planned for 0.5; project Admins and Owners only,
   anyone else gets a structured `cost_restricted` result with no figures).
 - **Sprints** — `list_sprints`, `get_sprint` (aggregates and health bands only), `get_sprint_close_request` (why a sprint asked to close is still open). Planned for 0.5: `get_sprint_velocity` (the team's velocity trend and forecast range, suppressed unless the team's velocity audience includes you) and `get_sprint_burndown`.
-- **Identity** — `whoami`.
+- **Identity and references** — `whoami`. Planned for 0.5: `resolve_reference`
+  (turns a key or citation such as `PLAT-T-10` into the UUIDs the other tools take).
 
 For the full per-tool argument reference and example prompts, see the
 [MCP server feature page](/features/mcp-server/#what-it-can-answer).

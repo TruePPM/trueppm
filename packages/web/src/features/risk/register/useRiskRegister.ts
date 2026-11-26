@@ -105,8 +105,17 @@ export function useRiskRegister(projectId: string) {
   // When true the drawer opens directly in edit mode (the row's edit button)
   const [editMode, setEditMode] = useState(false);
 
+  const openRisk = (risk: Risk) => {
+    setEditMode(false);
+    setSelectedRisk(risk);
+  };
+  const closeDrawer = () => {
+    setEditMode(false);
+    setSelectedRisk(null);
+  };
+
   // `?risk=<id>` deep-link ⇄ open-drawer round-trip (issue #2046).
-  useRiskDeepLink(risks, selectedRisk, setSelectedRisk);
+  useRiskDeepLink(risks, selectedRisk, openRisk, closeDrawer);
 
   const toggleSeverityBand = useCallback((band: SeverityBand) => {
     setHiddenSeverities((prev) => {
@@ -172,17 +181,11 @@ export function useRiskRegister(projectId: string) {
       setEditMode(false);
       setSelectedRisk(undefined);
     },
-    openRisk: (risk: Risk) => {
-      setEditMode(false);
-      setSelectedRisk(risk);
-    },
+    openRisk,
     openRiskEdit: (risk: Risk) => {
       setEditMode(true);
       setSelectedRisk(risk);
     },
-    closeDrawer: () => {
-      setEditMode(false);
-      setSelectedRisk(null);
-    },
+    closeDrawer,
   };
 }

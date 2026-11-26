@@ -126,7 +126,7 @@ the [MCP server administration guide](/administration/mcp-server/).
 
 Comments on tasks and risks are not readable by agents yet; they are user-authored text and mentions, and a later release (0.5 or after) will decide whether to open them.
 
-The server registers **19 read-only tools** (thirteen more are planned for 0.5: `get_project_cost`, `get_schedule_driving_chain`, `get_project_history`, `get_project_views`, `list_dependencies`, `list_baselines`, `get_changeset`, `list_baseline_decisions`, `list_phases`, `list_calendars`, `get_baseline_variance`, `get_sprint_velocity`, and `get_sprint_burndown`), each mapping to one existing REST
+The server registers **19 read-only tools** (fourteen more are planned for 0.5: `get_project_cost`, `get_schedule_driving_chain`, `get_project_history`, `get_project_views`, `list_dependencies`, `list_baselines`, `get_changeset`, `list_baseline_decisions`, `list_phases`, `list_calendars`, `get_baseline_variance`, `get_sprint_velocity`, `get_sprint_burndown`, and `resolve_reference`), each mapping to one existing REST
 endpoint and returning only what your role permits. Results are compacted for an
 LLM context budget: empty and null fields are omitted, long free-text fields are
 truncated (with a `"truncated": true` marker), and project/program results carry
@@ -209,11 +209,20 @@ Planned for 0.5: `get_project_cost` ships in 0.5, with the cost model. Cost is v
 | `get_sprint_burndown` | `sprint_id` | One sprint's burndown: the daily snapshots (remaining and completed points and task counts, scope changes) and the server's pace verdict (`burn_status` with its reason, `projected_finish_date`), with `as_of` for when the pace was computed. The per-sprint point totals it carries are outside the velocity gate. Ships in 0.5. |
 | `get_sprint_close_request` | `sprint_id` | The outcome of the sprint's most recent close attempt — closing is asynchronous, so this is what distinguishes "still running" from "abandoned, and the sprint stays open". Branch on `terminal`, not `status`. |
 
-### Identity
+### Identity and references
 
 | Tool | Arguments | Returns |
 |------|-----------|---------|
 | `whoami` | — | The identity behind your configured token — a quick connection check. |
+| `resolve_reference` | `ref`, `kind` (`project` or `program`, default `project`) | Turns a human-readable key or citation into the UUIDs every other tool takes: a project key (`PLAT`), a task (`PLAT-T-10`), a sprint (`PLAT-SP-3`), a risk (`PLAT-R-7`), or a program key. A renamed key still resolves, and `canonical_ref` gives the current form. Lookup covers only projects you are a member of (for a program key, programs you are a member of): a workspace-visible project that `list_projects` shows you without a `caller_role` is not found. Returns `found: false`, with the same wording either way, when the reference does not exist or belongs to a project you are not a member of. Ships in 0.5. |
+
+Task, sprint and risk records can carry a `qualified_id` such as `PLAT-T-10`: the
+[project key](/administration/project-settings/#project-key) plus the object's number. Where a payload
+carries it, the server tells the assistant to cite that form rather than a UUID, so an
+answer like "PLAT-T-10 is on the critical path" is something you can paste into the web
+app's `⌘K` palette or back into `resolve_reference`. Some payloads, such as
+`get_schedule_driving_chain` nodes and `list_dependencies` rows, identify tasks by UUID
+only.
 
 ## Example prompts
 

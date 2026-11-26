@@ -131,3 +131,44 @@ def test_a_cleartext_or_schemeless_base_url_is_refused(url: str) -> None:
 def test_https_and_loopback_base_urls_are_allowed(url: str) -> None:
     settings = Settings.from_env({"TRUEPPM_API_URL": url, "TRUEPPM_API_TOKEN": SAMPLE_TOKEN})
     assert settings.api_base_url.endswith("/api/v1")
+
+
+# --- #3888: resolve_reference takes a key, not a UUID, so it has its own shape check ---
+
+_HOSTILE_REFS = [
+    "x/../../auth/me",
+    "PLAT-T-1&kind=program",
+    "PLAT T 1",
+    "-PLAT",
+    "",
+    "PLAT?ref=1",
+    "A" * 129,
+    "PLAT\n-T-1",
+]
+
+
+@pytest.mark.parametrize("bad", _HOSTILE_REFS)
+async def test_resolve_reference_refuses_a_hostile_ref_before_any_request(
+    settings: Settings, bad: str
+) -> None:
+    server, seen = _server(settings)
+    with pytest.raises(ToolError, match="ref must be a key or reference"):
+        await server.call_tool("resolve_reference", {"ref": bad})
+    assert seen == []
+
+
+async def test_resolve_reference_refuses_an_unknown_kind(settings: Settings) -> None:
+    server, seen = _server(settings)
+    with pytest.raises(ToolError, match="kind must be"):
+        await server.call_tool("resolve_reference", {"ref": "PLAT", "kind": "task"})
+    assert seen == []
+
+
+@pytest.mark.parametrize(
+    "good", ["PLAT", "plat-t-10", "GA-SEC-T-10", "atlas-platform-launch", _UUID]
+)
+async def test_resolve_reference_accepts_every_key_shape(settings: Settings, good: str) -> None:
+    server, seen = _server(settings)
+    await server.call_tool("resolve_reference", {"ref": good})
+    assert len(seen) == 1
+    assert seen[0].url.params["ref"] == good

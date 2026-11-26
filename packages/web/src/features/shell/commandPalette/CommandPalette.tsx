@@ -20,6 +20,7 @@ import { useCommandItems } from './useCommandItems';
 import { LogTimeForm } from './LogTimeForm';
 
 const GROUP_LABEL: Record<CommandItem['group'], string> = {
+  reference: 'Reference',
   best: 'Best match',
   projectView: 'Views in other projects',
   sprint: 'Current sprint',
@@ -54,6 +55,8 @@ const GROUP_LABEL: Record<CommandItem['group'], string> = {
 // leads `recent`: a pin is a standing intent the user declared, a recent visit is
 // only where they happened to be, so an empty query opens on Pinned then Recent.
 const GROUP_ORDER: CommandItem['group'][] = [
+  // An exact key or reference (#3888) names one object, so it outranks a name match.
+  'reference',
   'best',
   'sprint',
   'sprintTask',
