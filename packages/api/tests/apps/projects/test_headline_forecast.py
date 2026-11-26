@@ -266,6 +266,8 @@ def test_the_webhook_names_the_kind_when_velocity_is_shared_outward(
     dispatch.assert_called_once()
     assert dispatch.call_args.args[2] == {
         "project": str(project.pk),
+        # Finish shift since the previous check, in working days (ADR-1485 D6).
+        "finish_delta_working_days": 0,
         "velocity_suppressed": False,
         "headline_forecast_kind": "team_velocity",
         "headline_forecast_reason": "sparse_dependency_network",

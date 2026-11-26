@@ -260,11 +260,17 @@ def record_structural_change(
         entry.save(update_fields=["task_ids", "task_names", "last_act_at", "finish_after"])
     else:
         new_ids = ids
+        active_baseline = Baseline.objects.filter(
+            project_id=project.pk, is_active=True, is_deleted=False
+        ).first()
+        # Read before the insert: "first entry since this baseline" is the opener.
+        opens_changeset = (
+            active_baseline is not None
+            and not ChangesetEntry.objects.filter(baseline=active_baseline).exists()
+        )
         entry = ChangesetEntry.objects.create(
             project_id=project.pk,
-            baseline=Baseline.objects.filter(
-                project_id=project.pk, is_active=True, is_deleted=False
-            ).first(),
+            baseline=active_baseline,
             kind=kind,
             surface=surface,
             author=author,
@@ -278,10 +284,41 @@ def record_structural_change(
             opened_at=now,
             last_act_at=now,
         )
+        if opens_changeset:
+            _announce_opened(project, entry)
 
     _notify_entry(entry, new_ids, actor=actor)
     broadcast_changeset(project.pk)
     return entry
+
+
+def _announce_opened(project: Project, entry: Any) -> None:
+    """``changeset.opened`` after commit: the first entry since a baseline was taken (#5121).
+
+    Ids and enums only. Later entries are deliberately not announced here; an
+    integrator reads the trail for them. ``agent_actor_id`` is the reserved ADR-0112
+    actor (always null until agents gain a structural write).
+    """
+    from . import baselines
+    from .views import _dispatch_webhooks
+
+    pid = str(project.pk)
+    payload = {
+        "project": pid,
+        "baseline_id": str(entry.baseline_id) if entry.baseline_id else None,
+        "baseline_version": baselines.baseline_version(project.pk),
+        "entry": {
+            "id": str(entry.pk),
+            "kind": entry.kind,
+            "surface": entry.surface,
+            "reason_state": "reasoned" if entry.reason is not None else "unreasoned",
+            "task_ids": list(entry.task_ids),
+            "author": str(entry.author_id) if entry.author_id else None,
+            "agent_actor_id": str(entry.agent_actor_id) if entry.agent_actor_id else None,
+            "opened_at": entry.opened_at.isoformat(),
+        },
+    }
+    transaction.on_commit(lambda: _dispatch_webhooks(pid, "changeset.opened", payload))
 
 
 def _assignee_pairs(task_ids: list[Any]) -> list[tuple[Any, str]]:

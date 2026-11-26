@@ -13115,26 +13115,45 @@ def _sprint_closed_webhook_payload(sprint: Sprint, *, source: str) -> dict:  # t
 
 
 def _sprint_scope_change_webhook_payload(scope_change: SprintScopeChange, *, source: str) -> dict:  # type: ignore[type-arg]
-    """Payload for ``sprint.scope_changed`` — fired only on accept (ADR-0102/0147).
+    """Payload for ``sprint.scope_changed`` and ``sprint.scope_change_requested``.
 
-    Carries no velocity/pulse signal, so no privacy gate applies. ``id`` is the
-    scope-change row id (the event is *about* the scope change), with the sprint,
-    task, and project carried alongside.
+    ``scope_changed`` fires on a decision (accept, reject, or a direct accept with
+    a reason; ADR-0102/0147, ADR-1485 D6), ``scope_change_requested`` when a row is
+    left PENDING. Ids, enums and dates only (D6): the actors are ids, there is no
+    ``people_load`` and no velocity figure, so no privacy gate applies. ``id`` is
+    the scope-change row id (the event is *about* the scope change), with the
+    sprint, task, and project carried alongside. ``item_name`` predates D6 and is
+    kept for existing consumers. The slip fields are present only on a slip.
     """
-    return {
+    from trueppm_api.apps.projects.models import ScopeChangeKind
+
+    payload: dict = {  # type: ignore[type-arg]
         "id": str(scope_change.pk),
         "sprint": str(scope_change.sprint_id),
         "project": str(scope_change.sprint.project_id),
         "task": str(scope_change.task_id) if scope_change.task_id else None,
         "item_name": scope_change.item_name,
         "status": scope_change.status,
+        "kind": scope_change.kind,
         "goal_impact": scope_change.goal_impact,
+        "requested_by": str(scope_change.added_by_id) if scope_change.added_by_id else None,
+        "decided_by": str(scope_change.decided_by_id) if scope_change.decided_by_id else None,
         # When the item was injected into the sprint. SprintScopeChange does not
         # stamp the accept decision with its own timestamp (status is the audit),
         # so the event carries the injection time rather than a synthetic one.
         "added_at": scope_change.added_at.isoformat() if scope_change.added_at else None,
         "source": source,
     }
+    if scope_change.kind == ScopeChangeKind.SLIP:
+        payload["batch_id"] = str(scope_change.batch_id) if scope_change.batch_id else None
+        payload["proposed_start"] = (
+            scope_change.proposed_start.isoformat() if scope_change.proposed_start else None
+        )
+        payload["proposed_finish"] = (
+            scope_change.proposed_finish.isoformat() if scope_change.proposed_finish else None
+        )
+        payload["proposed_duration"] = scope_change.proposed_duration
+    return payload
 
 
 def _risk_webhook_payload(risk: Risk, *, source: str) -> dict:  # type: ignore[type-arg]

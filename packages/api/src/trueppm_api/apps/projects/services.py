@@ -3375,6 +3375,7 @@ def record_sprint_scope_change(
             # bulk .update().
             task.sprint_pending = True
             task.save(update_fields=["sprint_pending"])
+        _on_commit_scope_webhook(scope_change, "sprint.scope_change_requested")
 
     # sprint_scope_changed is the OSS extension point Enterprise connects
     # against. A raising receiver must not propagate out of and break this OSS
@@ -3566,6 +3567,7 @@ def reject_scope_change(
         project_id_str = str(task.project_id)
         sprint_id_str = str(sprint.pk)
         task_id_str = str(task.pk)
+        _on_commit_scope_webhook(locked, "sprint.scope_changed")
 
         # #1009: capture only plain values (the sprint pk, not the ORM instance) and
         # re-fetch the Sprint inside the closure. A Sprint instance captured across
@@ -3921,6 +3923,10 @@ def record_commitment_slip(
     setattr(row, _SLIP_CURRENT_FINISH_ATTR, current_finish)
     if accepted:
         _record_decision_note(row, actor, reason)
+    # Direct-with-reason is a decision made at creation; anything else awaits one.
+    _on_commit_scope_webhook(
+        row, "sprint.scope_changed" if accepted else "sprint.scope_change_requested"
+    )
     if request is not None and not accepted:
         setattr(_host(request), SLIP_PENDING_ATTR, True)
     _on_commit_scope_broadcast(row)
@@ -3944,6 +3950,10 @@ def _signal_slip_decided(row: Any, task: Any) -> None:
     dispatch_extension_signal(
         sprint_scope_changed, sender=SprintScopeChange, scope_change=row, task=task
     )
+    # A person's decision is announced; a system closure (superseded, stale) has no
+    # decider and is not a decision anyone made.
+    if row.decided_by_id is not None:
+        _on_commit_scope_webhook(row, "sprint.scope_changed")
 
 
 def _close_pending_slips(
@@ -4053,6 +4063,23 @@ def _record_decision_note(row: Any, author: Any, reason: str) -> None:
         body=f"{what} {row.status} for {row.sprint.name}: {reason.strip()}",
         decision=True,
     )
+
+
+def _on_commit_scope_webhook(row: Any, event_type: str, *, source: str = "api") -> None:
+    """Send ``sprint.scope_changed`` / ``sprint.scope_change_requested`` after commit.
+
+    The payload is built now, inside the write transaction, and captured by value.
+    ``_dispatch_webhooks`` is a registered outbox helper: it inserts the delivery
+    rows before enqueueing, so a lost broker call is replayed by the drain.
+    """
+    from trueppm_api.apps.projects.views import (
+        _dispatch_webhooks,
+        _sprint_scope_change_webhook_payload,
+    )
+
+    payload = _sprint_scope_change_webhook_payload(row, source=source)
+    pid = payload["project"]
+    transaction.on_commit(lambda: _dispatch_webhooks(pid, event_type, payload))
 
 
 def _on_commit_scope_broadcast(row: Any) -> None:

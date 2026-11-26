@@ -14,6 +14,8 @@ reasons and no trail row, which the threat model ranks as its top risk.
 
 from __future__ import annotations
 
+import logging
+import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -33,6 +35,8 @@ from .models import (
     Project,
     Task,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class DecisionRefused(Exception):
@@ -122,6 +126,7 @@ def capture(
     *,
     active: bool = True,
     source: str = "decision",
+    webhook_extra: dict[str, Any] | None = None,
     **fields: Any,
 ) -> tuple[Baseline, int]:
     """Capture a baseline of the plan as it stands. Caller holds the transaction.
@@ -131,7 +136,9 @@ def capture(
     calendar, and both announce the capture the same way.
 
     ``active=True`` stands down any incumbent active baseline first: ``Baseline``
-    has a partial unique constraint on (project) WHERE is_active. Deactivated,
+    has a partial unique constraint on (project) WHERE is_active. ``webhook_extra``
+    adds fields to the ``baseline.captured`` payload (Take v2 passes its reason).
+    Deactivated,
     never deleted — baseline history is kept forever. A non-active capture is a
     named comparison snapshot, never a re-baseline.
     """
@@ -148,11 +155,16 @@ def capture(
         **fields,
     )
     count = snapshot_tasks(baseline, rows)
-    _announce_capture(baseline, count, source)
+    _announce_capture(baseline, count, source, webhook_extra)
     return baseline, count
 
 
-def _announce_capture(baseline: Baseline, task_count: int, source: str) -> None:
+def _announce_capture(
+    baseline: Baseline,
+    task_count: int,
+    source: str,
+    webhook_extra: dict[str, Any] | None = None,
+) -> None:
     """``baseline_created`` to the board and the ``baseline.captured`` webhook, after commit.
 
     Other clients refetch their baselines on the board event; integrators hear
@@ -166,10 +178,67 @@ def _announce_capture(baseline: Baseline, task_count: int, source: str) -> None:
     project_id = str(baseline.project_id)
     baseline_id = str(baseline.pk)
     payload = _baseline_webhook_payload(baseline, task_count=task_count, source=source)
+    # Take v2 only (#5121): the reason is the changeset's, so a v1 capture and a
+    # manual capture keep the unchanged payload.
+    payload.update(webhook_extra or {})
     transaction.on_commit(
         lambda: broadcast_board_event(project_id, "baseline_created", {"id": baseline_id})
     )
     transaction.on_commit(lambda: _dispatch_webhooks(project_id, "baseline.captured", payload))
+
+
+def baseline_version(project_id: Any) -> int:
+    """The active baseline's number: v1 is the commit's, each taken decision is the next."""
+    return (
+        BaselineDecision.objects.filter(
+            project_id=project_id, kind=BaselineDecisionKind.TAKEN
+        ).count()
+        + 1
+    )
+
+
+def _variance_working_days(project: Project, baseline: Baseline | None) -> int | None:
+    """Project finish variance against ``baseline`` in working days, or None.
+
+    The server's own variance read (never recomputed here). Best effort: it feeds
+    an outbound event, so a failure must not undo the decision it describes.
+    """
+    if baseline is None:
+        return None
+    from trueppm_api.apps.scheduling.calendars import project_sched_calendars
+
+    from .baseline_variance import baseline_variance
+
+    try:
+        calendar = project_sched_calendars([project.pk])[str(project.pk)]
+        summary = baseline_variance(baseline, calendar, min_days=1).summary
+        delta: int | None = summary["project_finish"]["delta_working_days"]
+        return delta
+    except Exception:
+        logger.warning("baseline.kept: variance read failed for %s", project.pk, exc_info=True)
+        return None
+
+
+def _announce_kept(row: BaselineDecision, project: Project, open_count: int) -> None:
+    """``baseline.kept`` after commit: the Keep v1 exit (#5121).
+
+    Ids, counts and the user's own note. ``variance_wd`` is the project finish
+    shift the decision lets stand, in working days (null before CPM has run).
+    """
+    from .views import _dispatch_webhooks
+
+    payload = {
+        "project": str(project.pk),
+        "decision_id": str(row.pk),
+        "baseline_id": str(row.from_baseline_id) if row.from_baseline_id else None,
+        "baseline_version": baseline_version(project.pk),
+        "note": row.note or None,
+        "open_entries": open_count,
+        "variance_wd": _variance_working_days(project, row.from_baseline),
+        "actor": str(row.actor_id) if row.actor_id else None,
+    }
+    pid = str(project.pk)
+    transaction.on_commit(lambda: _dispatch_webhooks(pid, "baseline.kept", payload))
 
 
 # ── The changeset read ───────────────────────────────────────────────────────
@@ -338,14 +407,28 @@ def decide(
         now = timezone.now()
         entry_ids = [str(e.pk) for e in entries]
         to_baseline = None
+        # Allocated up front so the capture's webhook can name the decision (the
+        # changeset's resolution) it belongs to.
+        decision_pk = uuid.uuid4()
         if data.kind == BaselineDecisionKind.TAKEN:
             taken_before = BaselineDecision.objects.filter(
                 project_id=locked.pk, kind=BaselineDecisionKind.TAKEN
             ).count()
             # v1 is the commit's; each taken decision is the next number.
-            to_baseline, _count = capture(locked, user, f"Baseline v{taken_before + 2}")
+            to_baseline, _count = capture(
+                locked,
+                user,
+                f"Baseline v{taken_before + 2}",
+                webhook_extra={
+                    "reason_code": data.reason_code or "",
+                    "reason": data.reason,
+                    "commitment_moved": False,
+                    "changeset_id": str(decision_pk),
+                },
+            )
 
         row = BaselineDecision.objects.create(
+            id=decision_pk,
             project=locked,
             kind=data.kind,
             from_baseline=active,
@@ -364,5 +447,7 @@ def decide(
         ChangesetEntry.objects.filter(pk__in=entry_ids, closed_at__isnull=True).update(
             closed_at=now
         )
+        if data.kind == BaselineDecisionKind.KEPT:
+            _announce_kept(row, locked, len(entries))
         amend.broadcast_changeset(locked.pk)
         return row

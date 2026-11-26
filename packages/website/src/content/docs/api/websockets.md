@@ -584,7 +584,11 @@ configured webhook endpoints:
 | `task.due_date_changed` | No WS broadcast. |
 | `sprint.activated` | No WS broadcast. First-party agile domain event (ADR-0147). |
 | `sprint.closed` | No WS broadcast. Completion snapshot (velocity) is privacy-gated in its payload per ADR-0104. |
-| `sprint.scope_changed` | No WS broadcast. Fires on post-activation scope injection (ADR-0102). |
+| `sprint.scope_changed` | Same fact as the WS `sprint_scope_changed` event (one vocabulary, #4406). Fires when a scope change is decided (ADR-0102, ADR-1485 D6). |
+| `sprint.scope_change_requested` | No WS broadcast. A scope change is awaiting a decision (ADR-1485 D6). Ships in 0.5. |
+| `schedule.change_undone` | No WS broadcast. A structural act was undone (ADR-1485 D6). Ships in 0.5. |
+| `changeset.opened` | No WS broadcast under this name (a counts-only `changeset_updated` WS event exists). Ships in 0.5. |
+| `baseline.kept` | No WS broadcast under this name. Keep v1 exit (ADR-1477). Ships in 0.5. |
 | `risk.opened` | No WS broadcast under this name (a generic `risk_created` WS event exists). First-party domain event (ADR-0206). |
 | `risk.escalated` | No WS broadcast under this name. Fires when computed severity (probability × impact) increases (ADR-0206). |
 | `risk.closed` | No WS broadcast under this name. Fires on the transition into CLOSED (ADR-0206). |
@@ -599,6 +603,8 @@ The OSS webhook event set is capped at 19 events: `task.created`,
 `risk.escalated`, `risk.closed`, `baseline.captured`, and `comment.created`. The
 agile trio (`sprint.*`) was added in ADR-0147, raising the cap from 11 to 14; the
 risk/baseline/comment domain events were added in ADR-0206, raising it from 14 to
-19. In 0.5, ADR-1485 will add `schedule.finish_changed`, raising it to 20. Adding
-a 21st event requires its own ADR — the cap is the gate against per-customer
+19. In 0.5, ADR-1485 will add `schedule.finish_changed`, `schedule.change_undone` and
+`sprint.scope_change_requested`, and ADR-1477 `changeset.opened` and `baseline.kept`,
+raising it to 24. Adding
+a 25th event requires its own ADR — the cap is the gate against per-customer
 event proliferation.

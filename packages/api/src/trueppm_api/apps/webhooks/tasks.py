@@ -678,10 +678,17 @@ def _do_webhook_purge(*, dry_run: bool = False, override_value: int | None = Non
     if retention_days is None:
         return 0
 
-    cutoff = timezone.now() - timedelta(days=retention_days)
+    from django.db.models import Q
+
+    from trueppm_api.apps.webhooks.models import DEAD_LETTER_RETENTION_DAYS
+
+    now = timezone.now()
+    # Dead letters (FAILED) outlive the shared window: an operator who shortened
+    # retention for volume must still be able to replay what failed (ADR-1485 D6).
+    dead_letter_days = max(retention_days, DEAD_LETTER_RETENTION_DAYS)
     qs = WebhookDelivery.objects.filter(
-        status__in=[DeliveryStatus.SUCCESS, DeliveryStatus.FAILED],
-        created_at__lt=cutoff,
+        Q(status=DeliveryStatus.SUCCESS, created_at__lt=now - timedelta(days=retention_days))
+        | Q(status=DeliveryStatus.FAILED, created_at__lt=now - timedelta(days=dead_letter_days))
     )
     if dry_run:
         return qs.count()

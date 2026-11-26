@@ -37,6 +37,24 @@ class HeadlineForecastReason(TextChoices):
     VELOCITY_WITHHELD = "velocity_withheld", "Velocity is not shared with this caller"
 
 
+def _finish_delta_working_days(project_id: Any, before: Any, after: Any) -> int | None:
+    """Working days the project finish moved between two checks, or ``None`` if unknown.
+
+    Read with the variance read's own working-day arithmetic over the project's
+    scheduling calendar (the API does not reimplement engine math). Positive is a
+    later finish. ``None`` when either finish is unknown, which is the first check
+    after CPM first ran. Not velocity-derived, so it carries no audience gate beyond
+    the event's own.
+    """
+    if before is None or after is None:
+        return None
+    from trueppm_api.apps.projects.baseline_variance import _finish_delta, _memoized_count
+    from trueppm_api.apps.scheduling.calendars import project_sched_calendars
+
+    calendar = project_sched_calendars([project_id])[str(project_id)]
+    return _finish_delta((before, False), (after, False), calendar, _memoized_count(calendar))
+
+
 def dependency_linked_share(project_id: Any) -> tuple[int, int]:
     """``(linked, scheduled)`` counts of the project's scheduled leaf tasks.
 
@@ -155,6 +173,7 @@ def note_headline_forecast_kind(project_id: Any) -> bool:
     sprint close can run this at once, and a kind computed before the lock could
     be older than the one the other caller just recorded.
     """
+    from trueppm_api.apps.projects.amend import current_finish
     from trueppm_api.apps.projects.models import Project
     from trueppm_api.apps.projects.signal_privacy_services import velocity_shared_externally
 
@@ -176,13 +195,22 @@ def note_headline_forecast_kind(project_id: Any) -> bool:
             state = HeadlineForecastState.objects.select_for_update().get(project_id=pid)
             kind, reason = project_headline_forecast(pid)
             previous = state.kind
+            finish_now = current_finish(pid)
+            finish_before = state.finish
             if previous == kind:
+                if finish_now != finish_before:
+                    state.finish = finish_now
+                    state.save(update_fields=["finish", "updated_at"])
                 return False
             state.kind = kind
-            state.save(update_fields=["kind", "updated_at"])
+            state.finish = finish_now
+            state.save(update_fields=["kind", "finish", "updated_at"])
             if not previous or not velocity_shared_externally(project):
                 return False
             payload = {
+                "finish_delta_working_days": _finish_delta_working_days(
+                    pid, finish_before, finish_now
+                ),
                 "project": pid,
                 "velocity_suppressed": False,
                 "headline_forecast_kind": kind,

@@ -89,6 +89,8 @@ NON_STRUCTURAL: dict[str, str] = {
 UNRELATED: dict[str, str] = {
     "baseline_decision_views.ChangesetEntryReasonView.patch": "the entry's reason, not a task",
     "views.CreateProjectFromMsProjectView.post": "a new project is a draft",
+    "views.WebhookViewSet.replay": "re-sends a stored webhook delivery, no task write",
+    "views.ProgramWebhookViewSet.replay": "re-sends a stored webhook delivery, no task write",
     "views.SprintTaskOutcomeViewSet.flag_for_backlog": "program BacklogItem, not a Task",
     "views.CommentReactionViewSet.create": "reactions",
     "views.ProjectMembershipViewSet.create": "membership",

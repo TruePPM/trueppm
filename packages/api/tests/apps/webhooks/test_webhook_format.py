@@ -85,10 +85,12 @@ def test_event_type_cap() -> None:
     (the Enterprise upsell). Adding an event is a deliberate ADR-0083 decision.
     The agile trio (sprint.*) was added under ADR-0147, raising the cap 11→14; the
     risk/baseline/comment domain events were added under ADR-0206, raising it 14→19;
-    ADR-1485 added schedule.finish_changed, 19→20.
+    ADR-1485 added schedule.finish_changed, 19→20; ADR-1485 D6 and ADR-1477
+    added four more (change_undone, scope_change_requested, changeset.opened,
+    baseline.kept), 20→24.
     """
     assert len(ALL_WEBHOOK_EVENTS) == OSS_WEBHOOK_EVENT_CAP
-    assert OSS_WEBHOOK_EVENT_CAP == 20
+    assert OSS_WEBHOOK_EVENT_CAP == 24
     assert set(ALL_WEBHOOK_EVENTS) == {
         "task.created",
         "task.updated",
@@ -110,6 +112,10 @@ def test_event_type_cap() -> None:
         "baseline.captured",
         "comment.created",
         "schedule.finish_changed",
+        "schedule.change_undone",
+        "sprint.scope_change_requested",
+        "changeset.opened",
+        "baseline.kept",
     }
 
 

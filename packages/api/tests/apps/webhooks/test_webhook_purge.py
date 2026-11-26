@@ -73,9 +73,20 @@ class TestWebhookPurge:
     def test_deletes_old_failed_rows(self, webhook: object) -> None:
         from trueppm_api.apps.webhooks.models import DeliveryStatus, WebhookDelivery
 
-        d = _make_delivery(webhook, status=DeliveryStatus.FAILED, age_days=8)
+        d = _make_delivery(webhook, status=DeliveryStatus.FAILED, age_days=15)
         _purge()
         assert not WebhookDelivery.objects.filter(pk=d.pk).exists()
+
+    def test_dead_letters_outlive_the_success_window(self, webhook: object) -> None:
+        """A failed delivery stays listable and replayable for 14 days (ADR-1485 D6),
+        while a success of the same age is already gone."""
+        from trueppm_api.apps.webhooks.models import DeliveryStatus, WebhookDelivery
+
+        failed = _make_delivery(webhook, status=DeliveryStatus.FAILED, age_days=13)
+        success = _make_delivery(webhook, status=DeliveryStatus.SUCCESS, age_days=13)
+        _purge()
+        assert WebhookDelivery.objects.filter(pk=failed.pk).exists()
+        assert not WebhookDelivery.objects.filter(pk=success.pk).exists()
 
     def test_preserves_pending_rows_regardless_of_age(self, webhook: object) -> None:
         from trueppm_api.apps.webhooks.models import DeliveryStatus, WebhookDelivery
