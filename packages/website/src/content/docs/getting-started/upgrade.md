@@ -275,7 +275,13 @@ link to the migration log, naming the project, the link and both tasks, so you c
 redraw it between subtasks. It will touch no other link type, no link out of a summary
 that was already legal, and nothing else, and it will be safe to run more than once.
 Read those lines after the upgrade if a plan shows a dependency missing from a phase.
-A link whose backlog child is later committed (#5046) is not covered by the migration.
+The migration will leave alone a link into a parent whose only children are backlog
+items. After the upgrade, committing one of those children while the link is in place
+will be refused with `code: "unschedulable_change"`, and the task will keep its old
+status: retype or delete the link first. Returning tasks to the backlog when a sprint
+closes, deleting a task, recalculating a whole program, and links from another project
+will not be checked yet
+([#5046](https://gitlab.com/trueppm/trueppm/-/issues/5046)).
 
 ### Project and program visibility defaults to Private (`projects.0181`)
 

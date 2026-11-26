@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from django.db.models import Q
 
@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from rest_framework.request import Request
 
     from trueppm_api.apps.projects.models import Project, Task
+    from trueppm_api.apps.projects.summary_link_guard import RecalcState
 
 
 #: Placeholder name for a freshly wrapped phase. The design names the phase *last* —
@@ -305,24 +306,44 @@ def _park_level(project_id: Any, parent_path: str, rows: list[Task], base: int) 
 #: Each edge is ``(predecessor, successor, dep_type)``. The type is what lets the guard
 #: see an SS/SF link out of a summary (ADR-0370), which the untyped cycle check cannot —
 #: the gap #4830 found on every restructure path.
-GraphState = tuple[list[tuple[str, str, str]], dict[str, list[str]]]
+#:
+#: ``feed`` is the graph the CPM recalculation itself would build (backlog, epic and
+#: recurring rows left out, as stored and after the phase-status rollup). The engine's
+#: typed expansion runs over it rather than over ``children_map``, which keeps every
+#: row: a backlog leaf under a summary is no child of it to the engine, so expanding
+#: the summary onto it refuses restructures the recalculation accepts and lets a
+#: pre-state that fails only on such a leaf switch the differential off.
+class GraphState(NamedTuple):
+    edges: list[tuple[str, str, str]]
+    children_map: dict[str, list[str]]
+    feed: RecalcState | None = None
+
+    def flattened(self) -> GraphState:
+        """The same edges with the outline removed, as a baseline for an adoption check."""
+        from trueppm_api.apps.projects.summary_link_guard import RecalcState
+
+        if self.feed is None:
+            return GraphState(self.edges, {}, None)
+        stored, rolled_up = self.feed.views
+        return GraphState(self.edges, {}, RecalcState(views=((stored[0], {}), (rolled_up[0], {}))))
 
 
 def capture_graph_state(project_id: Any) -> GraphState:
-    """Read the guard's two inputs. Two queries; no cycle detection."""
+    """Read the guard's inputs. Four queries; no cycle detection."""
     from trueppm_api.apps.projects.models import Dependency
     from trueppm_api.apps.projects.serializers import _load_project_tasks_and_children_map
+    from trueppm_api.apps.projects.summary_link_guard import capture_recalc_state
 
     task_ids, children_map = _load_project_tasks_and_children_map(project_id)
     if not task_ids:
-        return [], {}
+        return GraphState([], {}, None)
     edges = [
         (str(pred), str(succ), str(dep_type))
         for pred, succ, dep_type in Dependency.objects.filter(
             is_deleted=False, predecessor_id__in=[uuid.UUID(t) for t in task_ids]
         ).values_list("predecessor_id", "successor_id", "dep_type")
     ]
-    return edges, children_map
+    return GraphState(edges, children_map, capture_recalc_state(project_id) if edges else None)
 
 
 def _guard_errors() -> tuple[type[Exception], ...]:
@@ -345,11 +366,10 @@ def _assert_schedulable(state: GraphState) -> None:
     from trueppm_api.apps.scheduling.graph_guard import (
         InfeasibleGraphError,
         find_summary_start_links,
-        validate_summary_expansion,
         validate_task_graph,
     )
 
-    edges, children_map = state
+    edges, children_map = state.edges, state.children_map
     if not edges:
         # No edges, no cycle — and no reason to expand a whole project's children_map
         # to prove it. A plan with no dependencies is the common case for the outline
@@ -368,10 +388,24 @@ def _assert_schedulable(state: GraphState) -> None:
             # the successor for FF into one (#4437).
             list(dict.fromkeys(p if p in summaries else s for p, s, _ in offending)),
         )
-    # #4828: the engine's own expansion, so a summary link and a differently typed
-    # leaf link that land on one leaf pair are refused too — the pairs above cannot see
-    # it, and structural undo restores edges through this guard.
-    validate_summary_expansion(edges, children_map)
+
+
+def _assert_feed_transition(before: GraphState, after: GraphState) -> None:
+    """The engine's typed expansion over the recalculation's own graph, differentially.
+
+    #4828: a summary link and a differently typed leaf link that land on one leaf pair
+    are refused — the pair checks in :func:`_assert_schedulable` cannot see it, and
+    structural undo restores edges through this guard. Run per view and against its
+    own pre-state, the same rule ``recalc_transition_block`` applies, so a pre-state
+    that fails only the pair checks does not excuse a collision this write introduces.
+    """
+    from trueppm_api.apps.scheduling.graph_guard import validate_graph_transition
+
+    if after.feed is None:
+        return
+    before_views = before.feed.views if before.feed is not None else (([], {}), ([], {}))
+    for before_view, after_view in zip(before_views, after.feed.views, strict=True):
+        validate_graph_transition(before_view, after_view)
 
 
 def _is_schedulable(state: GraphState) -> bool:
@@ -412,19 +446,31 @@ def assert_graph_feasible(project_id: Any, before: GraphState) -> None:
     is exactly the kind that a later change to what a container may carry would break
     silently.
     """
+    from trueppm_api.apps.projects.summary_link_guard import UNSCHEDULABLE_CHANGE_CODE
+
     after = capture_graph_state(project_id)
     try:
         _assert_schedulable(after)
     except _guard_errors() as failure:
-        if not _is_schedulable(before):
-            # Already broken when we arrived. Not ours to refuse.
-            return
-        offending = getattr(failure, "offending", None)
-        reason = getattr(failure, "reason", "invalid_graph_input")
+        # Already broken when we arrived: not ours to refuse. The typed expansion
+        # below has its own baseline, so it still runs.
+        if _is_schedulable(before):
+            offending = getattr(failure, "offending", None)
+            reason = getattr(failure, "reason", "invalid_graph_input")
+            raise GroupingRejected(
+                reason,
+                "This restructure would make the dependency graph infeasible. No rows were moved.",
+                extra={"offending": offending} if offending is not None else None,
+            ) from failure
+    try:
+        _assert_feed_transition(before, after)
+    except _guard_errors() as failure:
+        # The same refusal ``recalc_transition_block`` gives indent/outdent/reparent,
+        # under the same code, so a client handles one code for one failure.
         raise GroupingRejected(
-            reason,
-            "This restructure would make the dependency graph infeasible. No rows were moved.",
-            extra={"offending": offending} if offending is not None else None,
+            UNSCHEDULABLE_CHANGE_CODE,
+            "This restructure would leave a schedule that cannot be recalculated. "
+            "No rows were moved.",
         ) from failure
 
 

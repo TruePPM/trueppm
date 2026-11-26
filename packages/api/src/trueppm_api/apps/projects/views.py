@@ -3032,8 +3032,7 @@ class ProjectViewSet(
                 # outline flattened: a plain task-to-task cycle was not created by
                 # adoption and is not refused; only a defect the hierarchy adds on
                 # top of an otherwise schedulable graph is.
-                flat_edges, _ = capture_graph_state(project.pk)
-                assert_graph_feasible(project.pk, (flat_edges, {}))
+                assert_graph_feasible(project.pk, capture_graph_state(project.pk).flattened())
                 cross_edges = cross_project_edge_rows(project_id=project.pk)
                 _record_project_audit_event(
                     event_type="project_restored",

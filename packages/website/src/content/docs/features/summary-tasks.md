@@ -197,7 +197,10 @@ backlog when a sprint closes, deleting a task, and recalculating a whole program
 not checked yet, and a link from a task in another project is not seen at all. A
 Finish-to-Finish or Start-to-Finish link from another project into a parent can still
 stop the program's schedule from recalculating when one of the parent's backlog
-subtasks is committed ([#5046](https://gitlab.com/trueppm/trueppm/-/issues/5046)).
+subtasks is committed. Those remaining paths are tracked in
+[#5046](https://gitlab.com/trueppm/trueppm/-/issues/5046). The seed importer does not
+run the type-aware check yet either
+([#5154](https://gitlab.com/trueppm/trueppm/-/issues/5154)).
 
 Restoring a task from the trash will be refused for the same reason. A deleted task
 keeps its old outline position, so if another task now sits above that position and

@@ -38,7 +38,11 @@ from trueppm_api.apps.projects.summary_link_guard import (
     UNSCHEDULABLE_CHANGE_CODE,
     recalc_transition_block,
 )
-from trueppm_api.apps.projects.task_grouping import _assert_schedulable
+from trueppm_api.apps.projects.task_grouping import (
+    GroupingRejected,
+    assert_graph_feasible,
+    capture_graph_state,
+)
 from trueppm_api.apps.scheduling.graph_guard import recalc_refusal, validate_graph_transition
 
 User = get_user_model()
@@ -111,11 +115,65 @@ def test_transition_is_refused_only_when_it_introduces_the_failure() -> None:
     validate_graph_transition((edges, {"S": ["A", "B"]}), (edges, {"S": ["A", "B"]}))
 
 
-def test_undo_and_grouping_guard_is_type_aware() -> None:
+def _move(task: Task, path: str) -> None:
+    """Write a restructure the way the grouping/undo paths do: wbs_path only."""
+    Task.objects.filter(pk=task.pk).update(wbs_path=path)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(("leaf_type", "refused"), [("FS", False), ("FF", True)])
+def test_undo_and_grouping_guard_is_type_aware(
+    project: Project, leaf_type: str, refused: bool
+) -> None:
     """Structural undo restores edges through this guard; pairs alone passed it (#4828)."""
-    _assert_schedulable(([("S", "C", "FS"), ("B", "C", "FS")], {"S": ["A", "B"]}))
-    with pytest.raises(InvalidScheduleInput):
-        _assert_schedulable(([("S", "C", "FS"), ("B", "C", "FF")], {"S": ["A", "B"]}))
+    tasks = _reparent_setup(project, leaf_type)
+    before = capture_graph_state(project.pk)
+    _move(tasks["B"], "1.2")
+    if refused:
+        with pytest.raises(GroupingRejected):
+            assert_graph_feasible(project.pk, before)
+    else:
+        assert_graph_feasible(project.pk, before)
+
+
+@pytest.mark.django_db
+def test_grouping_guard_ignores_a_backlog_leaf_the_engine_does_not_schedule(
+    project: Project,
+) -> None:
+    """``Phase -FS-> X`` and backlog ``B1 -FF-> X``: B1 is no child of Phase to the CPM.
+
+    Expanding over every row refused moving B1 under Phase; the recalculation accepts it.
+    """
+    phase = _task(project, "Phase", "1")
+    _task(project, "A", "1.1")
+    b1 = _task(project, "B1", "2", status=TaskStatus.BACKLOG)
+    x = _task(project, "X", "3")
+    _link(phase, x, "FS")
+    _link(b1, x, "FF")
+    before = capture_graph_state(project.pk)
+    _move(b1, "1.2")
+    assert_graph_feasible(project.pk, before)
+
+
+@pytest.mark.django_db
+def test_a_pre_state_failing_only_on_a_backlog_leaf_does_not_switch_the_guard_off(
+    project: Project,
+) -> None:
+    """Expanded over every row this project already "fails" (backlog B1 under Phase),
+    which disabled the differential; to the engine it is clean, so C's collision is new.
+    """
+    phase = _task(project, "Phase", "1")
+    _task(project, "A", "1.1")
+    b1 = _task(project, "B1", "1.2", status=TaskStatus.BACKLOG)
+    c = _task(project, "C", "2")
+    x = _task(project, "X", "3")
+    _link(phase, x, "FS")
+    _link(b1, x, "FF")
+    _link(c, x, "FF")
+    before = capture_graph_state(project.pk)
+    _move(c, "1.3")
+    with pytest.raises(GroupingRejected):
+        assert_graph_feasible(project.pk, before)
 
 
 # ---------------------------------------------------------------------------
@@ -512,6 +570,42 @@ def test_bulk_row_patch_refusal_is_per_row(project: Project, owner_client: APICl
     other.refresh_from_db()
     assert child.status == TaskStatus.BACKLOG
     assert other.name == "Other renamed"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("first_status", "refused_indexes"),
+    # The placement cache used to check only the first row under a parent, so a
+    # committed row after a backlog one slipped through (#5046).
+    [(TaskStatus.BACKLOG, [1]), (TaskStatus.NOT_STARTED, [0, 1])],
+)
+def test_bulk_create_checks_every_row_under_a_backlog_only_parent(
+    project: Project, owner_client: APIClient, first_status: str, refused_indexes: list[int]
+) -> None:
+    _backlog_child_setup(project, "FF", TaskStatus.NOT_STARTED)
+    parent = Task.objects.get(project=project, wbs_path="1")
+    operations = [
+        {
+            "op": "create",
+            "data": {"name": "First", "parent_id": str(parent.pk), "status": first_status},
+        },
+        {"op": "create", "data": {"name": "Second", "parent_id": str(parent.pk)}},
+    ]
+    response, _ = _send(
+        owner_client,
+        "post",
+        f"/api/v1/projects/{project.pk}/tasks/bulk/",
+        {"operations": operations},
+    )
+    assert response.status_code == 207, response.content
+    assert [row["index"] for row in response.data["rejected"]] == refused_indexes
+    assert "cannot be recalculated" in str(response.data["rejected"][0])
+    created = set(
+        Task.objects.filter(project=project, name__in=["First", "Second"]).values_list(
+            "name", flat=True
+        )
+    )
+    assert created == ({"First"} if refused_indexes == [1] else set())
 
 
 @pytest.mark.django_db
