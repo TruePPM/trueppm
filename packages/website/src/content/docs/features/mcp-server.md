@@ -156,7 +156,7 @@ Planned for 0.5: `get_project` will return the server's own `health_band` (`on_t
 
 | Tool | Arguments | Returns |
 |------|-----------|---------|
-| `list_tasks` | `project_id`, and optional `status` (`BACKLOG`, `NOT_STARTED`, `IN_PROGRESS`, `REVIEW`, `ON_HOLD`, `COMPLETE`), `sprint`, `is_critical`, `type` (`epic`, `story`, `task`, `bug`, `spike`, `tech_debt`) | A project's tasks, filtered and compacted. `status` and `type` are exact, case-sensitive matches. |
+| `list_tasks` | `project_id`, and optional `status` (`BACKLOG`, `NOT_STARTED`, `IN_PROGRESS`, `REVIEW`, `ON_HOLD`, `COMPLETE`), `sprint`, `is_critical`, `type` (`epic`, `story`, `task`, `bug`, `spike`, `tech_debt`) | A project's tasks, filtered and compacted, including the agent-task fields `executor_kind`, `agent_state`, `agent_refusal_reason` and `on_behalf_of`. `status` and `type` are exact, case-sensitive matches. |
 | `get_task` | `task_id` | Full detail for one task (dates, assignee, acceptance criteria, sprint, and the agent-task fields `executor_kind`, `agent_state`, `agent_refusal_reason` and `on_behalf_of`), plus a compact `why` — whether the task is on the critical path and how much total float it has. |
 | `get_board_state` | `project_id` | The board's columns and their task cards for one project. |
 | `list_my_work` | — | Your assigned tasks across every project you belong to. |

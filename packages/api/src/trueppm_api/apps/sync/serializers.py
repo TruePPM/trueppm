@@ -201,6 +201,8 @@ class SyncTaskSerializer(serializers.ModelSerializer[Task]):
             "agent_refusal_reason",
             "on_behalf_of",
         ]
+        # Inert for upload (writes go through TaskSerializer, which owns the gates); it
+        # keeps this pull-only serializer's User FK out of the pii-exposure gate's class B.
         read_only_fields = ["on_behalf_of"]
 
 

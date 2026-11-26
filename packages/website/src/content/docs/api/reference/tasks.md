@@ -140,9 +140,9 @@ Tasks carry four fields that say whether a person or an agent performs the work.
 | `executor_kind` | `human` (default) or `agent`. Only a project Admin or above may change it; switching back to `human` clears the three fields below |
 | `agent_state` | The agent's own lifecycle: `queued`, `running`, `done`, `needs_review`, `refused`. Empty string unless `executor_kind` is `agent` |
 | `agent_refusal_reason` | Why the agent refused, up to 500 characters. Valid only while `agent_state` is `refused`; leaving `refused` clears it. The database enforces this too |
-| `on_behalf_of` | User id of the person the agent acts for, or `null`. Must be an active project member. Below Admin, a caller may name only themselves, so a Member cannot attribute agent work to someone else |
+| `on_behalf_of` | User id of the person the agent acts for, or `null`. Must be an active project member. Below Admin, the only allowed changes are `null` to yourself and yourself to `null`, so a Member can neither attribute agent work to someone else nor take over or clear another person's attribution. Resending the current value unchanged is always accepted |
 
-A write that breaks these rules returns `400` (incoherent combination) or `403` (not permitted). The fields also ride the offline sync pull and the MCP `get_task` and `list_tasks` tools. `agent_refusal_reason` is wrapped as untrusted content in MCP results because an agent wrote it.
+A write that breaks these rules returns `400` (incoherent combination) or `403` (not permitted). The fields also ride the offline sync pull and the MCP `get_task` and `list_tasks` tools. `agent_refusal_reason` is wrapped as untrusted content in MCP results because an agent wrote it. No agent token can write `agent_state` yet: `mcp:read` tokens are read-only (a refused write is recorded in `AgentAction`), and a successful write with a full-access token is not recorded there.
 
 Read `is_untouched_seed` rather than re-deriving it from the two timestamps. It is
 the predicate behind the seeded-project landing's "Delete untouched rows (N)"

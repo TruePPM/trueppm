@@ -4378,6 +4378,21 @@ class PendingCommitmentSlipSerializer(serializers.Serializer[dict[str, Any]]):
     reason = serializers.CharField(read_only=True, help_text="The requester's reason, or empty.")
 
 
+class _ActiveUserOrUnchangedField(serializers.PrimaryKeyRelatedField[Any]):
+    """Active-user FK that also accepts the instance's current value unchanged.
+
+    The queryset narrows to active accounts, which would otherwise reject an echoed,
+    unchanged id once that principal is deactivated.
+    """
+
+    def to_internal_value(self, data: Any) -> Any:
+        inst = getattr(self.parent, "instance", None)
+        current = getattr(inst, "on_behalf_of_id", None)
+        if inst is not None and current is not None and str(data) == str(current):
+            return inst.on_behalf_of
+        return super().to_internal_value(data)
+
+
 class TaskSerializer(serializers.ModelSerializer[Task]):
     # The three PERT estimate fields, shared by the phase-rollup lock and the
     # three-point ordering guard in ``validate()``. A frozenset so ``& set(attrs)``
@@ -4813,7 +4828,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     dates_locked_by_sprint = serializers.SerializerMethodField()
     # Narrowed to active accounts (pii-exposure gate); project membership is enforced in
     # _validate_agent_task_fields, so a non-member id is refused without confirming the account.
-    on_behalf_of = serializers.PrimaryKeyRelatedField(
+    on_behalf_of = _ActiveUserOrUnchangedField(
         queryset=User.objects.filter(is_active=True), required=False, allow_null=True
     )
 
@@ -5821,13 +5836,18 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
 
         - ``executor_kind`` is a planning decision: Project Manager (``Role.ADMIN``) or
           above only. Switching back to ``human`` clears the agent-only fields.
-        - ``on_behalf_of`` must be an active project member; below ``Role.ADMIN`` a caller
-          may name only themselves.
+        - ``on_behalf_of`` must be an active project member; below ``Role.ADMIN`` the only
+          allowed changes are null -> self and self -> null (no takeover, no clearing
+          someone else's attribution). An unchanged value is never re-checked.
         - ``agent_state`` / ``agent_refusal_reason`` need an agent task and keep the
           refusal reason valid only while ``agent_state == "refused"`` (also a DB check).
 
         Enforced here, not in the view, because the sync upload reuses this serializer.
         Without a request (internal callers) the role gate is skipped.
+
+        Audit reality: no agent token can write ``agent_state`` yet. ``mcp:read`` tokens are
+        refused on writes (that refusal lands in ``AgentAction``); successful ``api:full``
+        writes are not agent-attributed and are not recorded there.
         """
         from rest_framework.exceptions import PermissionDenied
 
@@ -5892,12 +5912,37 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                 }
             )
 
+        self._validate_on_behalf_of_change(attrs, project, request, is_admin)
+
+    def _validate_on_behalf_of_change(
+        self, attrs: dict[str, Any], project: Any, request: Any, is_admin: bool
+    ) -> None:
+        """Gate a CHANGE to ``on_behalf_of``; an unchanged value is never re-checked."""
+        from rest_framework.exceptions import PermissionDenied
+
+        inst = self.instance
+        # An unchanged value is a no-op: a sync upload or full-row PUT echoes the whole
+        # row back, and re-checking it would 403 a Member's whole all-or-nothing batch
+        # (or reject a since-deactivated principal) on every retry.
         target = attrs.get("on_behalf_of")
-        if "on_behalf_of" in attrs and target is not None:
-            if request is not None and not is_admin and target.pk != request.user.pk:
-                raise PermissionDenied("Below Admin you may only set on_behalf_of to yourself.")
+        current_id = inst.on_behalf_of_id if inst is not None else None
+        target_id = target.pk if target is not None else None
+        if "on_behalf_of" in attrs and target_id != current_id:
+            if request is not None and not is_admin:
+                # ADR-0112 §149: on_behalf_of is the delegating human approvals key off,
+                # so below Admin the only moves are null -> self and self -> null.
+                me = request.user.pk
+                if not (
+                    (current_id is None and target_id == me)
+                    or (target_id is None and current_id == me)
+                ):
+                    raise PermissionDenied(
+                        "Below Admin you may only attribute agent work to yourself, or "
+                        "clear your own attribution."
+                    )
             if (
-                project is not None
+                target is not None
+                and project is not None
                 and not ProjectMembership.objects.filter(
                     project=project,
                     project__is_deleted=False,
