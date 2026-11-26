@@ -278,7 +278,8 @@ export function ProjectOverview2({ projectId }: { projectId: string }) {
   const { user } = useCurrentUser();
   const { role } = useCurrentUserRole(projectId);
   const shellStats = useShellStats().data;
-  const archived = useProject(projectId).data?.is_archived === true;
+  const projectQuery = useProject(projectId);
+  const archived = projectQuery.data?.is_archived === true;
   const base = `/projects/${projectId}`;
   const o = overview.data;
   const mc = forecast.data;
@@ -411,6 +412,7 @@ export function ProjectOverview2({ projectId }: { projectId: string }) {
           userId={user?.id ?? null}
           canPost={role != null && role >= ROLE_ADMIN}
           archived={archived}
+          projectCode={projectQuery.data?.code ?? null}
           // The counts-only band: a manual report is the PM's call, not the plan's reading.
           derivedBand={
             shellStats?.healthBandSource === 'derived' ? (shellStats.healthBand ?? null) : null

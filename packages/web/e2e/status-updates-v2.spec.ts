@@ -65,8 +65,12 @@ function update(
   };
 }
 
+/** The `size` of every PDF request the page made, in order (#4805). */
+let pdfRequests: string[] = [];
+
 async function open(page: Page, opts: { initial: unknown[]; postStatus?: number }) {
   const store = [...opts.initial];
+  pdfRequests = [];
   await setupAuth(page);
   await setupCatchAll(page);
   await setupApiMocks(page);
@@ -111,6 +115,12 @@ async function open(page: Page, opts: { initial: unknown[]; postStatus?: number 
     r.fulfill(json({ detail: 'No simulation result available.' }, 404)),
   );
   await page.route(`**/api/v1/projects/${PID}/status-updates/**`, async (r) => {
+    const url = new URL(r.request().url());
+    if (url.pathname.endsWith('/pdf/')) {
+      pdfRequests.push(url.searchParams.get('size') ?? '');
+      await r.fulfill({ status: 200, contentType: 'application/pdf', body: '%PDF-1.4\n%%EOF\n' });
+      return;
+    }
     if (r.request().method() === 'POST') {
       if (opts.postStatus && opts.postStatus >= 400) {
         await r.fulfill(json({ detail: 'boom' }, opts.postStatus));
@@ -158,6 +168,55 @@ test.describe('shell v2 project status updates', () => {
       'Vendor slipped two weeks',
     );
     await expect(page.getByTestId('status-update-row').first()).toContainText('At risk');
+  });
+
+  test('a history row downloads its PDF and mints a share link (#4805)', async ({ page }) => {
+    await open(page, { initial: [update(1, 'green', 'All good')] });
+    // After `open`: a route registered later wins over the catch-all.
+    await page.route(`**/api/v1/projects/${PID}/share-links/`, async (r) => {
+      const body = r.request().postDataJSON() as Record<string, unknown>;
+      expect(body).toMatchObject({
+        content_kind: 'status_update',
+        status_update: update(1, 'green', '').id,
+      });
+      await r.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          id: '00000000-0000-0000-0000-0000000000aa',
+          content_kind: 'status_update',
+          token_prefix: 'tok12345',
+          label: '',
+          show_assignees: false,
+          show_milestone_dates: true,
+          status_update: update(1, 'green', '').id,
+          show_risks: false,
+          show_decisions: false,
+          created_by: 1,
+          created_by_name: 'Pat Manager',
+          created_at: '2026-11-20T09:12:00Z',
+          expires_at: '2026-12-20T09:12:00Z',
+          revoked_at: null,
+          access_count: 0,
+          last_accessed_at: null,
+          is_active: true,
+          is_expired: false,
+          token: 'e2e-share',
+          share_path: '/share/status-update/e2e-share',
+        }),
+      });
+    });
+    await page.getByTestId('status-update-row').click();
+    const download = page.waitForEvent('download');
+    await page.getByTestId('status-update-pdf-a4').click();
+    expect((await download).suggestedFilename()).toBe('project-status-update-1-a4.pdf');
+    expect(pdfRequests).toEqual(['a4']);
+
+    await page.getByTestId('status-update-share').click();
+    await page.getByRole('button', { name: 'Create link' }).click();
+    await expect(page.getByTestId('status-update-share-reveal').getByRole('textbox')).toHaveValue(
+      /\/share\/status-update\/e2e-share$/,
+    );
   });
 
   test('empty state offers the one action', async ({ page }) => {

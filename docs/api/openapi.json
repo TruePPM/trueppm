@@ -38463,6 +38463,100 @@
                 }
             }
         },
+        "/api/v1/projects/{project_pk}/status-updates/{update_id}/pdf/": {
+            "get": {
+                "operationId": "v1_projects_status_updates_pdf_retrieve",
+                "description": "GET the one-page PDF of a posted update, Letter or A4 (#4805). Members only.\n\nThe page is drawn from the update's frozen snapshot alone (``status_update_pdf``),\nso it carries nothing the member could not already read on the detail route.\nA row that no longer hashes to its seal is refused with ``409`` rather than\nprinted: the page states its facts were frozen at post time, and for an altered\nrow that statement would be false.",
+                "summary": "Download one status update as a one-page PDF (Letter or A4)",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "size",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "a4",
+                                "letter"
+                            ],
+                            "x-trueppm-enum": "open"
+                        },
+                        "description": "Page size; `letter` (default) or `a4`."
+                    },
+                    {
+                        "in": "path",
+                        "name": "update_id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/pdf": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            }
+                        },
+                        "description": "A one-page PDF of the update's frozen snapshot."
+                    },
+                    "400": {
+                        "description": "Unknown page size."
+                    },
+                    "404": {
+                        "description": "No such project or update for this member."
+                    },
+                    "409": {
+                        "description": "The stored update no longer matches its seal; not printed."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{project_pk}/task-runs/": {
             "get": {
                 "operationId": "v1_projects_task_runs_list",
@@ -86792,6 +86886,11 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "status_update_seq": {
+                        "type": "integer",
+                        "nullable": true,
+                        "readOnly": true
+                    },
                     "show_risks": {
                         "type": "boolean",
                         "readOnly": true,
@@ -86870,6 +86969,7 @@
                     "show_milestone_dates",
                     "show_risks",
                     "status_update",
+                    "status_update_seq",
                     "token_prefix"
                 ]
             },
@@ -86962,6 +87062,11 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "status_update_seq": {
+                        "type": "integer",
+                        "nullable": true,
+                        "readOnly": true
+                    },
                     "show_risks": {
                         "type": "boolean",
                         "readOnly": true,
@@ -87049,6 +87154,7 @@
                     "show_milestone_dates",
                     "show_risks",
                     "status_update",
+                    "status_update_seq",
                     "token",
                     "token_prefix"
                 ]

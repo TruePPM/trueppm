@@ -54,9 +54,16 @@ function ShareLinkRow({ link, projectId }: { link: ShareLink; projectId: string 
           </div>
           <div className="mt-0.5 text-[11px] text-neutral-text-secondary">
             <span className="tppm-mono">
-              share/{link.contentKind}/{link.tokenPrefix}…
+              {/* The public path hyphenates the kind (`/share/status-update/`). */}
+              share/{link.contentKind.replace('_', '-')}/{link.tokenPrefix}…
             </span>
             {' · '}
+            {link.contentKind === 'status_update' && link.statusUpdateSeq != null ? (
+              <>
+                update {link.statusUpdateSeq}
+                {' · '}
+              </>
+            ) : null}
             {link.showAssignees ? 'names shown' : 'names hidden'}
             {' · '}
             {/* Schedule-only reveal (#2532) — a board link has no milestone lane. */}
@@ -132,7 +139,8 @@ function LinkGroup({
 }
 
 /** Project → Sharing settings section (#283 board, extended for #1486 schedule).
- * Admin+ (gated by the shell). Manages board and schedule tokens together. */
+ * Admin+ (gated by the shell). Lists and revokes every kind of link (board, schedule,
+ * status update); status-update links are minted from the update itself (#4805). */
 export function ProjectSharingPage() {
   // The parent ProjectSettingsPage guards `!projectId` before mounting any section,
   // so this is always set here; coerce to satisfy the string-typed hooks/props.
@@ -153,6 +161,7 @@ export function ProjectSharingPage() {
   const active = (links ?? []).filter((l) => l.isActive);
   const scheduleLinks = active.filter((l) => l.contentKind === 'schedule');
   const boardLinks = active.filter((l) => l.contentKind === 'board');
+  const statusUpdateLinks = active.filter((l) => l.contentKind === 'status_update');
   const hasAny = active.length > 0;
 
   return (
@@ -216,6 +225,12 @@ export function ProjectSharingPage() {
           <>
             <LinkGroup icon="◷" label="Schedule" links={scheduleLinks} projectId={projectId} />
             <LinkGroup icon="▦" label="Board" links={boardLinks} projectId={projectId} />
+            <LinkGroup
+              icon="◉"
+              label="Status update"
+              links={statusUpdateLinks}
+              projectId={projectId}
+            />
           </>
         ) : (
           <div className="rounded-card border border-dashed border-neutral-border p-6 text-center">

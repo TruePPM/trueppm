@@ -62,6 +62,12 @@ const FIXTURE_LINK = {
 
 type Page = import('@playwright/test').Page;
 
+// The first assertion after `goto` waits for the whole long-scroll settings page to
+// render (and, on the error path, for the query's one retry). Under the soak job's CPU
+// contention that passes the 5s default. Both outcomes persist once rendered, so a
+// longer wait is safe here.
+const FIRST_RENDER = { timeout: 15_000 };
+
 async function setup(page: Page) {
   await page.addInitScript(() => {
     localStorage.setItem(
@@ -108,7 +114,7 @@ test.describe('Project Settings → Sharing (#283 / #1486)', () => {
     await page.goto(`/projects/${PROJECT_ID}/settings#sharing`);
 
     const sharing = page.getByRole('region', { name: 'Sharing', exact: true });
-    await expect(sharing.getByText('Client board')).toBeVisible();
+    await expect(sharing.getByText('Client board')).toBeVisible(FIRST_RENDER);
     // The creator is named from `created_by_name`; `created_by` is the integer PK (#4290).
     await expect(sharing.getByText(/Created by Alice/)).toBeVisible();
   });
@@ -139,11 +145,56 @@ test.describe('Project Settings → Sharing (#283 / #1486)', () => {
     await page.goto(`/projects/${PROJECT_ID}/settings#sharing`);
 
     const sharing = page.getByRole('region', { name: 'Sharing', exact: true });
-    await expect(sharing.getByText("Couldn't load share links.")).toBeVisible();
+    await expect(sharing.getByText("Couldn't load share links.")).toBeVisible(FIRST_RENDER);
     await expect(sharing.getByText(/No share links yet/i)).not.toBeVisible();
 
     serverRecovered = true;
     await sharing.getByRole('button', { name: 'Retry' }).click();
     await expect(sharing.getByText('Client board')).toBeVisible();
+  });
+
+  test('lists a status-update link and revokes it (#4805)', async ({ page }) => {
+    await setup(page);
+    let revoked = false;
+    const statusLink = {
+      ...FIXTURE_LINK,
+      id: 'link-su',
+      content_kind: 'status_update',
+      label: '',
+      status_update: 'update-3',
+      status_update_seq: 3,
+      show_risks: false,
+      show_decisions: false,
+      expires_at: '2099-01-01T00:00:00Z',
+    };
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/share-links/`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(revoked ? [] : [statusLink]),
+      }),
+    );
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/share-links/link-su/revoke/`, (r) => {
+      revoked = true;
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ...statusLink,
+          is_active: false,
+          revoked_at: '2026-05-02T00:00:00Z',
+        }),
+      });
+    });
+
+    await page.goto(`/projects/${PROJECT_ID}/settings#sharing`);
+
+    const sharing = page.getByRole('region', { name: 'Sharing', exact: true });
+    await expect(sharing.getByRole('heading', { name: /Status update links/ })).toBeVisible(FIRST_RENDER);
+    await expect(sharing.getByText(/update 3/)).toBeVisible();
+    await sharing.getByRole('button', { name: 'Revoke', exact: true }).click();
+    await sharing.getByRole('button', { name: 'Confirm' }).click();
+    await expect(sharing.getByText(/No share links yet/i)).toBeVisible();
+    expect(revoked).toBe(true);
   });
 });

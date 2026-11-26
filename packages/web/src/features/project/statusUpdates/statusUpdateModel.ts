@@ -134,12 +134,26 @@ function row(
 }
 
 /**
+ * The figures the panel reads: a posted update's snapshot, or the share projection
+ * of one (#4805), which carries the same metric shapes minus the internal fields.
+ */
+export interface SnapshotFacts {
+  forecast?: Partial<
+    Pick<
+      StatusUpdateSnapshot['forecast'],
+      'p50' | 'p80' | 'cpm_finish' | 'baseline_finish_variance_days'
+    >
+  >;
+  counts?: Partial<StatusUpdateSnapshot['counts']>;
+}
+
+/**
  * The panel rows for a snapshot. With `diff` (a posted update's `live_diff`) each
  * moved figure gets its current value as `now`; the frozen value is never replaced.
  * Keys are the API's dotted live-diff keys, so the match is by name, not by guess.
  */
 export function snapshotRows(
-  snapshot: StatusUpdateSnapshot,
+  snapshot: SnapshotFacts,
   diff?: Record<string, StatusUpdateLiveDiffEntry>,
 ): SnapshotRow[] {
   const f = snapshot.forecast;

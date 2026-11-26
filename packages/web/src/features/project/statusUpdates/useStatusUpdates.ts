@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { StatusUpdate } from '@/api/types';
 import type { Rag } from '@/lib/ragBand';
+import { shareLinksKey } from '@/features/settings/hooks/useShareLinks';
 
 interface StatusUpdatePage {
   count: number;
@@ -47,5 +48,86 @@ export function usePostStatusUpdate(projectId: string) {
         })
       ).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: statusUpdatesKey(projectId) }),
+  });
+}
+
+/** Page sizes the PDF endpoint renders (#4805). */
+export type StatusUpdatePdfSize = 'letter' | 'a4';
+
+/** The file name a downloaded PDF is saved under. */
+export function statusUpdatePdfFilename(
+  seq: number,
+  size: StatusUpdatePdfSize,
+  code?: string | null,
+): string {
+  const safe = (code ?? '').replace(/[^A-Za-z0-9_-]/g, '') || 'project';
+  return `${safe}-status-update-${seq}-${size}.pdf`;
+}
+
+/**
+ * Download one update's one-page PDF (#4805). The endpoint needs the session, so the
+ * file is fetched through `apiClient` as a blob and saved client-side: a plain anchor
+ * `href` would reach it unauthenticated. The server draws it from the frozen snapshot.
+ */
+export async function downloadStatusUpdatePdf(
+  projectId: string,
+  update: Pick<StatusUpdate, 'id' | 'seq'>,
+  size: StatusUpdatePdfSize,
+  code?: string | null,
+): Promise<void> {
+  const res = await apiClient.get<Blob>(`/projects/${projectId}/status-updates/${update.id}/pdf/`, {
+    params: { size },
+    responseType: 'blob',
+  });
+  const url = URL.createObjectURL(res.data);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = statusUpdatePdfFilename(update.seq, size, code);
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  // Deferred: some browsers start the download after click() returns, and a URL
+  // revoked in the same tick saves nothing.
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+/** What the one-time mint returns that the row shows: the raw token's path, once. */
+export interface StatusUpdateShareLink {
+  id: string;
+  share_path: string;
+  expires_at: string | null;
+}
+
+export interface StatusUpdateShareInput {
+  updateId: string;
+  /** Days until the link stops resolving. Every status-update link expires. */
+  expiresInDays: number;
+  showRisks: boolean;
+  showDecisions: boolean;
+}
+
+/**
+ * Mint a read-only share link bound to ONE posted update (#4803 API, #4805 action).
+ * People's names stay off (the server default); risks and decisions are opt-in. The
+ * token is returned once and never stored by the client beyond the reveal.
+ */
+export function useCreateStatusUpdateShareLink(projectId: string) {
+  const queryClient = useQueryClient();
+  return useMutation<StatusUpdateShareLink, unknown, StatusUpdateShareInput>({
+    mutationFn: async ({ updateId, expiresInDays, showRisks, showDecisions }) =>
+      (
+        await apiClient.post<StatusUpdateShareLink>(`/projects/${projectId}/share-links/`, {
+          content_kind: 'status_update',
+          status_update: updateId,
+          expires_at: new Date(Date.now() + expiresInDays * 86_400_000).toISOString(),
+          show_risks: showRisks,
+          show_decisions: showDecisions,
+        })
+      ).data,
+    // The project's share-links list (Settings -> Sharing, where a link is revoked)
+    // must show the new link without a reload, as for a board link.
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: shareLinksKey(projectId) });
+    },
   });
 }

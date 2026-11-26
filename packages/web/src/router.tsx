@@ -283,6 +283,11 @@ const PublicBoardSharePage = lazy(() =>
   })),
 );
 
+const PublicStatusUpdateSharePage = lazy(() =>
+  import('@/features/share/PublicStatusUpdateSharePage').then((m) => ({
+    default: m.PublicStatusUpdateSharePage,
+  })),
+);
 // Public read-only schedule share viewer (#1486, ADR-0265) — unauthenticated sibling
 // of the board viewer; lazy so it adds nothing to the logged-in app bundle.
 const PublicScheduleSharePage = lazy(() =>
@@ -616,6 +621,17 @@ export const routes: RouteObject[] = [
           </Suspense>
         ),
         handle: { title: 'Shared Schedule' } satisfies RouteHandle,
+      },
+      // Public route — no auth required (#4805). Read-only render of one posted status
+      // update's frozen snapshot; the server's share envelope is the only gate.
+      {
+        path: '/share/status-update/:token',
+        element: (
+          <Suspense fallback={<RouteLoadingFallback />}>
+            <PublicStatusUpdateSharePage />
+          </Suspense>
+        ),
+        handle: { title: 'Shared Status Update' } satisfies RouteHandle,
       },
       {
         element: <RequireAuth />,

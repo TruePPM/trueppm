@@ -12,6 +12,8 @@ export interface ShareLink {
   id: string;
   contentKind: string;
   tokenPrefix: string;
+  /** Status-update links only: the number of the one update the link publishes. */
+  statusUpdateSeq?: number | null;
   label: string;
   showAssignees: boolean;
   /** Schedule links only — when false the public schedule omits milestone rows. */
@@ -39,6 +41,7 @@ interface ShareLinkRaw {
   id: string;
   content_kind: string;
   token_prefix: string;
+  status_update_seq?: number | null;
   label: string;
   show_assignees: boolean;
   show_milestone_dates: boolean;
@@ -63,6 +66,7 @@ function mapLink(raw: ShareLinkRaw): ShareLink {
     id: raw.id,
     contentKind: raw.content_kind,
     tokenPrefix: raw.token_prefix,
+    statusUpdateSeq: raw.status_update_seq,
     label: raw.label,
     showAssignees: raw.show_assignees,
     showMilestoneDates: raw.show_milestone_dates,
@@ -78,7 +82,8 @@ function mapLink(raw: ShareLinkRaw): ShareLink {
   };
 }
 
-function shareLinksKey(projectId: string) {
+/** TanStack key for a project's share links; every link-minting mutation invalidates it. */
+export function shareLinksKey(projectId: string) {
   return ['share-links', projectId] as const;
 }
 

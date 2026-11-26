@@ -71,6 +71,7 @@ from trueppm_api.apps.projects.standup_views import StandupView
 from trueppm_api.apps.projects.status_update_views import (
     ProjectStatusUpdateDetailView,
     ProjectStatusUpdateListCreateView,
+    ProjectStatusUpdatePdfView,
 )
 from trueppm_api.apps.projects.structural_operation_views import StructuralOperationViewSet
 from trueppm_api.apps.projects.template_views import (
@@ -915,6 +916,11 @@ urlpatterns = [
         "projects/<project_pk>/status-updates/<update_id>/",
         ProjectStatusUpdateDetailView.as_view(),
         name="project-status-update-detail",
+    ),
+    path(
+        "projects/<project_pk>/status-updates/<update_id>/pdf/",
+        ProjectStatusUpdatePdfView.as_view(),
+        name="project-status-update-pdf",
     ),
     path(
         "share/status-update/<token>/",

@@ -5,10 +5,10 @@ documentedFor: "0.5"
 ---
 
 :::note[Ships in 0.5]
-Status updates ship in 0.5: the API, and the composer and history on the
-Project Overview of the new interface (turned on with `?ff=shell_v2`). The PDF
-export and the share page in the web app arrive later in 0.5. In 0.4 a project
-has a computed health band and no posted status a stakeholder can read.
+Status updates ship in 0.5: the API, the composer and history on the Project
+Overview of the new interface (turned on with `?ff=shell_v2`), the one-page PDF,
+and the read-only share page. In 0.4 a project has a computed health band and no
+posted status a stakeholder can read, print or share.
 :::
 
 A **status update** is the project manager's report on a project at a point in
@@ -67,6 +67,50 @@ Project Overview.
   posted value is never rewritten.
 
 On a phone the call options are larger and the snapshot is a row you open.
+
+## Printing an update as a PDF
+
+Select a row in the history, then choose **PDF (Letter)** or **PDF (A4)**. Every
+project member can download it. The PDF is one page, drawn by the server from the
+update's frozen snapshot, never the live plan:
+
+- the project, the update number, the project manager and the posting time;
+- the call and the computed health, each with its symbol and word;
+- the narrative;
+- P80, P50, the commitment (the active baseline's finish) and the CPM finish, with
+  the CPM finish's variance against the commitment;
+- what was completed and what slipped since the previous update;
+- the milestones with their variance (up to six), then a count of the rest;
+- the top risks (up to three) and the open decisions (up to three), then a count of
+  the rest;
+- a footer that says the facts were frozen when the update was posted, and that
+  defines P80 and the CPM finish.
+
+The narrative always prints in full, on one page, on both sizes. When a long
+narrative needs the room, the lists give way first: milestone rows, then decisions
+and risks, each replaced by a count of what is left out. A narrative of so many short
+lines that its line breaks cannot fit even then prints as one flowing paragraph, with
+" / " where each line break was. A figure
+the server could not compute prints as "Not computable" with the reason. The PDF
+carries no cost figures, no links and no scripts. If the stored update no longer
+matches the record taken when it was posted, the PDF is refused (`409`) rather than
+printed, because its footer would be untrue.
+
+## Sharing one update from the history
+
+A Project Manager or above can select a row and choose **Share link**: pick when the
+link expires (7, 30 or 90 days), whether to include the top risks and the open
+decisions, then **Create link**. The link is shown once; copy it then. People's names
+are not included. Revoke a link from the project's share links, as for a board link.
+
+Anyone holding the link opens a read-only page with no sign-in. It shows the
+project, the update number, the call, the computed health, the narrative and the
+frozen snapshot, with a **Read-only** label. It has no workspace navigation and no
+link into TruePPM, and it follows the reader's light or dark setting. On a phone the
+narrative shows its first paragraph and a **Read all N paragraphs** button. A link
+that is unknown, revoked or expired shows the same "This link isn't available" page.
+The page makes no request to the signed-in API. It reads the public share endpoint
+and the anonymous edition check (`/api/v1/edition/`).
 
 ## What the snapshot holds
 
@@ -150,6 +194,10 @@ sharing policy otherwise work as they do for
 - `GET /api/v1/projects/{id}/status-updates/`: the history, newest first, paginated.
 - `POST /api/v1/projects/{id}/status-updates/`: post `{rag, narrative}`.
 - `GET /api/v1/projects/{id}/status-updates/{update_id}/`: one update.
+- `GET /api/v1/projects/{id}/status-updates/{update_id}/pdf/?size=letter|a4`: the
+  one-page PDF (`letter` by default). Project members only; `400` for another size,
+  `409` when the stored update no longer matches its record. An `mcp:read` token
+  can download it, as it can read the update.
 - `GET /api/v1/share/status-update/{token}/`: the public, read-only shared view.
 
 The full schema is in the [API reference](/api/reference/).

@@ -295,6 +295,7 @@ These endpoints ship in 0.5. See [Project status updates](/features/status-updat
 | GET | `/api/v1/projects/{id}/status-updates/` | The history, newest first, page-number paginated (project members) |
 | POST | `/api/v1/projects/{id}/status-updates/` | Post `{rag, narrative}`; the server freezes the snapshot (Project Manager+, signed in; API tokens are refused) |
 | GET | `/api/v1/projects/{id}/status-updates/{update_id}/` | One update with its frozen `snapshot` and `live_diff` (project members) |
+| GET | `/api/v1/projects/{id}/status-updates/{update_id}/pdf/` | One-page PDF of the frozen snapshot; `?size=letter` (default) or `a4`. `400` for another size, `409` when the row no longer matches its seal (project members) |
 
 There is no `PUT`, `PATCH` or `DELETE`: a posted update is immutable, and a
 correction is a new post. A status-update share link is minted on
