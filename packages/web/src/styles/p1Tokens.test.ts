@@ -226,6 +226,27 @@ describe.each([
     expect(contrast(tokens.focus, tokens['surface-1'])).toBeGreaterThanOrEqual(AA_NON_TEXT);
   });
 
+  // Pass 3 primitives (#4802): the marks that carry meaning without text.
+  it('the heat grid seat outline and start marker clear 3:1 on the sheet', () => {
+    for (const mark of ['text-1', 'text-2']) {
+      expect(contrast(tokens[mark], tokens['surface-1'])).toBeGreaterThanOrEqual(AA_NON_TEXT);
+    }
+  });
+
+  it('the split bar ink segment clears 3:1 against the load-3 segment beside it', () => {
+    // load-3 is text-1 at 22% over the sheet (tailwind.config.ts).
+    const sheet = tokens['surface-1'];
+    const load3 = over({ ...tokens['text-1'], a: 0.22 }, sheet);
+    const ink = oklchToLinearSrgb(tokens['text-1']).map(clamp01) as [number, number, number];
+    expect(ratio(luminance(ink), luminance(load3))).toBeGreaterThanOrEqual(AA_NON_TEXT);
+  });
+
+  it('the checked reason row border (brand) clears 3:1 on the sheet and its fill', () => {
+    for (const ground of ['surface-1', 'surface-2']) {
+      expect(contrast(tokens.brand, tokens[ground])).toBeGreaterThanOrEqual(AA_NON_TEXT);
+    }
+  });
+
   it('surfaces step monotonically in lightness so depth reads without shadows', () => {
     const l = (n: string) => tokens[n].l;
     if (theme === 'light') {

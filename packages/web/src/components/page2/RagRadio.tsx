@@ -39,7 +39,7 @@ export function RagRadio({ legend, name, value, onChange, disabled, aside }: Rag
           return (
             <label
               key={rag}
-              className={`inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-lg border px-3 text-sm font-medium max-sm:min-h-[52px] max-sm:flex-1 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-p1-focus has-[:focus-visible]:ring-offset-2 ${
+              className={`inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-lg border px-3 text-sm font-medium max-sm:min-h-[52px] max-sm:flex-1 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-p1-focus has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-p1-surface-1 ${
                 checked ? CHECKED[rag] : 'border-p1-hairline bg-p1-surface-1 text-p1-text-1'
               }`}
               data-testid={`rag-${rag}`}

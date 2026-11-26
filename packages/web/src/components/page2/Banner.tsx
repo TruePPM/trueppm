@@ -19,7 +19,10 @@ export interface BannerProps {
 
 /**
  * Pass 3 banner (#4802): one line with a glyph and words, and at most one action.
- * It takes the row it is placed in (the toolbar row) and never stacks under it.
+ * It takes the row it is placed in (the toolbar row, via `PageFrame`'s
+ * `toolbarOverride`) and never stacks under it: full width, and the toolbar
+ * row's own height (36px on a fine pointer at `md`+, 44px otherwise), so taking
+ * the row does not push the page down.
  * A critical banner is an alert, announced at once; the others are polite status.
  */
 export function Banner({ tone, children, action, 'data-testid': testId }: BannerProps) {
@@ -28,7 +31,7 @@ export function Banner({ tone, children, action, 'data-testid': testId }: Banner
       role={tone === 'critical' ? 'alert' : 'status'}
       data-testid={testId}
       data-tone={tone}
-      className={`flex min-h-[44px] flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-sm ${TONE_CLASS[tone]}`}
+      className={`flex min-h-[44px] w-full min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-2 text-sm md:min-h-9 md:py-1 md:[@media(pointer:coarse)]:min-h-11 ${TONE_CLASS[tone]}`}
     >
       <span aria-hidden="true">{STATUS_GLYPH[tone]}</span>
       <span className="min-w-0 flex-1">{children}</span>

@@ -15,6 +15,8 @@ import { NotComputable } from '@/components/page2/NotComputable';
 import { DefinitionTip } from '@/components/page2/DefinitionTip';
 import { FOCUS_RING, HIT_44, PAGE_BUTTON } from '@/components/page2/classes';
 import { TYPE } from '@/components/page2/typeScale';
+import { Banner } from '@/components/page2/Banner';
+import { KitPass3 } from './KitPass3';
 import { SHELL_V2_FLAG } from './ShellGate';
 
 /**
@@ -25,7 +27,9 @@ import { SHELL_V2_FLAG } from './ShellGate';
  * off it sends the person home.
  *
  * `?width=bleed` renders the full-bleed frame; `?filtered=1` shows a
- * "filters applied" row taking the toolbar's place.
+ * "filters applied" row taking the toolbar's place. `?p3=1` mounts the Pass 3
+ * primitives (#4802) instead of the Pass 2 sections, and `&banner=1` puts a
+ * banner in the toolbar row.
  */
 export function KitPage() {
   const v2 = useFeatureFlag(SHELL_V2_FLAG);
@@ -148,6 +152,8 @@ function KitPageBody() {
   const navigate = useNavigate();
   const bleed = params.get('width') === 'bleed';
   const filtered = params.get('filtered') === '1';
+  const pass3 = params.get('p3') === '1';
+  const banner = params.get('banner') === '1';
   // Mounted under a project route the context header is the visible title.
   const underContext = useProjectId() !== undefined;
 
@@ -172,7 +178,9 @@ function KitPageBody() {
         </button>
       }
       toolbarOverride={
-        filtered ? (
+        banner ? (
+          <Banner tone="critical">The last update didn’t post.</Banner>
+        ) : filtered ? (
           <>
             <span className={`${TYPE.body} text-p1-text-2`}>2 filters applied</span>
             <button type="button" className={toolbarButton} onClick={noop}>
@@ -182,119 +190,125 @@ function KitPageBody() {
         ) : undefined
       }
     >
-      <div className="flex flex-col gap-8">
-        <section aria-labelledby="kit-type" className="flex flex-col gap-2">
-          <SectionHeading id="kit-type">Title scale</SectionHeading>
-          <p className={TYPE.lead}>87%</p>
-          <p className={TYPE.greeting}>Good morning, Ana</p>
-          <p className={TYPE.tile}>12 tasks</p>
-          <p className={`${TYPE.body} text-p1-text-1`}>Body text sits at 13 on 20.</p>
-          <p className={`${TYPE.meta} text-p1-text-2`}>Meta text: updated 4 min ago</p>
-          <p className={`${TYPE.mono} text-p1-text-2`}>T-101 · 2026-12-04 · 14.5</p>
-        </section>
-
-        <section aria-labelledby="kit-status" className="flex flex-col gap-2">
-          <SectionHeading id="kit-status">Status chips</SectionHeading>
-          <div className="flex flex-wrap gap-2">
-            {TONES.map((t) => (
-              <StatusChip key={t.tone} tone={t.tone} label={t.label} />
-            ))}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <HealthBandChip band="on_track" />
-            <HealthBandChip band="at_risk" />
-            <HealthBandChip band="critical" />
-          </div>
-        </section>
-
-        <section aria-labelledby="kit-people" className="flex flex-col gap-2">
-          <SectionHeading id="kit-people">Avatars</SectionHeading>
-          <div className="flex flex-wrap items-center gap-4">
-            <Avatar name="Ana Lee" size={22} />
-            <Avatar name="Ana Lee" size={28} />
-            <Avatar name="Ana Lee" size={36} />
-            <AvatarStack people={ROWS[2].owners} />
-            <UnassignedAvatar />
-            <Avatar name="Ben Ito" overAllocatedPct={132} />
-          </div>
-        </section>
-
-        <section aria-labelledby="kit-table" className="flex flex-col gap-2">
-          <SectionHeading id="kit-table">Table</SectionHeading>
-          <p className={`${TYPE.meta} text-p1-text-2`}>
-            <DefinitionTip
-              term="Float"
-              definition="How many working days a task can slip before it moves the project finish."
-              asOf="2026-11-07T09:00:00Z"
-            />
-          </p>
-          <DataTable
-            caption="Fixture tasks"
-            columns={COLUMNS}
-            rows={ROWS}
-            rowKey={(r) => r.id}
-            className="max-h-[320px]"
-          />
-          <NotComputable
-            label="Schedule variance"
-            missing="no baseline is set"
-            fix={
-              <button
-                type="button"
-                onClick={noop}
-                className={`${HIT_44} rounded font-medium text-p1-text-1 underline ${FOCUS_RING}`}
-              >
-                Set a baseline
-              </button>
-            }
-          />
-        </section>
-
-        <section aria-labelledby="kit-loading" className="flex flex-col gap-2">
-          <SectionHeading id="kit-loading">Loading</SectionHeading>
-          <LoadingSkeleton
-            variant="table"
-            label="Loading tasks…"
-            columns={COLUMNS}
-            count="24 tasks"
-            rows={3}
-          />
-        </section>
-
-        <section aria-labelledby="kit-empty">
-          <SectionHeading id="kit-empty">Empty</SectionHeading>
-          <EmptyState
-            variant="page"
-            title="No risks logged yet"
-            description="Risks you log here feed the forecast and the health band."
-            actions={[
-              <Button key="add" size="sm" className={PAGE_BUTTON} onClick={noop}>
-                Log a risk
-              </Button>,
-              <Button
-                key="import"
-                size="sm"
-                variant="secondary"
-                className={PAGE_BUTTON}
-                onClick={noop}
-              >
-                Import from CSV
-              </Button>,
-            ]}
-          />
-        </section>
-
-        <section aria-labelledby="kit-error">
-          <SectionHeading id="kit-error">Error</SectionHeading>
-          <QueryErrorState
-            variant="page"
-            message="The risk register couldn't load."
-            stillWorks="The schedule, board and your tasks still work; only this list is down."
-            supportCode={supportCode(undefined, FIXTURE_FAILED_AT)}
-            onRetry={noop}
-          />
-        </section>
-      </div>
+      {pass3 ? <KitPass3 /> : <KitPass2 />}
     </PageFrame>
+  );
+}
+
+function KitPass2() {
+  return (
+    <div className="flex flex-col gap-8">
+      <section aria-labelledby="kit-type" className="flex flex-col gap-2">
+        <SectionHeading id="kit-type">Title scale</SectionHeading>
+        <p className={TYPE.lead}>87%</p>
+        <p className={TYPE.greeting}>Good morning, Ana</p>
+        <p className={TYPE.tile}>12 tasks</p>
+        <p className={`${TYPE.body} text-p1-text-1`}>Body text sits at 13 on 20.</p>
+        <p className={`${TYPE.meta} text-p1-text-2`}>Meta text: updated 4 min ago</p>
+        <p className={`${TYPE.mono} text-p1-text-2`}>T-101 · 2026-12-04 · 14.5</p>
+      </section>
+
+      <section aria-labelledby="kit-status" className="flex flex-col gap-2">
+        <SectionHeading id="kit-status">Status chips</SectionHeading>
+        <div className="flex flex-wrap gap-2">
+          {TONES.map((t) => (
+            <StatusChip key={t.tone} tone={t.tone} label={t.label} />
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <HealthBandChip band="on_track" />
+          <HealthBandChip band="at_risk" />
+          <HealthBandChip band="critical" />
+        </div>
+      </section>
+
+      <section aria-labelledby="kit-people" className="flex flex-col gap-2">
+        <SectionHeading id="kit-people">Avatars</SectionHeading>
+        <div className="flex flex-wrap items-center gap-4">
+          <Avatar name="Ana Lee" size={22} />
+          <Avatar name="Ana Lee" size={28} />
+          <Avatar name="Ana Lee" size={36} />
+          <AvatarStack people={ROWS[2].owners} />
+          <UnassignedAvatar />
+          <Avatar name="Ben Ito" overAllocatedPct={132} />
+        </div>
+      </section>
+
+      <section aria-labelledby="kit-table" className="flex flex-col gap-2">
+        <SectionHeading id="kit-table">Table</SectionHeading>
+        <p className={`${TYPE.meta} text-p1-text-2`}>
+          <DefinitionTip
+            term="Float"
+            definition="How many working days a task can slip before it moves the project finish."
+            asOf="2026-11-07T09:00:00Z"
+          />
+        </p>
+        <DataTable
+          caption="Fixture tasks"
+          columns={COLUMNS}
+          rows={ROWS}
+          rowKey={(r) => r.id}
+          className="max-h-[320px]"
+        />
+        <NotComputable
+          label="Schedule variance"
+          missing="no baseline is set"
+          fix={
+            <button
+              type="button"
+              onClick={noop}
+              className={`${HIT_44} rounded font-medium text-p1-text-1 underline ${FOCUS_RING}`}
+            >
+              Set a baseline
+            </button>
+          }
+        />
+      </section>
+
+      <section aria-labelledby="kit-loading" className="flex flex-col gap-2">
+        <SectionHeading id="kit-loading">Loading</SectionHeading>
+        <LoadingSkeleton
+          variant="table"
+          label="Loading tasks…"
+          columns={COLUMNS}
+          count="24 tasks"
+          rows={3}
+        />
+      </section>
+
+      <section aria-labelledby="kit-empty">
+        <SectionHeading id="kit-empty">Empty</SectionHeading>
+        <EmptyState
+          variant="page"
+          title="No risks logged yet"
+          description="Risks you log here feed the forecast and the health band."
+          actions={[
+            <Button key="add" size="sm" className={PAGE_BUTTON} onClick={noop}>
+              Log a risk
+            </Button>,
+            <Button
+              key="import"
+              size="sm"
+              variant="secondary"
+              className={PAGE_BUTTON}
+              onClick={noop}
+            >
+              Import from CSV
+            </Button>,
+          ]}
+        />
+      </section>
+
+      <section aria-labelledby="kit-error">
+        <SectionHeading id="kit-error">Error</SectionHeading>
+        <QueryErrorState
+          variant="page"
+          message="The risk register couldn't load."
+          stillWorks="The schedule, board and your tasks still work; only this list is down."
+          supportCode={supportCode(undefined, FIXTURE_FAILED_AT)}
+          onRetry={noop}
+        />
+      </section>
+    </div>
   );
 }
