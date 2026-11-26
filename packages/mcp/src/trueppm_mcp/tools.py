@@ -1444,7 +1444,7 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         velocity audience (a project Admin or Owner is, until the team shares it
         upward), the answer carries ``velocity_suppressed: true`` and no series or
         point figures. That is a normal answer, not a failure: say the team keeps
-        velocity private, and do not reconstruct it from ``list_sprints``. Null and
+        velocity private. Null and
         empty fields are omitted. Carries a ``_provenance`` stamp.
 
         Args:

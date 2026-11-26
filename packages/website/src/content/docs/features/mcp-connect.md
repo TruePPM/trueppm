@@ -150,7 +150,7 @@ clear message rather than letting every later query fail.
 
 ## What you can ask
 
-The server exposes **19 read-only tools** (eight more are planned for 0.5: `get_project_cost`, `get_schedule_driving_chain`, `get_project_history`, `list_dependencies`, `list_baselines`, `list_phases`, `list_calendars`, and `get_baseline_variance`), each mapping to one existing REST
+The server exposes **19 read-only tools** (thirteen more are planned for 0.5: `get_project_cost`, `get_schedule_driving_chain`, `get_project_history`, `get_project_views`, `list_dependencies`, `list_baselines`, `get_changeset`, `list_baseline_decisions`, `list_phases`, `list_calendars`, `get_baseline_variance`, `get_sprint_velocity`, and `get_sprint_burndown`), each mapping to one existing REST
 endpoint and returning only what your role permits:
 
 - **Projects & programs** — `list_projects`, `get_project`, `list_programs`,

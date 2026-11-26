@@ -16,6 +16,7 @@
  * keyboard-accessible reparent alternative is the drawer's "Parent epic" select (#1043).
  */
 import { expect, test } from './fixtures/coverage';
+import { expectNoA11yViolations } from './fixtures/a11y';
 import { setupApiMocks, setupAuth, setupCatchAll } from './fixtures';
 
 const FIXTURE_PROJECT_ID = 'e2e-groom-00000000-0000-0000-0000-000000000494';
@@ -325,6 +326,53 @@ test.describe('Product backlog grooming (#494/#921/#922)', () => {
     const forecast = page.getByRole('region', { name: 'Backlog forecast' });
     await expect(forecast.getByTestId('forecast-warming-up')).toBeVisible({ timeout: 10_000 });
     await expect(forecast.getByTestId('forecast-ready')).toHaveCount(0);
+  });
+
+  test('shows the backlog forecast beneath the health strip on a phone, within the viewport (#2411)', async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await setup(page);
+    await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/sprint-forecast/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          status: 'ready',
+          remaining_points: 42,
+          remaining_count: null,
+          sample_count: 4,
+          p50_sprints: 3,
+          p80_sprints: 4,
+          p50_date: '2026-12-01',
+          p80_date: '2026-12-15',
+          p95_date: '2026-12-29',
+          basis: 'monte_carlo',
+          forecast_basis: 'velocity',
+          velocity_suppressed: false,
+          horizon_saturated: false,
+        }),
+      }),
+    );
+    await page.goto(`${BASE_URL}/product-backlog`);
+    await expect(page.getByRole('heading', { name: 'Product backlog' })).toBeVisible({
+      timeout: 10_000,
+    });
+    const forecast = page.getByRole('region', { name: 'Backlog forecast' });
+    await expect(forecast.getByTestId('forecast-ready')).toContainText('42');
+    await expect(forecast.getByTestId('forecast-ready')).toContainText('P80');
+    const box = await forecast.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(overflow).toBeLessThanOrEqual(0);
+    // The story cards nest a DoR toggle button inside a role=button card (a
+    // pre-existing nested-interactive finding in MobileGroomingCard, outside this
+    // change), so that one rule is disabled here; the forecast strip is still scanned.
+    await expectNoA11yViolations(page, testInfo, { disableRules: ['nested-interactive'] });
   });
 
   test('omits the forecast strip on an empty backlog (#2411)', async ({ page }) => {

@@ -88,7 +88,10 @@ export function MobileGroomingCard({ story, onOpen, onToggleDor }: MobileGroomin
   return (
     <div className={`relative overflow-hidden rounded-card ${revealTone}`}>
       {/* Swipe reveal — decorative; the chip carries the accessible action. */}
-      <div aria-hidden className="pointer-events-none absolute inset-0 flex items-center justify-between px-4">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 flex items-center justify-between px-4"
+      >
         <span
           className={`text-xs font-semibold text-semantic-on-track ${dx > TAP_SLOP_PX ? '' : 'opacity-0'}`}
         >
