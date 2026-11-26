@@ -53,7 +53,9 @@ non-draft projects only, never another program.
 
 :::note[Ships in 0.5]
 `as_of`, `definitions`, `summary`, `program_health_reason`, the
-per-KPI `reason`, `kpis.*.projects_without_budget_ids` on a KPI with no value, and a computed `p80_completion` ship in
+per-KPI `reason`, `projects_without_budget_ids` on `kpis.cost_variance` and
+`kpis.budget_utilization` (the projects without a budget, for a caller who may see cost),
+and a computed `p80_completion` ship in
 0.5. `program_health` keeps its meaning: the rollup of each project's
 schedule performance band. In 0.4 the response carries `aggregation_policy`,
 `policy_available`, `policy_unavailable_reason`, `project_count`,

@@ -132,4 +132,12 @@ describe('ProgramOverview2 summary scope (#4799)', () => {
       screen.getByText(/accepted dependencies between projects; 2 projects not counted/),
     ).toBeInTheDocument();
   });
+
+  it('uses the singular when exactly one project is left out', async () => {
+    mockApi({ is_sample: false, my_role: 400 }, scopedRollup(2));
+    renderV2();
+    expect(
+      await screen.findByText('open or mitigating; 1 project not counted'),
+    ).toBeInTheDocument();
+  });
 });

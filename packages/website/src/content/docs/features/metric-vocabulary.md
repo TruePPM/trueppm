@@ -86,7 +86,8 @@ owner's figures as they stood at post time, with the sentences above.
 One program's figures are owned by `GET /programs/{id}/rollup/`. It reads the
 program's own projects only, never several programs. The response carries
 `as_of` and a `definitions` map like the project endpoints. `definitions` always
-holds `program_health`, the three summary figures below, and one sentence for each KPI
+holds `program_health`, the lead P80 (`p80_completion`), the project row (`projects`),
+the three summary figures below, and one sentence for each KPI
 the program has turned on, keyed by the KPI's name.
 
 | Metric | Field | Owner | As of | Definition |

@@ -213,8 +213,11 @@ test.describe('shell v2 program overview', () => {
     );
   });
 
-  test('no project in scope: not-computable line, never 0 of 0', async ({ page }) => {
-    const body = rollup(ROWS, []);
+  test('no project in scope: not-computable line, never 0 of 0', async ({ page }, testInfo) => {
+    const body = rollup(
+      ROWS.map((r) => ({ ...r, accessible: false })),
+      [],
+    );
     body.summary.projects_in_scope_count = 0;
     body.summary.projects_on_track = 0;
     await open(page, body);
@@ -225,10 +228,14 @@ test.describe('shell v2 program overview', () => {
       page.getByTestId('program-overview2-tile').filter({ hasText: 'Open risks' }),
     ).toHaveCount(0);
     await expect(page.getByText('0 of 0')).toHaveCount(0);
+    await expectNoA11yViolationsBothThemes(page, testInfo);
   });
 
   test('partial scope: the count tiles say how many projects they leave out', async ({ page }) => {
-    const body = rollup(ROWS, []);
+    const body = rollup(
+      ROWS.map((r, i) => ({ ...r, accessible: i === 0 })),
+      [],
+    );
     body.summary.projects_in_scope_count = 1;
     await open(page, body);
     await expect(page.getByTestId('program-overview2-tile').nth(2)).toContainText(
