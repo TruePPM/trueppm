@@ -518,6 +518,8 @@ capped sample naming them:
 
 | Code | Status | Meaning | Extra keys |
 |------|--------|---------|-----------|
+| `allocation_over_ceiling` | 409 | Ships in 0.5. A booking takes the person over their capacity ceiling and the overage was not accepted with a reason. Nothing was saved. See [Allocation check](/api/reference/resources/#allocation-check) | `verdict` |
+| `allocation_check_unavailable` | 503 | Ships in 0.5. The allocation check could not complete, so the booking is held and nothing was saved. Retry | — |
 | `protected_reference` | `409` | Generic refused delete — other rows still reference this one | `reference_count`, `references`? |
 | `calendar_in_use` | `409` | The working calendar is still referenced | `reference_count`, `references`? |
 | `skill_in_use` | `409` | The skill is still referenced | `reference_count`, `references`? |
