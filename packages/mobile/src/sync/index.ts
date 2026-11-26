@@ -49,9 +49,7 @@ export interface PullResult {
   timestamp: number;
   /** Opaque page token (#1013). Non-null means the delta is NOT fully drained:
    *  call `pull` again with this value and the SAME `since`. Null on the last
-   *  page. Do not use the response's `has_more` — it is deprecated and removed
-   *  in 0.5, and a client that reads it as `undefined` treats a partial sync as
-   *  a complete one. */
+   *  page. This is the only pagination signal; there is no `has_more` flag. */
   nextCursor: string | null;
   /** True when `since` is below the server's tombstone-retention floor (#2474):
    *  a deletion this device needs has been hard-deleted and no delta can carry

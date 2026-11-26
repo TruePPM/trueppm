@@ -434,7 +434,7 @@ Definition-of-Ready meter) changed.
 
 Two producers emit a leaner or wider frame than the shape above. Inbound task-sync
 frames (Jira and Linear) carry only `id` and `source`. The retro carryover frame
-also carries `task_id`, `sprint_id` and `source`. Treat any `task_updated` frame
+also carries `sprint_id` and `source`. Treat any `task_updated` frame
 without `changed_fields` as "refetch the task".
 
 For a task edit, `changed_fields` lists every stored task field the write changed, including fields

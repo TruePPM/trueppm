@@ -137,3 +137,7 @@ endpoint-removed | DELETE /api/v1/workspace/groups/{group_id}/members/ | api-fuz
 endpoint-removed | POST /api/v1/workspace/groups/{group_id}/members/{user_id}/ | api-fuzz-declaration-corrections-5093 | the operation answered 500 on every call; add is POST .../members/
 endpoint-removed | DELETE /api/v1/workspace/groups/{group_id}/projects/ | api-fuzz-declaration-corrections-5093 | the operation answered 500 on every call; unlink is DELETE .../projects/{project_id}/
 endpoint-removed | POST /api/v1/workspace/groups/{group_id}/projects/{project_id}/ | api-fuzz-declaration-corrections-5093 | the operation answered 500 on every call; link is POST .../projects/
+
+# #4990 - the deprecated `has_more` flag leaves the sync pull envelope; it was exactly
+# `next_cursor is not null`.
+property-removed | response #/SyncPullResponse.has_more | sync-delta-hasmore-removed-4990 | deprecated duplicate of next_cursor is not null

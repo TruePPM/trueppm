@@ -489,10 +489,8 @@ def _drain(
             assert page_rows <= page_size, f"page exceeded page_size: {page_rows} > {page_size}"
             pages += 1
             cursor = resp.data["next_cursor"]
-            if not resp.data["has_more"]:
-                assert cursor is None
+            if cursor is None:
                 break
-            assert cursor is not None
             assert pages < 10_000, "pager failed to terminate"
     return emitted, pages
 
@@ -569,7 +567,7 @@ def test_sync_single_page_is_backward_compatible(
     project: Project,
     membership: ProjectMembership,
 ) -> None:
-    """A small project drains in one page: has_more False, next_cursor None (#1013)."""
+    """A small project drains in one page: next_cursor None (#1013)."""
     _seed_tasks(project, 5)
     with patch.object(
         __import__("trueppm_api.apps.sync.views", fromlist=["ProjectSyncView"]).ProjectSyncView,
@@ -578,7 +576,6 @@ def test_sync_single_page_is_backward_compatible(
     ):
         resp = authed_client.get(_url(project), {"since": "0"})
     assert resp.status_code == 200
-    assert resp.data["has_more"] is False
     assert resp.data["next_cursor"] is None
     task_ids = [t["id"] for t in resp.data["changes"]["tasks"]["updated"]]
     assert len(task_ids) == 5
@@ -644,7 +641,7 @@ def test_sync_mid_drain_write_to_drained_collection_is_not_skipped(
     # Page 1: drains `projects` (1 row) and starts on `tasks`.
     first = authed_client.get(_url(project), {"since": "0", "page_size": "5"})
     assert first.status_code == 200
-    assert first.data["has_more"] is True
+    assert first.data["next_cursor"] is not None
     pinned = first.data["timestamp"]
     delivered_projects = {r["id"] for r in first.data["changes"]["projects"]["updated"]}
     assert str(project.pk) in delivered_projects, "fixture assumption: projects drained on page 1"
@@ -697,7 +694,7 @@ def test_sync_timestamp_is_identical_on_every_page_of_one_drain(
         project.name = f"Churn {len(pages)}"
         project.save()
         cursor = resp.data["next_cursor"]
-        if not resp.data["has_more"]:
+        if resp.data["next_cursor"] is None:
             break
 
     assert len(pages) > 1, "fixture assumption: the delta spans multiple pages"
@@ -713,7 +710,7 @@ def test_sync_cursor_pins_watermark_in_the_token(
     """The emitted continuation token carries the session watermark as `w` (#2568)."""
     _seed_tasks(project, 20, sync_seq=1)
     resp = authed_client.get(_url(project), {"since": "0", "page_size": "3"})
-    assert resp.data["has_more"] is True
+    assert resp.data["next_cursor"] is not None
     payload = _decode_token(resp.data["next_cursor"])
     assert payload["w"] == resp.data["timestamp"]
 
@@ -830,7 +827,7 @@ def test_sync_unmodified_cursor_survives_the_ceiling_check(
         project.name = f"Churn {pages}"
         project.save()
         cursor = resp.data["next_cursor"]
-        if not resp.data["has_more"]:
+        if resp.data["next_cursor"] is None:
             break
         assert pages < 100, "pager failed to terminate"
     assert pages > 1
@@ -894,7 +891,7 @@ def test_team_only_retro_gating_holds_on_every_page_of_a_drain(
         retro_ids |= {r["id"] for r in resp.data["changes"]["sprint_retros"]["updated"]}
         action_ids |= {r["id"] for r in resp.data["changes"]["retro_action_items"]["updated"]}
         cursor = resp.data["next_cursor"]
-        if not resp.data["has_more"]:
+        if resp.data["next_cursor"] is None:
             break
         assert pages < 100, "pager failed to terminate"
 

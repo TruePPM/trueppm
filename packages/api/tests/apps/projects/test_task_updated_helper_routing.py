@@ -375,7 +375,8 @@ def test_retro_carryover_pull_emits_versioned_unattributed_frame_with_context_ke
         task = pull_carryover_item_to_sprint(item, target, user)
     task.refresh_from_db()
     frame = next(f for f in _frames(m) if f.get("source") == "retro_carryover")
-    assert frame["id"] == frame["task_id"] == str(task.pk)
+    assert frame["id"] == str(task.pk)
+    assert "task_id" not in frame
     assert frame["sprint_id"] == str(target.pk)
     assert frame["changed_fields"] == ["sprint"]
     assert frame["version"] == task.server_version

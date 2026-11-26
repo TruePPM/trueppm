@@ -65,7 +65,7 @@ def _load_fernet() -> MultiFernet:
             fernets.append(Fernet(_as_bytes(fallback)))
         except (ValueError, TypeError):
             raise ImproperlyConfigured(
-                f"INTEGRATION_ENCRYPTION_KEY_FALLBACKS[{index}] is not a valid Fernet key "
+                f"TRUEPPM_INTEGRATION_ENCRYPTION_KEY_FALLBACKS[{index}] is not a valid Fernet key "
                 "(expected 32-byte urlsafe-base64)."
             ) from None
     return MultiFernet(fernets)

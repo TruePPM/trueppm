@@ -37,11 +37,7 @@ env = environ.Env()
 # ``RETENTION_PURGE_INFLIGHT_SECONDS``, ``SIGNAL_CEILING_PROPOSAL_TTL_HOURS``,
 # ``CSP_CONNECT_SRC``, ``JWT_SIGNING_KEY``, ``INTEGRATION_ENCRYPTION_KEY``. They will
 # gain the prefix with the same legacy fallback; ``tests/test_env_namespace.py`` pins the
-# list so it only changes deliberately. Two further names were added bare by #3406
-# because that issue names them: ``JWT_SIGNING_KEY_FALLBACKS`` and
-# ``INTEGRATION_ENCRYPTION_KEY_FALLBACKS``. TODO(#5048): decide whether to prefix these
-# with TRUEPPM_ before 0.5 ships (``SECRET_KEY_FALLBACKS`` follows the Django
-# ``SECRET_KEY`` convention).
+# list so it only changes deliberately.
 # A setting that shipped bare and HAS been migrated keeps working as a
 # deprecated fallback through ``env_with_legacy`` (one precedence rule, one-time
 # WARNING; removed at 1.0, #4405). Do not add a new bare name.
@@ -77,9 +73,11 @@ SECRET_KEY_FALLBACKS = parse_key_list(env("SECRET_KEY_FALLBACKS", default=""))
 # simply inherits SECRET_KEY, its verify fallbacks inherit SECRET_KEY_FALLBACKS so a
 # single-knob install rotates with a single knob.
 JWT_SIGNING_KEY_FALLBACKS = parse_key_list(
-    env(
+    env_with_legacy(
+        env,
+        "TRUEPPM_JWT_SIGNING_KEY_FALLBACKS",
         "JWT_SIGNING_KEY_FALLBACKS",
-        default=("" if os.environ.get("JWT_SIGNING_KEY") else ",".join(SECRET_KEY_FALLBACKS)),
+        "" if os.environ.get("JWT_SIGNING_KEY") else ",".join(SECRET_KEY_FALLBACKS),
     )
 )
 
@@ -1358,7 +1356,12 @@ INTEGRATION_ENCRYPTION_KEY: str = env(
 # every write encrypts under INTEGRATION_ENCRYPTION_KEY. Drop an entry only after
 # ``manage.py reencrypt_integration_secrets`` reports zero rows left on it (#3406).
 INTEGRATION_ENCRYPTION_KEY_FALLBACKS: list[str] = parse_key_list(
-    env("INTEGRATION_ENCRYPTION_KEY_FALLBACKS", default="")
+    env_with_legacy(
+        env,
+        "TRUEPPM_INTEGRATION_ENCRYPTION_KEY_FALLBACKS",
+        "INTEGRATION_ENCRYPTION_KEY_FALLBACKS",
+        "",
+    )
 )
 
 # Hostnames exempted from the SSRF egress deny-list (apps/integrations/http), one

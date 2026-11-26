@@ -27353,7 +27353,7 @@
                         "schema": {
                             "type": "string"
                         },
-                        "description": "Opaque pagination continuation token (#1013). Omit on the first request; on each subsequent request pass the previous response's `next_cursor`. Keep `since` constant for the whole paging session. Loop until `next_cursor` is null / `has_more` is false, then adopt `timestamp` as the next `since`."
+                        "description": "Opaque pagination continuation token (#1013). Omit on the first request; on each subsequent request pass the previous response's `next_cursor`. Keep `since` constant for the whole paging session. Loop until `next_cursor` is null, then adopt `timestamp` as the next `since`."
                     },
                     {
                         "in": "path",
@@ -52754,7 +52754,7 @@
                         "schema": {
                             "type": "string"
                         },
-                        "description": "Opaque pagination continuation token (#1013). Omit on the first request; on each subsequent request pass the previous response's `next_cursor`. Keep `since` constant for the whole paging session. Loop until `has_more` is false, then adopt `timestamp` as the next `since`."
+                        "description": "Opaque pagination continuation token (#1013). Omit on the first request; on each subsequent request pass the previous response's `next_cursor`. Keep `since` constant for the whole paging session. Loop until `next_cursor` is null, then adopt `timestamp` as the next `since`."
                     },
                     {
                         "in": "query",
@@ -91658,7 +91658,7 @@
             },
             "SyncPullResponse": {
                 "type": "object",
-                "description": "Response envelope for the paginated delta pull (#1013).\n\n``next_cursor``/``has_more`` are added for cursor pagination; the pre-existing\n``changes`` and ``timestamp`` fields are unchanged, so an older client that\nignores the cursor still gets a valid (first) page. The client loops while\n``has_more`` is true, sending the previous ``next_cursor`` back and keeping\n``since`` constant, then adopts ``timestamp`` as the next ``since``.",
+                "description": "Response envelope for the paginated delta pull (#1013).\n\n``next_cursor`` is added for cursor pagination; the pre-existing ``changes``\nand ``timestamp`` fields are unchanged, so an older client that ignores the\ncursor still gets a valid (first) page. The client loops until\n``next_cursor`` is null, sending it back and keeping ``since`` constant,\nthen adopts ``timestamp`` as the next ``since``.",
                 "properties": {
                     "changes": {
                         "type": "object",
@@ -91674,11 +91674,6 @@
                         "nullable": true,
                         "description": "Opaque continuation token. Pass it as the `cursor` query param on the next request; `null` when the delta is exhausted."
                     },
-                    "has_more": {
-                        "type": "boolean",
-                        "description": "DEPRECATED — removed in 0.5. True while more pages remain for this `since` session. Exactly equivalent to `next_cursor is not null`; loop on that instead. Announced here rather than removed in 0.4 (#2842) because a client following the published drain loop would read `undefined`, treat it as false, and silently stop after page one — missing data presented as a complete sync.",
-                        "deprecated": true
-                    },
                     "resync_required": {
                         "type": "boolean",
                         "description": "True when `since` is below the tombstone-retention floor (#2474): a deletion this client needs was hard-deleted after the retention window and can no longer be delivered, so no delta can be complete. The response then carries no changes, `timestamp: 0` and no cursor. Discard the local store for this scope and pull again from `since=0`. False on every normal page. `since=0` never returns true."
@@ -91686,7 +91681,6 @@
                 },
                 "required": [
                     "changes",
-                    "has_more",
                     "next_cursor",
                     "resync_required",
                     "timestamp"

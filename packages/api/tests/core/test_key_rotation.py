@@ -258,7 +258,13 @@ def _fallbacks_in_subprocess(env_extra: dict[str, str]) -> list[list[str]]:
     env = {
         k: v
         for k, v in os.environ.items()
-        if k not in {"JWT_SIGNING_KEY", "JWT_SIGNING_KEY_FALLBACKS", "SECRET_KEY_FALLBACKS"}
+        if k
+        not in {
+            "JWT_SIGNING_KEY",
+            "JWT_SIGNING_KEY_FALLBACKS",
+            "TRUEPPM_JWT_SIGNING_KEY_FALLBACKS",
+            "SECRET_KEY_FALLBACKS",
+        }
     }
     env.update(env_extra)
     out = subprocess.run(
@@ -278,6 +284,17 @@ def test_jwt_fallbacks_inherit_secret_key_fallbacks_only_when_jwt_key_unset() ->
         {"JWT_SIGNING_KEY": "j" * 50, "JWT_SIGNING_KEY_FALLBACKS": "jold"}
     )
     assert own[1] == ["jold"]
+
+
+def test_jwt_fallbacks_prefixed_name_wins_over_legacy_bare_name() -> None:
+    """#5048: the bare name keeps working; ``TRUEPPM_`` wins when both are set."""
+    key = {"JWT_SIGNING_KEY": "j" * 50}
+    prefixed = _fallbacks_in_subprocess({**key, "TRUEPPM_JWT_SIGNING_KEY_FALLBACKS": "new"})
+    assert prefixed[1] == ["new"]
+    both = _fallbacks_in_subprocess(
+        {**key, "TRUEPPM_JWT_SIGNING_KEY_FALLBACKS": "new", "JWT_SIGNING_KEY_FALLBACKS": "old"}
+    )
+    assert both[1] == ["new"]
 
 
 def test_check_key_fallbacks_is_registered_as_a_deploy_check() -> None:

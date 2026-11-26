@@ -356,7 +356,7 @@ the leak of every one of them at once. Nothing outside these five is encrypted w
 this key. Back the key up with your database backups.
 
 To rotate it without losing those values, keep the old key in
-`INTEGRATION_ENCRYPTION_KEY_FALLBACKS` and re-encrypt (see
+`TRUEPPM_INTEGRATION_ENCRYPTION_KEY_FALLBACKS` and re-encrypt (see
 [Rotating secrets without downtime](#rotating-secrets-without-downtime)).
 Changing the key **without** a fallback is a recovery event: every stored value
 becomes undecryptable and an administrator must re-enter each secret (the SSO
@@ -376,8 +376,29 @@ old one keep working, then retire the old one.
 | Primary | Fallback list | What the fallback keeps working |
 |---|---|---|
 | `SECRET_KEY` | `SECRET_KEY_FALLBACKS` | Signed cookies, password-reset and email-verification links, `signing.loads` payloads (Django's own fallback mechanism) |
-| `JWT_SIGNING_KEY` | `JWT_SIGNING_KEY_FALLBACKS` | In-flight access and refresh tokens. When `JWT_SIGNING_KEY` is unset it inherits `SECRET_KEY`, and its fallbacks inherit `SECRET_KEY_FALLBACKS` |
-| `INTEGRATION_ENCRYPTION_KEY` | `INTEGRATION_ENCRYPTION_KEY_FALLBACKS` | Decrypting stored third-party secrets written under the old key |
+| `JWT_SIGNING_KEY` | `TRUEPPM_JWT_SIGNING_KEY_FALLBACKS` | In-flight access and refresh tokens. When `JWT_SIGNING_KEY` is unset it inherits `SECRET_KEY`, and its fallbacks inherit `SECRET_KEY_FALLBACKS` |
+| `INTEGRATION_ENCRYPTION_KEY` | `TRUEPPM_INTEGRATION_ENCRYPTION_KEY_FALLBACKS` | Decrypting stored third-party secrets written under the old key |
+
+`SECRET_KEY_FALLBACKS` is bare because it is Django's own setting name. The other two
+lists are also read under their bare names (`JWT_SIGNING_KEY_FALLBACKS`,
+`INTEGRATION_ENCRYPTION_KEY_FALLBACKS`) as a legacy fallback; the `TRUEPPM_` name wins
+when both are set.
+
+An empty value counts as unset. For the JWT list this means "inherit", not "no
+fallbacks": when `JWT_SIGNING_KEY` is unset and both JWT list names are empty or
+absent, the API verifies tokens against `SECRET_KEY_FALLBACKS`. An empty
+`TRUEPPM_JWT_SIGNING_KEY_FALLBACKS` also does not override a non-empty bare
+`JWT_SIGNING_KEY_FALLBACKS`. To stop tokens signed under an old key from
+verifying, make sure that key is not the primary, remove it from both JWT list
+names, and then:
+
+- if `JWT_SIGNING_KEY` is unset, also remove it from `SECRET_KEY_FALLBACKS` (this
+  retires it for signed cookies and password-reset links too), or set
+  `JWT_SIGNING_KEY` to a new value, which stops the inheritance;
+- if `JWT_SIGNING_KEY` is set, nothing more is needed, because
+  `SECRET_KEY_FALLBACKS` is not used for tokens.
+
+Restart the api, celery-worker, and celery-beat Deployments afterwards.
 
 Every fallback entry is validated at boot exactly like its primary (length,
 placeholder, Fernet format). A malformed or empty entry (for example a stray comma)
@@ -527,7 +548,7 @@ access and refresh token immediately fails signature verification; the web app
 treats the next call as a `401`, attempts one (also-failing) refresh, and
 routes users to the sign-in screen. No data is lost. If you have not set a
 separate `JWT_SIGNING_KEY`, rotating `SECRET_KEY` has the same effect but also
-rotates session/CSRF signing. Do not list the old key in `JWT_SIGNING_KEY_FALLBACKS`
+rotates session/CSRF signing. Do not list the old key in `TRUEPPM_JWT_SIGNING_KEY_FALLBACKS`
 when the goal is to sign everyone out.
 
 :::caution[Sessions that predate server-side revocation]

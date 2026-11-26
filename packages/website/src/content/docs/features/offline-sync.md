@@ -44,7 +44,6 @@ Any project member (Viewer+) may call this endpoint.
   },
   "timestamp": 42,
   "next_cursor": "eyJpIjoxLCJ2IjoxLCJpZCI6Ii4uLiIsInciOjQyfQ==",
-  "has_more": true,
   "resync_required": false
 }
 ```
@@ -55,7 +54,6 @@ Any project member (Viewer+) may call this endpoint.
 - `timestamp` — high-water mark to adopt as `since` **after** the delta is fully drained. Pinned when the session's first page is served, so it is identical on every page of that session
 - `next_cursor` — opaque continuation token, or `null` when the delta is exhausted
 - `resync_required` — `false` on every normal page. `true` means your `since` is too old for any delta to be complete; see [Tombstone retention and `resync_required`](#tombstone-retention-and-resync_required). The field ships in 0.5
-- `has_more` — **deprecated, removed in 0.5** — `true` while more pages remain for this `since` session. Exactly equivalent to `next_cursor !== null`; loop on the cursor instead
 
 ## Pagination
 
@@ -66,12 +64,12 @@ The pull is **cursor-paginated** so a cold start (`since=0`) on a large project 
 3. If `next_cursor` is non-null, request again with the same `since` and that cursor.
 4. When `next_cursor` is `null`, the session is complete — adopt `timestamp` as the `since` for the next sync.
 
-:::caution[`has_more` is deprecated]
-`has_more` still ships and still means what it says, but it is redundant with
-`next_cursor !== null` and **will be removed in 0.5**. Branch on `next_cursor`, as
-the loop above now does. A client that branches on `has_more` will read `undefined`
-after the removal, treat it as false, and stop after the first page — a partial sync
-that reports itself as complete.
+:::note[Ships in 0.5]
+The current release (0.4) also sends a `has_more` flag, which duplicates
+`next_cursor !== null`. 0.5 will remove it. Branch on `next_cursor`, as the loop
+above does: a client that branches on `has_more` will read `undefined`, treat it
+as false, and stop after the first page, so a partial sync reports itself as
+complete.
 :::
 
 The cursor is a **compound keyset** on `(collection, sync_seq, id)`, not a scalar `sync_seq` ceiling. Rows written together share a `sync_seq`, and a scalar cursor could not split a page between two rows of the same value without either dropping rows or leaving the page unbounded. Keying on the row `id` (a unique UUID) as a tiebreak makes every page boundary unambiguous — **no row is skipped and no row is duplicated**, even when thousands of rows share a value. Because the cursor only ever increases, a row edited mid-session moves forward in the stream and is either delivered later or re-delivered under upsert — never lost.
@@ -175,7 +173,6 @@ When `0 < since < floor`, the pull returns `200` with this envelope instead of a
   "changes": {},
   "timestamp": 0,
   "next_cursor": null,
-  "has_more": false,
   "resync_required": true
 }
 ```

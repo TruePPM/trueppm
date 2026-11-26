@@ -1468,8 +1468,8 @@ env:
 #     --from-literal=TRUEPPM_S3_BUCKET_NAME=trueppm-attachments
 #
 # Optional rotation keys (#3406) go in the same Secret — envFrom passes any key through,
-# so the chart needs no value for them: SECRET_KEY_FALLBACKS, JWT_SIGNING_KEY_FALLBACKS,
-# INTEGRATION_ENCRYPTION_KEY_FALLBACKS (comma-separated OLDER keys, verify/decrypt only).
+# so the chart needs no value for them: SECRET_KEY_FALLBACKS, TRUEPPM_JWT_SIGNING_KEY_FALLBACKS,
+# TRUEPPM_INTEGRATION_ENCRYPTION_KEY_FALLBACKS (comma-separated OLDER keys, verify/decrypt only).
 # See administration/security "Rotating secrets without downtime".
 #
 # The API image bundles the S3 backend, so those two keys suffice on AWS S3

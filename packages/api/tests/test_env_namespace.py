@@ -203,6 +203,8 @@ _PAIRS: dict[str, tuple[str, str]] = {
     "AUTH_REFRESH_COOKIE_PATH": ("/legacy/", "/legacy/"),
     "AUTH_REFRESH_COOKIE_SAMESITE": ("Lax", "Lax"),
     "AUTH_REFRESH_COOKIE_SECURE": ("false", False),
+    "JWT_SIGNING_KEY_FALLBACKS": ("legacy-a,legacy-b", ["legacy-a", "legacy-b"]),
+    "INTEGRATION_ENCRYPTION_KEY_FALLBACKS": ("legacy-c", ["legacy-c"]),
 }
 
 
@@ -259,10 +261,6 @@ _GRANDFATHERED_BARE = frozenset(
         "CSP_CONNECT_SRC",
         "JWT_SIGNING_KEY",
         "INTEGRATION_ENCRYPTION_KEY",
-        # Rotation siblings (#3406) of the two bare keys above; named in the issue and
-        # delivered through the same operator Secret, so they follow their primaries.
-        "JWT_SIGNING_KEY_FALLBACKS",
-        "INTEGRATION_ENCRYPTION_KEY_FALLBACKS",
     }
 )
 
@@ -359,6 +357,32 @@ def test_grandfathered_bare_names_are_read_bare_and_documented(name: str) -> Non
     assert f"`{name}`" in docs
 
 
+@pytest.mark.parametrize("name", ["TRUEPPM_JWT_SIGNING_KEY_FALLBACKS", "JWT_SIGNING_KEY_FALLBACKS"])
+@pytest.mark.parametrize(
+    ("jwt_signing_key", "expected"), [(None, ["old-secret"]), ("new-jwt-key", [])]
+)
+def test_empty_jwt_fallbacks_means_inherit(
+    name: str, jwt_signing_key: str | None, expected: list[str]
+) -> None:
+    """An empty list is "unset", not "no fallbacks" (#5048).
+
+    Without an explicit JWT_SIGNING_KEY it therefore inherits SECRET_KEY_FALLBACKS.
+    """
+    with mock.patch.dict(os.environ):
+        for key in (
+            "JWT_SIGNING_KEY",
+            "JWT_SIGNING_KEY_FALLBACKS",
+            "TRUEPPM_JWT_SIGNING_KEY_FALLBACKS",
+        ):
+            os.environ.pop(key, None)
+        os.environ["SECRET_KEY_FALLBACKS"] = "old-secret"
+        os.environ[name] = ""
+        if jwt_signing_key is not None:
+            os.environ["JWT_SIGNING_KEY"] = jwt_signing_key
+        importlib.reload(base)
+        assert expected == base.JWT_SIGNING_KEY_FALLBACKS
+
+
 # --- #4482 test plan: four cases over every converted name -------------------
 
 # name -> (legacy raw, legacy expected, prefixed raw, prefixed expected)
@@ -376,6 +400,9 @@ _FOUR_CASE.update(
         "AUTH_REFRESH_COOKIE_PATH": ("/l/", "/l/", "/p/", "/p/"),
         "AUTH_REFRESH_COOKIE_SAMESITE": ("Lax", "Lax", "Strict", "Strict"),
         "AUTH_REFRESH_COOKIE_SECURE": ("false", False, "true", True),
+        # #5048: bare names stay readable; the prefixed name wins.
+        "JWT_SIGNING_KEY_FALLBACKS": ("l1,l2", ["l1", "l2"], "p1,p2", ["p1", "p2"]),
+        "INTEGRATION_ENCRYPTION_KEY_FALLBACKS": ("l1", ["l1"], "p1", ["p1"]),
     }
 )
 for _n in _PAIRS:
