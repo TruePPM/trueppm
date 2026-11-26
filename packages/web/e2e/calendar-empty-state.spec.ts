@@ -23,7 +23,7 @@ test.describe('Calendar empty state', () => {
       tasks: [], // no tasks → empty state
     });
     await page.goto(CALENDAR_URL);
-    await expect(page.getByRole('group', { name: 'Calendar view mode' })).toBeVisible({
+    await expect(page.getByRole('radiogroup', { name: 'Calendar view mode' })).toBeVisible({
       timeout: 10_000,
     });
   });
