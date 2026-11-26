@@ -136,6 +136,7 @@ Project Managers can read a project's cost at `GET /api/v1/projects/{id}/cost/`.
 - the budget, actual cost, percent complete and earned value
 - cost variance, budget utilization, CPI, EAC, ETC, VAC and TCPI, each with a reason when it cannot be computed
 - a `provenance` block naming the inputs and method behind each figure
+- `p50_cost` and `p80_cost`, the cost percentiles from the latest recorded Monte Carlo run (see [P50 and P80 cost](#p50-and-p80-cost))
 - `cost_computable`, which is false when anyone in scope has no rate, and `missing_rate_count`
 - the people with no rate
 - logged, priced and unpriced hours
@@ -143,6 +144,19 @@ Project Managers can read a project's cost at `GET /api/v1/projects/{id}/cost/`.
 - a one-sentence definition of every figure
 
 Amounts are decimal strings in the workspace currency.
+
+## P50 and P80 cost
+
+A [Monte Carlo](/features/monte-carlo/) run also prices every simulated schedule, so the P80 cost sits beside the P80 date and both come from the same runs. The cost breakdown reports them as `p50_cost` and `p80_cost`:
+
+- **P80 cost**: 80% of the simulated schedules finish at or below this cost: actual to date + remaining assigned hours x each person's current rate. P50 is the same at 50%.
+- A task's remaining hours in a run are its remaining working days in that run x 8 hours, or the project calendar's hours per day, x the assignment's units. Completed tasks are not priced again; their cost is already in the actual.
+- Each figure carries `as_of`, when that run was recorded, and `n_simulations`, how many schedules it is taken over. Rates have no history, so a rate change shows up from the next run.
+- A run records a cost only when a Scheduler or above runs it, as with [forecast history](/features/monte-carlo/#forecast-history). Before then each figure says `no_simulation`.
+- When anyone in scope has no rate, each figure says `missing_rates` and gives no number. Pricing everyone else would understate every percentile. The date percentiles are not affected.
+- Non-human resources are not priced in 0.5.
+
+The Monte Carlo forecast response itself does not include cost, because any project member can read the forecast and cost is restricted to Project Managers.
 
 ## Changing a rate
 

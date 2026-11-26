@@ -334,6 +334,9 @@ def test_the_snapshot_is_the_whole_04_surface() -> None:
 # #4496, #5009, #5010, #4291, #4166).
 _ALL_ADDED_IN_05 = (
     "ContributionKind",
+    "CostAssignment",
+    "CostForecast",
+    "CostModel",
     "DeliveryForecast",
     "DerivationPass",
     "GRAPH_FORMAT_VERSION",

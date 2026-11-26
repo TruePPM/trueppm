@@ -67,6 +67,9 @@ REASON_NO_PLANNED_DURATION = "no_planned_duration"
 REASON_NO_ACTUAL_COST = "no_actual_cost"  # AC = 0: CPI = EV / AC is undefined
 REASON_NO_EARNED_VALUE = "no_earned_value"  # EV = 0: CPI = 0, so EAC = BAC / CPI is infinite
 REASON_BUDGET_EXHAUSTED = "budget_exhausted"  # AC >= BAC: TCPI's denominator is <= 0
+# P50/P80 cost (#4809): no persisted Monte Carlo run carries a cost yet (none run since
+# #4809, or every run was a Member's, which persists no row).
+REASON_NO_SIMULATION = "no_simulation"
 
 #: The computing function and response contract named in the ``provenance`` block, so a
 #: figure someone quotes can be traced to the code and shape that produced it.
@@ -137,6 +140,18 @@ COST_DEFINITIONS: dict[str, str] = {
         "to a live task) has a rate."
     ),
     "missing_rate_count": "How many people in scope have no rate.",
+    "p50_cost": (
+        "50% of the simulated schedules in the latest recorded Monte Carlo run finish at "
+        "or below this cost: actual to date + remaining assigned hours x each person's "
+        "current rate. Priced from the same runs as the P50 date. as_of is when that run "
+        "was recorded; rates have no history, so a rate change applies from the next run."
+    ),
+    "p80_cost": (
+        "80% of the simulated schedules in the latest recorded Monte Carlo run finish at "
+        "or below this cost: actual to date + remaining assigned hours x each person's "
+        "current rate. Priced from the same runs as the P80 date; n_simulations says how "
+        "many schedules. Unavailable (missing_rates) when anyone in scope had no rate."
+    ),
 }
 
 
@@ -626,6 +641,98 @@ def project_cost_facts(
     return out
 
 
+def mc_cost_inputs(
+    project_id: Any, task_ids: Collection[str], hours_per_day: float
+) -> tuple[Any, ProjectCost]:
+    """The engine's ``CostModel`` for one Monte Carlo run, and the cost facts behind it.
+
+    Loads inputs only: ``actual_to_date`` is this module's AC, and each person
+    assigned to a simulated task (``task_ids``, the leaf network) carries their
+    resource's current rate and the assignment's units. Non-human resources are left
+    out, as in ``missing_rate_count`` (non-labor cost is #2557). The per-run
+    arithmetic is ``trueppm_scheduler.monte_carlo(cost=...)``'s, never this layer's.
+    """
+    from trueppm_scheduler import CostAssignment, CostModel
+
+    from trueppm_api.apps.resources.models import TaskResource
+
+    cost = project_cost_facts([project_id])[project_id]
+    rows = (
+        TaskResource.objects.active()
+        .filter(task_id__in=list(task_ids), task__is_deleted=False, resource__user__isnull=False)
+        .order_by("task_id", "resource_id")
+        .values_list("task_id", "resource_id", "units", "resource__cost_rate")
+    )
+    model = CostModel(
+        actual_to_date=float(cost.actual),
+        hours_per_day=hours_per_day,
+        assignments=[
+            CostAssignment(
+                task_id=str(tid),
+                resource_id=str(rid),
+                rate=None if rate is None else float(rate),
+                units=float(units),
+            )
+            for tid, rid, units, rate in rows
+        ],
+    )
+    return model, cost
+
+
+def mc_cost_record(forecast: Any, cost: ProjectCost) -> dict[str, Any] | None:
+    """What a ``MonteCarloRun`` stores of the engine's ``CostForecast`` (#4809).
+
+    Computable only when the engine priced every assignee **and** the actual cost has
+    no unpriced hours (``ProjectCost.cost_computable``, the wider scope): a percentile
+    built on a partial AC would understate every level. Amounts are cent-rounded
+    decimal strings, the one rounding rule (:func:`money`).
+    """
+    if forecast is None:
+        return None
+    computable = bool(forecast.computable) and cost.cost_computable
+
+    def amount(value: float | None) -> str | None:
+        return None if value is None or not computable else str(money(Decimal(repr(value))))
+
+    return {
+        "computable": computable,
+        "missing_rate_count": max(int(forecast.missing_rate_count), cost.missing_rate_count),
+        "actual_to_date": str(money(Decimal(repr(forecast.actual_to_date)))),
+        "p50": amount(forecast.p50),
+        "p80": amount(forecast.p80),
+        "p95": amount(forecast.p95),
+    }
+
+
+def mc_cost_entries(project_id: Any) -> dict[str, dict[str, Any]]:
+    """``p50_cost`` / ``p80_cost`` for the cost summary, from the latest costed run.
+
+    One query. Each is ``{available, value | reason, as_of, n_simulations}``: ``as_of``
+    is when the run was recorded, since the figure is that run's, not this request's.
+    """
+    from trueppm_api.apps.scheduling.models import MonteCarloRun
+
+    run = (
+        MonteCarloRun.objects.filter(project_id=project_id, cost_forecast__isnull=False)
+        .order_by("-taken_at")
+        .only("taken_at", "n_simulations", "cost_forecast")
+        .first()
+    )
+    if run is None:
+        return {
+            f"p{q}_cost": kpi_entry(None, REASON_NO_SIMULATION, as_of=None, n_simulations=None)
+            for q in (50, 80)
+        }
+    record: dict[str, Any] = run.cost_forecast or {}
+    reason = None if record.get("computable") else REASON_MISSING_RATES
+    return {
+        f"p{q}_cost": kpi_entry(
+            record.get(f"p{q}"), reason, as_of=run.taken_at, n_simulations=run.n_simulations
+        )
+        for q in (50, 80)
+    }
+
+
 def kpi_entry(value: Any, reason: str | None, **extra: Any) -> dict[str, Any]:
     """The ``{available, value | reason}`` shape the rollup and summary share."""
     if reason is not None:
@@ -720,6 +827,7 @@ def project_cost_payload(cost: ProjectCost, currency: str) -> dict[str, Any]:
         "vac": _forecast_entry(*_money_result(cost.vac_result())),
         "tcpi": _forecast_entry(*cost.tcpi_result()),
         "provenance": cost_provenance(cost),
+        **mc_cost_entries(cost.project_id),
         "cost_computable": cost.cost_computable,
         "missing_rate_count": cost.missing_rate_count,
         "missing_rate_resources": [

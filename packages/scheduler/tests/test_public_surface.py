@@ -220,8 +220,13 @@ _EXPECTED_FIELD_ORDER: dict[str, list[str]] = {
         "samples",
         # Appended (#4135).
         "targets",
+        # Appended (#4809).
+        "cost",
     ],
     "MonteCarloSamples": ["task_ids", "durations", "early_finish"],
+    "CostAssignment": ["task_id", "resource_id", "rate", "units"],
+    "CostModel": ["assignments", "actual_to_date", "hours_per_day"],
+    "CostForecast": ["computable", "missing_rate_count", "actual_to_date", "percentiles"],
     "Project": [
         "id",
         "name",

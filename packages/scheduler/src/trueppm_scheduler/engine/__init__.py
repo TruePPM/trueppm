@@ -563,6 +563,15 @@ from trueppm_scheduler.engine.milestones import (
 from trueppm_scheduler.engine.milestones import (
     _window_start_bound as _window_start_bound,
 )
+from trueppm_scheduler.engine.montecarlo.cost import (
+    CostAssignment as CostAssignment,
+)
+from trueppm_scheduler.engine.montecarlo.cost import (
+    CostForecast as CostForecast,
+)
+from trueppm_scheduler.engine.montecarlo.cost import (
+    CostModel as CostModel,
+)
 from trueppm_scheduler.engine.montecarlo.forward import (
     _completed_dates as _completed_dates,
 )

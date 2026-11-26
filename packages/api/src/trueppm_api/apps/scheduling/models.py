@@ -445,6 +445,13 @@ class MonteCarloRun(models.Model):
     # no epoch and reads as unknown on this axis — never as superseded, since nothing
     # says which engine produced it.
     engine_epoch = models.PositiveIntegerField(null=True, blank=True)
+    # Cost percentiles priced from this run's own simulated schedules (#4809):
+    # ``{computable, missing_rate_count, actual_to_date, p50, p80, p95}`` with amounts
+    # as cent-rounded decimal strings (``trueppm_api.apps.projects.cost
+    # .mc_cost_record``). Confidential: served only by the Admin+ cost summary, never
+    # on the Member-readable forecast, cache or history. Nullable with NO backfill: a
+    # run recorded before #4809 has no cost and the summary reports ``no_simulation``.
+    cost_forecast = models.JSONField(null=True, blank=True)
 
     class Meta:
         db_table = "scheduling_montecarlorun"

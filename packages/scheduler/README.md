@@ -234,6 +234,37 @@ Both matrices are `(runs, n_tasks)` and cost `runs x n_tasks x 4 bytes x 2`
 50,000,000 cells the call raises `SimulationCapExceeded`; the default path is
 unaffected.
 
+## Cost percentiles
+
+From 0.5, `monte_carlo()` will take an opt-in `cost` argument, a `CostModel`
+(`assignments`, `actual_to_date`, `hours_per_day`) holding one `CostAssignment`
+(`task_id`, `resource_id`, `rate`, `units`) per person on a task. Each run is priced
+as `actual_to_date` plus every open task's remaining working days in that run x
+`hours_per_day` x `units` x `rate`, read from the same sampled durations the run's
+dates came from, so the cost and date percentiles describe one set of simulated
+schedules. Pricing draws nothing from the random stream: the dates are the same
+with or without it.
+
+```python
+from trueppm_scheduler import CostAssignment, CostModel
+
+model = CostModel(
+    actual_to_date=1_200.0,
+    assignments=[CostAssignment(task_id="build", resource_id="ana", rate=90.0)],
+)
+result = monte_carlo(project, runs=5_000, seed=42, cost=model)
+result.cost.p80          # 80% of simulated schedules cost at or below this
+result.cost.computable   # False when any assignee has rate=None
+```
+
+The result is a `CostForecast` (`computable`, `missing_rate_count`,
+`actual_to_date`, `percentiles`) on `result.cost`. When any assignee's `rate` is
+`None` it is not computable: `percentiles` is empty and `missing_rate_count` says how
+many distinct `resource_id`s lacked a rate, because pricing the rest would understate
+every level. Completed tasks are not priced (their cost is in `actual_to_date`), and
+the caller decides what to leave out, such as non-human resources
+([#4809](https://gitlab.com/trueppm/trueppm/-/issues/4809)).
+
 ## Milestone percentiles
 
 From 0.5, `monte_carlo()` will take an opt-in `targets` argument. It defaults to

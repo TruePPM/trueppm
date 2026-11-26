@@ -18,6 +18,14 @@ change between releases. Pin an exact version (e.g.
 
 ### Added
 
+- **Cost percentiles from the Monte Carlo
+  ([#4809](https://gitlab.com/trueppm/trueppm/-/issues/4809)).** `monte_carlo()` takes
+  an opt-in `cost=CostModel(...)`, and `MonteCarloResult.cost` is then a `CostForecast`
+  with P50/P80/P95 cost priced from the same runs as the dates: actual to date plus
+  each open task's remaining working days x hours per day x units x hourly rate. It is
+  not computable (`computable=False`, no percentiles, `missing_rate_count` set) when
+  any assignee has no rate. It draws nothing from the random stream, so the dates do
+  not move. New exports: `CostAssignment`, `CostModel`, `CostForecast`.
 - **A JSON Schema for the project document
   ([#4164](https://gitlab.com/trueppm/trueppm/-/issues/4164)).** Shipped in the wheel
   as `trueppm_scheduler/project.schema.json` (draft 2020-12), generated from

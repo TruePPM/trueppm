@@ -10,6 +10,7 @@ from datetime import (
     date,
 )
 from typing import (
+    TYPE_CHECKING,
     Any,
 )
 
@@ -22,6 +23,9 @@ from trueppm_scheduler.models import (
     _date_repr,
     _summary_repr,
 )
+
+if TYPE_CHECKING:
+    from trueppm_scheduler.engine.montecarlo.cost import CostForecast
 
 # ---------------------------------------------------------------------------
 # Result types
@@ -464,6 +468,8 @@ class MonteCarloResult:
         targets: Per-task completion forecasts keyed by task id, in the order
             requested, when ``monte_carlo(targets=...)`` asked for them; ``None``
             otherwise (#4135).
+        cost: Cost percentiles priced from the same runs as the dates, when
+            ``monte_carlo(cost=...)`` asked for them; ``None`` otherwise (#4809).
     """
 
     project_id: str
@@ -475,6 +481,7 @@ class MonteCarloResult:
     velocity_fallback_reasons: tuple[str, ...]
     samples: MonteCarloSamples | None = field(default=None, compare=False)
     targets: dict[str, TargetForecast] | None = None
+    cost: CostForecast | None = None
 
     def __init__(
         self,
@@ -494,6 +501,7 @@ class MonteCarloResult:
         velocity_fallback_reasons: tuple[str, ...] = (),
         samples: MonteCarloSamples | None = None,
         targets: dict[str, TargetForecast] | None = None,
+        cost: CostForecast | None = None,
     ) -> None:
         """Build a Monte Carlo result from legacy keywords or ``percentiles=``.
 
@@ -526,6 +534,8 @@ class MonteCarloResult:
             samples: The per-run matrices (``return_samples=True``).
                 Keyword-only; defaults to ``None``.
             targets: Per-task completion forecasts (#4135). Keyword-only;
+                defaults to ``None``.
+            cost: Cost percentiles from the same runs (#4809). Keyword-only;
                 defaults to ``None``.
 
         Raises:
@@ -565,6 +575,7 @@ class MonteCarloResult:
         self.velocity_fallback_reasons = tuple(velocity_fallback_reasons)
         self.samples = samples
         self.targets = targets
+        self.cost = cost
 
     def __repr__(self) -> str:
         """Summarize the result: run count, the confidence-level dates, a few ids.
@@ -641,8 +652,9 @@ class MonteCarloResult:
             edge-of-day reading (``p50_at_day_start`` etc., #4204), and
             ``velocity_saturated_runs`` (#2469), and ``velocity_fallback_reasons``
             as a list (#5013). ``targets`` (a list of
-            :meth:`TargetForecast.to_dict`, #4135) is
-            added only when the run computed it, so a default run's shape is
+            :meth:`TargetForecast.to_dict`, #4135) and ``cost``
+            (:meth:`CostForecast.to_dict`, #4809) are each
+            added only when the run computed them, so a default run's shape is
             unchanged.
         """
         out: dict[str, Any] = {
@@ -661,6 +673,8 @@ class MonteCarloResult:
         }
         if self.targets is not None:
             out["targets"] = [t.to_dict() for t in self.targets.values()]
+        if self.cost is not None:
+            out["cost"] = self.cost.to_dict()
         return out
 
 

@@ -50,6 +50,13 @@ from trueppm_scheduler.engine.montecarlo.capacity import (
     _capacity_block_runs,
     _VelocityCapacity,
 )
+from trueppm_scheduler.engine.montecarlo.cost import (
+    CostModel,
+    _cost_collector,
+    _cost_result,
+    _CostCollector,
+    _validate_cost,
+)
 from trueppm_scheduler.engine.montecarlo.forward import (
     _completed_edge_constraints,
     _index_offset,
@@ -308,6 +315,7 @@ def _replayed_chunks(
         [int, int, np.ndarray], tuple[np.ndarray, np.ndarray, date | None, dict[str, np.ndarray]]
     ],
     collector: _SampleCollector | None = None,
+    pricer: _CostCollector | None = None,
 ) -> Callable[[int, int], tuple[np.ndarray, np.ndarray, date | None, dict[str, np.ndarray]]]:
     """``forward(lo, hi, block)`` over runs ``[lo, hi)`` of ``durations``, one block at a time.
 
@@ -322,6 +330,8 @@ def _replayed_chunks(
         block = durations.rows(lo, hi)
         out = forward(lo, hi, block)
         durations.keep_written(lo, block)
+        if pricer is not None:  # after forward: velocity days are written by then (#4809)
+            pricer.add(lo, block)
         if collector is not None:
             collector.add(lo, block, out[1])
         return out
@@ -713,6 +723,7 @@ def monte_carlo(
     deadline: float | None = None,
     return_samples: bool = False,
     targets: Sequence[str] | None = None,
+    cost: CostModel | None = None,
 ) -> MonteCarloResult:
     """Run Monte Carlo probabilistic scheduling on a project.
 
@@ -946,6 +957,10 @@ def monte_carlo(
                    level. Limit: a live milestone shown on a non-working
                    ``actual_start`` floors the *project* finish at that date, but
                    its own target reading is the working day before it.
+        cost:      A :class:`~trueppm_scheduler.CostModel` to price every run with,
+                   reported on :attr:`MonteCarloResult.cost` (#4809), or ``None`` (the
+                   default) for no cost. Priced from the same runs as the dates, and
+                   it never changes them. Not computable when any assignee is unrated.
 
     Returns:
         MonteCarloResult with P50, P80, P95 completion dates — each an order
@@ -984,6 +999,7 @@ def monte_carlo(
     deadline = _validate_deadline(deadline)
     _validate_project(project)
     target_ids = _validate_targets(project, targets)
+    cost = _validate_cost(project, cost)
 
     g = _build_graph(project)
     # Detect cycles via the topological sort itself (#1526), the same happy-path
@@ -1339,6 +1355,8 @@ def monte_carlo(
         else None
     )
     target_collector = None if target_ids is None else _TargetCollector(target_ids, task_idx, runs)
+    velocity_ids = [] if velocity is None else list(velocity.points)
+    pricer = _cost_collector(cost, topo_order, task_map, elapsed_days, velocity_ids, runs)
 
     shown_offsets, completion_offsets, milestone_finish_floor = _mc_chunked_finishes(
         _replayed_chunks(
@@ -1368,6 +1386,7 @@ def monte_carlo(
                 target_collector,
             ),
             collector,
+            pricer,
         ),
         runs,
         chunk_rows,
@@ -1459,4 +1478,5 @@ def monte_carlo(
         velocity_fallback_reasons=_velocity_fallback_reasons(project),
         samples=None if collector is None else collector.result(),
         targets=target_forecasts,
+        cost=_cost_result(cost, pricer),
     )

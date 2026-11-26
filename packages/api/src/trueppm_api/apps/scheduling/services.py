@@ -425,6 +425,7 @@ def record_monte_carlo_run(
     status_date: date | None = None,
     plan_version: int | None = None,
     readings: dict[str, bool | None] | None = None,
+    cost_forecast: dict[str, Any] | None = None,
 ) -> MonteCarloRun | None:
     """Persist one project-level Monte Carlo run for the forecast history (ADR-0175).
 
@@ -464,6 +465,9 @@ def record_monte_carlo_run(
     ``readings`` maps ``p50_at_day_start`` / ``p80_at_day_start`` /
     ``p95_at_day_start`` / ``cpm_finish_at_day_start`` to which edge of its shown
     day each finish is (#4204); omitted keys persist as ``None`` (unknown).
+
+    ``cost_forecast`` is the run's cost percentiles (#4809), the
+    :func:`~trueppm_api.apps.projects.cost.mc_cost_record` payload, or ``None``.
     """
     from trueppm_api.apps.scheduling.forecast_staleness import MC_ENGINE_EPOCH
     from trueppm_api.apps.scheduling.models import MonteCarloRun
@@ -495,6 +499,7 @@ def record_monte_carlo_run(
             # (`projects/seed/forecast_backfill.py` and `demo_landing_overlay.py`) create rows
             # directly and leave it null: no engine computed those under an epoch (#5064).
             engine_epoch=MC_ENGINE_EPOCH,
+            cost_forecast=cost_forecast,
             **reading_values,
         )
     except Exception:

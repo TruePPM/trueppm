@@ -68347,6 +68347,61 @@
                     "updated"
                 ]
             },
+            "McCostEntry": {
+                "type": "object",
+                "description": "``p50_cost`` / ``p80_cost``: a cost percentile from the latest costed MC run (#4809).",
+                "properties": {
+                    "available": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "value": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,16}(?:\\.\\d{0,2})?$",
+                        "readOnly": true,
+                        "description": "The cost in the workspace currency, as a decimal string."
+                    },
+                    "reason": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/McCostEntryReasonEnum"
+                            }
+                        ],
+                        "readOnly": true,
+                        "description": "Why there is no value: missing_rates (someone in scope had no rate when the run was recorded) or no_simulation (no recorded Monte Carlo run carries a cost yet; a run by a Scheduler or above records one).\n\n* `missing_rates` - missing_rates\n* `no_simulation` - no_simulation"
+                    },
+                    "as_of": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "When the Monte Carlo run this figure comes from was recorded."
+                    },
+                    "n_simulations": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "How many simulated schedules the percentile is taken over."
+                    }
+                },
+                "required": [
+                    "as_of",
+                    "available",
+                    "n_simulations",
+                    "reason",
+                    "value"
+                ]
+            },
+            "McCostEntryReasonEnum": {
+                "enum": [
+                    "missing_rates",
+                    "no_simulation"
+                ],
+                "type": "string",
+                "description": "* `missing_rates` - missing_rates\n* `no_simulation` - no_simulation",
+                "x-trueppm-enum": "open"
+            },
             "McHistoryAttributionAudienceEnum": {
                 "enum": [
                     "admin_owner",
@@ -79527,6 +79582,22 @@
                         ],
                         "readOnly": true
                     },
+                    "p50_cost": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/McCostEntry"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "p80_cost": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/McCostEntry"
+                            }
+                        ],
+                        "readOnly": true
+                    },
                     "cost_computable": {
                         "type": "boolean",
                         "readOnly": true
@@ -79592,6 +79663,8 @@
                     "logged_hours",
                     "missing_rate_count",
                     "missing_rate_resources",
+                    "p50_cost",
+                    "p80_cost",
                     "percent_complete",
                     "priced_hours",
                     "project_id",

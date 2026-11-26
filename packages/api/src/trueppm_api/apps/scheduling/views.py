@@ -554,6 +554,7 @@ def _persist_mc_run_if_authorized(
     status_date: _date | None,
     plan_version: int | None,
     cpm_finish_at_day_start: bool | None = None,
+    cost_forecast: dict[str, Any] | None = None,
 ) -> None:
     """Persist an author-attributed ``MonteCarloRun`` drift row for Scheduler+ callers.
 
@@ -610,6 +611,9 @@ def _persist_mc_run_if_authorized(
             "p95_at_day_start": mc_result.p95_at_day_start,
             "cpm_finish_at_day_start": cpm_finish_at_day_start,
         },
+        # Cost percentiles from the same runs (#4809). Confidential, so they live on
+        # the row the Admin+ cost summary reads, never on result_dict or the cache.
+        cost_forecast=cost_forecast,
     )
     if run is not None:
         result_dict["run_id"] = str(run.id)
@@ -1179,6 +1183,14 @@ def simulate_and_record_monte_carlo(
         sprint_length_days=sprint_length_days,
     )
 
+    # Price every run from its own sampled durations (#4809): the engine does the
+    # arithmetic, this layer only loads rates, assignments and actual cost.
+    from trueppm_api.apps.projects.cost import mc_cost_inputs, mc_cost_record
+
+    cost_model, project_cost = mc_cost_inputs(
+        project.pk, [t.id for t in graph.tasks], float(sched_calendar.hours_per_day)
+    )
+
     try:
         # Manual Monte Carlo span (#709): times the simulation in the worker
         # and records the run count; a no-op span unless OTel is configured.
@@ -1195,6 +1207,7 @@ def simulate_and_record_monte_carlo(
                     max_tasks=settings.MC_TASK_CAP,
                     **_mc_lag_delta_kwargs(),
                     **mc_deadline_kwargs(),
+                    cost=cost_model,
                 )
     except SimulationCapExceeded as exc:
         # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
@@ -1239,8 +1252,10 @@ def simulate_and_record_monte_carlo(
     # cache read. Held as a datetime as well as an ISO string because the risk
     # premium ages the run against it (ADR-0698).
     run_at = timezone.now()
+    # ``cost`` is dropped: the cache and this dict are Member-readable, and cost is an
+    # Admin+ fact (ADR-1324 §4). It is persisted on the run row instead.
     result_dict = {
-        **mc_result.to_dict(),
+        **{k: v for k, v in mc_result.to_dict().items() if k != "cost"},
         # Canonical name for the simulation count (#4663); the library's own `runs`
         # key stays alongside it as a deprecated alias.
         "n_simulations": mc_result.runs,
@@ -1305,6 +1320,7 @@ def simulate_and_record_monte_carlo(
         status_date=mc_status_date,
         plan_version=plan_version,
         cpm_finish_at_day_start=cpm_finish_at_day_start,
+        cost_forecast=mc_cost_record(mc_result.cost, project_cost),
     )
     return result_dict
 

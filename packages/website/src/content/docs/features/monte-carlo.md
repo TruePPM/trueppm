@@ -219,6 +219,14 @@ The kind is `team_velocity` when all three hold: the project has sprints, the [s
 
 The answer is per caller. Below the velocity audience you always get `velocity_withheld`, whether or not a velocity forecast exists. The server checks the project's kind for the [`schedule.finish_changed` webhook](/features/webhooks/#event-types) at two moments: after a schedule recalculation and after a sprint close. If the kind differs from the last check and the team shares velocity outward (`program_shared`), the event is sent; a switch that happens between those moments is sent at the next one. Under any other audience no event is sent. Both lists are part of the API contract; a new value is announced in the changelog.
 
+## Cost percentiles
+
+:::note[Ships in 0.5]
+Cost percentiles ship in 0.5. In the current release a simulation prices nothing.
+:::
+
+Each run is also priced: actual cost to date plus every open task's remaining hours in that run at each assignee's current rate. The P50 and P80 cost therefore come from the same simulated schedules as the P50 and P80 dates, and pricing the runs does not move the dates. A Project Manager reads them on the project's [cost breakdown](/features/cost-model/#p50-and-p80-cost), not on the forecast. They are unavailable while anyone in scope has no rate.
+
 ## Forecast history
 
 A single percentile date answers "when?" once. The more useful planning question

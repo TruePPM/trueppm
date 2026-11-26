@@ -71,6 +71,39 @@ class CostKpiSerializer(serializers.Serializer[dict[str, Any]]):
     )
 
 
+class McCostEntrySerializer(serializers.Serializer[dict[str, Any]]):
+    """``p50_cost`` / ``p80_cost``: a cost percentile from the latest costed MC run (#4809)."""
+
+    available = serializers.BooleanField(read_only=True)
+    value = serializers.DecimalField(
+        max_digits=18,
+        decimal_places=2,
+        read_only=True,
+        required=False,
+        help_text="The cost in the workspace currency, as a decimal string.",
+    )
+    reason = serializers.ChoiceField(
+        choices=["missing_rates", "no_simulation"],
+        read_only=True,
+        required=False,
+        help_text=(
+            "Why there is no value: missing_rates (someone in scope had no rate when the "
+            "run was recorded) or no_simulation (no recorded Monte Carlo run carries a "
+            "cost yet; a run by a Scheduler or above records one)."
+        ),
+    )
+    as_of = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the Monte Carlo run this figure comes from was recorded.",
+    )
+    n_simulations = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="How many simulated schedules the percentile is taken over.",
+    )
+
+
 class MissingRateSerializer(serializers.Serializer[dict[str, Any]]):
     """A person in scope who has no rate — named so the PM can fix it, never priced."""
 
@@ -142,6 +175,8 @@ class ProjectCostSerializer(serializers.Serializer[dict[str, Any]]):
     vac = CostKpiSerializer(read_only=True)
     tcpi = CostKpiSerializer(read_only=True)
     provenance = CostProvenanceSerializer(read_only=True)
+    p50_cost = McCostEntrySerializer(read_only=True)
+    p80_cost = McCostEntrySerializer(read_only=True)
     cost_computable = serializers.BooleanField(read_only=True)
     missing_rate_count = serializers.IntegerField(read_only=True)
     missing_rate_resources = MissingRateSerializer(many=True, read_only=True)

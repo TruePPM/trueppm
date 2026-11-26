@@ -1095,6 +1095,9 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         method) and marks each as computed or restricted; quote it when asked where a
         number came from.
         ``missing_rate_count`` and ``missing_rate_resources`` say who is unrated.
+        ``p50_cost`` / ``p80_cost`` are the cost percentiles of the latest recorded Monte
+        Carlo run, with that run's ``as_of`` and ``n_simulations``, or a reason
+        (``missing_rates``, ``no_simulation``) instead of a value.
         ``lines`` holds one row per person (hours, rate, cost).
 
         Cost is visible to project Admins and Owners only. Any other caller gets
