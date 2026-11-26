@@ -33,7 +33,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-REQUIRED="LICENSE NOTICE README.md CHANGELOG.md CITATION.cff pyproject.toml PKG-INFO src/trueppm_scheduler/__init__.py tests/conftest.py scripts/check_mutation_score.py"
+REQUIRED="LICENSE NOTICE README.md CHANGELOG.md CITATION.cff pyproject.toml PKG-INFO src/trueppm_scheduler/__init__.py tests/conftest.py scripts/check_mutation_score.py scripts/generate_project_schema.py src/trueppm_scheduler/project.schema.json"
 # Top-level members the sdist may contain. Anything else is a leak by definition.
 # .gitignore is always added by hatchling itself.
 ALLOWED_TOP="src tests scripts .gitignore LICENSE NOTICE README.md CHANGELOG.md CITATION.cff pyproject.toml PKG-INFO"
@@ -74,6 +74,11 @@ check_wheel_listing() {
       echo "WHEEL MISSING .dist-info/licenses/$name"; bad=1
     fi
   done
+  # The project-document JSON Schema is a published artifact (#4164): a wheel that
+  # lacks it silently breaks every consumer reading it via importlib.resources.
+  if ! grep -qxF "trueppm_scheduler/project.schema.json" "$list"; then
+    echo "WHEEL MISSING trueppm_scheduler/project.schema.json"; bad=1
+  fi
   return "$bad"
 }
 
@@ -102,9 +107,11 @@ self_test() {
   { cat "$good"; echo "notebooks/01.ipynb"; } > "$tmp/e";              expect fail "unlisted top-level dir is flagged" "$tmp/e"
   grep -vxF NOTICE "$good" > "$tmp/f";                                 expect fail "missing NOTICE is flagged" "$tmp/f"
   grep -vxF CHANGELOG.md "$good" > "$tmp/g";                           expect fail "missing CHANGELOG.md is flagged" "$tmp/g"
-  printf '%s\n' "pkg-0.1.dist-info/METADATA" "pkg-0.1.dist-info/licenses/LICENSE" "pkg-0.1.dist-info/licenses/NOTICE" > "$tmp/w1"
-  printf '%s\n' "pkg-0.1.dist-info/METADATA" "pkg-0.1.dist-info/licenses/LICENSE" > "$tmp/w2"
-  printf '%s\n' "pkg-0.1.dist-info/METADATA" "pkg-0.1.dist-info/licenses/NOTICE" > "$tmp/w3"
+  schema="trueppm_scheduler/project.schema.json"
+  printf '%s\n' "pkg-0.1.dist-info/METADATA" "pkg-0.1.dist-info/licenses/LICENSE" "pkg-0.1.dist-info/licenses/NOTICE" "$schema" > "$tmp/w1"
+  printf '%s\n' "pkg-0.1.dist-info/METADATA" "pkg-0.1.dist-info/licenses/LICENSE" "$schema" > "$tmp/w2"
+  printf '%s\n' "pkg-0.1.dist-info/METADATA" "pkg-0.1.dist-info/licenses/NOTICE" "$schema" > "$tmp/w3"
+  printf '%s\n' "pkg-0.1.dist-info/METADATA" "pkg-0.1.dist-info/licenses/LICENSE" "pkg-0.1.dist-info/licenses/NOTICE" > "$tmp/w4"
   wexpect() { # wexpect <pass|fail> <name> <file>
     local want="$1" name="$2" file="$3" got=0
     check_wheel_listing "$file" > "$tmp/out" 2>&1 || got=1
@@ -117,6 +124,7 @@ self_test() {
   wexpect pass "wheel with LICENSE and NOTICE passes" "$tmp/w1"
   wexpect fail "wheel without NOTICE is flagged" "$tmp/w2"
   wexpect fail "wheel without LICENSE is flagged" "$tmp/w3"
+  wexpect fail "wheel without project.schema.json is flagged" "$tmp/w4"
   return "$rc"
 }
 

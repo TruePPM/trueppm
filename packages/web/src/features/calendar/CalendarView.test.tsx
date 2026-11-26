@@ -17,7 +17,15 @@ vi.mock('@/hooks/useAdminSettingsAccess', () => ({
 vi.mock('@/hooks/useCalendarTasks', () => ({ useCalendarTasks: calendarTasksMock }));
 vi.mock('@/hooks/useCurrentUserRole', () => ({ useCurrentUserRole: roleMock }));
 vi.mock('@/hooks/useProjectId', () => ({ useProjectId: () => 'proj-1' }));
-vi.mock('@/hooks/useSprints', () => ({ useSprints: () => ({ sprints: [] }) }));
+const sprintsState = vi.hoisted(() => ({ sprints: [] as unknown[] }));
+vi.mock('@/hooks/useSprints', () => ({ useSprints: () => ({ sprints: sprintsState.sprints }) }));
+const myResourceState = vi.hoisted(() => ({
+  resourceIds: new Set<string>(['r-me']),
+  isLoading: false,
+}));
+vi.mock('@/hooks/useCurrentUserResourceId', () => ({
+  useCurrentUserResourceId: () => myResourceState,
+}));
 vi.mock('@/hooks/useBreakpoint', () => ({ useBreakpoint: () => 'lg' }));
 // Server-resolved methodology (#2619) — drives the explanatory empty state.
 // Default (no data) lets the component's own `?? 'HYBRID'` fallback apply.
@@ -54,13 +62,22 @@ const calFilterMock = vi.hoisted(() => ({
   state: {
     calView: 'month' as 'month' | 'week',
     anchorIso: '2026-05-01',
+    groupByAssignee: false,
+    mineOnly: false,
   },
+  setMineOnly: undefined as unknown as ReturnType<typeof vi.fn>,
+  setGroupByAssignee: undefined as unknown as ReturnType<typeof vi.fn>,
+  setCalView: undefined as unknown as ReturnType<typeof vi.fn>,
 }));
 vi.mock('./useCalendarFilter', () => ({
   useCalendarFilter: () => ({
     calView: calFilterMock.state.calView,
     anchorIso: calFilterMock.state.anchorIso,
-    setCalView: vi.fn(),
+    setCalView: calFilterMock.setCalView,
+    groupByAssignee: calFilterMock.state.groupByAssignee,
+    setGroupByAssignee: calFilterMock.setGroupByAssignee,
+    mineOnly: calFilterMock.state.mineOnly,
+    setMineOnly: calFilterMock.setMineOnly,
     goToToday: vi.fn(),
     goNext: vi.fn(),
     goPrev: vi.fn(),
@@ -72,14 +89,20 @@ vi.mock('./CalendarGrid', () => ({
   CalendarGrid: ({
     calView,
     workingTimeIncomplete,
+    groupByAssignee,
+    tasks,
   }: {
     calView?: string;
     workingTimeIncomplete?: boolean;
+    groupByAssignee?: boolean;
+    tasks?: Array<{ id: string }>;
   }) => (
     <div
       data-testid="calendar-grid"
       data-cal-view={calView}
       data-incomplete={String(workingTimeIncomplete)}
+      data-group={String(groupByAssignee)}
+      data-task-ids={tasks?.map((t) => t.id).join(',')}
     />
   ),
 }));
@@ -117,7 +140,18 @@ beforeEach(() => {
   calendarTasksMock.mockReturnValue({ tasks: [], isLoading: false, error: null, refetch });
   roleMock.mockReturnValue({ role: ROLE_MEMBER, roleLabel: null, isLoading: false });
   projectMock.mockReturnValue({ data: undefined, isLoading: false, error: null });
-  calFilterMock.state = { calView: 'month', anchorIso: '2026-05-01' };
+  calFilterMock.state = {
+    calView: 'month',
+    anchorIso: '2026-05-01',
+    groupByAssignee: false,
+    mineOnly: false,
+  };
+  calFilterMock.setMineOnly = vi.fn();
+  calFilterMock.setGroupByAssignee = vi.fn();
+  calFilterMock.setCalView = vi.fn();
+  sprintsState.sprints = [];
+  myResourceState.resourceIds = new Set(['r-me']);
+  myResourceState.isLoading = false;
   workingTimeState.layoutSettling = false;
   workingTimeState.incomplete = false;
 });
@@ -134,7 +168,7 @@ describe('CalendarView fetch window (#3244)', () => {
   });
 
   it('narrows the request to the anchored week in week view', () => {
-    calFilterMock.state = { calView: 'week', anchorIso: '2026-05-06' };
+    calFilterMock.state = { ...calFilterMock.state, calView: 'week', anchorIso: '2026-05-06' };
     renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
     expect(calendarTasksMock).toHaveBeenCalledWith({
       startGte: '2026-05-04',
@@ -327,7 +361,7 @@ describe('CalendarView week mode (#3167)', () => {
   });
 
   it('heads the toolbar with the week range in week mode', () => {
-    calFilterMock.state = { calView: 'week', anchorIso: '2026-05-01' };
+    calFilterMock.state = { ...calFilterMock.state, calView: 'week', anchorIso: '2026-05-01' };
     calendarTasksMock.mockReturnValue({
       tasks: [sampleTask],
       isLoading: false,
@@ -341,7 +375,7 @@ describe('CalendarView week mode (#3167)', () => {
   });
 
   it('threads calView down to the grid — the defect was that it did not', () => {
-    calFilterMock.state = { calView: 'week', anchorIso: '2026-05-01' };
+    calFilterMock.state = { ...calFilterMock.state, calView: 'week', anchorIso: '2026-05-01' };
     calendarTasksMock.mockReturnValue({
       tasks: [sampleTask],
       isLoading: false,
@@ -380,7 +414,7 @@ describe('CalendarView week mode (#3167)', () => {
     const { rerender } = renderWithProvidersAndRouter(<CalendarView />, {
       initialEntries: ['/projects/proj-1?view=calendar'],
     });
-    calFilterMock.state = { calView: 'week', anchorIso: '2026-05-01' };
+    calFilterMock.state = { ...calFilterMock.state, calView: 'week', anchorIso: '2026-05-01' };
     rerender(<CalendarView />);
     // sampleTask spans May 5-8, which is outside the Apr 27 - May 3 week, so
     // the emptiness of the window is folded into the same announcement rather
@@ -402,13 +436,13 @@ describe('CalendarView week mode (#3167)', () => {
     const { rerender } = renderWithProvidersAndRouter(<CalendarView />, {
       initialEntries: ['/projects/proj-1?view=calendar'],
     });
-    calFilterMock.state = { calView: 'week', anchorIso: '2026-05-01' };
+    calFilterMock.state = { ...calFilterMock.state, calView: 'week', anchorIso: '2026-05-01' };
     rerender(<CalendarView />);
     expect(await screen.findByText('Week view, Apr 27 \u2013 May 3, 2026')).toBeInTheDocument();
   });
 
   it('marks the active mode with a filled toggle, not color alone (WCAG 1.4.1)', () => {
-    calFilterMock.state = { calView: 'week', anchorIso: '2026-05-01' };
+    calFilterMock.state = { ...calFilterMock.state, calView: 'week', anchorIso: '2026-05-01' };
     calendarTasksMock.mockReturnValue({
       tasks: [sampleTask],
       isLoading: false,
@@ -416,8 +450,8 @@ describe('CalendarView week mode (#3167)', () => {
       refetch,
     });
     renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
-    const week = screen.getByRole('button', { name: 'week' });
-    expect(week).toHaveAttribute('aria-pressed', 'true');
+    const week = screen.getByRole('radio', { name: 'Week' });
+    expect(week).toHaveAttribute('aria-checked', 'true');
     expect(week.className).toContain('bg-brand-primary');
     expect(week.className).not.toContain('bg-brand-primary/10');
   });
@@ -445,7 +479,7 @@ describe('CalendarView week mode (#3167)', () => {
       initialEntries: ['/projects/proj-1?view=calendar'],
     });
     // Step to a week that holds none of the project's tasks.
-    calFilterMock.state = { calView: 'week', anchorIso: '2026-05-01' };
+    calFilterMock.state = { ...calFilterMock.state, calView: 'week', anchorIso: '2026-05-01' };
     rerender(<CalendarView />);
     expect(await screen.findByText(/, no tasks$/)).toBeInTheDocument();
   });
@@ -468,7 +502,7 @@ describe('CalendarView week mode (#3167)', () => {
     });
 
     it('heads the week from the week start the working time resolves', () => {
-      calFilterMock.state = { calView: 'week', anchorIso: '2026-05-06' };
+      calFilterMock.state = { ...calFilterMock.state, calView: 'week', anchorIso: '2026-05-06' };
       projectMock.mockReturnValue(onCalendar(SUN_THU));
       renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
       expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('May 3 \u2013 9, 2026');
@@ -504,13 +538,13 @@ describe('CalendarView week mode (#3167)', () => {
     });
 
     it('stays on Monday without a resolved calendar', () => {
-      calFilterMock.state = { calView: 'week', anchorIso: '2026-05-06' };
+      calFilterMock.state = { ...calFilterMock.state, calView: 'week', anchorIso: '2026-05-06' };
       renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
       expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('May 4 \u2013 10, 2026');
     });
 
     it('does not announce the week start settling when the calendar resolves', () => {
-      calFilterMock.state = { calView: 'week', anchorIso: '2026-05-06' };
+      calFilterMock.state = { ...calFilterMock.state, calView: 'week', anchorIso: '2026-05-06' };
       const { rerender } = renderWithRouter(<CalendarView />, {
         initialEntries: ['/projects/proj-1?view=calendar'],
       });
@@ -519,5 +553,111 @@ describe('CalendarView week mode (#3167)', () => {
       expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('May 3 \u2013 9, 2026');
       expect(screen.queryByText(/^Week view/)).not.toBeInTheDocument();
     });
+  });
+});
+
+describe('CalendarView toolbar filters and sprint header (#3169, #3170, #3171)', () => {
+  const mine: Task = {
+    ...sampleTask,
+    id: 'mine',
+    assignees: [{ resourceId: 'r-me', name: 'Me', units: 100 }],
+  };
+  const theirs: Task = {
+    ...sampleTask,
+    id: 'theirs',
+    assignees: [{ resourceId: 'r-other', name: 'Other', units: 100 }],
+  };
+  const render = () =>
+    renderWithRouter(<CalendarView />, { initialEntries: ['/projects/proj-1?view=calendar'] });
+  const withTasks = (tasks: Task[]) =>
+    calendarTasksMock.mockReturnValue({ tasks, isLoading: false, error: null, refetch });
+
+  it('passes every task through when "My tasks only" is off', () => {
+    withTasks([mine, theirs]);
+    render();
+    expect(screen.getByTestId('calendar-grid')).toHaveAttribute('data-task-ids', 'mine,theirs');
+    expect(screen.getByRole('button', { name: 'My tasks only' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+  });
+
+  it('narrows to the current user\'s resource when "My tasks only" is on', () => {
+    calFilterMock.state.mineOnly = true;
+    withTasks([mine, theirs]);
+    render();
+    expect(screen.getByTestId('calendar-grid')).toHaveAttribute('data-task-ids', 'mine');
+    expect(screen.getByRole('button', { name: 'My tasks only' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+
+  it('toggling the button writes the URL filter', async () => {
+    withTasks([mine]);
+    render();
+    await userEvent.click(screen.getByRole('button', { name: 'My tasks only' }));
+    expect(calFilterMock.setMineOnly).toHaveBeenCalledWith(true);
+  });
+
+  it('keeps tasks on either roster row when the user is split across two', () => {
+    calFilterMock.state.mineOnly = true;
+    myResourceState.resourceIds = new Set(['r-me', 'r-other']);
+    withTasks([mine, theirs]);
+    render();
+    expect(screen.getByTestId('calendar-grid')).toHaveAttribute('data-task-ids', 'mine,theirs');
+  });
+
+  it('does not apply the filter while the roster lookup is in flight', () => {
+    calFilterMock.state.mineOnly = true;
+    myResourceState.isLoading = true;
+    withTasks([mine, theirs]);
+    render();
+    expect(screen.getByTestId('calendar-grid')).toHaveAttribute('data-task-ids', 'mine,theirs');
+  });
+
+  it('says nothing is assigned to you, with a way out, when the filter empties a populated window', async () => {
+    calFilterMock.state.mineOnly = true;
+    myResourceState.resourceIds = new Set(); // no roster row linked to this user
+    withTasks([theirs]);
+    render();
+    expect(screen.getByText('Nothing assigned to you')).toBeInTheDocument();
+    expect(screen.queryByText('No tasks yet')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Show all tasks' }));
+    expect(calFilterMock.setMineOnly).toHaveBeenCalledWith(false);
+  });
+
+  it('offers Group by assignee in week mode only, and passes the flag to the grid', () => {
+    withTasks([mine]);
+    const { unmount } = render();
+    expect(screen.queryByRole('button', { name: 'Group by assignee' })).not.toBeInTheDocument();
+    unmount();
+
+    calFilterMock.state = {
+      ...calFilterMock.state,
+      calView: 'week',
+      groupByAssignee: true,
+    };
+    render();
+    expect(screen.getByRole('button', { name: 'Group by assignee' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByTestId('calendar-grid')).toHaveAttribute('data-group', 'true');
+  });
+
+  it('names the containing sprint in the week header, and only in week mode', () => {
+    sprintsState.sprints = [
+      { name: 'Sprint 7', start_date: '2026-04-20', finish_date: '2026-05-08', state: 'ACTIVE' },
+    ];
+    withTasks([mine]);
+    const { unmount } = render();
+    expect(screen.queryByTestId('calendar-week-sprint')).not.toBeInTheDocument();
+    unmount();
+
+    calFilterMock.state = { ...calFilterMock.state, calView: 'week' };
+    render();
+    // "Today" is real time, outside this 2026 sprint, so no days-left suffix.
+    expect(screen.getByTestId('calendar-week-sprint')).toHaveTextContent('Sprint 7');
   });
 });

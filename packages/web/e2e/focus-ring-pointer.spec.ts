@@ -61,7 +61,7 @@ test.describe('Pointer-focus ring (rule 4/214)', () => {
     await page.goto(CAL_URL);
     // Gate on a page-rendered signal (not just a control's toBeVisible) before
     // interacting with chrome on a data-driven route.
-    await expect(page.getByRole('group', { name: 'Calendar view mode' })).toBeVisible({
+    await expect(page.getByRole('radiogroup', { name: 'Calendar view mode' })).toBeVisible({
       timeout: 10_000,
     });
   });
@@ -91,12 +91,14 @@ test.describe('Pointer-focus ring (rule 4/214)', () => {
   test('a focus-visible: control does NOT ring on pointer (mouse) focus — the gap #2166 closes', async ({
     page,
   }) => {
-    // The calendar view-mode toggle still uses focus-visible: (the calendar tree
-    // is not part of the #2166 conversion). Its segments are plain aria-pressed
-    // toggle buttons: clicking one keeps focus on it (no popover, no navigation),
-    // so this is a clean negative control.
-    const group = page.getByRole('group', { name: 'Calendar view mode' });
-    const week = group.getByRole('button', { name: 'week' });
+    // The negative control is the calendar's "My tasks only" filter: a plain
+    // `aria-pressed` toggle button that still uses focus-visible: (the calendar
+    // tree is not part of the #2166 conversion). Clicking it keeps focus on it (no
+    // popover, no navigation), so it is a clean negative control. It replaced the
+    // Month|Week control, which became a role=radio group (#3180) and no longer
+    // carries aria-pressed. If this button is ever converted to focus:, pick
+    // another focus-visible: aria-pressed toggle rather than deleting the test.
+    const week = page.getByRole('button', { name: 'My tasks only' });
 
     const before = await boxShadow(week);
     await week.click(); // real pointer click -> pointer focus

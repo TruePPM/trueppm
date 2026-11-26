@@ -564,6 +564,7 @@ export default defineConfig({
             { slug: "architecture/auth" },
             { slug: "architecture/offline-sync" },
             { slug: "architecture/scheduler-conformance" },
+            { slug: "architecture/testing-another-implementation" },
             { slug: "architecture/broadcast-pipeline" },
             { slug: "architecture/decisions" },
             { slug: "architecture/websocket-events" },

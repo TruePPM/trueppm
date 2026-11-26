@@ -36,6 +36,8 @@ import {
   buildMilestoneMarks,
   formatWindowNoun,
   resolveDayAvailability,
+  buildAssigneeLanes,
+  inAssigneeLane,
   DEFAULT_WEEK_START_DAY,
   DEFAULT_WORKING_TIME,
   type CalendarChipData,
@@ -386,6 +388,22 @@ interface CalendarGridProps {
    * A day cell in this set gets a small boundary dot. Optional/empty → no dots.
    */
   sprintBoundaries?: Set<string>;
+  /**
+   * Week mode only: draw one swimlane (a full 7-day row) per assignee instead of
+   * one row packed by date-overlap (#3169). Ignored in month mode, where six
+   * rows already fill the viewport.
+   */
+  groupByAssignee?: boolean;
+}
+
+/** One rendered row: a calendar week, or one assignee's slice of the single week. */
+interface GridRow {
+  key: string;
+  ws: Date;
+  /** Swimlane identity; null for an ordinary week row. */
+  laneKey: string | null;
+  laneLabel: string | null;
+  chips: CalendarChipData[];
 }
 
 export function CalendarGrid({
@@ -397,6 +415,7 @@ export function CalendarGrid({
   tasks,
   onTaskClick,
   sprintBoundaries,
+  groupByAssignee = false,
 }: CalendarGridProps) {
   // Below the `md` breakpoint the 7-column grid collapses to unusable ~60px
   // columns; render the documented date-grouped agenda list instead (#2161).
@@ -409,6 +428,8 @@ export function CalendarGrid({
   // effect) steals focus from whatever the user was actually on (web rule 280).
   // An ISO that is no longer in the window simply falls back to the default
   // below — a pure derivation, so no effect and no focus movement.
+  // In swimlane mode the same date appears once per lane, so the stop is keyed on
+  // `cellKey` (lane + date), which equals the bare ISO date outside swimlanes.
   const [focusedIso, setFocusedIso] = useState<string | null>(null);
   const cellRefs = useRef(new Map<string, HTMLDivElement>());
 
@@ -442,19 +463,53 @@ export function CalendarGrid({
   const allChips = buildChips(tasks, anchor, calView, weekStartDay);
   const allMarks = buildMilestoneMarks(tasks, anchor, calView, weekStartDay);
   const currentMonth = anchor.getUTCMonth();
+  const grouped = isWeek && groupByAssignee;
+
+  // Group chips by weekStart ISO
+  const chipsByWeek = new Map<string, CalendarChipData[]>();
+  for (const chip of allChips) {
+    const list = chipsByWeek.get(chip.weekStart) ?? [];
+    list.push(chip);
+    chipsByWeek.set(chip.weekStart, list);
+  }
+
+  // The rows to draw. Swimlanes re-slice the one week by assignee; lanes are
+  // assigned within each slice, so a person's bars pack against their own
+  // schedule rather than against everyone's.
+  const rows: GridRow[] = grouped
+    ? buildAssigneeLanes([...allChips, ...allMarks]).map((lane) => ({
+        key: lane.key,
+        ws: weeks[0],
+        laneKey: lane.key,
+        laneLabel: lane.label,
+        chips: (chipsByWeek.get(formatISODate(weeks[0])) ?? []).filter((c) =>
+          inAssigneeLane(c, lane.key),
+        ),
+      }))
+    : weeks.map((ws) => ({
+        key: formatISODate(ws),
+        ws,
+        laneKey: null,
+        laneLabel: null,
+        chips: chipsByWeek.get(formatISODate(ws)) ?? [],
+      }));
+  const cellKeyOf = (row: GridRow, iso: string) => (row.laneKey ? `${row.laneKey}|${iso}` : iso);
 
   // Every rendered day, in visual order — the grid's own coordinate space for
   // keyboard traversal. Always a whole number of 7-day rows.
-  const windowDays = weeks.flatMap((ws) => weekDays(ws, weekStartDay));
-  const windowIsos = windowDays.map(formatISODate);
+  const windowDays = rows.flatMap((row) =>
+    weekDays(row.ws, weekStartDay).map((d) => ({ d, key: cellKeyOf(row, formatISODate(d)) })),
+  );
+  const windowIsos = windowDays.map((x) => x.key);
 
   // Where the single tab stop sits when the user has not moved it: today if the
   // window contains it, else the anchor day, else the first day drawn. Tabbing
   // into the grid should land on the day the view is *about*.
-  const todayIdx = windowDays.findIndex((d) => formatISODate(d) === todayIso);
+  const todayIdx = windowDays.findIndex((x) => formatISODate(x.d) === todayIso);
+  const anchorIdx = windowDays.findIndex((x) => formatISODate(x.d) === anchorIso);
   let defaultIso = windowIsos[0];
   if (todayIdx >= 0) defaultIso = windowIsos[todayIdx];
-  else if (windowIsos.includes(anchorIso)) defaultIso = anchorIso;
+  else if (anchorIdx >= 0) defaultIso = windowIsos[anchorIdx];
   const activeIso =
     focusedIso !== null && windowIsos.includes(focusedIso) ? focusedIso : defaultIso;
 
@@ -522,14 +577,6 @@ export function CalendarGrid({
   // them one click away, so week mode shows them all (#3167).
   const maxLanes = isWeek ? Number.POSITIVE_INFINITY : MAX_LANES;
 
-  // Group chips by weekStart ISO
-  const chipsByWeek = new Map<string, CalendarChipData[]>();
-  for (const chip of allChips) {
-    const list = chipsByWeek.get(chip.weekStart) ?? [];
-    list.push(chip);
-    chipsByWeek.set(chip.weekStart, list);
-  }
-
   // Group milestone marks by weekStart, then by dayOffset
   const marksByWeekDay = new Map<string, MilestoneMark[]>();
   for (const mark of allMarks) {
@@ -544,22 +591,36 @@ export function CalendarGrid({
   // keeps `role="row"` owning nothing but `gridcell`s.
   const windowIsEmpty = isWeek && allChips.length === 0 && allMarks.length === 0;
 
+  // Swimlanes add a leading name column ahead of the seven day columns.
+  const gridColsClass = grouped ? 'grid-cols-[8rem_repeat(7,minmax(0,1fr))]' : 'grid-cols-7';
+  const firstDayCol = grouped ? 2 : 1;
+
   return (
     <div role="region" aria-label={regionLabel} className="flex flex-col h-full overflow-hidden">
       <div className="relative flex flex-1 min-h-0 flex-col">
         <div
           role="grid"
           aria-label="Calendar dates"
-          aria-rowcount={weeks.length + 1}
-          aria-colcount={DAYS_PER_WEEK}
+          aria-rowcount={rows.length + 1}
+          aria-colcount={DAYS_PER_WEEK + (grouped ? 1 : 0)}
           className="flex flex-1 min-h-0 flex-col"
         >
           {/* Day-of-week header */}
           <div
             role="row"
             aria-rowindex={1}
-            className="grid grid-cols-7 border-b border-neutral-border flex-shrink-0"
+            className={`grid ${gridColsClass} border-b border-neutral-border flex-shrink-0`}
           >
+            {grouped && (
+              <div
+                role="columnheader"
+                aria-colindex={1}
+                className="py-1.5 pl-2 text-left tppm-mono text-xs font-semibold uppercase tracking-widest
+                  text-neutral-text-secondary border-r border-neutral-border bg-neutral-surface-sunken"
+              >
+                Assignee
+              </div>
+            )}
             {Array.from(
               { length: DAYS_PER_WEEK },
               (_, i) => DAY_HEADERS[(weekStartDay + i) % DAYS_PER_WEEK],
@@ -567,7 +628,7 @@ export function CalendarGrid({
               <div
                 key={d.abbr}
                 role="columnheader"
-                aria-colindex={i + 1}
+                aria-colindex={i + firstDayCol}
                 aria-label={d.full}
                 className="py-1.5 text-center tppm-mono text-xs font-semibold uppercase tracking-widest
                   text-neutral-text-secondary border-r last:border-r-0 border-neutral-border
@@ -587,11 +648,20 @@ export function CalendarGrid({
                 : 'flex-1 overflow-y-auto divide-y divide-neutral-border'
             }
           >
-            {weeks.map((ws, weekIdx) => {
+            {rows.map((row, weekIdx) => {
+              const ws = row.ws;
               const wsIso = formatISODate(ws);
               const days = weekDays(ws, weekStartDay);
-              const weekChips = chipsByWeek.get(wsIso) ?? [];
+              const weekChips = row.chips;
               const laneMap = assignLanes(weekChips);
+              // A lane can hold only a milestone diamond (lanes are built from chips
+              // and marks), so the header counts distinct tasks across both.
+              const laneTaskCount = new Set([
+                ...weekChips.map((c) => c.taskId),
+                ...allMarks
+                  .filter((m) => row.laneKey !== null && inAssigneeLane(m, row.laneKey))
+                  .map((m) => m.taskId),
+              ]).size;
 
               const overflowByDay = new Map<number, CalendarChipData[]>();
               weekChips.forEach((chip, idx) => {
@@ -638,40 +708,63 @@ export function CalendarGrid({
 
               return (
                 <div
-                  key={wsIso}
+                  key={row.key}
                   role="row"
                   aria-rowindex={weekIdx + 2}
-                  className={`relative grid grid-cols-7 ${isWeek ? 'flex-1' : ''}`}
+                  className={`relative grid ${gridColsClass} ${isWeek && !grouped ? 'flex-1' : ''}`}
                   style={{ minHeight: rowMinHeight }}
                 >
+                  {row.laneLabel !== null && (
+                    <div
+                      role="rowheader"
+                      aria-colindex={1}
+                      className="border-r border-neutral-border bg-neutral-surface-sunken p-2 min-w-0"
+                    >
+                      <div
+                        className="text-xs font-semibold text-neutral-text-primary truncate"
+                        title={row.laneLabel}
+                      >
+                        {row.laneLabel}
+                      </div>
+                      <div className="text-xs text-neutral-text-secondary">
+                        {laneTaskCount} {laneTaskCount === 1 ? 'task' : 'tasks'}
+                      </div>
+                    </div>
+                  )}
                   {days.map((day, dayIdx) => {
                     const iso = formatISODate(day);
+                    const cellKey = cellKeyOf(row, iso);
                     const isToday = formatISODate(day) === todayIso;
                     // Every day a week row renders is inside the window, so the
                     // out-of-month graying is a month-mode concept only.
                     const isCurrentMonth = isWeek || day.getUTCMonth() === currentMonth;
                     const dayOffset = Math.round((day.getTime() - ws.getTime()) / 86_400_000);
                     const hiddenChips = overflowByDay.get(dayOffset) ?? [];
-                    const dayMarks = marksByWeekDay.get(`${wsIso}:${dayOffset}`) ?? [];
+                    const dayMarks = (marksByWeekDay.get(`${wsIso}:${dayOffset}`) ?? []).filter(
+                      (m) => row.laneKey === null || inAssigneeLane(m, row.laneKey),
+                    );
                     const isSprintBoundary = sprintBoundaries?.has(iso) ?? false;
                     const availability = resolveDayAvailability(iso, workingTime);
                     const onFill = availability.kind !== 'working';
 
                     return (
                       <div
-                        key={iso}
+                        key={cellKey}
                         ref={(el) => {
-                          if (el) cellRefs.current.set(iso, el);
+                          if (el) cellRefs.current.set(cellKey, el);
                           return () => {
-                            cellRefs.current.delete(iso);
+                            cellRefs.current.delete(cellKey);
                           };
                         }}
                         role="gridcell"
-                        aria-colindex={dayIdx + 1}
-                        aria-label={dayCellName(formatDayCellLabel(day), isToday, availability)}
-                        tabIndex={iso === activeIso ? 0 : -1}
-                        onKeyDown={(e) => handleCellKeyDown(e, iso)}
-                        onFocus={(e) => handleCellFocus(e, iso)}
+                        aria-colindex={dayIdx + firstDayCol}
+                        aria-label={
+                          dayCellName(formatDayCellLabel(day), isToday, availability) +
+                          (row.laneLabel ? `, ${row.laneLabel}` : '')
+                        }
+                        tabIndex={cellKey === activeIso ? 0 : -1}
+                        onKeyDown={(e) => handleCellKeyDown(e, cellKey)}
+                        onFocus={(e) => handleCellFocus(e, cellKey)}
                         className={`
                           relative border-r last:border-r-0 border-neutral-border p-1
                           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset
