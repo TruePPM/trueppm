@@ -637,6 +637,8 @@ The bulk task endpoint will report the same code on the rejected row, and the sy
 These three codes ship with timesheet review in 0.5; the current release has no reviewer and never emits them.
 :::
 
+Each arrives in the body as `{"detail": "...", "code": "..."}`.
+
 | Code | Status | Meaning |
 |------|--------|---------|
 | `timesheet_week_approved` | 409 | A time-entry write (create, edit, delete, or moving an entry out) lands in a week whose timesheet is approved. Approved weeks are read-only. |

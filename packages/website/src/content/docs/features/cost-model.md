@@ -109,7 +109,7 @@ Each line is rounded to the cent and the lines are then added together, so the b
 What counts as actual cost:
 
 - **Only time logged on this project's tasks.** Time a person logs on another project belongs to that project.
-- **Time off is never cost.** Holidays and PTO are calendar exceptions, not time entries.
+- **Only task work is cost.** Holidays are calendar exceptions, not time entries. PTO, admin, and training time can be logged as time entries with that category, and is recorded but never costed; only entries in the default task-work category count.
 - **A running timer is not cost** until it is stopped and becomes a time entry.
 - **Deleted time entries do not count.** Time logged on a task that was later deleted still counts, because the money was spent.
 - **A deactivated resource still prices its past hours.** Off-boarding someone does not erase what their work cost.

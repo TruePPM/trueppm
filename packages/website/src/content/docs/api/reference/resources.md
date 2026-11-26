@@ -379,8 +379,8 @@ will refuse every write into it with `409 timesheet_week_approved`. See
 | GET | `/api/v1/reporting-lines/{user_id}/` | One person's manager; workspace Admin+ |
 | PUT | `/api/v1/reporting-lines/{user_id}/` | Set a manager (`{manager: <user id>}`); self and cycles are `400`; every change is audited |
 | DELETE | `/api/v1/reporting-lines/{user_id}/` | Clear a person's manager |
-| GET | `/api/v1/me/reports/` | The caller's direct reports, each with the week's `status` and `week_minutes` (`?week=`, default this week) |
-| GET | `/api/v1/me/reports/{user_id}/timesheets/{week_start}/` | One direct report's week; entry detail outside the caller's projects is `restricted`; `404` for anyone who is not a direct report |
+| GET | `/api/v1/me/reports/` | The caller's direct reports, each with the week's `status` and `week_minutes` (`?week=`, default this week); a draft week reads `status: draft`, `submitted_at: null`, `week_minutes: null` |
+| GET | `/api/v1/me/reports/{user_id}/timesheets/{week_start}/` | One direct report's submitted, approved or returned week; entry detail outside the caller's projects is `restricted`; `404` for a draft week and for anyone who is not a direct report (the same body) |
 | POST | `/api/v1/me/reports/{user_id}/timesheets/{week_start}/approve/` | Approve a submitted week; `409` if not submitted or its entries changed since submit; API tokens `403` |
 | POST | `/api/v1/me/reports/{user_id}/timesheets/{week_start}/return/` | Return a submitted week with a required `{reason}` (blank is `400`); the reason goes to the submitter's Inbox; API tokens `403` |
 

@@ -9,9 +9,13 @@ RBAC posture:
   * approve / return — the same 404 scoping, plus ``ApiToken`` callers refused
     (human-only attestation, audited as an identity refusal).
 
-A manager sees a report's week totals in full, but entry detail (task, project and
-note) only for projects the manager is a member of: approving someone's hours does
-not grant a read of projects the manager cannot otherwise see.
+A manager sees a report's week only once it is submitted, approved or returned. A
+**draft** week (never submitted, or withdrawn back to draft) is the person's own
+working copy: the queue shows the row as ``draft`` with no time and no submit stamp,
+and the week detail answers the same **404** as a non-report (ADR-1495 §5). For a
+week they can see, the manager gets totals in full but entry detail (task, project
+and note) only for projects the manager is a member of: approving someone's hours
+does not grant a read of projects the manager cannot otherwise see.
 
 Nothing here broadcasts: a timesheet is personal, not board state.
 """
@@ -188,7 +192,8 @@ _QUEUE_ROW = inline_serializer(
         "week_start": serializers.DateField(),
         "status": serializers.ChoiceField(choices=TimesheetStatus.choices),
         "submitted_at": serializers.DateTimeField(allow_null=True),
-        "week_minutes": serializers.IntegerField(),
+        # Null for a draft week: the person has not submitted it, so its time is theirs.
+        "week_minutes": serializers.IntegerField(allow_null=True),
     },
 )
 
@@ -228,7 +233,7 @@ class MeReportsView(APIView):
             .order_by("username")
         )
         ids = [u.pk for u in reports]
-        subs = {
+        subs: dict[Any, TimesheetSubmission] = {
             s.user_id: s
             for s in TimesheetSubmission.objects.filter(user_id__in=ids, week_start=monday)
         }
@@ -247,12 +252,25 @@ class MeReportsView(APIView):
         rows = []
         for u in reports:
             sub = subs.get(u.pk)
+            # A withdrawn week (status draft, old submitted_at kept) must read exactly
+            # like a never-submitted one: no stamp, no minutes.
+            if sub is None or not _visible_to_reviewer(sub):
+                rows.append(
+                    {
+                        "user": _person(u),
+                        "week_start": monday.isoformat(),
+                        "status": TimesheetStatus.DRAFT,
+                        "submitted_at": None,
+                        "week_minutes": None,
+                    }
+                )
+                continue
             rows.append(
                 {
                     "user": _person(u),
                     "week_start": monday.isoformat(),
-                    "status": sub.status if sub else TimesheetStatus.DRAFT,
-                    "submitted_at": sub.submitted_at.isoformat() if sub else None,
+                    "status": sub.status,
+                    "submitted_at": sub.submitted_at.isoformat(),
                     "week_minutes": int(minutes.get(u.pk) or 0),
                 }
             )
@@ -290,10 +308,26 @@ _REPORT_WEEK = inline_serializer(
 )
 
 
+def _visible_to_reviewer(sub: TimesheetSubmission | None) -> bool:
+    """Whether a manager may see this week at all: submitted, approved or returned."""
+    return sub is not None and sub.status in (
+        TimesheetStatus.SUBMITTED,
+        TimesheetStatus.APPROVED,
+        TimesheetStatus.RETURNED,
+    )
+
+
 def _report_week_payload(manager: Any, user: Any, monday: Any) -> dict[str, Any]:
+    """A report's week as the manager sees it. Raises 404 for a draft week."""
+    from django.http import Http404
+
     from trueppm_api.apps.access.models import ProjectMembership
 
     sub = TimesheetSubmission.objects.filter(user=user, week_start=monday).first()
+    if sub is None or not _visible_to_reviewer(sub):
+        # The same 404 a non-report gets: a draft is not the manager's to read, and a
+        # distinct answer would tell them a draft exists.
+        raise Http404
     entries = list(
         TimeEntry.objects.filter(
             user=user,
@@ -330,17 +364,15 @@ def _report_week_payload(manager: Any, user: Any, monday: Any) -> dict[str, Any]
     # only — not to a manager who took over the line later.
     reason = (
         sub.return_reason
-        if sub is not None
-        and sub.status == TimesheetStatus.RETURNED
-        and sub.reviewer_id == manager.pk
+        if sub.status == TimesheetStatus.RETURNED and sub.reviewer_id == manager.pk
         else ""
     )
     return {
         "user": _person(user),
         "week_start": monday.isoformat(),
-        "status": sub.status if sub else TimesheetStatus.DRAFT,
-        "submitted_at": sub.submitted_at.isoformat() if sub else None,
-        "reviewed_at": sub.reviewed_at.isoformat() if sub and sub.reviewed_at else None,
+        "status": sub.status,
+        "submitted_at": sub.submitted_at.isoformat(),
+        "reviewed_at": sub.reviewed_at.isoformat() if sub.reviewed_at else None,
         "return_reason": reason,
         "week_minutes": sum(e.minutes for e in entries),
         "entries": rows,

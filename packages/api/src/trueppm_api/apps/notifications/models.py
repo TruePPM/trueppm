@@ -537,6 +537,12 @@ DEFAULT_PREFERENCES: list[tuple[str, str, bool]] = [
     # #4806: someone accepted an over-capacity booking of this person.
     (NotificationEventType.ALLOCATION_OVERAGE_ACCEPTED, NotificationChannel.IN_APP, True),
     (NotificationEventType.ALLOCATION_OVERAGE_ACCEPTED, NotificationChannel.EMAIL, False),
+    # ADR-1495: a week returned to me, and a returned week my report resubmitted.
+    # In-app only; email stays off because the returned item's body is the reason.
+    (NotificationEventType.TIMESHEET_RETURNED, NotificationChannel.IN_APP, True),
+    (NotificationEventType.TIMESHEET_RETURNED, NotificationChannel.EMAIL, False),
+    (NotificationEventType.TIMESHEET_RESUBMITTED, NotificationChannel.IN_APP, True),
+    (NotificationEventType.TIMESHEET_RESUBMITTED, NotificationChannel.EMAIL, False),
 ]
 
 

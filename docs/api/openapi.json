@@ -96810,7 +96810,8 @@
                         "nullable": true
                     },
                     "week_minutes": {
-                        "type": "integer"
+                        "type": "integer",
+                        "nullable": true
                     }
                 },
                 "required": [

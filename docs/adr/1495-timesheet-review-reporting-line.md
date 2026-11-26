@@ -85,6 +85,24 @@ approved week. The row lock serializes it against approve: whichever commits fir
   the timer impossible to stop.
 - Sync is pull-only for time entries (ADR-0185 §6), so it has no write path to guard.
 - **No reopen in 0.5.** An approved week cannot be edited, withdrawn or re-reviewed by anyone.
+- **Accepted exception: hard deletes.** `TimeEntry.task` and `TimeEntry.user` are
+  `on_delete=CASCADE`, and a database cascade never calls `save()`. Hard-deleting a task or a
+  user (an admin or maintenance operation, not a product route; tasks and entries are
+  soft-deleted in normal use) therefore removes that row's entries from an approved week. The
+  lock covers every ORM write through `save()` and every product route; it is not a
+  database-level immutability guarantee, and the docs say "every write path in the product",
+  not "any route". Making approved entries survive a hard delete (`PROTECT`, or a frozen copy
+  on the submission) is a larger change left for the Enterprise audit trail.
+- **Pre-upgrade submitted weeks.** A week submitted under ADR-0224 takes the `submitted`
+  default with no digest, which approve could never match. Migration 0006 ends with a
+  `RunPython` that stamps the digest of the week's entries as they stand at upgrade (a frozen
+  copy of `week_digest` in `timetracking/backfill.py`). Nothing guarded those weeks before, so
+  the entries at upgrade are what the reviewer sees and approves.
+- **Error bodies carry `code`.** `TimesheetWeekLocked` and `TimesheetStateConflict` answer
+  `{"detail": ..., "code": ...}` with the three codes in `api/errors.md`. Stopping a timer
+  discarded because its week is approved answers `409` with `code: timesheet_week_approved`
+  and says the time was not logged, not "no active timer"; the status stays `409` so the web
+  client clears its timer exactly as before.
 
 ### 4. `TimeEntry.category`: task, pto, admin, training
 
@@ -95,13 +113,26 @@ change with sync and reporting consequences.
 
 ### 5. Visibility, notifications, signals, agents
 
+- **A draft week is never reviewer-visible.** The `me/reports/` routes expose only submitted,
+  approved and returned weeks. A draft (never submitted, or withdrawn back to draft, including
+  a returned week withdrawn) is the person's working copy: the queue row reads `status: draft`
+  with `submitted_at: null` and `week_minutes: null`, identical to a week that has no row; the
+  week detail answers **404** with the same body as a non-report (so it cannot tell a draft
+  from an empty week, or from a person who is not a report); approve and return answer the
+  same `409 timesheet_state_conflict` as a never-submitted week, with no entries. 404 rather
+  than 403 for the detail because "there is no week here for you to review" is the truthful
+  answer and it matches the non-report case. Project-scoped time reads are unchanged: they
+  follow project RBAC, not the reporting line.
 - A manager sees a report's week totals and each entry's hours and category. Task, project
   and note are shown only for projects the manager is a member of; others are marked
   `restricted`. Approving someone's time grants no read of projects the manager cannot see.
 - `return_reason` is shown to the submitter and to the reviewer who wrote it, not to a later
   manager.
 - Return writes an in-app Inbox item to the submitter carrying the reason; resubmit after a
-  return writes one to that reviewer. Both are in-app rows only, so no email renders the reason.
+  return (directly, or after withdrawing the returned week to draft) writes one to the
+  person's **current** manager. Both are in-app rows only, so no email renders the reason, and
+  both honor the recipient's in-app preference (`timesheet.returned`, `timesheet.resubmitted`;
+  default on, email default off). Subjects are cut to the 255-character column.
 - No board broadcast: a timesheet is personal, not board state.
 - Every transition fires `timesheet_review_changed` through `dispatch_extension_signal()`
   with identifiers and scalars only. Receivers are savepoint-isolated; a raising receiver
@@ -149,7 +180,7 @@ trail with retention evidence. No Enterprise affordance appears in the OSS UI.
 ## Implementation Notes
 - **P3M layer:** Operations. OSS.
 - **Affected packages:** api, docs. The web review queue is a separate issue.
-- **Migration:** one (`timetracking.0006`). Two new constraints, each with a `# safe-constraint:`
+- **Migration:** one (`timetracking.0006`), ending in the digest backfill above. Two new constraints, each with a `# safe-constraint:`
   note: the returned-has-reason check is safe because every existing row takes the
   `submitted` default; the not-self check is on a table created in the same migration. No
   `RemoveField`.
@@ -165,5 +196,8 @@ trail with retention evidence. No Enterprise affordance appears in the OSS UI.
 5. **Best-effort response:** N/A. Responses are synchronous.
 6. **Outbox cleanup:** N/A.
 7. **Idempotency:** a repeated submit refreshes the digest, never a second row; withdraw of a
-   draft week is a no-op 204; approve and return of a non-submitted week are 409.
+   draft week is a no-op 204; approve and return of a non-submitted week are 409. Approve
+   holds `FOR UPDATE` on the submission row while it re-hashes, and the entry-write guard
+   takes the same lock, so a concurrent edit and approve serialize (tested with two threads;
+   the test fails with the guard's lock removed).
 8. **Dead-letter:** N/A. Validation (400), scoping (404) and state (409) surface inline.

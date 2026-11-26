@@ -624,7 +624,20 @@ class MeTimerStopView(IdempotencyMixin, APIView):
     )
     def post(self, request: Request) -> Response:
         entry = services.stop_timer(user=cast("_User", request.user))
-        if entry is None:
+        if entry == services.TIMER_DISCARDED_APPROVED_WEEK:
+            # Still 409, so the client clears its timer exactly as for "no timer" —
+            # the row is gone — but the message says the time was not logged and why.
+            return Response(
+                {
+                    "detail": (
+                        "The timer's week is approved and read-only, so its time was "
+                        "not logged. The timer was discarded."
+                    ),
+                    "code": "timesheet_week_approved",
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        if not isinstance(entry, TimeEntry):
             return Response({"detail": "No active timer to stop."}, status=status.HTTP_409_CONFLICT)
         return Response(
             TimeEntrySerializer(entry, context={"request": request}).data,

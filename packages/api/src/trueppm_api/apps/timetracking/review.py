@@ -48,11 +48,24 @@ _REPORTING_LINE_LOCK = 4811_0001
 
 
 class TimesheetStateConflict(APIException):
-    """The week is not in a state that allows the requested transition."""
+    """The week is not in a state that allows the requested transition.
+
+    The body is ``{"detail": ..., "code": ...}``: the code is the documented, stable
+    value a client branches on (``docs/api/errors.md``). DRF's handler sends only
+    ``detail`` for a string detail, so the code is put in the body here.
+    """
 
     status_code = 409
     default_detail = "This timesheet week cannot make that transition."
     default_code = "timesheet_state_conflict"
+
+    def __init__(self, detail: str | None = None, code: str | None = None) -> None:
+        code = code or self.default_code
+        super().__init__({"detail": detail or self.default_detail, "code": code}, code)
+
+
+#: ``Notification.subject`` is a 255-character column; a display name is user-set.
+_SUBJECT_MAX = 255
 
 
 def week_digest(user_id: Any, week_start: date) -> str:
@@ -157,9 +170,19 @@ def _record(sub: TimesheetSubmission, *, actor: _User, from_status: str, reason:
 
 
 def _notify(*, recipient_id: Any, event_type: str, subject: str, body: str) -> None:
-    """Write an in-app Inbox row. No email: the body may carry the return reason."""
-    from trueppm_api.apps.notifications.models import Notification
+    """Write an in-app Inbox row, if the recipient's preference allows it.
 
+    No email: the body may carry the return reason. The recipient's in-app toggle for
+    the event type is honored the same way every other event is (it defaults on), and
+    the subject is cut to the column width because it embeds a user-set display name.
+    """
+    from trueppm_api.apps.notifications.models import Notification
+    from trueppm_api.apps.notifications.services import event_in_app_enabled
+
+    if recipient_id is None or not event_in_app_enabled(recipient_id, event_type):
+        return
+    if len(subject) > _SUBJECT_MAX:
+        subject = subject[: _SUBJECT_MAX - 1] + "\u2026"
     Notification.objects.create(
         recipient_id=recipient_id, event_type=event_type, subject=subject, body=body
     )
@@ -195,7 +218,14 @@ def submit_week(*, user: _User, week_start: date) -> TimesheetSubmission:
         _record(sub, actor=user, from_status=TimesheetStatus.DRAFT)
         return sub
     from_status = sub.status
-    returned_by = sub.reviewer_id if from_status == TimesheetStatus.RETURNED else None
+    # A returned week the person withdrew to draft before fixing it is still a
+    # resubmission of a returned week: withdraw keeps ``reviewer`` (only a review sets
+    # it, and a resubmit clears it), so a draft carrying one was returned last. The
+    # notice goes to the *current* manager: authority is evaluated now, so a reviewer
+    # who has since lost the line is not told about a week they can no longer open.
+    was_returned = from_status == TimesheetStatus.RETURNED or (
+        from_status == TimesheetStatus.DRAFT and sub.reviewer_id is not None
+    )
     sub.status = TimesheetStatus.SUBMITTED
     sub.submitted_at = now
     sub.entries_digest = digest
@@ -205,9 +235,9 @@ def submit_week(*, user: _User, week_start: date) -> TimesheetSubmission:
     sub.save()
     if from_status != TimesheetStatus.SUBMITTED:
         _record(sub, actor=user, from_status=from_status)
-    if returned_by is not None:
+    if was_returned:
         _notify(
-            recipient_id=returned_by,
+            recipient_id=manager_id_for(user.pk),
             event_type=NotificationEventType.TIMESHEET_RESUBMITTED,
             subject=f"{_display(user)} resubmitted the week of {week_start.isoformat()}",
             body="",
@@ -233,6 +263,8 @@ def withdraw_week(*, user: _User, week_start: date) -> None:
         raise TimesheetStateConflict("This week is approved; it cannot be withdrawn.")
     from_status = sub.status
     sub.status = TimesheetStatus.DRAFT
+    # ``reviewer`` is kept on purpose: it marks a withdrawn *returned* week, so the
+    # resubmit still notifies the manager (see :func:`submit_week`).
     sub.return_reason = ""
     sub.save()
     _record(sub, actor=user, from_status=from_status)

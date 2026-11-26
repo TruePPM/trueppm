@@ -7,6 +7,15 @@ import django.utils.timezone
 from django.conf import settings
 from django.db import migrations, models
 
+from trueppm_api.apps.timetracking.backfill import backfill_submission_digests
+
+
+def _stamp_digests(apps, schema_editor):  # type: ignore[no-untyped-def]
+    backfill_submission_digests(
+        apps.get_model("timetracking", "TimesheetSubmission"),
+        apps.get_model("timetracking", "TimeEntry"),
+    )
+
 
 class Migration(migrations.Migration):
     dependencies = [
@@ -261,4 +270,8 @@ class Migration(migrations.Migration):
                 fields=["submission", "created_at"], name="timetrackin_submiss_877c41_idx"
             ),
         ),
+        # Weeks submitted before review existed get a digest, or approve would refuse
+        # them forever (entries_digest="" never matches). Runs after `category` is
+        # added because the digest hashes it.
+        migrations.RunPython(_stamp_digests, migrations.RunPython.noop),
     ]

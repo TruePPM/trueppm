@@ -150,8 +150,13 @@ def start_timer(*, user: _User, task: Task, note: str = "") -> tuple[ActiveTimer
     return timer, finalized
 
 
+#: Returned by :func:`stop_timer` when the timer was discarded because its week is
+#: approved: distinct from ``None`` ("no timer") so the caller can say what happened.
+TIMER_DISCARDED_APPROVED_WEEK = "approved_week"
+
+
 @transaction.atomic
-def stop_timer(*, user: _User) -> TimeEntry | None:
+def stop_timer(*, user: _User) -> TimeEntry | str | None:
     """Stop ``user``'s running timer, finalize it into a :class:`TimeEntry`, delete the row.
 
     Returns ``None`` when no timer is running (or when the timer is discarded —
@@ -196,9 +201,10 @@ def stop_timer(*, user: _User) -> TimeEntry | None:
     if week_is_approved(user.pk, timezone.localdate(timer.started_at), lock=True):
         # The timer's week was approved while it ran (ADR-1495 §3). The approved week
         # is read-only, so the elapsed time cannot be logged into it; discard the timer
-        # rather than raise, for the same reason as the lapsed-access branch above.
+        # rather than raise, for the same reason as the lapsed-access branch above, and
+        # tell the view so it can say why instead of "no active timer".
         timer.delete()
-        return None
+        return TIMER_DISCARDED_APPROVED_WEEK
     return _finalize(timer)
 
 

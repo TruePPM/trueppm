@@ -129,9 +129,9 @@ In 0.5 a submitted week will go to your **reviewer**: the one direct manager a w
 | **Draft** | Not submitted, or withdrawn. | Yes |
 | **Submitted** | Waiting for your reviewer. You can withdraw it back to draft. | Yes. Your reviewer can only approve the entries you submitted; if you change them, they will need you to resubmit. |
 | **Returned** | Your reviewer sent it back with a reason, which arrives in your Inbox. | Yes. Fix it and submit again; your reviewer is told. |
-| **Approved** | Your reviewer accepted it. | No. Nobody can edit, add, or delete time in an approved week, through any route (the grid, a timer, or the API). 0.5 will have no reopen. |
+| **Approved** | Your reviewer accepted it. | No. Nobody can edit, add, or delete time in an approved week through the product: not the grid, a timer, or the API. A running timer whose week is approved is discarded when you stop it, and the response says the time was not logged. 0.5 will have no reopen. |
 
-Your reviewer will see your week's totals and every entry's hours and category. They will see the task, project, and note of an entry only on projects they're also a member of; on other projects they'll see the hours and "restricted". The return reason is visible to you and to the reviewer who wrote it, and to nobody else.
+Your reviewer will not see a draft week at all: until you submit, your week and its time are yours, and if you withdraw a week it goes back to being private. Once a week is submitted, approved, or returned, your reviewer will see its totals and every entry's hours and category. They will see the task, project, and note of an entry only on projects they're also a member of; on other projects they'll see the hours and "restricted". The return reason is visible to you and to the reviewer who wrote it, and to nobody else.
 
 Each entry will also carry a **category**: task work (the default), paid time off, admin, or training. Only task work counts toward a project's actual cost; PTO, admin, and training time is recorded but never costed.
 
@@ -156,13 +156,13 @@ A **running timer** is treated differently from a logged entry, and the archived
 | `PATCH`/`DELETE` | `/api/v1/me/time-entries/{id}/` | Author-only edit or (soft) delete of one entry. |
 | `GET` | `/api/v1/me/time-entries/?from=&to=` | The weekly cross-project rollup that backs the grid: entries in range plus precomputed daily/cell/week totals and the week's submission marker. |
 | `POST`/`DELETE` | `/api/v1/me/timesheets/{week_start}/submit/` | Submit or un-submit a week (`week_start` is normalized to its ISO Monday). |
-| `GET` | `/api/v1/me/reports/?week=` | From 0.5: your direct reports and each one's state and total minutes for the week. |
-| `GET` | `/api/v1/me/reports/{user_id}/timesheets/{week_start}/` | From 0.5: one direct report's week. `404` for anyone who is not your direct report. |
+| `GET` | `/api/v1/me/reports/?week=` | From 0.5: your direct reports and each one's state and total minutes for the week. A draft week shows as `draft` with no minutes (`null`) and no submit time. |
+| `GET` | `/api/v1/me/reports/{user_id}/timesheets/{week_start}/` | From 0.5: one direct report's submitted, approved, or returned week. `404` for a draft week and for anyone who is not your direct report, with the same response. |
 | `POST` | `/api/v1/me/reports/{user_id}/timesheets/{week_start}/approve/` | From 0.5: approve a submitted week. `409` if it isn't submitted, or its entries changed since submit. API tokens are refused (`403`): a person approves. |
 | `POST` | `/api/v1/me/reports/{user_id}/timesheets/{week_start}/return/` | From 0.5: return a submitted week with `{"reason": "..."}`. A blank reason is `400`. |
 | `GET` | `/api/v1/me/timer/` | The caller's running timer, if any, with server-computed `elapsed_seconds` and `stale`. |
 | `POST` | `/api/v1/me/timer/start/` | Start a timer on a task (`403` if that project is archived or you're below Team Member); second-start atomically stops and logs the prior one, returned as `finalized_entry` — or discards it with `finalized_entry: null` if the prior timer's own project is archived or your access there has lapsed. |
-| `POST` | `/api/v1/me/timer/stop/` | Stop the running timer and log it as a `TimeEntry`; `409` if none is running, including when the timer is discarded rather than logged because its project is archived or your access there has lapsed. |
+| `POST` | `/api/v1/me/timer/stop/` | Stop the running timer and log it as a `TimeEntry`; `409` if none is running, including when the timer is discarded rather than logged because its project is archived or your access there has lapsed. From 0.5, a timer whose week was approved while it ran is also discarded, with `409` and code `timesheet_week_approved`. |
 
 Every read and write here is scoped to the authenticated caller. There is no cross-project rollup
 of *other* people's time and no admin surface to log or edit on someone else's behalf; from 0.5 the

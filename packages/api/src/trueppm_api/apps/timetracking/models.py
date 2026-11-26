@@ -72,6 +72,12 @@ class TimesheetWeekLocked(APIException):
     default_detail = "This week's timesheet is approved and is read-only."
     default_code = "timesheet_week_approved"
 
+    def __init__(self, detail: str | None = None, code: str | None = None) -> None:
+        # ``code`` in the body, not only on the ErrorDetail: DRF's handler sends just
+        # ``detail`` for a string, and the code is the documented value (errors.md).
+        code = code or self.default_code
+        super().__init__({"detail": detail or self.default_detail, "code": code}, code)
+
 
 def week_monday(d: date) -> date:
     """The Monday of ``d``'s ISO week — the timesheet submission key (ADR-0224)."""

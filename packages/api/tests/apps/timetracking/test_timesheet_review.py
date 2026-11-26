@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 from django.contrib.auth import get_user_model
-from django.db import DatabaseError
+from django.db import connection
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -189,16 +189,22 @@ def test_transition_table(world: dict[str, Any]) -> None:
         ("returned", "submitted"),
         ("submitted", "approved"),
     ]
-    # Approved: no resubmit, no withdraw, no second review.
-    assert _submit(r).status_code == 409
-    assert _client(r).delete(f"/api/v1/me/timesheets/{WEEK}/submit/").status_code == 409
-    assert _approve(m, r).status_code == 409
-    assert _return(m, r).status_code == 409
+    # Approved: no resubmit, no withdraw, no second review, each with the documented code.
+    for resp in (
+        _submit(r),
+        _client(r).delete(f"/api/v1/me/timesheets/{WEEK}/submit/"),
+        _approve(m, r),
+        _return(m, r),
+    ):
+        assert resp.status_code == 409
+        assert resp.json()["code"] == "timesheet_state_conflict"
 
 
 @pytest.mark.django_db
 def test_review_of_unsubmitted_week_is_409(world: dict[str, Any]) -> None:
-    assert _approve(world["manager"], world["report"]).status_code == 409
+    resp = _approve(world["manager"], world["report"])
+    assert resp.status_code == 409
+    assert resp.json()["code"] == "timesheet_state_conflict"
 
 
 @pytest.mark.django_db
@@ -228,6 +234,7 @@ def test_approve_refuses_entries_changed_since_submit(world: dict[str, Any]) -> 
     entry.save()
     resp = _approve(world["manager"], r)
     assert resp.status_code == 409
+    assert resp.json()["code"] == "timesheet_changed_since_submit"
     assert TimesheetSubmission.objects.get(user=r).status == TimesheetStatus.SUBMITTED
 
 
@@ -271,6 +278,7 @@ def test_manager_sees_entry_detail_only_on_shared_projects(world: dict[str, Any]
     r = world["report"]
     _log(r, world["task"], note="visible")
     _log(r, world["secret_task"], minutes=30, note="classified")
+    _submit(r)
     body = _client(world["manager"]).get(f"/api/v1/me/reports/{r.pk}/timesheets/{WEEK}/").json()
     assert body["week_minutes"] == 90
     by_restricted = {e["restricted"]: e for e in body["entries"]}
@@ -313,14 +321,20 @@ def test_approved_week_refuses_every_write_path(world: dict[str, Any]) -> None:
         c.patch(f"/api/v1/me/time-entries/{entry.pk}/", {"minutes": 5}, format="json").status_code
         == 409
     )
-    assert c.delete(f"/api/v1/me/time-entries/{entry.pk}/").status_code == 409
+    deleted = c.delete(f"/api/v1/me/time-entries/{entry.pk}/")
+    assert deleted.status_code == 409
+    assert deleted.json()["code"] == "timesheet_week_approved"
     # Moving an entry out of the approved week is refused too.
     with pytest.raises(TimesheetWeekLocked):
         entry.entry_date = MONDAY - timedelta(days=7)
         entry.save()
     # Timer stop into the approved week discards rather than logs.
     ActiveTimer.objects.create(user=r, task=task, started_at=timezone.now())
-    assert c.post("/api/v1/me/timer/stop").status_code == 409
+    stopped = c.post("/api/v1/me/timer/stop")
+    assert stopped.status_code == 409
+    # Honest: not "no active timer", but why the running time was not logged.
+    assert stopped.json()["code"] == "timesheet_week_approved"
+    assert "No active timer" not in stopped.json()["detail"]
     assert not ActiveTimer.objects.filter(user=r).exists()
     assert TimeEntry.objects.filter(user=r, is_deleted=False).count() == 1
 
@@ -401,7 +415,10 @@ def test_reporting_line_refuses_self_and_cycles_and_audits(world: dict[str, Any]
 @pytest.mark.django_db
 def test_raising_receiver_does_not_abort_the_transition(world: dict[str, Any]) -> None:
     def boom(**_: Any) -> None:
-        raise DatabaseError("enterprise receiver failed")
+        # Real failing SQL, so PostgreSQL marks the transaction aborted: without the
+        # dispatcher's savepoint every later statement in the request would fail.
+        with connection.cursor() as cur:
+            cur.execute("SELECT 1/0")
 
     timesheet_review_changed.connect(boom, dispatch_uid="test-boom")
     try:
@@ -409,6 +426,7 @@ def test_raising_receiver_does_not_abort_the_transition(world: dict[str, Any]) -
     finally:
         timesheet_review_changed.disconnect(dispatch_uid="test-boom")
     assert TimesheetSubmission.objects.get(user=world["report"]).status == TimesheetStatus.SUBMITTED
+    assert TimesheetTransition.objects.filter(submission__user=world["report"]).count() == 1
 
 
 @pytest.mark.django_db
@@ -432,3 +450,167 @@ def test_non_task_categories_are_not_costed(world: dict[str, Any]) -> None:
         _log(r, task, minutes=600, category=cat)
     rows = _load_inputs([world["project"].pk]).time_rows
     assert [row["m"] for row in rows] == [60]
+
+
+# --- fix round: draft weeks are never reviewer-visible (ADR-1495 §5) ------------
+
+
+def _queue_row(manager: Any) -> dict[str, Any]:
+    rows = _client(manager).get(f"/api/v1/me/reports/?week={WEEK}").json()["results"]
+    return {k: v for k, v in rows[0].items() if k != "user"}
+
+
+def _detail(manager: Any, target_id: Any) -> Any:
+    return _client(manager).get(f"/api/v1/me/reports/{target_id}/timesheets/{WEEK}/")
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("history", ["never", "withdrawn", "returned_then_withdrawn"])
+def test_draft_week_is_invisible_to_the_manager(world: dict[str, Any], history: str) -> None:
+    """No entries, no totals, no stamp: a draft reads like a week with nothing in it."""
+    r, m = world["report"], world["manager"]
+    _log(r, world["task"], minutes=75, note="private draft")
+    if history != "never":
+        _submit(r)
+        if history == "returned_then_withdrawn":
+            _return(m, r)
+        assert _client(r).delete(f"/api/v1/me/timesheets/{WEEK}/submit/").status_code == 204
+    assert _queue_row(m) == {
+        "week_start": WEEK,
+        "status": "draft",
+        "submitted_at": None,
+        "week_minutes": None,
+    }
+    draft = _detail(m, r.pk)
+    stranger = _detail(m, world["peer"].pk)
+    assert draft.status_code == stranger.status_code == 404
+    assert draft.json() == stranger.json()
+    for resp in (_approve(m, r), _return(m, r)):
+        assert resp.status_code == 409
+        assert resp.json()["code"] == "timesheet_state_conflict"
+        assert "entries" not in resp.json()
+
+
+@pytest.mark.django_db
+def test_submitted_week_becomes_visible(world: dict[str, Any]) -> None:
+    r, m = world["report"], world["manager"]
+    _log(r, world["task"], minutes=75)
+    _submit(r)
+    assert _queue_row(m)["week_minutes"] == 75
+    assert _detail(m, r.pk).json()["week_minutes"] == 75
+
+
+# --- fix round: notifications ---------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_withdrawn_returned_week_still_notifies_on_resubmit(world: dict[str, Any]) -> None:
+    r, m = world["report"], world["manager"]
+    _submit(r)
+    _return(m, r)
+    _client(r).delete(f"/api/v1/me/timesheets/{WEEK}/submit/")
+    _submit(r)
+    assert Notification.objects.filter(
+        recipient=m, event_type=NotificationEventType.TIMESHEET_RESUBMITTED
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_plain_withdraw_and_resubmit_does_not_notify(world: dict[str, Any]) -> None:
+    r = world["report"]
+    _submit(r)
+    _client(r).delete(f"/api/v1/me/timesheets/{WEEK}/submit/")
+    _submit(r)
+    assert not Notification.objects.filter(
+        event_type=NotificationEventType.TIMESHEET_RESUBMITTED
+    ).exists()
+
+
+@pytest.mark.django_db
+def test_return_notice_honors_the_in_app_preference(world: dict[str, Any]) -> None:
+    from trueppm_api.apps.notifications.models import NotificationPreference
+
+    r, m = world["report"], world["manager"]
+    NotificationPreference.objects.create(
+        user=r,
+        event_type=NotificationEventType.TIMESHEET_RETURNED,
+        channel="in_app",
+        enabled=False,
+    )
+    _submit(r)
+    assert _return(m, r).status_code == 200
+    assert not Notification.objects.filter(recipient=r).exists()
+
+
+@pytest.mark.django_db
+def test_long_display_name_subject_is_truncated(world: dict[str, Any]) -> None:
+    r, m = world["report"], world["manager"]
+    m.first_name, m.last_name = "A" * 150, "B" * 150
+    m.save()
+    _submit(r)
+    assert _return(m, r).status_code == 200
+    subject = Notification.objects.get(recipient=r).subject
+    assert len(subject) == 255
+    assert subject.endswith("\u2026")
+
+
+# --- fix round: pre-upgrade submitted weeks -------------------------------------
+
+
+@pytest.mark.django_db
+def test_backfilled_pre_upgrade_week_can_be_approved(world: dict[str, Any]) -> None:
+    """A week submitted before review existed has no digest; the migration stamps one."""
+    from trueppm_api.apps.timetracking.backfill import backfill_submission_digests
+
+    r = world["report"]
+    _log(r, world["task"], minutes=30)
+    # The shape migration 0006 leaves a pre-upgrade row in before its RunPython step.
+    TimesheetSubmission.objects.create(
+        user=r, week_start=MONDAY, submitted_at=timezone.now(), entries_digest=""
+    )
+    assert _approve(world["manager"], r).json()["code"] == "timesheet_changed_since_submit"
+    assert backfill_submission_digests(TimesheetSubmission, TimeEntry) == 1
+    sub = TimesheetSubmission.objects.get(user=r)
+    # The frozen copy hashes exactly what the live digest does today.
+    assert sub.entries_digest == review.week_digest(r.pk, MONDAY)
+    assert _approve(world["manager"], r).status_code == 200
+    # Idempotent: a stamped row is not touched again.
+    assert backfill_submission_digests(TimesheetSubmission, TimeEntry) == 0
+
+
+# --- fix round: timers ----------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_start_timer_discards_a_running_timer_in_an_approved_week(world: dict[str, Any]) -> None:
+    """The prior timer's week was approved while it ran: it is dropped, not logged."""
+    from datetime import datetime, time
+
+    from trueppm_api.apps.timetracking import services
+
+    r, task = world["report"], world["task"]
+    last_monday = MONDAY - timedelta(days=7)
+    TimesheetSubmission.objects.create(
+        user=r,
+        week_start=last_monday,
+        submitted_at=timezone.now(),
+        status=TimesheetStatus.APPROVED,
+        entries_digest=review.week_digest(r.pk, last_monday),
+    )
+    started = timezone.make_aware(datetime.combine(last_monday + timedelta(days=2), time(12)))
+    ActiveTimer.objects.create(user=r, task=task, started_at=started)
+    timer, finalized = services.start_timer(user=r, task=task)
+    assert finalized is None
+    assert timer.started_at > started
+    assert not TimeEntry.objects.filter(user=r).exists()
+
+
+# --- fix round: sync ------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_sync_time_entry_payload_carries_category(world: dict[str, Any]) -> None:
+    from trueppm_api.apps.sync.serializers import SyncTimeEntrySerializer
+
+    entry = _log(world["report"], world["task"], category=TimeEntryCategory.TRAINING)
+    assert SyncTimeEntrySerializer(entry).data["category"] == "training"
