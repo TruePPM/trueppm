@@ -561,6 +561,11 @@ _SPLIT_DOES_NOT_CARRY = {
     "status_changed_at": f"{_RESET}: the child's status clock starts now",
     "assignee": f"{_RESET}: the split is unassigned work for the PO to place",
     "board_lane": f"{_RESET}: lane follows from status, which is reset",
+    "executor_kind": f"{_RESET}: the split is unassigned (assignee resets), so it starts human",
+    "agent_state": f"{_RESET}: run state of one agent's attempt on the parent, not the child",
+    "agent_refusal_reason": f"{_RESET}: why one agent refused the parent, not the child",
+    "on_behalf_of": f"{_RESET}: names the delegator for one agent's work; carrying it "
+    "with no agent assigned would attribute the child to someone nobody delegated it to",
     # Re-estimated rather than divided.
     "story_points": _RE_ESTIMATED,
     "remaining_points": _RE_ESTIMATED,
