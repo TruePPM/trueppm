@@ -931,6 +931,58 @@ async def _list_program_backlog(client: TruePPMClient, program_id: str) -> dict[
     return _list_result(rows, total, truncated)
 
 
+#: The shape a ``resolve_reference`` argument may take (#3888): a key (``PLAT``,
+#: grandfathered ``GA-SEC``, a program slug), a reference (``PLAT-T-10``) or a UUID.
+#: Keys are ASCII letters, digits and hyphens by construction (ADR-1237 §2), so
+#: anything else — whitespace, ``/``, ``?``, ``&``, quotes — is refused before a
+#: request is built. The value travels as a query parameter, not a path segment,
+#: so this is defense in depth against a prompt-injected argument, not the only
+#: guard. 128 matches the server's own ``ref`` length ceiling.
+_REF_ARG_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,127}")
+
+#: The two key namespaces ``/resolve/`` accepts (ADR-1237 §2).
+_REF_KINDS = ("project", "program")
+
+#: The follow-up tool for each resolved ``type``, named in the result so the model
+#: does not have to guess which read takes the UUID it just learned.
+_REF_NEXT_TOOL = {
+    "project": "get_project(project_id)",
+    "program": "get_program_health(program_id)",
+    "task": "get_task(task_id=id)",
+    "sprint": "get_sprint(sprint_id=id)",
+    "risk": "list_risks(project_id)",
+}
+
+_REF_NOT_FOUND = (
+    "Nothing you can read matches this reference. It may not exist, or it may "
+    "belong to a project you cannot see; the server deliberately does not say which."
+)
+
+
+async def _resolve_reference(client: TruePPMClient, ref: str, kind: str) -> dict[str, Any]:
+    """Turn a cited key or reference into the UUIDs every other tool takes (ADR-1237 §5).
+
+    The server does all the parsing (rightmost ``-T-``/``-SP-``/``-R-`` marker,
+    retired keys, case) — this client never splits a reference itself, so it
+    cannot drift from the web's reading of the same string. A ``404`` is an
+    answer, not a failure: it comes back as ``found: false`` with the same
+    sentence whether the object is missing or hidden, mirroring the API's
+    byte-identical refusal. Any other error propagates.
+    """
+    try:
+        payload = await client.get("resolve/", params={"kind": kind, "ref": ref})
+    except ApiError as exc:
+        if exc.status_code == HTTPStatus.NOT_FOUND:
+            return {"found": False, "explanation": _REF_NOT_FOUND}
+        raise
+    data = payload if isinstance(payload, Mapping) else {}
+    result: dict[str, Any] = {"found": True, **_compact_mapping(data)}
+    next_tool = _REF_NEXT_TOOL.get(str(data.get("type")))
+    if next_tool:
+        result["see_also"] = next_tool
+    return result
+
+
 async def _whoami(client: TruePPMClient) -> dict[str, Any]:
     """The identity behind the configured token (connection check)."""
     payload = await client.get("auth/me/")
@@ -1561,6 +1613,42 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         """
         _require_uuid("program_id", program_id)
         return await _list_program_backlog(client, program_id)
+
+    @server.tool()
+    async def resolve_reference(ref: str, kind: str = "project") -> dict[str, Any]:
+        """Look up a human-readable key or citation and get the UUIDs to call other tools with.
+
+        Use this when a person (or a document) names something by key rather than
+        UUID: a project key ``PLAT``, a task ``PLAT-T-10``, a sprint ``PLAT-SP-3``,
+        a risk ``PLAT-R-7``, or a program key such as ``atlas-platform-launch``.
+        Pass the string exactly as written — do not split it yourself. A key that
+        was renamed still resolves, and ``canonical_ref`` gives the current form;
+        cite that one from then on.
+
+        Returns ``found: true`` with ``type`` (project, program, task, sprint or
+        risk), ``id``, ``project_id``, ``program_id``, ``key`` and
+        ``canonical_ref``, plus ``see_also`` naming the tool that reads it. Returns
+        ``found: false`` when nothing you can read matches; that answer is the same
+        for "does not exist" and "not visible to you", so do not guess which.
+
+        When you cite a task, sprint or risk in an answer, use its
+        ``qualified_id`` field (``PLAT-T-10``), not its UUID: a person can read it,
+        search for it, and paste it back here.
+
+        Args:
+            ref: The key or reference, e.g. ``PLAT-T-10``. Letters, digits and
+                hyphens only (a UUID is accepted too).
+            kind: ``project`` (default: project keys and task/sprint/risk
+                references) or ``program`` (program keys).
+        """
+        if not isinstance(ref, str) or _REF_ARG_RE.fullmatch(ref) is None:
+            raise ToolError(
+                "ref must be a key or reference such as PLAT or PLAT-T-10 "
+                "(letters, digits and hyphens, at most 128 characters)."
+            )
+        if kind not in _REF_KINDS:
+            raise ToolError("kind must be 'project' or 'program'.")
+        return await _resolve_reference(client, ref, kind)
 
     @server.tool()
     async def whoami() -> dict[str, Any]:

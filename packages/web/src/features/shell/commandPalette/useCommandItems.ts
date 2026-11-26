@@ -29,6 +29,8 @@ import { VIEW_TAB_META } from '@/features/shell/viewMeta';
 import type { Methodology } from '@/types';
 import type { CommandItem, PinTarget } from './commandItems';
 import { buildOmniSearchItems } from './omniSearch';
+import { buildRefItems } from './refSearch';
+import { usePaletteRefLookup } from '@/hooks/usePaletteRefLookup';
 import { buildWorkspaceNavGroups } from '@/features/settings/workspace/workspaceNav';
 import { ME_SETTINGS_LINKS } from '@/features/me/MeSettingsSubNav';
 import { useFeedbackStore } from '@/stores/feedbackStore';
@@ -319,6 +321,8 @@ function buildJumps(
       label: project.name,
       group: 'jump',
       tag: 'Project',
+      // The key (#3888), so typing `PLAT` finds the project as well as its name.
+      keywords: project.code,
       pinTarget: {
         kind: 'project',
         id: project.id,
@@ -616,6 +620,8 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
   // server-side; the client only renders what it is handed.
   const omniEnabled = enabled && trimmedQuery.length > 0;
   const { data: omniResults } = useOmniSearch(trimmedQuery, omniEnabled);
+  // Find-by-key tier (#3888): a key or `PLAT-T-10` reference, resolved server-side.
+  const resolvedRef = usePaletteRefLookup(trimmedQuery, enabled);
 
   // Recent-projects tier (ADR-0508/#1557): the cold-only "recently visited"
   // strip. Gated on an open palette with an EMPTY query — the inverse of the
@@ -689,6 +695,7 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
     const milestoneItems = omniItems.filter((i) => i.group === 'milestone');
     const omniTaskItems = omniItems.filter((i) => i.group === 'omniTask');
 
+    const refItems = buildRefItems(resolvedRef, trimmedQuery, go, user?.role_context ?? 'unified');
     const pinnedRows = buildPinnedItems(pinnedEnabled, pinnedItems, go);
     const recentItems = buildRecentItems(recentEnabled, recentProjects, go);
     const isWorkspaceAdmin = (user?.workspace_role ?? -1) >= WORKSPACE_ADMIN_ROLE;
@@ -704,6 +711,7 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
     // Order matches the palette's GROUP_ORDER so keyboard nav and the visual
     // sections agree.
     return [
+      ...refItems,
       ...sprintJumps,
       ...sprintTaskItems,
       ...taskItems,
@@ -730,6 +738,7 @@ export function useCommandItems(enabled = true, query = ''): CommandItem[] {
     peopleEnabled,
     omniResults,
     omniEnabled,
+    resolvedRef,
     recentProjects,
     recentEnabled,
     pinnedItems,

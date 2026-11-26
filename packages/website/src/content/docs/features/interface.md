@@ -127,6 +127,17 @@ project has turned off: views that need a higher role (Team, Settings) are left 
 view a project has turned off may still be listed. Today the palette shows only "No matches" and groups tasks above projects.
 :::
 
+:::note[Ships in 0.5]
+**Find by key** is not in the current release. It lands in 0.5: type a
+[project key](/administration/project-settings/#project-key) such as `PLAT` to find
+that project, or a reference such as `PLAT-T-10` (a task), `PLAT-SP-3` (a sprint) or
+`PLAT-R-7` (a risk) and a **Reference** group at the top of the palette offers it;
+Enter opens it, wherever you are. A reference is resolved on the server, so a key
+that was renamed still finds the same item and the row shows its current form. A
+reference to something you cannot see reads "No matches", the same as one that does
+not exist. Until then, open the project and search its tasks by name.
+:::
+
 Type to filter; arrow keys move; Enter activates; Escape closes. The palette is a
 pop surface with a focus trap, so keyboard and screen-reader users get the same
 reach as a pointer.

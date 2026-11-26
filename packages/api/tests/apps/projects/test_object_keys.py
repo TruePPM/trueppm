@@ -855,3 +855,72 @@ class TestSeedKeys:
         p.refresh_from_db()
         assert p.code == ""
         assert ObjectKey.objects.get(pk=ids[0]).project_id is None
+
+
+# ---------------------------------------------------------------------------
+# #3888: the citation an agent reads is the citation it can resolve back
+# ---------------------------------------------------------------------------
+
+
+def _mcp_agent(owner: Any) -> APIClient:
+    """An owner-scoped ``mcp:read`` token over a real Bearer header — the MCP server's path."""
+    import secrets
+
+    from trueppm_api.apps.projects.models import SCOPE_MCP_READ
+
+    raw = f"{TOKEN_PREFIX}{secrets.token_hex(32)}"
+    ApiToken.objects.create(
+        owner=owner,
+        name="agent",
+        token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
+        token_hash=sha256_hex(raw),
+        created_by=owner,
+        scopes=[SCOPE_MCP_READ],
+    )
+    return _bearer_client(raw)
+
+
+class TestCitationRoundTrip:
+    """``qualified_id`` (what ``get_task`` returns) and ``/resolve/`` (what
+    ``resolve_reference`` calls) are one contract: a model that cites a task by its
+    ``qualified_id`` can always look that citation up again, through a rename too.
+    """
+
+    def test_a_task_citation_resolves_back_to_the_same_task(self, owner: Any) -> None:
+        p = _project(owner, "Platform")
+        task = Task.objects.create(project=p, name="One", duration=1)
+        agent = _mcp_agent(owner)
+        cited = agent.get(f"/api/v1/tasks/{task.pk}/").data["qualified_id"]
+        assert cited == "PLAT-T-1"
+        r = _resolve(agent, cited)
+        assert r.status_code == 200, r.content
+        assert (r.data["type"], r.data["id"], r.data["canonical_ref"]) == (
+            "task",
+            str(task.pk),
+            cited,
+        )
+
+    def test_an_old_citation_survives_a_rename(self, owner: Any) -> None:
+        p = _project(owner, "Platform")
+        task = Task.objects.create(project=p, name="One", duration=1)
+        agent = _mcp_agent(owner)
+        old = agent.get(f"/api/v1/tasks/{task.pk}/").data["qualified_id"]
+        _client(owner).patch(f"{PROJECTS_URL}{p.pk}/", {"code": "CORE"}, format="json")
+        new = agent.get(f"/api/v1/tasks/{task.pk}/").data["qualified_id"]
+        assert (old, new) == ("PLAT-T-1", "CORE-T-1")
+        r = _resolve(agent, old)
+        assert (r.status_code, r.data["id"], r.data["canonical_ref"]) == (200, str(task.pk), new)
+
+    def test_an_agent_cannot_resolve_another_users_citation(
+        self, owner: Any, outsider: Any
+    ) -> None:
+        """Current and retired citations of a hidden project are the plain 404."""
+        p = _project(owner, "Platform")
+        Task.objects.create(project=p, name="One", duration=1)
+        _client(owner).patch(f"{PROJECTS_URL}{p.pk}/", {"code": "CORE"}, format="json")
+        agent = _mcp_agent(outsider)
+        missing = _resolve(agent, "NOPE-T-1")
+        assert missing.status_code == 404
+        for ref in ("CORE-T-1", "PLAT-T-1", "CORE", "PLAT"):
+            r = _resolve(agent, ref)
+            assert (r.status_code, r.content) == (404, missing.content), ref

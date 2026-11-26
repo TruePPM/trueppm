@@ -47,6 +47,12 @@ vi.mock('@/hooks/useOmniSearch', () => ({
   useOmniSearch: (query: string, enabled?: boolean) => omniSearch(query, enabled),
 }));
 
+// Find-by-key tier (#3888). Default to no resolution; a test sets `resolvedRef`.
+let resolvedRef: import('@/api/types').ResolveResponse | null | undefined;
+vi.mock('@/hooks/usePaletteRefLookup', () => ({
+  usePaletteRefLookup: () => resolvedRef,
+}));
+
 // Recent-projects tier (ADR-0508/#1557). Default to no rows; a test sets
 // `recentResults` + a cold (empty) query to assert the recent items. `recentSearch`
 // is a spy so the cold-only enabled gating can be asserted.
@@ -181,6 +187,7 @@ afterEach(() => {
   peopleResults = [];
   recentResults = [];
   omniResults = [];
+  resolvedRef = undefined;
   labelCatalog = [];
   pinnedResults = [];
   lastTaskRole = 100;
@@ -339,6 +346,30 @@ describe('useCommandItems — tier assembly', () => {
 
     // The omni-search hook was gated ON (open + non-empty query).
     expect(omniSearch).toHaveBeenCalledWith('login', true);
+  });
+
+  it('leads with the resolved reference row and opens it under the current key (#3888)', () => {
+    resolvedRef = {
+      type: 'task',
+      id: 't10',
+      project_id: 'p1',
+      program_id: null,
+      key: 'CORE',
+      canonical_ref: 'CORE-T-10',
+    };
+    const { result } = renderHook(() => useCommandItems(true, 'PLAT-T-10'));
+    const first = result.current[0];
+    expect(first).toMatchObject({ label: 'CORE-T-10', group: 'reference', tag: 'Task' });
+    first?.run();
+    expect(navigate).toHaveBeenCalledWith(
+      expect.stringMatching(/^\/projects\/CORE\/.+\?task=t10$/),
+    );
+  });
+
+  it('builds no reference row when the resolver found nothing (#3888)', () => {
+    resolvedRef = null;
+    const { result } = renderHook(() => useCommandItems(true, 'NOPE-T-1'));
+    expect(result.current.some((i) => i.group === 'reference')).toBe(false);
   });
 
   it('gates the Epic/Story omni-search OFF when the query is empty', () => {

@@ -47,6 +47,8 @@ _ARG_VALUES: dict[str, Any] = {
     "n_simulations": 100,
     "depth": 5,
     "quantity": "early_start",
+    "ref": "PLAT-T-10",
+    "kind": "project",
 }
 
 

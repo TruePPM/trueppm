@@ -22,6 +22,8 @@
  * reachable projects) or global.
  */
 export type CommandGroup =
+  // `reference` (#3888): a key or `PLAT-T-10` reference the server resolved.
+  | 'reference'
   // `best` (#4504): exact/prefix Project/Program/View matches hoisted above tasks.
   // `projectView`: no-match fallback listing views other projects have.
   | 'best'

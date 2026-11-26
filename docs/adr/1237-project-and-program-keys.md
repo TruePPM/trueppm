@@ -10,8 +10,11 @@ Accepted (2026-09-26)
 > `apps/projects/services.py`; the resolver and key-suggestion endpoints are
 > `apps/projects/key_views.py`; the web route boundary is
 > `packages/web/src/router/RefBoundary.tsx`. Still open, by design: dropping the
-> blank-code exclusion and adding `CheckConstraint(code <> "")` in 0.5 (§4), and the
-> #3888 surfaces (MCP, `⌘K`, citation display).
+> blank-code exclusion and adding `CheckConstraint(code <> "")` in 0.5 (§4).
+> The #3888 surfaces build on this without changing it: the MCP `resolve_reference`
+> tool and the `qualified_id` citation instruction (`packages/mcp`), and the `⌘K`
+> **Reference** row (`packages/web/src/features/shell/commandPalette/refSearch.ts`).
+> Both send the raw string to `/resolve/`; neither parses a reference.
 
 ## Context
 

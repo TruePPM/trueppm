@@ -59,6 +59,7 @@ from trueppm_mcp.tools import (
     _list_risks,
     _list_sprints,
     _list_tasks,
+    _resolve_reference,
     _whatif,
     _whoami,
     _with_caller_role,
@@ -1743,3 +1744,72 @@ async def test_get_baseline_variance_keeps_counts_and_nulls(settings: Settings) 
     assert (result["added"], result["removed"], result["page"]) == (2, 0, 1)
     assert "next" not in result
     assert result["results"][0]["cause"] is None
+
+
+# ---------------------------------------------------------------------------
+# resolve_reference (#3888)
+# ---------------------------------------------------------------------------
+
+_TASK_ID = "123e4567-e89b-12d3-a456-426614174002"
+_PROJECT_ID = "123e4567-e89b-12d3-a456-426614174001"
+
+
+async def test_resolve_reference_forwards_the_raw_ref_and_names_the_next_tool(
+    settings: Settings,
+) -> None:
+    captured: list[httpx.Request] = []
+
+    def resolve(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return _json(
+            {
+                "type": "task",
+                "id": _TASK_ID,
+                "project_id": _PROJECT_ID,
+                "program_id": None,
+                "key": "CORE",
+                "canonical_ref": "CORE-T-10",
+            }
+        )
+
+    client = _client(settings, {"resolve/": resolve})
+    try:
+        result = await _resolve_reference(client, "plat-t-10", "project")
+    finally:
+        await client.aclose()
+
+    # The client never splits or normalizes the reference; the server does.
+    assert dict(captured[0].url.params) == {"kind": "project", "ref": "plat-t-10"}
+    assert result == {
+        "found": True,
+        "type": "task",
+        "id": _TASK_ID,
+        "project_id": _PROJECT_ID,
+        "key": "CORE",
+        "canonical_ref": "CORE-T-10",
+        "see_also": "get_task(task_id=id)",
+    }
+
+
+async def test_resolve_reference_404_is_found_false_with_no_hint_of_why(
+    settings: Settings,
+) -> None:
+    client = _client(settings, {"resolve/": httpx.Response(404, json={"detail": "Not found."})})
+    try:
+        result = await _resolve_reference(client, "SECRET-T-1", "project")
+    finally:
+        await client.aclose()
+
+    assert result["found"] is False
+    # Missing and hidden read the same; the ref itself is not echoed back.
+    assert "SECRET" not in str(result)
+    assert "may not exist" in result["explanation"]
+
+
+async def test_resolve_reference_other_errors_propagate(settings: Settings) -> None:
+    client = _client(settings, {"resolve/": httpx.Response(400, json={"detail": "bad"})})
+    try:
+        with pytest.raises(ApiError):
+            await _resolve_reference(client, "PLAT", "project")
+    finally:
+        await client.aclose()

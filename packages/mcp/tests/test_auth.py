@@ -180,6 +180,7 @@ async def test_server_registers_read_tool_surface(settings: Settings) -> None:
         "list_programs",
         "get_program_health",
         "list_program_backlog",
+        "resolve_reference",
         "whoami",
     }
     # Read-only contract: no tool name implies a mutation.
