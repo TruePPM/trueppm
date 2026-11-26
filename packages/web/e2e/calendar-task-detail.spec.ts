@@ -45,7 +45,7 @@ test.describe('Calendar task-detail banner', () => {
     });
     await page.goto(CALENDAR_URL);
     // Gate on the calendar chrome being rendered before interacting.
-    await expect(page.getByRole('group', { name: 'Calendar view mode' })).toBeVisible({
+    await expect(page.getByRole('radiogroup', { name: 'Calendar view mode' })).toBeVisible({
       timeout: 10_000,
     });
   });
@@ -129,7 +129,7 @@ test.describe('Calendar v2 fidelity polish (issue 1230)', () => {
       }),
     );
     await page.goto(CALENDAR_URL);
-    await expect(page.getByRole('group', { name: 'Calendar view mode' })).toBeVisible({
+    await expect(page.getByRole('radiogroup', { name: 'Calendar view mode' })).toBeVisible({
       timeout: 10_000,
     });
   });

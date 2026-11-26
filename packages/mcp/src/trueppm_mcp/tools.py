@@ -1297,7 +1297,13 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         later than the baseline), the server's one-line ``cause`` of the task's
         current finish, and ``derivation_ref`` (the ``task_id`` and ``quantity``
         to pass to ``get_schedule_derivation``). ``added`` and ``removed`` count
-        tasks with no counterpart. Quote ``cause`` as sent; a null ``cause`` means
+        tasks with no counterpart. ``summary`` is the "what moved" rollup over
+        every row, the same on every page: ``tasks_moved``, ``tasks_finishing_later``
+        and ``_earlier``, ``finish_slip_working_days_total``, ``top_slip`` (the task
+        whose finish slipped most, with its ``cause``), and ``project_finish`` (the
+        latest finish then and now, and its working-day shift). Summary tasks are
+        not counted, so read the totals as sent rather than summing rows. Quote
+        ``cause`` as sent; a null ``cause`` means
         the server has none. Rows are latest finish slip first, 50 per page;
         ``truncated: true`` means there is a next ``page``. Read-only.
 

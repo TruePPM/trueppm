@@ -270,6 +270,31 @@ let cadenceRailInput = false;
 export let CHART_HEADER_HEIGHT = HEADER_HEIGHT;
 
 /**
+ * Height of the **timescale marker lane** — the strip under the ruler (and the
+ * cadence rail, when drawn) that carries the Today, P80 and Target labels
+ * (#4068, #4050 §5 A5). The lane is a third input to {@link CHART_HEADER_HEIGHT},
+ * the same way the rail is: one owner for "where row 0 starts".
+ */
+export const MARKER_LANE_HEIGHT = 18;
+
+/** Whether the marker lane is drawn; latched for the non-React readers. */
+let markerLaneInput = false;
+
+/**
+ * The y at which the marker lane starts: directly under the ruler, and under the
+ * cadence rail when that is drawn. Derived from the latched inputs rather than
+ * from {@link CHART_HEADER_HEIGHT} so there is one definition of the stack order.
+ */
+export function markerLaneTop(): number {
+  return HEADER_HEIGHT + (cadenceRailInput ? CADENCE_RAIL_HEIGHT : 0);
+}
+
+/** Whether the marker lane is currently drawn. */
+export function getMarkerLane(): boolean {
+  return markerLaneInput;
+}
+
+/**
  * Subscribers to the cadence-rail input, so a React consumer can *subscribe*
  * rather than merely read (web rule 315c).
  *
@@ -294,8 +319,34 @@ const cadenceRailListeners = new Set<() => void>();
 export function syncCadenceRail(visible: boolean): number {
   if (cadenceRailInput === visible) return CHART_HEADER_HEIGHT;
   cadenceRailInput = visible;
-  CHART_HEADER_HEIGHT = HEADER_HEIGHT + (visible ? CADENCE_RAIL_HEIGHT : 0);
+  CHART_HEADER_HEIGHT = resolveChartHeaderHeight();
   for (const listener of [...cadenceRailListeners]) listener();
+  return CHART_HEADER_HEIGHT;
+}
+
+function resolveChartHeaderHeight(): number {
+  return (
+    HEADER_HEIGHT +
+    (cadenceRailInput ? CADENCE_RAIL_HEIGHT : 0) +
+    (markerLaneInput ? MARKER_LANE_HEIGHT : 0)
+  );
+}
+
+/**
+ * Install whether the marker lane is drawn (#4068). Idempotent and silent when
+ * unchanged, like {@link syncCadenceRail}; notifies the same listener set so
+ * every subscriber to the header height re-reads it.
+ */
+export function syncMarkerLane(visible: boolean): number {
+  if (markerLaneInput === visible) return CHART_HEADER_HEIGHT;
+  markerLaneInput = visible;
+  CHART_HEADER_HEIGHT = resolveChartHeaderHeight();
+  for (const listener of [...cadenceRailListeners]) listener();
+  return CHART_HEADER_HEIGHT;
+}
+
+/** `useSyncExternalStore` snapshot for the header height. */
+export function getChartHeaderHeight(): number {
   return CHART_HEADER_HEIGHT;
 }
 

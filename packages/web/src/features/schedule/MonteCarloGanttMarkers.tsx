@@ -95,11 +95,15 @@ export function MonteCarloGanttMarkers({ result, scaleData, canvasScrollRef }: P
             className={`pointer-events-none ${lineClass}`}
             title={`${label}: ${fmtUtcLong(isoDate)}`}
           >
-            <span
-              className={`absolute top-1 left-1 whitespace-nowrap text-xs font-medium border rounded-chip px-1.5 py-px bg-neutral-surface ${chipClass}`}
-            >
-              {label}: {fmtUtcShort(isoDate)}
-            </span>
+            {/* P80's label lives in the timescale marker lane (#4068) so a percentile
+                renders once (ADR-0144, rule 189); only its line is drawn here. */}
+            {key !== 'p80' && (
+              <span
+                className={`absolute top-1 left-1 whitespace-nowrap text-xs font-medium border rounded-chip px-1.5 py-px bg-neutral-surface ${chipClass}`}
+              >
+                {label}: {fmtUtcShort(isoDate)}
+              </span>
+            )}
           </div>
         );
       })}

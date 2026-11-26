@@ -305,6 +305,8 @@ interface Props {
   onAppendTaskAtEnd?: () => void;
   /** Read mode (#2949): the footer stays present and inert. */
   appendAtEndReadOnly?: boolean;
+  /** Pixels kept clear under the list for an overlay pinned to the panel's bottom edge (the v2 grid footer). */
+  bottomReserve?: number;
   /**
    * True when the reader has edit rights but chose Read (ADR-0776 §5), OR has
    * no edit rights at all. Forwarded to every row (#3809): unlike
@@ -364,6 +366,7 @@ export function TaskListPanel({
   onAnnounce,
   onAppendTaskAtEnd,
   appendAtEndReadOnly = false,
+  bottomReserve = 0,
   readOnly = false,
   maxTaskWidth,
 }: Props) {
@@ -569,7 +572,8 @@ export function TaskListPanel({
 
   return (
     <div
-      style={{ width: paintWidth }}
+      data-testid="task-list-panel"
+      style={{ width: paintWidth, paddingBottom: bottomReserve || undefined }}
       className={`flex flex-col flex-shrink-0 border-r border-neutral-border h-full bg-neutral-surface${
         clipped ? ' overflow-hidden' : ''
       }`}

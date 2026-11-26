@@ -230,3 +230,23 @@ describe('dragStore', () => {
     });
   });
 });
+
+describe('cascade summary (#4314)', () => {
+  const summary = { taskId: 't1', movedCount: 2, finishDeltaDays: 1 };
+
+  it('survives commitDrag so the commit popover can read it, and resets on the next gesture', () => {
+    useDragStore.getState().startDrag('t1');
+    useDragStore.getState().updatePreview([], null, 0, summary);
+    useDragStore.getState().commitDrag();
+    expect(useDragStore.getState().cascade).toEqual(summary);
+    useDragStore.getState().startDrag('t2');
+    expect(useDragStore.getState().cascade).toBeNull();
+  });
+
+  it('is cleared by cancelDrag', () => {
+    useDragStore.getState().startDrag('t1');
+    useDragStore.getState().updatePreview([], null, 0, summary);
+    useDragStore.getState().cancelDrag();
+    expect(useDragStore.getState().cascade).toBeNull();
+  });
+});

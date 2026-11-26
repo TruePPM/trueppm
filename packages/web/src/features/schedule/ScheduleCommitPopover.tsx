@@ -5,6 +5,8 @@ import { Button } from '@/components/Button';
 import { RefusalAlert } from '@/components/dialog';
 import type { WriteRefusal } from '@/lib/writeRefusal';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
+import type { DragCascadeSummary } from '@/types';
+import { cascadeLine } from './commitCascadeLine';
 
 /**
  * Pull-to-commit popover anchored above a task bar on the Schedule canvas (ADR-0067).
@@ -23,11 +25,15 @@ export type CommitAction =
       kind: 'reschedule';
       oldStartIso: string;
       newStartIso: string;
+      /** The preview worker's cascade summary — downstream count and finish shift (#4314). */
+      cascade?: DragCascadeSummary | null;
     }
   | {
       kind: 'resize';
       oldDurationDays: number;
       newDurationDays: number;
+      /** See the `reschedule` variant. */
+      cascade?: DragCascadeSummary | null;
     };
 
 export interface ScheduleCommitPopoverProps {
@@ -92,6 +98,10 @@ export function ScheduleCommitPopover({
     flipped: false,
   }));
 
+  // The cascade line can land after the popover opens (the worker's last RESULT
+  // races the release), and it adds a line of height — so it is a layout input.
+  const cascadeText = demoRefusal ? null : cascadeLine(action.cascade);
+
   // Measure the popover and clamp/flip to keep it inside the viewport.
   useLayoutEffect(() => {
     const el = popoverRef.current;
@@ -133,7 +143,7 @@ export function ScheduleCommitPopover({
     if (top + rect.height > vh - VIEWPORT_PAD) top = vh - VIEWPORT_PAD - rect.height;
 
     setPosition({ top, left, flipped });
-  }, [anchor.x, anchor.y]);
+  }, [anchor.x, anchor.y, cascadeText]);
 
   // Initial focus to Confirm — Sarah's MS Project muscle memory expects the
   // primary action to be ready under Enter (ADR-0067 ux-design spec).
@@ -250,7 +260,13 @@ export function ScheduleCommitPopover({
       role="dialog"
       aria-modal="false"
       aria-labelledby="schedule-commit-title"
-      aria-describedby={demoRefusal ? 'schedule-commit-demo-notice' : 'schedule-commit-change'}
+      aria-describedby={
+        demoRefusal
+          ? 'schedule-commit-demo-notice'
+          : cascadeText
+            ? 'schedule-commit-change schedule-commit-cascade'
+            : 'schedule-commit-change'
+      }
       // ADR-0064 — Schedule canvas overlays are desktop-only.
       className="fixed z-[70] hidden lg:block bg-neutral-surface border border-neutral-border rounded-card p-3"
       style={{ top: position.top, left: position.left, width: POPOVER_WIDTH }}
@@ -265,6 +281,16 @@ export function ScheduleCommitPopover({
       >
         {changeText}
       </div>
+
+      {cascadeText && (
+        <div
+          id="schedule-commit-cascade"
+          data-testid="commit-popover-cascade"
+          className="mt-0.5 text-xs text-neutral-text-secondary"
+        >
+          {cascadeText}
+        </div>
+      )}
 
       {activeSprintName !== null && (
         <div

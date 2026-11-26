@@ -180,6 +180,12 @@ The **Float** column will print the same two marks beside the same bands: **▲ 
 
 The forecast strip under the chart will go away in the redesigned page. The P80 date in the project header will be the one forecast shown at rest.
 
+### How the redesigned page will open
+
+A project will open on a fixed 448-pixel item list showing ID, task, owner, finish and float, and a 12-week window that starts about two weeks before today, so today sits in the left fifth of the chart. Only the phase that contains today will be expanded; the others stay folded one caret away. A phase shows its first ten children and a **N more** button that reveals the rest. Resizing a column or turning a column on in the Display menu overrides these defaults.
+
+The amber "no committed start" chip will no longer repeat on every row. The item list's footer will say how many tasks there are and how many are blocked, and one **N no committed start** button will filter the list to those tasks (select it again to show everything). An empty project will offer **Import plan** and **Add phase** next to **Add item**.
+
 ### Not in the redesigned Schedule page yet
 
 The redesigned page is a first pass, and so far it covers the toolbar, the legend and the critical-path outlines. These are not part of it yet, and no release is promised for any of them. Until they are, turn the preview flag off to use them:
@@ -194,9 +200,8 @@ The redesigned page is a first pass, and so far it covers the toolbar, the legen
 - Filters other than **Milestones only**. The **Filter** menu holds that one filter for now.
 - Grouping recurring tasks under one row. Each occurrence is stored per task already; the plan is to group them for display in the browser from what the server sends, but nothing is built.
 - A phone layout for the toolbar. Below 768 pixels wide the redesigned toolbar is not shown at all; the phone's schedule list has no toolbar controls, as in the current release.
-- The page's states are partly redrawn: the loading skeleton lays down the rows and the today line first, and the blank project offers **Add phase** beside **Import a file**. Naming the dependency loop in a failed load needs the server to report it, and does not yet.
-- The opening state of a project: a 448-pixel item list, a 12-week zoom, today's phase expanded, and a "N more" count for what is off screen.
-- The "one warning" items: a blocked-only pill, a footer summary, and a roll-up for phases with no committed start.
+- The page's states are partly redrawn: the loading skeleton lays down the rows and the today line first, and an empty task list will offer **Import plan** and **Add phase** next to **Add item**, while the blank-project canvas will offer **Add phase** beside **Import a file**. Naming the dependency loop in a failed load needs the server to report it, and does not yet.
+- A pill on a row for a blocked task. The footer counts blocked tasks, but no row pill for them is drawn yet.
 - The **Commit** marker and the **P80** tick on the chart, with their definitions.
 - An as-of date beside the commitment and the P50 / P80 forecast dates, which depends on the server reporting when each was computed ([#4760](https://gitlab.com/trueppm/trueppm/-/issues/4760)).
 
@@ -252,6 +257,14 @@ Three ways to zoom:
 - **Enter creates a new row** — by default, pressing `Enter` in the outline commits the row you are on **and** inserts a new one below it, which is the motion for typing a plan in one pass. When you are editing rows that already exist — renaming one, fixing a typo — that extra blank row is something to delete every time. **Display → Outline → Enter creates a new row** turns the insert off: `Enter` then commits the field and leaves the cursor in the name cell of the row you were on. `Shift`+`Enter` (sibling above) and `⌘`/`Ctrl`+`Enter` (child) still insert either way, because a modifier is an explicit request for a row.
 - **Keyboard** — `⌘/Ctrl` + `=` zooms in, `-` zooms out, and `0` fits the project to the viewport.
 
+### Today, P80 and Target markers
+
+An 18px lane under the timescale rows (and under the sprint-window rail, when it is drawn) carries the labels for **Today**, the Monte Carlo **P80** date, and the **Target** (the commitment the forecast is measured against, when the project has one). The P80 label sits to the left of its line and the Target label to the right, so two dates a few days apart open away from each other. If labels would still touch, the one that does not fit shortens to its name (for example "P80" without the date), and as a last resort it drops its label and keeps its tick; hover the tick for the full date. P80 is labeled once, in the lane. The P50 and P95 lines keep their own labels at the top of the chart.
+
+:::note[Ships in 0.5]
+The marker lane lands in 0.5. In 0.4 the P80 label is a chip over the first task rows and Today has no label.
+:::
+
 ### Timescale labels
 
 :::note[Ships in 0.5]
@@ -284,6 +297,14 @@ use.
 - **Snap-to-day** is applied inside the renderer before emitting `drag-task-move`; hold Shift to suspend snap
 - **Pointer events** throughout (no mouse/touch branching); pinch-to-zoom via two simultaneous active pointers
 - **Keyboard reschedule** as a WCAG 2.1.1 alternative (left/right arrows nudge dates; Enter confirms; Esc cancels) — see issue #34
+
+### The confirmation popover names what moves with the task
+
+Releasing a drag or a resize opens a **Confirm / Cancel** popover. Under the task's own change (the old and new start, or the old and new duration) it carries one line from the same live calculation that drew the preview: how many downstream tasks move, and whether the project finish moves with them, for example "3 downstream tasks move; finish 2d later" or "No downstream tasks move; finish unchanged". The finish clause compares the project's latest finish before and after, so a task that is not on the longest chain reads "finish unchanged" even when its successors shift. This is the in-browser preview; the schedule the server then computes is the one that is saved.
+
+:::note[Ships in 0.5]
+The cascade line lands in 0.5. In 0.4 the popover states only the dragged task's own change.
+:::
 
 ### Resizing a task, and why the bar sometimes doesn't move
 

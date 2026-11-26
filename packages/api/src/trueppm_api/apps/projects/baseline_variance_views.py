@@ -58,6 +58,57 @@ class BaselineVarianceRowSerializer(serializers.Serializer[dict[str, Any]]):
     derivation_ref = DerivationRefSerializer(allow_null=True)
 
 
+class TopSlipSerializer(serializers.Serializer[dict[str, Any]]):
+    """The leaf task whose finish slipped most, with the provenance of its current finish."""
+
+    task_id = serializers.UUIDField()
+    task_name = serializers.CharField()
+    baseline_finish = serializers.DateField(allow_null=True)
+    current_finish = serializers.DateField(allow_null=True)
+    finish_delta_working_days = serializers.IntegerField()
+    cause = serializers.CharField(allow_null=True)
+    derivation_ref = DerivationRefSerializer(allow_null=True)
+
+
+class ProjectFinishVarianceSerializer(serializers.Serializer[dict[str, Any]]):
+    """The project finish (latest task finish) in the baseline and now."""
+
+    baseline_finish = serializers.DateField(
+        allow_null=True,
+        help_text=(
+            "Latest finish in the snapshot, deleted tasks included; null when the "
+            "baseline predates CPM (has_cpm_dates=false)."
+        ),
+    )
+    current_finish = serializers.DateField(
+        allow_null=True, help_text="Latest finish of the live tasks, added tasks included."
+    )
+    delta_working_days = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Signed working days the project finish moved; positive is later. Null when "
+            "either side has no finish, or the baseline predates CPM (has_cpm_dates=false)."
+        ),
+    )
+
+
+class BaselineVarianceSummarySerializer(serializers.Serializer[dict[str, Any]]):
+    """The "what moved" rollup over every row, not just this page.
+
+    Summary tasks are left out of the counts so a slip is counted once. A task
+    moved when its start or finish moved by at least ``max(min_days, 1)`` working days.
+    """
+
+    tasks_moved = serializers.IntegerField()
+    tasks_finishing_later = serializers.IntegerField()
+    tasks_finishing_earlier = serializers.IntegerField()
+    finish_slip_working_days_total = serializers.IntegerField(
+        help_text="Sum of the finish slips of the tasks finishing later, in working days."
+    )
+    top_slip = TopSlipSerializer(allow_null=True)
+    project_finish = ProjectFinishVarianceSerializer()
+
+
 class BaselineVarianceSerializer(serializers.Serializer[dict[str, Any]]):
     """The paginated variance envelope."""
 
@@ -71,6 +122,7 @@ class BaselineVarianceSerializer(serializers.Serializer[dict[str, Any]]):
     min_days = serializers.IntegerField()
     added = serializers.IntegerField()
     removed = serializers.IntegerField()
+    summary = BaselineVarianceSummarySerializer()
     as_of = serializers.DateTimeField()
 
 
@@ -142,8 +194,18 @@ class BaselineVarianceView(McpReadableViewMixin, APIView):
         paginator = PageNumberPagination()
         page = paginator.paginate_queryset(variance.rows, request, view=self)
         assert page is not None  # PAGE_SIZE is set globally
-        causes = finish_causes(project, {r["task_id"]: r["current_finish"] for r in page})
+        expected = {r["task_id"]: r["current_finish"] for r in page}
+        top = variance.summary["top_slip"]
+        if top is not None:
+            # The top slip is usually on page 1 already; on any other page it joins
+            # the same single CPM pass rather than costing a second one.
+            expected.setdefault(top["task_id"], top["current_finish"])
+        causes = finish_causes(project, expected)
         results = [{**row, **causes[row["task_id"]]} for row in page]
+        summary = {
+            **variance.summary,
+            "top_slip": None if top is None else {**top, **causes[top["task_id"]]},
+        }
         envelope = paginator.get_paginated_response(results).data
         body = {
             **envelope,
@@ -153,6 +215,7 @@ class BaselineVarianceView(McpReadableViewMixin, APIView):
             "min_days": min_days,
             "added": variance.added,
             "removed": variance.removed,
+            "summary": summary,
             "as_of": timezone.now(),
         }
         return Response(BaselineVarianceSerializer(body).data, status=status.HTTP_200_OK)

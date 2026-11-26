@@ -29,7 +29,7 @@ export const MIN_COL_WIDTHS = {
   dur: 40,
   start: 60,
   finish: 60,
-  progress: 56,  // "33.33%" needs ~52px; floor at 56 to avoid overflow
+  progress: 56, // "33.33%" needs ~52px; floor at 56 to avoid overflow
   owner: 40,
   // Float floors fit the widest value the CPM can produce at this text size
   // ("-999d" is 5 mono glyphs ~ 33px) plus the cell's own `pr-2` (8px). 48 is
@@ -85,7 +85,24 @@ const DEFAULTS: Record<ColumnKey, number> = {
  */
 export function defaultVisibilityFor(
   methodology: Methodology | null | undefined,
+  shellV2 = false,
 ): Record<ColumnKey, boolean> {
+  // Shell v2 (#5106): the grid opens as ID · Task · Owner · Finish · Float and
+  // nothing else, so the timeline gets the width. Explicit user toggles still win.
+  if (shellV2) {
+    return {
+      wbs: true,
+      task: true,
+      links: false,
+      dur: false,
+      start: false,
+      finish: true,
+      progress: false,
+      owner: true,
+      totalFloat: true,
+      freeFloat: false,
+    };
+  }
   const floatByDefault = methodology !== 'AGILE';
   return {
     wbs: true,
@@ -161,8 +178,9 @@ function loadExplicitVisibility(): Partial<Record<ColumnKey, boolean>> {
 export function resolveVisibility(
   explicit: Partial<Record<ColumnKey, boolean>>,
   methodology: Methodology | null | undefined,
+  shellV2 = false,
 ): Record<ColumnKey, boolean> {
-  const defaults = defaultVisibilityFor(methodology);
+  const defaults = defaultVisibilityFor(methodology, shellV2);
   return (Object.keys(defaults) as ColumnKey[]).reduce(
     (acc, k) => {
       acc[k] = k === 'task' ? true : (explicit[k] ?? defaults[k]);
@@ -178,6 +196,8 @@ export interface ColumnWidths {
   setWidth: (col: ColumnKey, width: number) => void;
   toggleColumn: (col: ColumnKey) => void;
   totalWidth: number;
+  /** True once the user has resized a column (or had saved widths from before). */
+  hasCustomWidths: boolean;
 }
 
 /**
@@ -196,17 +216,29 @@ export interface ColumnWidths {
  *   rather than seeded into state, so the correct default appears as soon as the
  *   value lands, with no stale latch (#3344).
  */
-export function useColumnWidths(methodology?: Methodology | null): ColumnWidths {
+export function useColumnWidths(
+  methodology?: Methodology | null,
+  options?: { shellV2?: boolean },
+): ColumnWidths {
+  const shellV2 = options?.shellV2 ?? false;
+  const [hasCustomWidths, setHasCustomWidths] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(WIDTHS_KEY) != null;
+    } catch {
+      return false;
+    }
+  });
   const [widths, setWidths] = useState<Record<ColumnKey, number>>(loadWidths);
   const [explicitVisible, setExplicitVisible] =
     useState<Partial<Record<ColumnKey, boolean>>>(loadExplicitVisibility);
   const visible = useMemo(
-    () => resolveVisibility(explicitVisible, methodology),
-    [explicitVisible, methodology],
+    () => resolveVisibility(explicitVisible, methodology, shellV2),
+    [explicitVisible, methodology, shellV2],
   );
 
   const setWidth = useCallback((col: ColumnKey, width: number) => {
     const clamped = Math.max(width, MIN_COL_WIDTHS[col]);
+    setHasCustomWidths(true);
     setWidths((prev) => {
       const next = { ...prev, [col]: clamped };
       try {
@@ -240,5 +272,5 @@ export function useColumnWidths(methodology?: Methodology | null): ColumnWidths 
     0,
   );
 
-  return { widths, visible, setWidth, toggleColumn, totalWidth };
+  return { widths, visible, setWidth, toggleColumn, totalWidth, hasCustomWidths };
 }

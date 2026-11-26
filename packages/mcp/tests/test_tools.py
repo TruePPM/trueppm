@@ -1602,11 +1602,15 @@ async def test_get_baseline_variance_keeps_counts_and_nulls(settings: Settings) 
                 "added": 2,
                 "removed": 0,
                 "results": [{"task_id": "t-1", "finish_delta_working_days": 3, "cause": None}],
+                "summary": {"tasks_moved": 51, "top_slip": None},
             },
         )
 
     async with TruePPMClient(settings, transport=httpx.MockTransport(handler)) as client:
         result = await _get_baseline_variance(client, "p-1", "b-1", min_days=2)
+
+    # The rollup reaches the agent unchanged (#2704).
+    assert result["summary"] == {"tasks_moved": 51, "top_slip": None}
 
     assert seen[0].url.path.endswith("/projects/p-1/baselines/b-1/variance/")
     assert dict(seen[0].url.params) == {"min_days": "2", "page": "1"}

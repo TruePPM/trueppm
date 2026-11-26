@@ -157,6 +157,14 @@ function emitResult(
   const PREVIEW_CAP = 10;
   const overflowCount = Math.max(0, results.length - PREVIEW_CAP);
   const cappedResults = results.slice(0, PREVIEW_CAP);
+  // Summarize BEFORE the cap: the cascade line the commit popover shows must
+  // count every task that moves, not just the ten the overlay paints (#4314).
+  let movedCount = 0;
+  let maxFinish: string | null = null;
+  for (const r of results) {
+    if (r.taskId !== taskId && r.deltaDays !== 0) movedCount += 1;
+    if (maxFinish === null || r.earlyFinish > maxFinish) maxFinish = r.earlyFinish;
+  }
 
   const response: ResultMessage = {
     type: 'RESULT',
@@ -165,6 +173,8 @@ function emitResult(
     results: cappedResults,
     worstMilestone,
     overflowCount,
+    movedCount,
+    maxFinish,
   };
 
   self.postMessage(response);

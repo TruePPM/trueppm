@@ -256,16 +256,17 @@ test.describe('Sprint windows on the schedule canvas (#2738)', () => {
     const header = page.getByRole('row', { name: 'Item list columns' });
     await expect(header).toBeVisible();
     const withRail = await header.boundingBox();
-    expect(withRail?.height).toBe(44);
+    // 28 ruler + 16 rail + 18 timescale marker lane (#4068, always drawn).
+    expect(withRail?.height).toBe(62);
 
     // Turning the windows off retracts the rail, and the header returns to the
-    // ruler's own height — byte-identical to a waterfall project.
+    // ruler plus the marker lane — byte-identical to a waterfall project.
     await page.getByRole('button', { name: /^Display/ }).click();
     await page.getByRole('menuitemcheckbox', { name: 'Sprint windows' }).click();
     await page.keyboard.press('Escape');
     await expect
       .poll(async () => (await header.boundingBox())?.height)
-      .toBe(28);
+      .toBe(46);
   });
 
   test('the hidden-window choice survives a reload', async ({ page }) => {

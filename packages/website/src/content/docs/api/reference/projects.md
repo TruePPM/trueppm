@@ -149,7 +149,7 @@ governs uploads.
 
 ## Baseline variance
 
-`GET /api/v1/projects/{project_pk}/baselines/{baseline_pk}/variance/?min_days=1` will ship in 0.5, marked [experimental](/api/stability/#experimental-endpoints). Any project member will be able to read it: paginated working-day start and finish variance per task, with `added` and `removed` counts and each row's `cause` and `derivation_ref`. See [Baselines](/features/baselines/#comparing-the-whole-project-against-a-baseline).
+`GET /api/v1/projects/{project_pk}/baselines/{baseline_pk}/variance/?min_days=1` will ship in 0.5, marked [experimental](/api/stability/#experimental-endpoints). Any project member will be able to read it: paginated working-day start and finish variance per task, with `added` and `removed` counts, each row's `cause` and `derivation_ref`, and a `summary` rollup over every row (tasks moved, total finish slip, the largest slip and the project-finish shift). See [Baselines](/features/baselines/#comparing-the-whole-project-against-a-baseline).
 
 ### Baseline changeset and decisions
 

@@ -224,7 +224,11 @@ async function setupRoutes(page: import('@playwright/test').Page) {
   );
   // MC latest: 404 means no simulation run yet
   await page.route('**/api/v1/projects/*/monte-carlo/latest/', (route) =>
-    route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'No simulation result available.' }) }),
+    route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: JSON.stringify({ detail: 'No simulation result available.' }),
+    }),
   );
   // Tasks + dependencies — needed by useCriticalPathTasks and the Schedule view.
   // Without these stubs the unstubbed request hits the real API with the e2e token,
@@ -443,10 +447,7 @@ test.describe('Project overview page', () => {
     const attention = page.getByRole('region', { name: /attention items/i });
     const attentionLink = attention.getByRole('link', { name: /Foundation work.*View task/i });
     await expect(attentionLink).toBeVisible();
-    await expect(attentionLink).toHaveAttribute(
-      'href',
-      `/projects/${PROJECT_ID}/tasks/t1`,
-    );
+    await expect(attentionLink).toHaveAttribute('href', `/projects/${PROJECT_ID}/tasks/t1`);
 
     // Same for the "my tasks this week" row.
     const myTasks = page.getByRole('region', { name: /my tasks this week/i });
@@ -472,7 +473,10 @@ test.describe('Project overview page', () => {
     const nav = page.getByRole('navigation', { name: 'View' });
     await nav.getByRole('link', { name: 'Schedule' }).click();
     await expect(page).toHaveURL(new RegExp(`/projects/${PROJECT_ID}/schedule`));
-    await expect(nav.getByRole('link', { name: 'Schedule' })).toHaveAttribute('aria-current', 'page');
+    await expect(nav.getByRole('link', { name: 'Schedule' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
   });
 
   test('error state — overview API 500 shows a retry banner, not fabricated metrics', async ({
@@ -523,8 +527,7 @@ test.describe('Project overview page', () => {
     // Choose a report and save; the PATCH carries the chosen health value.
     await dialog.getByRole('button', { name: 'At risk' }).click();
     const patchPromise = page.waitForRequest(
-      (req) =>
-        req.method() === 'PATCH' && req.url().endsWith(`/api/v1/projects/${PROJECT_ID}/`),
+      (req) => req.method() === 'PATCH' && req.url().endsWith(`/api/v1/projects/${PROJECT_ID}/`),
     );
     await dialog.getByRole('button', { name: /save status/i }).click();
 
@@ -600,7 +603,9 @@ test.describe('Project overview page', () => {
   // to clip mid-word. Container-query fluid type + `break-words` should now keep
   // the visible text fully contained in the card. Uses the same reload-after-route
   // pattern as the 'error state' test so it benefits from setupRoutes priming.
-  test('stat card values do not clip horizontally at 1024px with long text (#506)', async ({ page }) => {
+  test('stat card values do not clip horizontally at 1024px with long text (#506)', async ({
+    page,
+  }) => {
     // Auth/membership stubs scoped to this test — prevent the session-expired
     // race (any unhandled 401 → token-refresh-on-second-401 → expireSession()
     // overlays the page with a dialog). The default setupRoutes() doesn't stub
@@ -747,5 +752,114 @@ test.describe('Project overview page', () => {
     // Never the raw code, and no drill-down on a valueless card (rule 172).
     await expect(page.getByText('no_roster')).toHaveCount(0);
     await expect(page.getByRole('link', { name: /team utilization/i })).toHaveCount(0);
+  });
+});
+
+// Baseline drift: the "what moved" summary (#2704). Every figure is the server's
+// `summary` from the variance read; the panel sums nothing itself.
+const BASELINE_ID = 'e2e-baseline-00000000-0000-0000-0000-000000002704';
+
+function baselineList(isActive: boolean) {
+  return {
+    count: 1,
+    next: null,
+    previous: null,
+    results: [
+      {
+        id: BASELINE_ID,
+        project: PROJECT_ID,
+        name: 'Approved plan',
+        created_by: 1,
+        created_at: '2026-03-01T00:00:00Z',
+        is_active: isActive,
+        has_cpm_dates: true,
+        task_count: 20,
+      },
+    ],
+  };
+}
+
+const FIXTURE_VARIANCE = {
+  count: 0,
+  next: null,
+  previous: null,
+  results: [],
+  baseline_id: BASELINE_ID,
+  baseline_name: 'Approved plan',
+  has_cpm_dates: true,
+  min_days: 1,
+  added: 0,
+  removed: 0,
+  as_of: '2026-03-20T00:00:00Z',
+  summary: {
+    tasks_moved: 4,
+    tasks_finishing_later: 3,
+    tasks_finishing_earlier: 1,
+    finish_slip_working_days_total: 9,
+    top_slip: {
+      task_id: 't1',
+      task_name: 'Foundation work',
+      baseline_finish: '2026-04-03',
+      current_finish: '2026-04-10',
+      finish_delta_working_days: 5,
+      cause: 'Driven by its predecessor Site survey.',
+      derivation_ref: { task_id: 't1', quantity: 'early_finish' },
+    },
+    project_finish: {
+      baseline_finish: '2026-10-19',
+      current_finish: '2026-10-24',
+      delta_working_days: 5,
+    },
+  },
+};
+
+test.describe('Project overview — baseline drift summary', () => {
+  async function open(page: import('@playwright/test').Page, isActive: boolean) {
+    await setupRoutes(page);
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/baselines/`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(baselineList(isActive)),
+      }),
+    );
+    await page.route(
+      `**/api/v1/projects/${PROJECT_ID}/baselines/${BASELINE_ID}/variance/**`,
+      (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(FIXTURE_VARIANCE),
+        }),
+    );
+    await page.goto(`/projects/${PROJECT_ID}/overview`);
+  }
+
+  test('golden path — prints the server rollup and links the largest slip', async ({ page }) => {
+    await open(page, true);
+
+    const panel = page.getByRole('region', { name: 'Baseline drift' });
+    await expect(panel).toBeVisible({ timeout: 10_000 });
+    await expect(panel.getByText('vs Approved plan')).toBeVisible();
+    await expect(panel.getByText(/5 working days later than the baseline/)).toBeVisible();
+    await expect(
+      panel.getByText('4 tasks moved (3 finish later, 1 finish earlier).'),
+    ).toBeVisible();
+    await expect(panel.getByText('9 working days of finish slip in total.')).toBeVisible();
+    await expect(panel.getByRole('link', { name: 'Foundation work', exact: true })).toHaveAttribute(
+      'href',
+      `/projects/${PROJECT_ID}/tasks/t1`,
+    );
+  });
+
+  test('empty state — no active baseline points to the Schedule', async ({ page }) => {
+    await open(page, false);
+
+    const panel = page.getByRole('region', { name: 'Baseline drift' });
+    await expect(panel.getByText(/No active baseline/)).toBeVisible({ timeout: 10_000 });
+    await expect(panel.getByRole('link', { name: 'Set one in the Schedule' })).toHaveAttribute(
+      'href',
+      `/projects/${PROJECT_ID}/schedule`,
+    );
   });
 });

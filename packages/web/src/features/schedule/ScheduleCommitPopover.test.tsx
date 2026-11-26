@@ -53,6 +53,47 @@ describe('ScheduleCommitPopover', () => {
     Object.defineProperty(window, 'innerHeight', { value: 900, configurable: true });
   });
 
+  describe('cascade line (#4314)', () => {
+    it('states downstream count and finish shift for a reschedule', () => {
+      renderPopover({
+        action: makeRescheduleAction({
+          cascade: { taskId: 't1', movedCount: 3, finishDeltaDays: 2 },
+        }),
+      });
+      expect(screen.getByTestId('commit-popover-cascade')).toHaveTextContent(
+        '3 downstream tasks move; finish 2d later',
+      );
+    });
+
+    it('states "finish unchanged" for a resize that leaves the finish alone', () => {
+      renderPopover({
+        action: makeResizeAction({
+          cascade: { taskId: 't1', movedCount: 1, finishDeltaDays: 0 },
+        }),
+      });
+      expect(screen.getByTestId('commit-popover-cascade')).toHaveTextContent(
+        '1 downstream task moves; finish unchanged',
+      );
+    });
+
+    it('renders no cascade line when the preview has not answered', () => {
+      renderPopover();
+      expect(screen.queryByTestId('commit-popover-cascade')).not.toBeInTheDocument();
+    });
+
+    it('is part of the dialog description, not only visible text', () => {
+      renderPopover({
+        action: makeRescheduleAction({
+          cascade: { taskId: 't1', movedCount: 0, finishDeltaDays: 0 },
+        }),
+      });
+      expect(screen.getByRole('dialog')).toHaveAttribute(
+        'aria-describedby',
+        'schedule-commit-change schedule-commit-cascade',
+      );
+    });
+  });
+
   it('renders the Reschedule title and date range for drag actions', () => {
     renderPopover();
     expect(screen.getByText('Reschedule task?')).toBeInTheDocument();

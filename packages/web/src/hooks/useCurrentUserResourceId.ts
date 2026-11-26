@@ -5,6 +5,8 @@ export interface UseCurrentUserResourceIdResult {
   /** The Resource.id linked to the current user via Resource.user FK or
    *  legacy email match. Null when the user has no resource on this project. */
   resourceId: string | null;
+  /** Every Resource.id flagged `is_me` (a user can sit on two roster rows). */
+  resourceIds: ReadonlySet<string>;
   isLoading: boolean;
 }
 
@@ -15,8 +17,8 @@ export interface UseCurrentUserResourceIdResult {
  * `Resource.user == request.user` or, for legacy rows, when the email
  * matches) is the source of truth. If multiple resources are flagged
  * (rare — e.g. a user split across two roster rows during cleanup), the
- * first one is returned; the M2M-through filter on the API still matches
- * tasks for any of them.
+ * first one is returned as `resourceId`; `resourceIds` carries all of them
+ * for callers that filter client-side, matching the API's M2M-through filter.
  */
 export function useCurrentUserResourceId(
   projectId: string | undefined,
@@ -27,5 +29,10 @@ export function useCurrentUserResourceId(
     const mine = data.find((pr) => pr.resource.isMe === true);
     return mine ? mine.resourceId : null;
   }, [data]);
-  return { resourceId, isLoading };
+  const resourceIds = useMemo(
+    () =>
+      new Set((data ?? []).filter((pr) => pr.resource.isMe === true).map((pr) => pr.resourceId)),
+    [data],
+  );
+  return { resourceId, resourceIds, isLoading };
 }

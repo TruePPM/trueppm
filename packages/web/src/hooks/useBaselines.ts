@@ -201,3 +201,74 @@ export function useDeleteBaseline(projectId: string | null | undefined) {
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// Baseline variance (ADR-1485 D3) — only the rollup is read here
+// ---------------------------------------------------------------------------
+
+export interface ApiDerivationRef {
+  task_id: string;
+  quantity: 'early_finish';
+}
+
+export interface ApiBaselineTopSlip {
+  task_id: string;
+  task_name: string;
+  baseline_finish: string | null;
+  current_finish: string | null;
+  finish_delta_working_days: number;
+  cause: string | null;
+  derivation_ref: ApiDerivationRef | null;
+}
+
+/** The server's "what moved" rollup over every variance row, the same on every page. */
+export interface ApiBaselineVarianceSummary {
+  tasks_moved: number;
+  tasks_finishing_later: number;
+  tasks_finishing_earlier: number;
+  finish_slip_working_days_total: number;
+  top_slip: ApiBaselineTopSlip | null;
+  project_finish: {
+    baseline_finish: string | null;
+    current_finish: string | null;
+    delta_working_days: number | null;
+  };
+}
+
+export interface ApiBaselineVariance {
+  count: number;
+  baseline_id: string;
+  baseline_name: string;
+  has_cpm_dates: boolean;
+  min_days: number;
+  added: number;
+  removed: number;
+  summary: ApiBaselineVarianceSummary;
+  as_of: string;
+}
+
+/**
+ * The variance read against one baseline, for its `summary` rollup.
+ *
+ * The read runs a CPM pass server-side to explain each finish (`cpm_on_read`
+ * throttle), so it is not polled: a minute's staleness is fine for a summary, and
+ * a failure is not retried automatically (rule 452 — the caller offers Retry).
+ * Page 1 only; the summary is identical on every page.
+ */
+export function useBaselineVariance(
+  projectId: string | null | undefined,
+  baselineId: string | null | undefined,
+) {
+  return useQuery<ApiBaselineVariance, Error>({
+    queryKey: ['baselines', projectId, baselineId, 'variance'],
+    queryFn: async () => {
+      const res = await apiClient.get<ApiBaselineVariance>(
+        `/projects/${projectId}/baselines/${baselineId}/variance/`,
+      );
+      return res.data;
+    },
+    enabled: !!projectId && !!baselineId,
+    staleTime: 60_000,
+    retry: false,
+  });
+}
