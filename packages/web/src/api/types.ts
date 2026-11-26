@@ -1143,6 +1143,28 @@ export interface DrivingChainEdge {
 }
 
 /** Bounded, provenance-stamped driving chain through one task (ADR-1381, #4891). */
+/** One task a schedule-feasibility refusal names (#5106). */
+export interface ScheduleFeasibilityTask {
+  id: string
+  name: string
+}
+
+/**
+ * `GET /projects/{id}/schedule/feasibility/` (#5106): whether the scheduler can
+ * compute the stored network. The loop is the engine's `find_cycle` result, served
+ * in order with each task once; `definition` is the server's sentence for `code`.
+ */
+export interface ScheduleFeasibility {
+  project_id: string
+  computable: boolean
+  code: 'cyclic_dependency' | 'invalid_input' | null
+  cycle: ScheduleFeasibilityTask[]
+  tasks: ScheduleFeasibilityTask[]
+  detail: string | null
+  definition: string | null
+  as_of: string
+}
+
 export interface ScheduleDrivingChain {
   schema_version: number
   project_id: string

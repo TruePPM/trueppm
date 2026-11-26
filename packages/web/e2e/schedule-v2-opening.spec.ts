@@ -107,7 +107,11 @@ function rows(children = 13) {
   return out;
 }
 
-async function open(page: Page, children = 13) {
+async function open(
+  page: Page,
+  children = 13,
+  opts: { demoReadOnly?: boolean; before?: (page: Page) => Promise<unknown> } = {},
+) {
   await page.addInitScript(() => {
     localStorage.setItem('trueppm.featureFlags', JSON.stringify({ shell_v2: true }));
   });
@@ -117,9 +121,33 @@ async function open(page: Page, children = 13) {
     projects: PROJECTS,
     projectId: PROJECT_ID,
     tasks: rows(children),
+    demoReadOnly: opts.demoReadOnly ?? false,
   });
   await setupTaskStore(page, { tasks: rows(children) });
+  if (opts.before) await opts.before(page);
   await page.goto(BASE_URL);
+}
+
+/** GET /projects/{id}/schedule/feasibility/ in its real shape (#5106). */
+function feasibility(loop: boolean) {
+  return {
+    project_id: PROJECT_ID,
+    computable: !loop,
+    code: loop ? 'cyclic_dependency' : null,
+    cycle: loop
+      ? [
+          { id: '00000000-0000-4000-8000-0000000000a1', name: 'Work item 4' },
+          { id: '00000000-0000-4000-8000-0000000000a2', name: 'Work item 5' },
+          { id: '00000000-0000-4000-8000-0000000000a3', name: 'Work item 6' },
+        ]
+      : [],
+    tasks: [],
+    detail: null,
+    definition: loop
+      ? 'These tasks wait on each other in a loop, so none of them can start first and no dates can be computed. Remove or reverse one link in the loop.'
+      : null,
+    as_of: '2026-11-26T10:00:00Z',
+  };
 }
 
 test.describe('shell v2 Schedule opening state (#5106)', () => {
@@ -269,5 +297,111 @@ test.describe('shell v2 Schedule opening state (#5106)', () => {
     );
     expect(chrome.length).toBeGreaterThanOrEqual(1);
     expect(chrome.length, chrome.join(' | ')).toBeLessThanOrEqual(3);
+  });
+
+  test('the read-only demo takes the same opening state (#5106)', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await open(page, 13, { demoReadOnly: true });
+    await expect(page.getByText('Work item 1', { exact: true })).toBeVisible({ timeout: 15_000 });
+    // v1's demo collapse folded only DONE phases; v2 folds every phase but today's,
+    // and caps today's children at ten exactly as a normal install does.
+    await expect(page.getByText('Past child')).toHaveCount(0);
+    await expect(page.getByText('Work item 10', { exact: true })).toBeVisible();
+    await expect(page.getByText('Work item 11', { exact: true })).toHaveCount(0);
+    await expect(
+      page.getByRole('button', { name: /Show 3 more under Current phase/ }),
+    ).toBeVisible();
+  });
+
+  test('a dependency loop names its tasks: "Schedule couldn\'t be computed" (#5106)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await open(page, 13, {
+      before: (p) =>
+        p.route(`**/api/v1/projects/${PROJECT_ID}/schedule/feasibility/`, (route) =>
+          route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(feasibility(true)),
+          }),
+        ),
+    });
+    const banner = page.getByTestId('schedule-feasibility-banner');
+    await expect(banner).toBeVisible({ timeout: 15_000 });
+    await expect(banner).toHaveAttribute('role', 'alert');
+    await expect(banner).toContainText("Schedule couldn't be computed");
+    await expect(page.getByTestId('schedule-feasibility-loop')).toHaveText(
+      'Work item 4 → Work item 5 → Work item 6 → Work item 4',
+    );
+    await expect(banner).toContainText('Remove or reverse one link in the loop.');
+    // The tasks stay on screen: the user needs them to break the loop.
+    await expect(page.getByText('Work item 1', { exact: true })).toBeVisible();
+  });
+
+  test('a computable schedule shows no error state (#5106)', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    let served = false;
+    await open(page, 13, {
+      before: (p) =>
+        p.route(`**/api/v1/projects/${PROJECT_ID}/schedule/feasibility/`, (route) => {
+          served = true;
+          return route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify(feasibility(false)),
+          });
+        }),
+    });
+    await expect(page.getByText('Work item 1', { exact: true })).toBeVisible({ timeout: 15_000 });
+    await expect.poll(() => served).toBe(true);
+    await expect(page.getByTestId('schedule-feasibility-banner')).toHaveCount(0);
+  });
+
+  test('Commit marker and P80 tick carry the server definitions and as_of (#5106)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const P80_DEF = 'The finish date 80% of the simulated schedules finish on or before.';
+    const COMMIT_DEF =
+      "The commitment is the active baseline's finish: the latest baselined finish date of any task.";
+    await open(page, 13, {
+      before: (p) =>
+        p.route(`**/api/v1/projects/${PROJECT_ID}/monte-carlo/latest/`, (route) =>
+          route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              project_id: PROJECT_ID,
+              runs: 500,
+              p50: iso(15),
+              p80: iso(20),
+              p95: iso(30),
+              histogram_buckets: [],
+              last_run_at: '2026-11-20T10:00:00Z',
+              forecast_staleness: 'current',
+              cpm_finish: iso(10),
+              delta_vs_cpm: { p50: 5, p80: 10, p95: 20 },
+              commitment_date: iso(45),
+              commitment_source: 'baseline',
+              p80_delta_vs_commitment_days: -25,
+              p80_delta_vs_commitment_reason: null,
+              definitions: { p80: P80_DEF, commitment_date: COMMIT_DEF },
+            }),
+          }),
+        ),
+    });
+    const commit = page.getByTestId('marker-lane-target');
+    await expect(commit).toHaveText(/^Commit(: .+)?$/, { timeout: 15_000 });
+    await expect(page.getByTestId('marker-lane-p80')).toHaveText(/^P80(: .+)?$/);
+    // Placement: P80 opens left of its tick and Commit right of its own.
+    await expect(page.getByTestId('marker-lane-p80')).toHaveAttribute('data-side', 'left');
+    await expect(commit).toHaveAttribute('data-side', 'right');
+    // Definitions are the server's, verbatim, with the forecast's as_of.
+    await expect(commit).toHaveAttribute('data-definition', new RegExp(COMMIT_DEF.slice(0, 40)));
+    const list = page.getByTestId('marker-lane-definitions');
+    await expect(list).toContainText(P80_DEF);
+    await expect(list).toContainText(COMMIT_DEF);
+    await expect(list).toContainText(/As of .*2026/);
   });
 });

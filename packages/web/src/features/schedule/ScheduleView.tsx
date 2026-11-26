@@ -2,6 +2,8 @@ import { ROW_VOCABULARY, countRows, outlineWidthValueText } from './rowVocabular
 import { useFeatureFlag } from '@/lib/featureFlags';
 import { ScheduleToolbarV2, type V2ActionItem, type V2ActionSection } from './v2/ScheduleToolbarV2';
 import { ScheduleLegendV2 } from './v2/ScheduleLegendV2';
+import { ScheduleFeasibilityBanner } from './v2/ScheduleFeasibilityBanner';
+import { useCapExemptIds } from './v2/useCapExemptIds';
 import { isMissingCommittedStart } from './missingCommittedStart';
 import {
   V2_FIXED_COLUMNS_WIDTH,
@@ -1128,10 +1130,8 @@ export function ScheduleView() {
   // and a click in the capped v2 list does not rebuild the row list; only a reach for
   // a hidden row (search, deep link, keyboard jump) changes the memo's input.
   const capHiddenIdsRef = useRef<ReadonlySet<string>>(new Set());
-  const capExemptId = (id: string | null) =>
-    shellV2 && !noStartOnly && id !== null && capHiddenIdsRef.current.has(id) ? id : null;
-  const selectedTaskIdForCap = useScheduleStore((s) => capExemptId(s.selectedTaskId));
-  const scrollTargetIdForCap = useScheduleStore((s) => capExemptId(s.scrollToTaskId));
+  const { selectedForCap: selectedTaskIdForCap, scrollTargetForCap: scrollTargetIdForCap } =
+    useCapExemptIds(shellV2 && !noStartOnly, capHiddenIdsRef);
 
   // Sprint lookup for the Duplicate Undo affordance (#477).
   const { sprints } = useSprints(projectId);
@@ -4765,9 +4765,9 @@ export function ScheduleView() {
   // mobile branch in `mainView` renders the phone skeleton/error instead.
   if (error && !isMobile) {
     // Shell v2 (#5106): the page-variant error says what the user lost (the schedule,
-    // not "tasks") and names what still works, with a support code. Naming the
-    // dependency loop that makes a schedule uncomputable needs a server fact the
-    // API does not carry yet — see the MR's undecided list.
+    // not "tasks") and names what still works, with a support code. A loaded
+    // schedule the server cannot compute (a dependency loop) is a different state:
+    // ScheduleFeasibilityBanner names the loop above the chart.
     if (shellV2) {
       return (
         <QueryErrorState
@@ -5103,6 +5103,10 @@ export function ScheduleView() {
           setTaskTrashOpen={setTaskTrashOpen}
         />
       )}
+      {/* Shell v2 (#5106): the server says the stored network has a loop (or another
+          input the scheduler refuses), so the dates on screen are the last ones it
+          could compute. Named, not hidden: the user needs the tasks to fix it. */}
+      {shellV2 && projectId && <ScheduleFeasibilityBanner projectId={projectId} />}
 
       {/* The committed plan's open changeset (ADR-1477, Pass 5 3B): the reason
           line for the newest unreasoned change and the Review action. Both render
@@ -7475,6 +7479,8 @@ function ScheduleGridFooterV2({
 }
 
 function ScheduleMainArea(props: ScheduleMainAreaProps) {
+  // The marker lane's v2 Commit label and definitions (#5106) read the same flag.
+  const shellV2 = useFeatureFlag(SCHEDULE_SHELL_V2_FLAG);
   // The canvas scroll spacer's height is the engine's row model expressed in the
   // DOM (#2997) — it is what makes the last row reachable. Read through the hook
   // so a pointer-class flip resizes it, not just the canvas.
@@ -7813,6 +7819,7 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
                 />
                 {/* Today / P80 / Target labels, one 18px lane under the tiers (#4068) */}
                 <TimescaleMarkerLane
+                  shellV2={shellV2}
                   result={mcResult ?? null}
                   scaleData={scheduleScales}
                   canvasScrollRef={canvasScrollRef}

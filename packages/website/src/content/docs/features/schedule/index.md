@@ -191,6 +191,14 @@ The **Float** column will print the same two marks beside the same bands: **▲ 
 
 The forecast strip under the chart will go away in the redesigned page. The P80 date in the project header will be the one forecast shown at rest.
 
+### Commit marker and P80 tick
+
+In the marker lane under the timescale, the commitment the forecast is measured against will read **Commit** rather than **Target**, beside the **P80** tick. Hover either label for its definition and the date the forecast was computed (for example, "P80 finish: … The finish date 80% of the simulated schedules finish on or before. As of …"); a screen reader reads the same text from a list of the forecast markers. Both definitions come from the server, from the same forecast the project header shows, so the chart never describes a number differently from the server that computed it. The **Commit** marker only appears when the project has a commitment: an active baseline with dates, or else the program's target date.
+
+### When the schedule cannot be computed
+
+If the dependency links form a loop (task A waits on B, B on C, and C on A), no dates can be computed. The interactive editor refuses a link that would close a loop, but an import or an older change can still leave one behind. The redesigned page will then show **Schedule couldn't be computed** above the chart, name the tasks in the loop in order (for example **Design → Build → Test → Design**, with a count when the loop is longer than four tasks), and say how to fix it: remove or reverse one link in the loop. The tasks stay on screen with the last dates the scheduler could compute, so you can find the link to change. The message clears on its own within about 30 seconds of the fix. Any other input the scheduler refuses is shown the same way, with the scheduler's own message. The check is the API's `GET /api/v1/projects/{id}/schedule/feasibility/`, readable by every project member.
+
 ### How the redesigned page will open
 
 A project will open on a fixed 448-pixel item list showing ID, task, owner, finish and float, and a 12-week window that starts about two weeks before today, so today sits in the left fifth of the chart. Only the phase that contains today will be expanded; the others stay folded one caret away. A phase shows its first ten children and a **N more** button that reveals the rest. Resizing a column or turning a column on in the Display menu overrides these defaults.
@@ -213,9 +221,7 @@ These are not part of the redesigned page yet, and no release is promised for an
 
 - Filters other than **Milestones only**. The **Filter** menu holds that one filter for now.
 - Grouping recurring tasks under one row ([#4503](https://gitlab.com/trueppm/trueppm/-/issues/4503)).
-- Naming the dependency loop when the schedule cannot be computed. A failed load says the schedule could not be computed, with a retry and a support code, but does not yet say which tasks form the loop.
-- The **Commit** marker and the **P80** tick on the chart, with their definitions.
-- An as-of date beside the commitment and the P50 / P80 forecast dates, which depends on the server reporting when each was computed ([#4760](https://gitlab.com/trueppm/trueppm/-/issues/4760)).
+- An as-of date beside the P50 and P95 lines. The **P80** tick and the **Commit** marker carry theirs in their definitions (see [Commit marker and P80 tick](#commit-marker-and-p80-tick)).
 
 ## Canvas renderer
 

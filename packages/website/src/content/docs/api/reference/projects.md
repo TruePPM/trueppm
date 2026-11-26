@@ -229,6 +229,30 @@ The driving-chain endpoint ships in 0.5 (ADR-1381). In 0.4, call
 `GET /projects/{id}/schedule/derivation/` once per hop.
 :::
 
+### Schedule feasibility
+
+`GET /api/v1/projects/{id}/schedule/feasibility/` says whether the scheduler can
+compute the project's stored network and, if not, why. It builds the scheduler input
+the same way the background recalculation does and asks the engine's own cycle check
+for a loop, so a client never has to infer a loop from the links it holds. No CPM pass
+runs. Any project member (Viewer and up) and an `mcp:read` token may read it; a
+non-member gets 403 and an unknown or trashed project 404.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `computable` | `boolean` | `false` when the stored network is one the scheduler refuses |
+| `code` | `string \| null` | `cyclic_dependency` (the links form a loop) or `invalid_input` (another input the scheduler refuses). `null` exactly when `computable` is `true` |
+| `cycle` | `array` | `{id, name}` for each task in the loop, in order, each once (the path returns to the first). Empty unless `code` is `cyclic_dependency` |
+| `tasks` | `array` | `{id, name}` for the tasks the scheduler's message names, for `invalid_input`. Empty otherwise |
+| `detail` | `string \| null` | The scheduler's refusal message for `invalid_input` |
+| `definition` | `string \| null` | One sentence defining `code`; `null` when computable |
+| `as_of` | `datetime` | When the server checked the network |
+
+:::note[Ships in 0.5]
+The feasibility endpoint ships in 0.5. In 0.4 a loop left by an import surfaces only as
+a failed recalculation run, whose message is visible to workspace operators.
+:::
+
 ### Derivation vocabulary
 
 :::note[Ships in 0.5]
