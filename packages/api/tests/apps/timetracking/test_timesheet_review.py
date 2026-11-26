@@ -202,6 +202,28 @@ def test_transition_table(world: dict[str, Any]) -> None:
 
 
 @pytest.mark.django_db
+def test_a_replayed_return_is_not_run_twice(world: dict[str, Any]) -> None:
+    r, m = world["report"], world["manager"]
+    _log(r, world["task"])
+    _submit(r)
+    url = f"/api/v1/me/reports/{r.pk}/timesheets/{WEEK}/return/"
+    headers = {"HTTP_IDEMPOTENCY_KEY": "return-once"}
+
+    first = _client(m).post(url, {"reason": "Missing Friday"}, format="json", **headers)
+    again = _client(m).post(url, {"reason": "Missing Friday"}, format="json", **headers)
+
+    # Without replay the second call is a 409: the week is no longer submitted.
+    assert first.status_code == again.status_code == 200
+    assert again["Idempotent-Replay"] == "true"
+    assert (
+        Notification.objects.filter(
+            recipient=r, event_type=NotificationEventType.TIMESHEET_RETURNED
+        ).count()
+        == 1
+    )
+
+
+@pytest.mark.django_db
 def test_review_of_unsubmitted_week_is_409(world: dict[str, Any]) -> None:
     resp = _approve(world["manager"], world["report"])
     assert resp.status_code == 409

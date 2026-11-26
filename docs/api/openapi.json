@@ -9574,6 +9574,16 @@
                             "type": "string"
                         },
                         "required": true
+                    },
+                    {
+                        "in": "header",
+                        "name": "Idempotency-Key",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "maxLength": 255
+                        },
+                        "description": "Optional client-generated key (a UUIDv4 is recommended) that makes a retry of this request safe: a retry with the same key and a byte-identical request replays the stored response instead of repeating the write. Scoped per authenticated user. Reusing a key for a different request is refused with ``422``. See the Idempotency guide."
                     }
                 ],
                 "tags": [
@@ -9596,7 +9606,16 @@
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "",
+                        "headers": {
+                            "Idempotent-Replay": {
+                                "description": "``true`` when this response is a replay of the stored response for the request's ``Idempotency-Key``; absent on a first execution.",
+                                "schema": {
+                                    "type": "string",
+                                    "example": "true"
+                                }
+                            }
+                        }
                     },
                     "403": {
                         "content": {
@@ -9646,6 +9665,9 @@
                                 }
                             }
                         }
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/IdempotencyKeyConflict"
                     }
                 },
                 "summary": "Approve timesheet"
@@ -9671,6 +9693,16 @@
                             "type": "string"
                         },
                         "required": true
+                    },
+                    {
+                        "in": "header",
+                        "name": "Idempotency-Key",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "maxLength": 255
+                        },
+                        "description": "Optional client-generated key (a UUIDv4 is recommended) that makes a retry of this request safe: a retry with the same key and a byte-identical request replays the stored response instead of repeating the write. Scoped per authenticated user. Reusing a key for a different request is refused with ``422``. See the Idempotency guide."
                     }
                 ],
                 "tags": [
@@ -9713,7 +9745,16 @@
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "",
+                        "headers": {
+                            "Idempotent-Replay": {
+                                "description": "``true`` when this response is a replay of the stored response for the request's ``Idempotency-Key``; absent on a first execution.",
+                                "schema": {
+                                    "type": "string",
+                                    "example": "true"
+                                }
+                            }
+                        }
                     },
                     "400": {
                         "content": {
@@ -9774,6 +9815,9 @@
                                 }
                             }
                         }
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/IdempotencyKeyConflict"
                     }
                 },
                 "summary": "Return timesheet"
@@ -44777,6 +44821,16 @@
                             "type": "integer"
                         },
                         "required": true
+                    },
+                    {
+                        "in": "header",
+                        "name": "Idempotency-Key",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "maxLength": 255
+                        },
+                        "description": "Optional client-generated key (a UUIDv4 is recommended) that makes a retry of this request safe: a retry with the same key and a byte-identical request replays the stored response instead of repeating the write. Scoped per authenticated user. Reusing a key for a different request is refused with ``422``. See the Idempotency guide."
                     }
                 ],
                 "tags": [
@@ -44819,7 +44873,16 @@
                                 }
                             }
                         },
-                        "description": ""
+                        "description": "",
+                        "headers": {
+                            "Idempotent-Replay": {
+                                "description": "``true`` when this response is a replay of the stored response for the request's ``Idempotency-Key``; absent on a first execution.",
+                                "schema": {
+                                    "type": "string",
+                                    "example": "true"
+                                }
+                            }
+                        }
                     },
                     "400": {
                         "content": {
@@ -44858,6 +44921,9 @@
                                 }
                             }
                         }
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/IdempotencyKeyConflict"
                     },
                     "403": {
                         "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
@@ -44906,6 +44972,16 @@
                             "type": "integer"
                         },
                         "required": true
+                    },
+                    {
+                        "in": "header",
+                        "name": "Idempotency-Key",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "maxLength": 255
+                        },
+                        "description": "Optional client-generated key (a UUIDv4 is recommended) that makes a retry of this request safe: a retry with the same key and a byte-identical request replays the stored response instead of repeating the write. Scoped per authenticated user. Reusing a key for a different request is refused with ``422``. See the Idempotency guide."
                     }
                 ],
                 "tags": [
@@ -44921,7 +44997,16 @@
                 ],
                 "responses": {
                     "204": {
-                        "description": "Manager cleared."
+                        "description": "Manager cleared.",
+                        "headers": {
+                            "Idempotent-Replay": {
+                                "description": "``true`` when this response is a replay of the stored response for the request's ``Idempotency-Key``; absent on a first execution.",
+                                "schema": {
+                                    "type": "string",
+                                    "example": "true"
+                                }
+                            }
+                        }
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -44938,6 +45023,9 @@
                                 }
                             }
                         }
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/IdempotencyKeyConflict"
                     },
                     "403": {
                         "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",

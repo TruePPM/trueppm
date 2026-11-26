@@ -45,6 +45,7 @@ from trueppm_api.apps.access.permissions import (
     IsNotTokenAuthenticated,
     IsNotTokenForTimesheetReview,
 )
+from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.timetracking import review
 from trueppm_api.apps.timetracking.models import (
     ReportingLine,
@@ -122,7 +123,7 @@ class ReportingLineListView(APIView):
         )
 
 
-class ReportingLineDetailView(APIView):
+class ReportingLineDetailView(IdempotencyMixin, APIView):
     """``/api/v1/reporting-lines/{user_id}/`` — read, set or clear a person's manager.
 
     Workspace Admin+ only: setting a manager grants approval authority over a
@@ -399,7 +400,7 @@ class MeReportWeekView(APIView):
         return Response(_report_week_payload(request.user, user, monday))
 
 
-class MeReportApproveView(APIView):
+class MeReportApproveView(IdempotencyMixin, APIView):
     """``POST .../approve/`` — approve a direct report's submitted week (ADR-1495 §2).
 
     409 ``timesheet_state_conflict`` when the week is not submitted, and 409
@@ -429,7 +430,7 @@ class MeReportApproveView(APIView):
         return Response(_report_week_payload(request.user, user, monday))
 
 
-class MeReportReturnView(APIView):
+class MeReportReturnView(IdempotencyMixin, APIView):
     """``POST .../return/ {"reason": "..."}`` — return a submitted week (ADR-1495 §2).
 
     The reason is required (400 when blank). It reaches the submitter as an in-app

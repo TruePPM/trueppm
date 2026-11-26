@@ -384,6 +384,9 @@ will refuse every write into it with `409 timesheet_week_approved`. See
 | POST | `/api/v1/me/reports/{user_id}/timesheets/{week_start}/approve/` | Approve a submitted week; `409` if not submitted or its entries changed since submit; API tokens `403` |
 | POST | `/api/v1/me/reports/{user_id}/timesheets/{week_start}/return/` | Return a submitted week with a required `{reason}` (blank is `400`); the reason goes to the submitter's Inbox; API tokens `403` |
 
+The approve, return and reporting-line writes honor the `Idempotency-Key` header,
+so a retried request is replayed instead of run again.
+
 Time cannot be logged against a **phase** (a task with structural children — see
 [Phase rollup locks](/api/reference/templates/#phase-rollup-locks)): a phase rolls up the logged time of its
 child tasks, so a direct entry would double-count. Logging time or starting a timer
