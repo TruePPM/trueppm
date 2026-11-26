@@ -2,6 +2,17 @@ import { ROW_VOCABULARY, countRows, outlineWidthValueText } from './rowVocabular
 import { useFeatureFlag } from '@/lib/featureFlags';
 import { ScheduleToolbarV2 } from './v2/ScheduleToolbarV2';
 import { ScheduleLegendV2 } from './v2/ScheduleLegendV2';
+import { isMissingCommittedStart } from './missingCommittedStart';
+import {
+  V2_FIXED_COLUMNS_WIDTH,
+  V2_GRID_WIDTH,
+  capChildren,
+  gridFooterText,
+  gridWarnings,
+  openingExpandedIds,
+  openingWindow,
+} from './v2/scheduleV2Opening';
+import { useScheduleV2OpeningStore } from './v2/scheduleV2OpeningStore';
 import { SCHEDULE_SHELL_V2_FLAG, v2ColumnLabel } from './v2/scheduleV2Columns';
 import {
   useRef,
@@ -174,6 +185,7 @@ import { GanttIcon, FilePdfIcon } from '@/components/Icons';
 import { useExportMsProject } from '@/hooks/useMsProjectImportExport';
 import { useIterationLabel } from '@/hooks/useIterationLabel';
 import type { Methodology, Task } from '@/types';
+import type { ReactNode } from 'react';
 import { useDependencyHover } from './useDependencyHover';
 import { ScheduleDependencyPicker } from './ScheduleDependencyPicker';
 import type { DependencyDirection } from './deps/linkTypes';
@@ -295,7 +307,17 @@ import {
 // ScheduleEmptyState — shown when tasks.length === 0 (rule 78)
 // ---------------------------------------------------------------------------
 
-export function ScheduleEmptyState({ onAddTask }: { onAddTask?: () => void }) {
+export function ScheduleEmptyState({
+  onAddTask,
+  onImport,
+  onAddPhase,
+}: {
+  onAddTask?: () => void;
+  /** Shell v2 (#5106): "Import plan" beside the primary action. */
+  onImport?: () => void;
+  /** Shell v2 (#5106): "Add phase" beside the primary action. */
+  onAddPhase?: () => void;
+}) {
   return (
     <EmptyState
       className="h-full bg-neutral-surface"
@@ -306,10 +328,28 @@ export function ScheduleEmptyState({ onAddTask }: { onAddTask?: () => void }) {
       // user is never left hunting for the small toolbar "+ Item" button. Omitted
       // for read-only roles (Viewer), who have no create affordance to offer.
       action={
-        onAddTask ? (
-          <Button variant="primary" onClick={onAddTask}>
-            {ROW_VOCABULARY.create.emptyStateButton}
-          </Button>
+        onAddTask || onImport || onAddPhase ? (
+          <div className="flex flex-wrap justify-center gap-2">
+            {onAddTask && (
+              <Button variant="primary" onClick={onAddTask}>
+                {ROW_VOCABULARY.create.emptyStateButton}
+              </Button>
+            )}
+            {onImport && (
+              <Button variant="secondary" onClick={onImport} data-testid="schedule-empty-import">
+                Import plan
+              </Button>
+            )}
+            {onAddPhase && (
+              <Button
+                variant="secondary"
+                onClick={onAddPhase}
+                data-testid="schedule-empty-add-phase"
+              >
+                Add phase
+              </Button>
+            )}
+          </div>
         ) : undefined
       }
     />
@@ -1075,6 +1115,20 @@ export function ScheduleView() {
   const { isDemoReadOnly } = useDemoMode();
   const allLinks = useMemo(() => rawLinks ?? [], [rawLinks]);
   const { expandedIds, toggle: toggleExpandRaw, expandAll, expand } = useWbsStore();
+  // Shell v2 Schedule (#4796): declared here, ahead of the row derivation, because
+  // the opening-state cap and the no-committed-start filter (#5106) are part of it.
+  const shellV2 = useFeatureFlag(SCHEDULE_SHELL_V2_FLAG);
+  const showAllChildren = useScheduleV2OpeningStore((s) => s.showAll);
+  const setHiddenByCap = useScheduleV2OpeningStore((s) => s.setHidden);
+  const [noStartOnly, setNoStartOnly] = useState(false);
+  // Constant (null) in v1 and in filter mode, so a row click or jump there never
+  // invalidates the row-derivation memo below; only the capped v2 list depends on them.
+  const selectedTaskIdForCap = useScheduleStore((s) =>
+    shellV2 && !noStartOnly ? s.selectedTaskId : null,
+  );
+  const scrollTargetIdForCap = useScheduleStore((s) =>
+    shellV2 && !noStartOnly ? s.scrollToTaskId : null,
+  );
 
   // Sprint lookup for the Duplicate Undo affordance (#477).
   const { sprints } = useSprints(projectId);
@@ -1197,16 +1251,21 @@ export function ScheduleView() {
   const reviewTaskIds = useMemo(() => reviewableTaskIds(reconcileEntries), [reconcileEntries]);
 
   // Build tree and compute visible tasks for collapse/expand
-  const { visibleTasks, summaryIds, childCountById } = useMemo(() => {
+  const { visibleTasks, summaryIds, childCountById, hiddenByCap } = useMemo(() => {
     if (allTasks.length === 0)
       return {
         visibleTasks: allTasks,
         summaryIds: new Set<string>(),
         childCountById: new Map<string, { name: string; count: number }>(),
+        hiddenByCap: new Map<string, number>(),
       };
     const tree = buildWbsTree(allTasks);
     const sIds = new Set(allTasks.filter((t) => t.isSummary).map((t) => t.id));
-    const visible = flattenVisible(tree, expandedIds).map((n) => n.task);
+    // The no-committed-start filter looks at every row, not just the unfolded
+    // ones: the footer counts the whole project, so the list it opens must too.
+    const visible = flattenVisible(tree, shellV2 && noStartOnly ? sIds : expandedIds).map(
+      (n) => n.task,
+    );
     // Rows in each summary's SUBTREE. Descendants rather than direct children
     // because folding hides the whole subtree, so that is what "N hidden" —
     // and therefore "N inside" — is counting (#3025). Read by the fold
@@ -1239,8 +1298,56 @@ export function ScheduleView() {
     if (reviewFilterActive && reviewTaskIds.size > 0) {
       filtered = filtered.filter((t) => t.isSummary || reviewTaskIds.has(t.id));
     }
-    return { visibleTasks: filtered, summaryIds: sIds, childCountById: counts };
+    // Shell v2 (#5106): the header roll-up's filter, then the 10-child cap.
+    // Both keep summaries, so the hierarchy a surviving row sits in stays legible.
+    let hiddenByCap = new Map<string, number>();
+    if (shellV2 && noStartOnly) {
+      // Keep each match's ancestor summaries (so it sits in its phase) and drop
+      // summaries with no match beneath them.
+      const byId = new Map(filtered.map((t) => [t.id, t]));
+      const keep = new Set<string>();
+      for (const t of filtered) {
+        if (t.isSummary || !isMissingCommittedStart(t)) continue;
+        for (let cur: Task | undefined = t; cur && !keep.has(cur.id); ) {
+          keep.add(cur.id);
+          cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+        }
+      }
+      filtered = filtered.filter((t) => keep.has(t.id));
+    }
+    if (shellV2 && !noStartOnly) {
+      // A row the reader selected or jumped to is never hidden by the cap, nor
+      // are the ancestors it hangs from.
+      const exempt = new Set<string>();
+      const byId = new Map(filtered.map((t) => [t.id, t]));
+      for (const id of [selectedTaskIdForCap, scrollTargetIdForCap]) {
+        for (let cur = id ? byId.get(id) : undefined; cur && !exempt.has(cur.id); ) {
+          exempt.add(cur.id);
+          cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+        }
+      }
+      const capped = capChildren(
+        filtered,
+        (t) => t.parentId ?? null,
+        showAllChildren,
+        undefined,
+        exempt,
+      );
+      filtered = capped.rows;
+      hiddenByCap = capped.hiddenByParent;
+    }
+    return {
+      visibleTasks: filtered,
+      summaryIds: sIds,
+      childCountById: counts,
+      hiddenByCap,
+    };
   }, [
+    shellV2,
+    noStartOnly,
+    showAllChildren,
+    selectedTaskIdForCap,
+    scrollTargetIdForCap,
     allTasks,
     expandedIds,
     showCriticalOnly,
@@ -1326,6 +1433,10 @@ export function ScheduleView() {
     [expandedIds, toggleExpandRaw, childCountById],
   );
 
+  useEffect(() => {
+    setHiddenByCap(hiddenByCap);
+  }, [hiddenByCap, setHiddenByCap]);
+
   // Auto-expand root-level summary nodes on first load.
   //
   // In the demo a phase whose work is FINISHED opens collapsed (#4050 A6b).
@@ -1341,6 +1452,11 @@ export function ScheduleView() {
     const rootSummaryIds = tree.filter((n) => n.task.isSummary).map((n) => n.task.id);
     if (rootSummaryIds.length === 0) return;
     const allIds = collectAllIds(tree);
+    if (shellV2 && !isDemoReadOnly) {
+      // Only today's phase opens; the rest are one caret away (#5106).
+      expandAll(openingExpandedIds(allTasks, new Date().toISOString().slice(0, 10)));
+      return;
+    }
     if (!isDemoReadOnly) {
       expandAll(allIds);
       return;
@@ -1502,7 +1618,6 @@ export function ScheduleView() {
   const { data: projectDetail } = useProject(projectIdUndef);
   // Shell v2 Schedule (#4796): a different toolbar, a persistent legend and no
   // docked forecast strip. Off, v1's Schedule is untouched.
-  const shellV2 = useFeatureFlag(SCHEDULE_SHELL_V2_FLAG);
   const [legendV2Placement, setLegendV2Placement] = useState<'bar' | 'timeline-header'>('bar');
   const chartOptions = useMemo(
     () => ({
@@ -1677,9 +1792,32 @@ export function ScheduleView() {
       (effectiveMask != null ? { working_days: effectiveMask, exceptions: [] } : null),
     [schedulingCalendar, effectiveMask],
   );
-  const { widths, visible, setWidth, toggleColumn, totalWidth } = useColumnWidths(
-    projectDetail?.effective_methodology,
-  );
+  const {
+    widths: storedWidths,
+    visible,
+    setWidth,
+    toggleColumn,
+    totalWidth,
+    hasCustomWidths,
+  } = useColumnWidths(projectDetail?.effective_methodology, { shellV2 });
+  // Shell v2 opens the grid at a fixed 448px: the Task column takes whatever the
+  // four fixed columns and the grip/nudge lanes leave (#5106). Once the reader
+  // resizes anything their widths win.
+  const widths = useMemo(() => {
+    if (!shellV2 || hasCustomWidths) return storedWidths;
+    const reserve = resolveOutlineLeftReserve(
+      coarsePointer,
+      canAuthorPlan(projectDetail?.can_author),
+    );
+    return {
+      ...storedWidths,
+      wbs: 48,
+      owner: 72,
+      finish: 74,
+      totalFloat: 56,
+      task: Math.max(120, V2_GRID_WIDTH - V2_FIXED_COLUMNS_WIDTH - reserve),
+    };
+  }, [shellV2, hasCustomWidths, storedWidths, coarsePointer, projectDetail?.can_author]);
 
   /**
    * The active surface's column profile (#2960).
@@ -1795,6 +1933,7 @@ export function ScheduleView() {
   const didInitialFrameRef = useRef(false);
   useEffect(() => {
     didInitialFrameRef.current = false;
+    useScheduleV2OpeningStore.getState().reset();
   }, [projectId]);
 
   // Apply the rule-81 "today at 25% from left" framing exactly once, after the
@@ -1822,7 +1961,20 @@ export function ScheduleView() {
     //    which cannot be judged against an empty grid.
     if (visibleTasks.length === 0) return;
 
-    const todayX = dateToLeft(new Date().toISOString().slice(0, 10), scheduleScales);
+    const todayIso = new Date().toISOString().slice(0, 10);
+    // Shell v2 (#5106): open on a 12-week window that starts 16 days before today,
+    // so today sits in the left fifth. Independent of where the work is — the Fit
+    // fallback below is v1's answer to an empty opening canvas.
+    if (shellV2 && !isDemoReadOnly) {
+      didInitialFrameRef.current = true;
+      const w = openingWindow(todayIso, container.clientWidth);
+      engine.setPxPerDay(w.pxPerDay);
+      // The spacer grows on the scales-change re-render; scroll after it lands or
+      // the browser clamps the assignment (#2004).
+      requestAnimationFrame(() => requestAnimationFrame(() => engine.scrollToDate(w.centerIso)));
+      return;
+    }
+    const todayX = dateToLeft(todayIso, scheduleScales);
 
     // The rows that will actually be on screen at scrollTop = 0 — the ones whose
     // emptiness the user reads as "the schedule is broken" (#2423).
@@ -1863,7 +2015,7 @@ export function ScheduleView() {
     } else {
       container.scrollLeft = framing.scrollLeft;
     }
-  }, [engine, scheduleScales, visibleTasks, rowHeight, isDemoReadOnly]);
+  }, [engine, scheduleScales, visibleTasks, rowHeight, isDemoReadOnly, shellV2]);
 
   // ADR-0132's data date (#2813): the floor the server applies to every
   // not-yet-finished task on the next CPM run. Resolved HERE rather than inside
@@ -4911,6 +5063,16 @@ export function ScheduleView() {
       )}
 
       <ScheduleMainArea
+        gridFooter={
+          shellV2 && outlineRendered && allTasks.length > 0 ? (
+            <ScheduleGridFooterV2
+              tasks={allTasks}
+              width={outlineWidth}
+              noStartOnly={noStartOnly}
+              onToggleNoStart={() => setNoStartOnly((v) => !v)}
+            />
+          ) : null
+        }
         shellV2LegendPlacement={shellV2 ? legendV2Placement : null}
         isMobile={isMobile}
         allTasks={allTasks}
@@ -6841,6 +7003,8 @@ function ScheduleToolbar(props: ScheduleToolbarProps) {
 // ---------------------------------------------------------------------------
 
 interface ScheduleMainAreaProps {
+  /** Shell v2 (#5106): the grid footer summary, or null on v1. */
+  gridFooter: ReactNode;
   /**
    * Shell v2 (#4796): where the persistent legend sits — `null` on v1, where the
    * floating toggleable legend renders instead. The timeline-header placement
@@ -7114,7 +7278,53 @@ function ScheduleMainAreaEmptyState({
       />
     );
   }
-  return <ScheduleEmptyState onAddTask={readOnly ? undefined : () => setShowAddForm(true)} />;
+  return (
+    <ScheduleEmptyState
+      onAddTask={readOnly ? undefined : () => setShowAddForm(true)}
+      // `handleAddPhase` is only passed under shell v2, so it doubles as the flag.
+      onImport={readOnly || !handleAddPhase ? undefined : handleImportFile}
+      onAddPhase={readOnly ? undefined : handleAddPhase}
+    />
+  );
+}
+
+/**
+ * Shell v2 grid footer (#5106 "one warning, where it is"): the one place the
+ * grid says how many rows are in trouble. The per-row "no committed start" chips
+ * roll up into this single count, which is also the filter's switch.
+ */
+function ScheduleGridFooterV2({
+  tasks,
+  width,
+  noStartOnly,
+  onToggleNoStart,
+}: {
+  tasks: Task[];
+  width: number;
+  noStartOnly: boolean;
+  onToggleNoStart: () => void;
+}) {
+  const w = gridWarnings(tasks);
+  return (
+    <div
+      data-testid="schedule-grid-footer"
+      className="absolute bottom-0 left-0 z-10 flex h-8 items-center gap-3 border-t border-neutral-border bg-neutral-surface-raised px-3 text-xs text-neutral-text-secondary"
+      style={{ width }}
+    >
+      <span>{gridFooterText(w)}</span>
+      {(w.noCommittedStart > 0 || noStartOnly) && (
+        <button
+          type="button"
+          aria-pressed={noStartOnly}
+          onClick={onToggleNoStart}
+          data-testid="schedule-no-start-filter"
+          className="rounded-chip border border-semantic-at-risk px-2 py-0.5 text-semantic-at-risk hover:bg-neutral-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+        >
+          {w.noCommittedStart} no committed start · {noStartOnly ? 'show all' : 'show'}
+        </button>
+      )}
+    </div>
+  );
 }
 
 function ScheduleMainArea(props: ScheduleMainAreaProps) {
@@ -7342,11 +7552,13 @@ function ScheduleMainArea(props: ScheduleMainAreaProps) {
               onAnnounce={onAnnounce}
               onAppendTaskAtEnd={onAppendTaskAtEnd}
               appendAtEndReadOnly={appendAtEndReadOnly}
+              bottomReserve={props.gridFooter ? 32 : 0}
             />
             {/* Panel splitter — drag to resize the name column. Present on both
                 surfaces: on the Timeline it is what makes a deeply nested WBS
                 readable, since the name cell indents by `(level-1) * WBS_INDENT`
                 inside a column that is now the outline's whole width budget. */}
+            {props.gridFooter}
             <PanelSplitter
               currentTaskWidth={widths.task}
               setWidth={setWidth}
