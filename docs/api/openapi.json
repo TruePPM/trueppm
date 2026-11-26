@@ -75748,6 +75748,9 @@
                         "type": "boolean",
                         "nullable": true
                     },
+                    "forecast_calibration_capture": {
+                        "type": "boolean"
+                    },
                     "program": {
                         "type": "string",
                         "format": "uuid",
@@ -80588,6 +80591,9 @@
                         ],
                         "readOnly": true
                     },
+                    "forecast_calibration_capture": {
+                        "type": "boolean"
+                    },
                     "program": {
                         "type": "string",
                         "format": "uuid",
@@ -81922,6 +81928,9 @@
                             "monte_carlo"
                         ],
                         "readOnly": true
+                    },
+                    "forecast_calibration_capture": {
+                        "type": "boolean"
                     },
                     "program": {
                         "type": "string",
@@ -83713,6 +83722,9 @@
                     "show_monte_carlo": {
                         "type": "boolean",
                         "nullable": true
+                    },
+                    "forecast_calibration_capture": {
+                        "type": "boolean"
                     },
                     "program": {
                         "type": "string",

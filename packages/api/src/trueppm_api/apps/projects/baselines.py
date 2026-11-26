@@ -95,8 +95,18 @@ def has_cpm_dates_for(rows: list[dict[str, Any]]) -> bool:
     return bool(rows) and all(t["early_start"] is not None for t in rows)
 
 
-def snapshot_tasks(baseline: Baseline, rows: list[dict[str, Any]]) -> int:
-    """Write the frozen ``BaselineTask`` rows for ``baseline``. Returns the count."""
+def snapshot_tasks(
+    baseline: Baseline, rows: list[dict[str, Any]], *, kind: str = "baseline"
+) -> int:
+    """Write the frozen ``BaselineTask`` rows for ``baseline``. Returns the count.
+
+    Also the one place a forecast-calibration capture is taken (ADR-1511): every
+    baseline path snapshots through here, so an opted-in project's forecast is
+    recorded at every baseline and replan, and never twice. ``kind`` is
+    ``"replan"`` for a taken decision's v(n+1), ``"baseline"`` otherwise.
+    """
+    from .forecast_calibration import record_capture
+
     BaselineTask.objects.bulk_create(
         [
             BaselineTask(
@@ -116,6 +126,7 @@ def snapshot_tasks(baseline: Baseline, rows: list[dict[str, Any]]) -> int:
             for t in rows
         ]
     )
+    record_capture(baseline, rows, kind=kind)
     return len(rows)
 
 
@@ -154,7 +165,7 @@ def capture(
         **calendar_snapshot(project),
         **fields,
     )
-    count = snapshot_tasks(baseline, rows)
+    count = snapshot_tasks(baseline, rows, kind="replan" if source == "decision" else "baseline")
     _announce_capture(baseline, count, source, webhook_extra)
     return baseline, count
 
