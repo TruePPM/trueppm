@@ -2241,6 +2241,131 @@
                 }
             }
         },
+        "/api/v1/allocations/": {
+            "post": {
+                "operationId": "v1_allocations_create",
+                "description": "Return the verdict; without ``dry_run``, also save the booking.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "dry_run",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "1 returns the verdict and writes nothing."
+                    }
+                ],
+                "tags": [
+                    "resources"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AllocationRequestRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AllocationRequestRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AllocationRequestRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AllocationResult"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AllocationRefusal"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "503": {
+                        "description": "No response body"
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "The request was rejected. Either a field failed validation — in which case the body is keyed by field name with a list of messages — or the request was refused as a whole, in which case it carries ``detail`` and, when the failure is one a client is expected to handle rather than merely report, a stable ``code``. Branch on ``code`` **when it is a string**; a list or object under ``code`` or ``detail`` is field validation of the field of that name, not the envelope. ``detail`` is prose and may be reworded at any time. See the error reference for the code vocabulary.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
+                                            "example": "Request body must be a JSON object."
+                                        },
+                                        "code": {
+                                            "allOf": [
+                                                {
+                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                }
+                                            ],
+                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
+                                            "example": "invalid_body"
+                                        }
+                                    },
+                                    "additionalProperties": {
+                                        "$ref": "#/components/schemas/ValidationErrorDetail"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "summary": "Allocations"
+            }
+        },
         "/api/v1/assets/": {
             "get": {
                 "operationId": "v1_assets_retrieve",
@@ -61907,6 +62032,292 @@
                 "description": "* `worst` - Worst-case\n* `average` - Average\n* `weighted_by_budget` - Budget-weighted\n* `task_weighted` - Task-weighted",
                 "x-trueppm-enum": "open"
             },
+            "AllocationBreakingWeek": {
+                "type": "object",
+                "description": "The first week the booking takes the person over their ceiling.",
+                "properties": {
+                    "week_start": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "load_pct": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "contributions": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AllocationContribution"
+                        }
+                    }
+                },
+                "required": [
+                    "contributions",
+                    "load_pct",
+                    "week_start"
+                ]
+            },
+            "AllocationContribution": {
+                "type": "object",
+                "description": "One line of a breaking week's load.",
+                "properties": {
+                    "kind": {
+                        "$ref": "#/components/schemas/AllocationContributionKindEnum"
+                    },
+                    "project_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "project_name": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "pct": {
+                        "type": "number",
+                        "format": "double"
+                    }
+                },
+                "required": [
+                    "kind",
+                    "pct",
+                    "project_id",
+                    "project_name"
+                ]
+            },
+            "AllocationContributionKindEnum": {
+                "enum": [
+                    "this_change",
+                    "other_project",
+                    "other_work",
+                    "time_off"
+                ],
+                "type": "string",
+                "description": "* `this_change` - this_change\n* `other_project` - other_project\n* `other_work` - other_work\n* `time_off` - time_off",
+                "x-trueppm-enum": "open"
+            },
+            "AllocationRefusal": {
+                "type": "object",
+                "description": "Body of the 409 refusing an unaccepted overage.",
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "detail": {
+                        "type": "string"
+                    },
+                    "verdict": {
+                        "$ref": "#/components/schemas/AllocationVerdict"
+                    }
+                },
+                "required": [
+                    "code",
+                    "detail",
+                    "verdict"
+                ]
+            },
+            "AllocationRequestRequest": {
+                "type": "object",
+                "description": "A proposed booking of one person on one project.",
+                "properties": {
+                    "project": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "resource": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "share_pct": {
+                        "type": "integer",
+                        "maximum": 400,
+                        "minimum": 0,
+                        "description": "Share of full time held every week of the window. 0 removes the booking."
+                    },
+                    "start": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "end": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "accept_overage": {
+                        "type": "boolean",
+                        "default": false
+                    },
+                    "reason": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 500
+                    }
+                },
+                "required": [
+                    "end",
+                    "project",
+                    "resource",
+                    "share_pct",
+                    "start"
+                ]
+            },
+            "AllocationResolution": {
+                "type": "object",
+                "description": "What one resolution would leave.",
+                "properties": {
+                    "available": {
+                        "type": "boolean"
+                    },
+                    "start": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "end": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "peak_pct": {
+                        "type": "number",
+                        "format": "double",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "available",
+                    "end",
+                    "peak_pct",
+                    "start"
+                ]
+            },
+            "AllocationResolutions": {
+                "type": "object",
+                "description": "The offered ways out of a conflict.",
+                "properties": {
+                    "shorten": {
+                        "$ref": "#/components/schemas/AllocationResolution"
+                    },
+                    "move": {
+                        "$ref": "#/components/schemas/AllocationResolution"
+                    },
+                    "accept": {
+                        "$ref": "#/components/schemas/AllocationResolution"
+                    }
+                },
+                "required": [
+                    "accept",
+                    "move",
+                    "shorten"
+                ]
+            },
+            "AllocationResult": {
+                "type": "object",
+                "description": "A dry run or a completed save.",
+                "properties": {
+                    "dry_run": {
+                        "type": "boolean"
+                    },
+                    "saved": {
+                        "type": "boolean"
+                    },
+                    "allocation_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true,
+                        "description": "The roster entry holding the booking; null on a dry run."
+                    },
+                    "verdict": {
+                        "$ref": "#/components/schemas/AllocationVerdict"
+                    }
+                },
+                "required": [
+                    "allocation_id",
+                    "dry_run",
+                    "saved",
+                    "verdict"
+                ]
+            },
+            "AllocationVerdict": {
+                "type": "object",
+                "description": "The server's verdict on a proposed booking.",
+                "properties": {
+                    "fits": {
+                        "type": "boolean"
+                    },
+                    "ceiling_pct": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "peak_pct": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "first_breaking_week": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/AllocationBreakingWeek"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "weeks": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AllocationWeek"
+                        }
+                    },
+                    "resolutions": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/AllocationResolutions"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "as_of": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "definitions": {
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "required": [
+                    "as_of",
+                    "ceiling_pct",
+                    "definitions",
+                    "first_breaking_week",
+                    "fits",
+                    "peak_pct",
+                    "resolutions",
+                    "weeks"
+                ]
+            },
+            "AllocationWeek": {
+                "type": "object",
+                "description": "One week of the proposed window.",
+                "properties": {
+                    "week_start": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "load_pct": {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    "over": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "load_pct",
+                    "over",
+                    "week_start"
+                ]
+            },
             "AnswerProvenance": {
                 "type": "object",
                 "description": "The ``_provenance`` answer stamp (ADR-0112 §2.1, ADR-1381).\n\n``(engine_version, input_hash)`` identifies the exact engine and inputs that\nproduced the answer, so it can be reproduced by re-running that scheduler version.",
@@ -81949,15 +82360,68 @@
                     },
                     "ramp_state": {
                         "$ref": "#/components/schemas/RampStateEnum"
+                    },
+                    "share_pct": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "share_start": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "share_end": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "overage_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "overage_peak_pct": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,5}(?:\\.\\d{0,1})?$",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "overage_week": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "overage_accepted_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "overage_accepted_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
                     }
                 },
                 "required": [
                     "effective_max_units",
                     "id",
+                    "overage_accepted_at",
+                    "overage_accepted_by",
+                    "overage_peak_pct",
+                    "overage_reason",
+                    "overage_week",
                     "project",
                     "resource",
                     "resource_detail",
-                    "server_version"
+                    "server_version",
+                    "share_end",
+                    "share_pct",
+                    "share_start"
                 ]
             },
             "ProjectResourceAllocation": {

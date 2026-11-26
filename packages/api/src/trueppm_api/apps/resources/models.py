@@ -241,6 +241,26 @@ class ProjectResource(VersionedModel):
         default=RampState.FULL,
         db_default=RampState.FULL,
     )
+    # The booking (ADR-@@, #4806): a share of full time held every week of an inclusive
+    # window. NULL share means "no booking". Deliberately separate from the engagement
+    # window above, whose ``engaged_to`` also means "external" (ADR-0190). Written only
+    # by ``POST /allocations/``, which checks the person's ceiling under a lock.
+    share_pct = models.PositiveSmallIntegerField(null=True, blank=True)
+    share_start = models.DateField(null=True, blank=True)
+    share_end = models.DateField(null=True, blank=True)
+    # The accepted overage, if the booking was saved over the ceiling. All empty
+    # otherwise; a later save that fits clears them.
+    overage_reason = models.TextField(blank=True, default="", db_default="")
+    overage_peak_pct = models.DecimalField(max_digits=6, decimal_places=1, null=True, blank=True)
+    overage_week = models.DateField(null=True, blank=True)
+    overage_accepted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        null=True,
+        blank=True,
+    )
+    overage_accepted_at = models.DateTimeField(null=True, blank=True)
 
     objects: ClassVar[ProjectResourceManager] = ProjectResourceManager()
 

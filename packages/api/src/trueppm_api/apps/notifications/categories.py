@@ -79,6 +79,8 @@ _EVENT_TYPE_CATEGORY: dict[str, str] = {
     # `project`: a notice about the person's own agent configuration (#4814), the
     # same access-lifecycle reading as the membership notices above.
     NotificationEventType.AGENT_REFUSED.value: CATEGORY_PROJECT,
+    # `project`: a notice about the person's own booking on a project (#4806).
+    NotificationEventType.ALLOCATION_OVERAGE_ACCEPTED.value: CATEGORY_PROJECT,
 }
 
 

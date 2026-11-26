@@ -374,8 +374,31 @@ class ProjectResourceSerializer(serializers.ModelSerializer[ProjectResource]):
             "engaged_to",
             "availability_percent",
             "ramp_state",
+            "share_pct",
+            "share_start",
+            "share_end",
+            "overage_reason",
+            "overage_peak_pct",
+            "overage_week",
+            "overage_accepted_by",
+            "overage_accepted_at",
         ]
-        read_only_fields = ["id", "server_version", "resource_detail", "effective_max_units"]
+        # The booking and its accepted overage are read-only here: a write through this
+        # serializer would skip the ceiling check that ``POST /allocations/`` runs.
+        read_only_fields = [
+            "id",
+            "server_version",
+            "resource_detail",
+            "effective_max_units",
+            "share_pct",
+            "share_start",
+            "share_end",
+            "overage_reason",
+            "overage_peak_pct",
+            "overage_week",
+            "overage_accepted_by",
+            "overage_accepted_at",
+        ]
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         # #1711 BOLA guard: the writable ``project`` FK must not relocate an

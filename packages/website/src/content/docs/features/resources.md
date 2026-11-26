@@ -302,6 +302,40 @@ program's projects only). It is a different figure from a sprint's capacity pane
 which covers one sprint on one project; the
 [metric vocabulary](/features/metric-vocabulary/) explains the difference.
 
+## Checking an allocation before you save it
+
+:::note[Ships in 0.5]
+Bookings and the allocation check, `POST /api/v1/allocations/`, ship in 0.5, in
+the API only. In 0.4 there is no booking: you set a roster entry's capacity
+override or assign task units, and you see over-allocation after saving.
+:::
+
+A **booking** holds a share of one person's full time on one project, every week
+from a start date to an end date. A project has one booking per person. Send it
+with `?dry_run=1` to get the verdict without saving anything:
+
+- The ceiling is the person's own **max units**, so someone at `0.6` is over at 70%.
+- Each week is judged on its busiest day, across every project. On a project, the
+  booking and the person's assigned task units are not added together: the larger
+  one counts. Tasks without scheduled dates, completed tasks, backlog tasks and a
+  bare assignee do not count.
+- Non-working days on the person's calendar take that part of the week out of
+  their capacity, shown as a **time off** percentage.
+- If a week is over, the verdict names the first one, lists what adds up to it, and
+  says what each way out would leave: **shorten** (end before that week), **move**
+  (same length, the first later start within 26 weeks that fits) or **accept**.
+- A project you are not a member of is never named. Its load is shown as one
+  **other work** figure.
+
+Saving a booking that is over the ceiling is refused unless you accept the overage
+**with a reason**. The reason, the peak and who accepted it are kept on the roster
+entry until a later save fits, and the person gets an inbox notification if their
+resource is linked to a user account and someone else made the booking. If the check
+cannot run, nothing is saved. Checking, saving and accepting all need the
+**Resource Manager** role or above on the project.
+
+The ceiling is enforced on bookings only. Assigning task units still warns and saves.
+
 ## What a resource manager can do today
 
 1. Maintain the Workspace resource catalog (name, role, capacity, calendar). From

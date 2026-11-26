@@ -188,6 +188,10 @@ class NotificationEventType(models.TextChoices):
     # capability scope (#4814). Sent to the agent's principal only, coalesced per
     # (agent, constraint) per 15 minutes. In-app only.
     AGENT_REFUSED = "agent.refused", "One of my agents was refused"
+    ALLOCATION_OVERAGE_ACCEPTED = (
+        "allocation.overage_accepted",
+        "I was booked over my capacity",
+    )
 
 
 class NotificationChannel(models.TextChoices):
@@ -524,6 +528,9 @@ DEFAULT_PREFERENCES: list[tuple[str, str, bool]] = [
     (NotificationEventType.MEMBERSHIP_ROLE_CHANGED, NotificationChannel.EMAIL, False),
     (NotificationEventType.AGENT_REFUSED, NotificationChannel.IN_APP, True),
     (NotificationEventType.AGENT_REFUSED, NotificationChannel.EMAIL, False),
+    # #4806: someone accepted an over-capacity booking of this person.
+    (NotificationEventType.ALLOCATION_OVERAGE_ACCEPTED, NotificationChannel.IN_APP, True),
+    (NotificationEventType.ALLOCATION_OVERAGE_ACCEPTED, NotificationChannel.EMAIL, False),
 ]
 
 

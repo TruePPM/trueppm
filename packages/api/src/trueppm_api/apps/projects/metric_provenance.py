@@ -238,6 +238,14 @@ METRIC_DEFINITIONS: dict[str, str] = {
     "people_load.over_allocated_count": (
         "People whose load is over 100% in at least one week of the range."
     ),
+    # ── allocation check (#4806) ───────────────────────────────────────
+    "allocation.load_pct": (
+        "Weekly load = the busiest working day's bookings plus time off, as a percent "
+        "of full time. Each project counts the larger of its booked share and its "
+        "assigned task units that day, across every project the person is booked on. "
+        "Time off is the share of the week's calendar days off, applied to the person's "
+        "own ceiling. A week is over when load exceeds that ceiling."
+    ),
     # ── sprint-scoped capacity (#4777): named so it is not read as load ──
     "sprint_capacity.ratio": (
         "Sprint capacity: committed hours on the sprint's tasks divided by available "

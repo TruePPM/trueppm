@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from django.urls import path
 from rest_framework.routers import DefaultRouter
 
+from trueppm_api.apps.resources.allocation_views import AllocationView
 from trueppm_api.apps.resources.views import (
     ProjectResourceViewSet,
     ResourceSkillViewSet,
@@ -25,4 +27,7 @@ router.register(
     basename="task-skill-requirement",
 )
 
-urlpatterns = router.urls
+urlpatterns = [
+    path("allocations/", AllocationView.as_view(), name="allocations"),
+    *router.urls,
+]

@@ -1,0 +1,313 @@
+"""``POST /allocations/``: check a booking, or save it (#4806, ADR-@@)."""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from django.db import transaction
+from django.utils import timezone
+from drf_spectacular.utils import OpenApiParameter, extend_schema
+from rest_framework import serializers, status
+from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.access.permissions import (
+    CanAssignResource,
+    IsProjectMember,
+    IsProjectNotArchived,
+    TokenReadOnlyMethods,
+    _membership_role,
+    assert_project_not_archived,
+)
+from trueppm_api.apps.notifications.models import NotificationEventType
+from trueppm_api.apps.notifications.services import create_event_notifications
+from trueppm_api.apps.projects.models import Project
+from trueppm_api.apps.resources.allocation import MAX_BOOKING_WEEKS, build_verdict
+from trueppm_api.apps.resources.models import ProjectResource, Resource
+
+logger = logging.getLogger(__name__)
+
+
+class AllocationRequestSerializer(serializers.Serializer[dict[str, Any]]):
+    """A proposed booking of one person on one project."""
+
+    project = serializers.UUIDField()
+    resource = serializers.UUIDField()
+    share_pct = serializers.IntegerField(
+        min_value=0,
+        max_value=400,
+        help_text="Share of full time held every week of the window. 0 removes the booking.",
+    )
+    start = serializers.DateField()
+    end = serializers.DateField()
+    accept_overage = serializers.BooleanField(default=False)
+    reason = serializers.CharField(required=False, allow_blank=True, default="", max_length=500)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """Bound the window, and refuse a bare accept."""
+        if attrs["end"] < attrs["start"]:
+            raise serializers.ValidationError({"end": "Must be on or after start."})
+        if (attrs["end"] - attrs["start"]).days >= MAX_BOOKING_WEEKS * 7:
+            raise serializers.ValidationError(
+                {"end": f"A booking covers at most {MAX_BOOKING_WEEKS} weeks."}
+            )
+        # The move search looks past ``end``; keep it inside the date type's range.
+        if not 2000 <= attrs["start"].year <= attrs["end"].year <= 2200:
+            raise serializers.ValidationError({"start": "Dates must fall between 2000 and 2200."})
+        if attrs["accept_overage"] and not attrs["reason"].strip():
+            raise serializers.ValidationError({"reason": "Accepting an overage requires a reason."})
+        return attrs
+
+
+class AllocationContributionSerializer(serializers.Serializer[dict[str, Any]]):
+    """One line of a breaking week's load."""
+
+    kind = serializers.ChoiceField(
+        choices=["this_change", "other_project", "other_work", "time_off"]
+    )
+    project_id = serializers.UUIDField(allow_null=True)
+    project_name = serializers.CharField(allow_null=True)
+    pct = serializers.FloatField()
+
+
+class AllocationBreakingWeekSerializer(serializers.Serializer[dict[str, Any]]):
+    """The first week the booking takes the person over their ceiling."""
+
+    week_start = serializers.DateField()
+    load_pct = serializers.FloatField()
+    contributions = AllocationContributionSerializer(many=True)
+
+
+class AllocationWeekSerializer(serializers.Serializer[dict[str, Any]]):
+    """One week of the proposed window."""
+
+    week_start = serializers.DateField()
+    load_pct = serializers.FloatField()
+    over = serializers.BooleanField()
+
+
+class AllocationResolutionSerializer(serializers.Serializer[dict[str, Any]]):
+    """What one resolution would leave."""
+
+    available = serializers.BooleanField()
+    start = serializers.DateField(allow_null=True)
+    end = serializers.DateField(allow_null=True)
+    peak_pct = serializers.FloatField(allow_null=True)
+
+
+class AllocationResolutionsSerializer(serializers.Serializer[dict[str, Any]]):
+    """The offered ways out of a conflict."""
+
+    shorten = AllocationResolutionSerializer()
+    move = AllocationResolutionSerializer()
+    accept = AllocationResolutionSerializer()
+
+
+class AllocationVerdictSerializer(serializers.Serializer[dict[str, Any]]):
+    """The server's verdict on a proposed booking."""
+
+    fits = serializers.BooleanField()
+    ceiling_pct = serializers.FloatField()
+    peak_pct = serializers.FloatField()
+    first_breaking_week = AllocationBreakingWeekSerializer(allow_null=True)
+    weeks = AllocationWeekSerializer(many=True)
+    resolutions = AllocationResolutionsSerializer(allow_null=True)
+    as_of = serializers.DateTimeField()
+    definitions = serializers.DictField(child=serializers.CharField())
+
+
+class AllocationResultSerializer(serializers.Serializer[dict[str, Any]]):
+    """A dry run or a completed save."""
+
+    dry_run = serializers.BooleanField()
+    saved = serializers.BooleanField()
+    allocation_id = serializers.UUIDField(
+        allow_null=True, help_text="The roster entry holding the booking; null on a dry run."
+    )
+    verdict = AllocationVerdictSerializer()
+
+
+class AllocationRefusalSerializer(serializers.Serializer[dict[str, Any]]):
+    """Body of the 409 refusing an unaccepted overage."""
+
+    code = serializers.CharField()
+    detail = serializers.CharField()
+    verdict = AllocationVerdictSerializer()
+
+
+class AllocationCheckUnavailable(APIException):
+    """The check could not complete, so the change is held and nothing is saved."""
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "allocation_check_unavailable"
+    default_detail = "The allocation check could not complete. Nothing was saved."
+
+
+def _check(**kwargs: Any) -> dict[str, Any]:
+    try:
+        return build_verdict(**kwargs)
+    except Exception as exc:
+        logger.exception("allocation check failed")
+        raise AllocationCheckUnavailable(
+            {
+                "code": AllocationCheckUnavailable.default_code,
+                "detail": AllocationCheckUnavailable.default_detail,
+            }
+        ) from exc
+
+
+class AllocationView(APIView):
+    """Check or save a booking (a weekly share of one person on one project).
+
+    Resource Manager (Scheduler) or above on the project, for the dry run as well as
+    the save: the verdict discloses the person's load across projects. Accepting an
+    overage needs the same role. Agent (read-only MCP) tokens are refused.
+    """
+
+    permission_classes = (
+        IsAuthenticated,
+        TokenReadOnlyMethods,
+        IsProjectMember,
+        CanAssignResource,
+        IsProjectNotArchived,
+    )
+    resolves_scope_in_body = (
+        "Flat route: the project arrives in the body. `post` applies the Scheduler+ "
+        "floor and the archived check to it before reading any load."
+    )
+
+    @extend_schema(
+        tags=["resources"],
+        parameters=[
+            OpenApiParameter(
+                "dry_run",
+                bool,
+                description="1 returns the verdict and writes nothing.",
+            )
+        ],
+        request=AllocationRequestSerializer,
+        responses={
+            200: AllocationResultSerializer,
+            409: AllocationRefusalSerializer,
+            503: None,
+        },
+    )
+    def post(self, request: Request) -> Response:
+        """Return the verdict; without ``dry_run``, also save the booking."""
+        body = AllocationRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        data = body.validated_data
+        dry_run = serializers.BooleanField().to_internal_value(
+            request.query_params.get("dry_run", "false")
+        )
+
+        role = _membership_role(request, data["project"])
+        if role is None or role < Role.SCHEDULER:
+            raise PermissionDenied("You need at least Resource Manager role to book people.")
+        assert_project_not_archived(data["project"])
+        project = Project.objects.select_related("calendar").get(pk=data["project"])
+
+        with transaction.atomic():
+            resources = Resource.objects.filter(pk=data["resource"], is_deleted=False)
+            if not dry_run:
+                # Every save for one person queues here, so the load read below
+                # includes any booking that committed first: two saves cannot jointly
+                # exceed the ceiling.
+                resources = resources.select_for_update(of=("self",))
+            resource = resources.select_related("calendar").first()
+            if resource is None:
+                raise ValidationError({"resource": "No active resource with this id."})
+            verdict = _check(
+                resource=resource,
+                project=project,
+                share_pct=data["share_pct"],
+                start=data["start"],
+                end=data["end"],
+                visible_projects=self._visible_projects(request),
+            )
+            result: dict[str, Any] = {
+                "dry_run": dry_run,
+                "saved": False,
+                "allocation_id": None,
+                "verdict": verdict,
+            }
+            if dry_run:
+                return Response(result)
+            # Removing a booking (0) is never refused: it cannot add load.
+            over = not verdict["fits"] and data["share_pct"] > 0
+            if over and not data["accept_overage"]:
+                return Response(
+                    {
+                        "code": "allocation_over_ceiling",
+                        "detail": "This booking exceeds the person's ceiling. Nothing was saved.",
+                        "verdict": verdict,
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+            row = self._save(request, project, resource, data, verdict if over else None)
+        result.update(saved=True, allocation_id=str(row.pk) if row else None)
+        return Response(result)
+
+    def _visible_projects(self, request: Request) -> dict[str, str]:
+        rows = ProjectMembership.objects.filter(
+            user_id=request.user.pk or 0, is_deleted=False, project__is_deleted=False
+        ).values_list("project_id", "project__name")
+        return {str(pid): name for pid, name in rows}
+
+    def _save(
+        self,
+        request: Request,
+        project: Project,
+        resource: Resource,
+        data: dict[str, Any],
+        overage: dict[str, Any] | None,
+    ) -> ProjectResource | None:
+        booked = data["share_pct"] > 0
+        row = ProjectResource.objects.filter(project=project, resource=resource).first()
+        if row is None:
+            row = ProjectResource(project=project, resource=resource)
+            if not booked:
+                return None  # nothing to remove; removing must not roster the person
+        row.is_deleted = False
+        row.deactivated_with_resource = False
+        row.share_pct = data["share_pct"] if booked else None
+        row.share_start = data["start"] if booked else None
+        row.share_end = data["end"] if booked else None
+        week = overage["first_breaking_week"] if overage else None
+        row.overage_reason = data["reason"].strip() if overage else ""
+        row.overage_peak_pct = str(overage["peak_pct"]) if overage else None
+        row.overage_week = week["week_start"] if week else None
+        row.overage_accepted_by_id = request.user.pk if overage else None
+        row.overage_accepted_at = timezone.now() if overage else None
+        row.save()
+
+        # The person is told in the same transaction as the booking they are told about.
+        if overage and week and resource.user_id and resource.user_id != request.user.pk:
+            create_event_notifications(
+                event_type=NotificationEventType.ALLOCATION_OVERAGE_ACCEPTED,
+                recipient_ids=[resource.user_id],
+                subject=f"You are booked over capacity on {project.name}",
+                body=(
+                    f"A booking of {data['share_pct']}% from {data['start']} to {data['end']} "
+                    f"takes you to {overage['peak_pct']}% against a ceiling of "
+                    f"{overage['ceiling_pct']}%, first in the week of {week['week_start']}. "
+                    f"Reason given: {row.overage_reason}"
+                ),
+                project_id=project.pk,
+            )
+
+        project_id = str(project.pk)
+        resource_id = str(resource.pk)
+
+        def _on_commit() -> None:
+            from trueppm_api.apps.sync.broadcast import broadcast_board_event
+
+            broadcast_board_event(project_id, "roster_changed", {"resource_id": resource_id})
+
+        transaction.on_commit(_on_commit)
+        return row

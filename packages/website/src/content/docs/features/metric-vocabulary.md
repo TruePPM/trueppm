@@ -14,6 +14,7 @@ and the My Work ship-date forecast can lag the project's own forecast by up to
 a day. Also in 0.5: P80 completion computes (in 0.4 it is unavailable), and a person's
 load across projects gets its own endpoint, `GET /me/people-load/`; the sprint
 capacity panel and the My Work capacity card gain a definition and an `as_of`.
+The allocation check, `POST /allocations/`, ships in 0.5 too.
 :::
 
 The same project figure can appear in several places: the project header, the
@@ -47,6 +48,7 @@ Each owning endpoint returns two extra things beside its figures:
 | Person load across projects | `people[].cells[].load_pct` | `GET /me/people-load/` | `as_of` | Load = booked ÷ capacity, time off removed: a person's booked days in a week, summed over the projects where you hold the Scheduler role or above and the project's team has shared its capacity signal with your role band, divided by their default units on each working day of their own calendar (Monday to Friday when they have none), as a percentage. Bookings on other projects are not counted. |
 | People over capacity | `over_allocated_count` | `GET /me/people-load/` | `as_of` | People whose load is over 100% in at least one week of the range. |
 | Sprint capacity | `members[].ratio`, `totals.ratio` | `GET /sprints/{id}/capacity/` | `as_of` | Sprint capacity: committed hours on the sprint's tasks divided by available hours in the sprint window (units on this project times the sprint's working days times hours per day). One sprint on one project; not a person's load across projects. |
+| Allocation check load | `verdict.weeks[].load_pct` | `POST /allocations/` | `as_of` | Weekly load = the busiest working day's bookings plus time off, as a percent of full time. Each project counts the larger of its booked share and its assigned task units that day, across every project the person is booked on. Time off is the share of the week's calendar days off, applied to the person's own ceiling. A week is over when load exceeds that ceiling. |
 | Open risks | `open_risk_count` | `GET /projects/{id}/overview/` | `as_of` | Risks in the register whose status is open or mitigating. |
 | Team utilization | `team_utilization_pct` | `GET /projects/{id}/overview/` | `as_of` | Booked hours across the project roster this week divided by the roster's working-time capacity this week, as a percentage. |
 | Schedule performance | `schedule_health` | `GET /projects/{id}/overview/` | `as_of` | The schedule performance band from the SPI proxy (completed planned work divided by work planned by today); unknown when nothing is planned yet. Not the project health band. |

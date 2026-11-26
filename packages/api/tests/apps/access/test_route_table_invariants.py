@@ -982,6 +982,7 @@ def _archived_enforcement_path(
 #: `has_object_permission` has no relation the resolver walks.
 ARCHIVED_BODY_ENTRIES: frozenset[str] = frozenset(
     {
+        "api/v1/allocations/::post",
         "api/v1/^project-resources/$::create",
         "api/v1/^task-resources/$::create",
         "api/v1/^task-skill-requirements/$::create",
@@ -1357,6 +1358,7 @@ SCOPE_IN_BODY_ENTRIES: frozenset[str] = frozenset(
         "api/v1/^task-resources/$::create",
         "api/v1/^tasks/$::create",
         "api/v1/^tasks/delete-untouched-seeded/$::delete_untouched_seeded",
+        "api/v1/allocations/::post",
         "api/v1/poker/<pk>/cancel/::post",
         "api/v1/poker/<pk>/commit/::post",
         "api/v1/poker/<pk>/reopen/::post",
