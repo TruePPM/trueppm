@@ -142,14 +142,14 @@ export default defineConfig({
   // intentionally ignores the `mermaid` language, leaving the fence for
   // rehype-mermaid to consume.
   //
-  // Theme: a single `base` render with a design-system palette engineered to read
-  // on BOTH the light (#ffffff) and dark (#17181c) page bodies. Starlight toggles
-  // color modes via a `data-theme` attribute (not `prefers-color-scheme`), so
-  // rehype-mermaid's `dark`/`<picture>` variant — which keys off the OS scheme —
-  // would desync from a manual toggle; a single theme-agnostic palette avoids that
-  // failure mode with zero client JS. Filled indigo nodes with white labels, and
-  // neutral edges (gray-3 `#8b90a0`, identical in both modes), stay legible on
-  // either background. See ADR-0198 for the rejected alternatives.
+  // Theme: a single `base` render in the navy/sage brand palette (ADR-0103) for
+  // BOTH color modes. Starlight toggles modes via a `data-theme` attribute (not
+  // `prefers-color-scheme`), so rehype-mermaid's `dark`/`<picture>` variant,
+  // which keys off the OS scheme, would desync from a manual toggle. Every piece
+  // of text baked here sits on a filled chip; the unfilled parts (edges,
+  // arrowheads, cluster outlines and titles) are re-colored per theme by CSS in
+  // src/styles/custom.css, with zero client JS. The neutral line color below is
+  // the no-CSS fallback. See ADR-0198 and its amendment.
   // Astro 7 replaced the default `.md` engine with the Sätteri processor, which
   // does NOT run remark/rehype plugins — the top-level `markdown.rehypePlugins`
   // array (astro 6's home for these) is deprecated and silently ignored for `.md`
@@ -198,22 +198,24 @@ export default defineConfig({
               fontFamily: "Arial, Helvetica, sans-serif",
               themeVariables: {
                 fontFamily: "Arial, Helvetica, sans-serif",
-                // Filled accent nodes with white labels — reads on white and navy.
-                primaryColor: "#3b5bdb",
-                primaryBorderColor: "#c5d0f6",
-                primaryTextColor: "#ffffff",
-                // Neutral edges: gray-3 is the same hex in light and dark mode.
-                lineColor: "#8b90a0",
-                // Subgraph clusters and secondary nodes: transparent panel with a
-                // neutral border so no light card is stamped onto the dark body.
-                secondaryColor: "#3b5bdb",
-                tertiaryColor: "transparent",
+                // Filled sage nodes with white labels.
+                primaryColor: "#316F57",
+                secondaryColor: "#316F57",
+                primaryBorderColor: "#84CBAC",
+                primaryTextColor: "#FFFFFF",
+                nodeTextColor: "#FFFFFF",
+                // Neutral slate: the fallback if the per-theme CSS is absent.
+                lineColor: "#6B7585",
+                clusterBorder: "#6B7585",
+                titleColor: "#6B7585",
+                // Subgraph clusters: transparent, so the themed frame shows.
                 clusterBkg: "transparent",
-                clusterBorder: "#8b90a0",
-                titleColor: "#8b90a0",
-                nodeTextColor: "#ffffff",
-                // Edge label chips: filled neutral with light text, legible on both.
-                edgeLabelBackground: "#545867",
+                tertiaryColor: "transparent",
+                // Edge label chips and notes: filled navy with light text.
+                edgeLabelBackground: "#344A72",
+                noteBkgColor: "#1B2A4A",
+                noteTextColor: "#E9EDF3",
+                noteBorderColor: "#66B998",
               },
             },
           },
@@ -228,17 +230,53 @@ export default defineConfig({
     starlight({
       title: "TruePPM",
       tagline: "One data model for waterfall, agile, and hybrid programs.",
-      // Default first-time visitors to light mode. Starlight has no
-      // `defaultTheme` option; instead we seed localStorage before its
-      // theme script reads it. Subsequent visits respect the user's choice.
-      head: [
-        {
-          tag: "script",
-          content:
-            "if(!localStorage.getItem('starlight-theme')){localStorage.setItem('starlight-theme','light');document.documentElement.dataset.theme='light';}",
+      // Brand skin (#5144): the header lockup and the marketing-site link. The
+      // lockup is inline SVG in SiteTitle, so Starlight's `logo` stays unset.
+      components: {
+        SiteTitle: "./src/components/SiteTitle.astro",
+        SocialIcons: "./src/components/SocialIcons.astro",
+      },
+      // Fenced code is the same dark navy panel in both themes, matching
+      // trueppm.com. The contrast floor lifts any theme token below 5.5:1.
+      expressiveCode: {
+        themes: ["github-dark-default"],
+        useStarlightDarkModeSwitch: false,
+        useStarlightUiThemeColors: false,
+        minSyntaxHighlightingColorContrast: 5.5,
+        styleOverrides: {
+          borderRadius: "9px",
+          borderColor: "#2A3A57",
+          codeBackground: "#15223C",
+          codeFontFamily:
+            "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
+          codeFontSize: "0.875rem",
+          codeLineHeight: "1.7",
+          codePaddingBlock: "1rem",
+          codePaddingInline: "1.25rem",
+          uiFontFamily:
+            "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+          focusBorder: "#66B998",
+          frames: {
+            editorBackground: "#15223C",
+            terminalBackground: "#15223C",
+            editorTabBarBackground: "#0E1626",
+            editorTabBarBorderBottomColor: "#2A3A57",
+            editorActiveTabBackground: "#15223C",
+            editorActiveTabForeground: "#E9EDF3",
+            editorActiveTabIndicatorTopColor: "#4FA884",
+            terminalTitlebarBackground: "#0E1626",
+            terminalTitlebarForeground: "#9BAAC6",
+            terminalTitlebarBorderBottomColor: "#2A3A57",
+            terminalTitlebarDotsForeground: "#3A4D70",
+            terminalTitlebarDotsOpacity: "1",
+            inlineButtonForeground: "#9BAAC6",
+            inlineButtonBorder: "#3A4D70",
+            tooltipSuccessBackground: "#316F57",
+            tooltipSuccessForeground: "#FFFFFF",
+            frameBoxShadowCssValue: "none",
+          },
         },
-      ],
-      // logo: { alt: "TruePPM", src: "./src/assets/logo.svg" },
+      },
       social: [
         {
           icon: "gitlab",
@@ -258,7 +296,7 @@ export default defineConfig({
       // without losing top-level in-page navigation.
       tableOfContents: { minHeadingLevel: 2, maxHeadingLevel: 2 },
       plugins: versionPlugins,
-      customCss: ["./src/styles/custom.css"],
+      customCss: ["./src/styles/fonts.css", "./src/styles/custom.css"],
       sidebar: [
         // --- Top-level overview ---
         {

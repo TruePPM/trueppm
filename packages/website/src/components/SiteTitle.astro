@@ -1,0 +1,40 @@
+---
+// Replaces Starlight's text title with the brand mark, wordmark and a "Docs"
+// pill. Keeps Starlight's `siteTitleHref` (link checkers and versioned docs rely
+// on it) and its `site-title` class. Brand assets: packages/web/brand/TRADEMARK.md.
+import Brand from "./Brand.astro";
+
+const { siteTitleHref } = Astro.locals.starlightRoute;
+---
+
+<a href={siteTitleHref} class="site-title sl-flex" aria-label="TruePPM Docs">
+  <Brand />
+  <span class="tp-docs-pill">Docs</span>
+</a>
+
+<style>
+  .site-title {
+    align-items: center;
+    text-decoration: none;
+    white-space: nowrap;
+    min-width: 0;
+  }
+  .tp-docs-pill {
+    margin-inline-start: 10px;
+    padding: 3px 8px;
+    border: 1px solid var(--tp-docs-line-2);
+    border-radius: 6px;
+    font-family: var(--sl-font-mono);
+    font-weight: 500;
+    font-size: 11px;
+    line-height: 1.3;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--tp-docs-mute);
+  }
+  @media (max-width: 22.49rem) {
+    .tp-docs-pill {
+      display: none;
+    }
+  }
+</style>

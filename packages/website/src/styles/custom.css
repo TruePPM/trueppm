@@ -1,104 +1,848 @@
-/* TruePPM brand colors for Starlight
+/* TruePPM brand skin for Starlight (#5144). Navy/sage, ADR-0103; the brand
+ * reference copy is packages/web/brand/tokens.css.
  *
  * Starlight cascade:
- *   :root                — dark mode (Starlight default; no data-theme attribute)
- *   [data-theme='light'] — light mode override
+ *   :root                       dark (Starlight default)
+ *   :root[data-theme="light"]   light
+ * New visitors get the theme their OS asks for. Visitors from before #5144
+ * keep the stored light theme until they choose Auto in the theme menu.
  *
- * Light mode is seeded as the default in astro.config.mjs via a <head> script
- * that sets localStorage + data-theme='light' before Starlight's theme script runs.
+ * Layer note: Starlight's own styles are in @layer starlight.*. Unlayered styles
+ * (this file) always win over layered ones regardless of specificity, so every
+ * variable declared in :root below MUST be redeclared in the light block, or the
+ * dark value leaks into light mode.
  *
- * Layer note: Starlight's props.css is in @layer starlight.base. Unlayered styles
- * (like this file) always win over layered ones regardless of specificity. This
- * means our :root rule wins over Starlight's :root[data-theme='light'] for any
- * variable we declare in :root. We apply the light-mode overrides in
- * :root[data-theme="light"] — a higher-specificity unlayered rule — to win
- * correctly in both modes.
+ * Sections: tokens, type, measure, header, sidebar, table of contents, asides,
+ * prose elements, landing, Mermaid, TOC footprint, block-beta, print.
  */
 
-/* Dark mode — Starlight default */
+/* ==========================================================================
+ * 1. Tokens
+ * ========================================================================== */
+
+/* ---------- Dark (Starlight default) ---------- */
 :root {
-  --sl-color-accent-low: #1e2f6b;
-  --sl-color-accent: #3b5bdb;
-  --sl-color-accent-high: #c5d0f6;
+  /* brand-derived docs tokens (names prefixed --tp-docs-) */
+  --tp-docs-ink: #E9EDF3;          /* reversed ink */
+  --tp-docs-body: #B0BDD3;         /* navy-200 */
+  --tp-docs-mute: #9BAAC6;         /* dt-2 */
+  --tp-docs-line: #2A3A57;
+  --tp-docs-line-2: #3A4D70;
+  --tp-docs-page: #0E1626;         /* navy-900 */
+  --tp-docs-chrome: #15223C;       /* navy-800: nav, sidebar, asides, code, table head */
+  --tp-docs-raised: #1B2A4A;       /* navy-700: inline code, icon boxes */
+  --tp-docs-link: #66B998;         /* sage-400 */
+  --tp-docs-focus: #66B998;
+  --tp-docs-active-bg: #1B3D2F;    /* sage-900 */
+  --tp-docs-active-text: #E9EDF3;
+  --tp-docs-mark-node: #E9EDF3;    /* mark-reversed nodes */
+  --tp-docs-diagram-bg: #15223C;
+  --tp-docs-diagram-line: #6B7585; /* slate-500: 3:1 on navy and on pale author fills */
+  --tp-docs-diagram-title: #B0BDD3;
 
-  /* Foreground text — near-white for dark page body */
-  --sl-color-white: #f0f2f9;
+  --tp-docs-hero-bg: #15223C;
+  --tp-docs-hover: rgba(233, 237, 243, 0.06);
+  --tp-docs-badge-bg: #3A2A0C;
+  --tp-docs-badge-text: #F0B429;
+  --tp-docs-badge-line: #6B4E14;
+  --tp-docs-aside-body: #D8DFEC;
+  --tp-docs-aside-code: rgba(255, 255, 255, 0.06);
+  --tp-docs-code-line: transparent;
+  --tp-docs-th-bg: #15223C;
+  --tp-docs-row-hover: rgba(233, 237, 243, 0.04);
+  --tp-docs-shot-line: #3A4D70;
+  --tp-docs-card-bg: #15223C;
+  --tp-docs-icon-bg: #1B2A4A;
 
-  /* Gray scale: 1 = lightest (text), 6 = darkest (bg elements) */
-  --sl-color-gray-1: #eef0f6;
-  --sl-color-gray-2: #c2c6d3;
-  --sl-color-gray-3: #8b90a0;
-  --sl-color-gray-4: #545867;
-  --sl-color-gray-5: #353847;
-  --sl-color-gray-6: #24262f;
+  --sl-color-white: #E9EDF3;
+  --sl-color-gray-1: #D8DFEC;
+  --sl-color-gray-2: #B0BDD3;
+  --sl-color-gray-3: #9BAAC6;
+  --sl-color-gray-4: #556C94;      /* non-text only */
+  --sl-color-gray-5: #2A3A57;
+  --sl-color-gray-6: #15223C;
+  --sl-color-black: #0E1626;
+  --sl-color-hairline: #2A3A57;    /* stock maps hairline to gray-6, which vanishes on navy */
+  --sl-color-hairline-shade: #2A3A57;
+  --sl-color-bg-inline-code: #1B2A4A;
 
-  /* Page background — dark but not pure black */
-  --sl-color-black: #17181c;
+  --sl-color-accent-low: #1B3D2F;
+  --sl-color-accent: #4FA884;
+  --sl-color-accent-high: #66B998;
+
+  --sl-color-blue-low: #17325A;   --sl-color-blue: #6FA0E8;   --sl-color-blue-high: #B9D1F5;
+  --sl-color-orange-low: #3A2A0C; --sl-color-orange: #E9B35A; --sl-color-orange-high: #F6D79E;
+  --sl-color-green-low: #1B3D2F;  --sl-color-green: #66B998;  --sl-color-green-high: #AEDCC8;
+  --sl-color-red-low: #4A1A16;    --sl-color-red: #E8645A;    --sl-color-red-high: #F5B5AE;
+  --sl-color-purple-low: #1B2A4A; --sl-color-purple: #8194B5; --sl-color-purple-high: #D8DFEC;
+
+  --sl-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --sl-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --tp-docs-font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+
+  --sl-line-height: 1.7;
+  --sl-text-h1: 2rem;      /* 32 mobile */
+  --sl-text-h2: 1.5rem;    /* 24 */
+  --sl-text-h3: 1.1875rem; /* 19 */
+  --sl-text-h4: 1.0625rem; /* 17 */
+  --toc-column-width: 16rem;      /* keep */
+  --sl-content-width: 52rem;      /* keep: wide column for tables/code/diagrams */
+  --tp-docs-measure: 70ch;        /* prose cap, see 3.4 */
+}
+@media (min-width: 50em) {
+  :root {
+    --sl-text-h1: 2.5rem;   /* 40 */
+    --sl-text-h2: 1.75rem;  /* 28 */
+    --sl-text-h3: 1.3125rem;/* 21 */
+    --sl-text-h4: 1.125rem; /* 18 */
+  }
 }
 
-/* Light mode */
+/* ---------- Light ---------- */
 :root[data-theme="light"] {
-  --sl-color-accent-low: #dce7ff;
-  --sl-color-accent: #3b5bdb;
-  --sl-color-accent-high: #1e2f6b;
+  --tp-docs-ink: #1B2A4A;          /* navy-700 */
+  --tp-docs-body: #3C4147;         /* ink-2 */
+  --tp-docs-mute: #6E726C;         /* mute */
+  --tp-docs-line: #E5E0D5;
+  --tp-docs-line-2: #D9D3C6;
+  --tp-docs-page: #FFFFFF;
+  --tp-docs-chrome: #FAF8F3;       /* paper: nav + sidebar */
+  --tp-docs-raised: #F3EFE6;       /* paper-2: inline code, table head */
+  --tp-docs-link: #316F57;         /* sage-700 */
+  --tp-docs-focus: #316F57;
+  --tp-docs-active-bg: #D3ECE0;    /* sage-100 */
+  --tp-docs-active-text: #1B2A4A;
+  --tp-docs-mark-node: #1B2A4A;
+  --tp-docs-diagram-bg: #FAF8F3;
+  --tp-docs-diagram-line: #6B7585; /* slate-500 */
+  --tp-docs-diagram-title: #3C4147;
 
-  /* Foreground text — near-black for light page body */
-  --sl-color-white: #17181c;
+  --tp-docs-hero-bg: #0E1626;
+  --tp-docs-hover: rgba(27, 42, 74, 0.05);
+  --tp-docs-badge-bg: #FBF0D6;
+  --tp-docs-badge-text: #7A4B0A;
+  --tp-docs-badge-line: #E8C77A;
+  --tp-docs-aside-body: #1B2A4A;
+  --tp-docs-aside-code: rgba(255, 255, 255, 0.6);
+  --tp-docs-code-line: #E5E0D5;
+  --tp-docs-th-bg: #F3EFE6;
+  --tp-docs-row-hover: rgba(27, 42, 74, 0.03);
+  --tp-docs-shot-line: #E5E0D5;
+  --tp-docs-card-bg: #FFFFFF;
+  --tp-docs-icon-bg: #FAF8F3;
 
-  /* Gray scale inverted: 1 = darkest (text), 6 = lightest (bg elements) */
-  --sl-color-gray-1: #24262f;
-  --sl-color-gray-2: #353847;
-  --sl-color-gray-3: #545867;
-  --sl-color-gray-4: #8b90a0;
-  --sl-color-gray-5: #c2c6d3;
-  --sl-color-gray-6: #eef0f6;
+  --sl-color-white: #1B2A4A;
+  --sl-color-gray-1: #2C3440;      /* derived: between navy ink and ink-2 */
+  --sl-color-gray-2: #3C4147;
+  --sl-color-gray-3: #6E726C;
+  --sl-color-gray-4: #8C887D;      /* derived warm, non-text only */
+  --sl-color-gray-5: #D9D3C6;
+  --sl-color-gray-6: #E5E0D5;
+  --sl-color-gray-7: #FAF8F3;      /* MISSING today: stock nav bg leaks through */
+  --sl-color-black: #FFFFFF;
+  --sl-color-bg-sidebar: #FAF8F3;
+  --sl-color-bg-nav: #FAF8F3;
+  --sl-color-bg-inline-code: #F3EFE6;
+  --sl-color-hairline: #E5E0D5;
+  --sl-color-hairline-light: #E5E0D5;
+  --sl-color-hairline-shade: #E5E0D5;
 
-  /* Page background — white */
-  --sl-color-black: #ffffff;
+  --sl-color-accent-low: #D3ECE0;
+  --sl-color-accent: #316F57;
+  --sl-color-accent-high: #1B3D2F;
+
+  --sl-color-blue-low: #E5EEFB;   --sl-color-blue: #2F6FD1;   --sl-color-blue-high: #1D4F9F;
+  --sl-color-orange-low: #FBF0DC; --sl-color-orange: #DE9326; --sl-color-orange-high: #7A4B0A;
+  --sl-color-green-low: #D3ECE0;  --sl-color-green: #4FA884;  --sl-color-green-high: #275844;
+  --sl-color-red-low: #FBE6E4;    --sl-color-red: #CF4438;    --sl-color-red-high: #9B2C23;
+  --sl-color-purple-low: #EEF1F7; --sl-color-purple: #556C94; --sl-color-purple-high: #1B2A4A;
 }
 
-/* Fix admonition (aside) text contrast.
- *
- * Starlight asides use `color: var(--sl-color-white)` for body text.
- * --sl-color-white is tuned for the page body background (dark in dark mode,
- * white in light mode). Aside backgrounds are coloured (amber, green, blue,
- * red) and their lightness flips between modes:
- *
- *   dark mode  — ~22% lightness  (dark amber/green/…)  → near-white text is fine
- *   light mode — ~88% lightness  (pale amber/green/…)  → near-white text fails WCAG
- *
- * --sl-color-gray-1 resolves to the correct foreground in each mode:
- *   dark mode  → #eef0f6  (near-white  on dark  aside bg — ~9:1 contrast)
- *   light mode → #24262f  (near-black  on light aside bg — ~12:1 contrast)
- */
+/* ==========================================================================
+ * 2. Type
+ * ========================================================================== */
+
+.sl-markdown-content strong {
+  font-weight: 600;
+  color: var(--sl-color-white);
+}
+
+/* Page title and markdown h1-h3 use the display face. `:where` keeps the id out
+ * of the specificity so the hero rule below can restyle its own h1. */
+h1:where(#_top),
+.sl-markdown-content :is(h1, h2, h3):not(:where(.not-content *)) {
+  font-family: var(--tp-docs-font-display);
+  font-weight: 600;
+}
+h1:where(#_top) {
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+.sl-markdown-content h2:not(:where(.not-content *)) {
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+}
+.sl-markdown-content h3:not(:where(.not-content *)) {
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+/* Section breaks, so long reference pages scan. */
+.sl-markdown-content .sl-heading-wrapper.level-h2,
+.sl-markdown-content > h2 {
+  margin-top: 3rem;
+  padding-top: 1.75rem;
+  border-top: 1px solid var(--tp-docs-line);
+}
+.sl-markdown-content > .sl-heading-wrapper.level-h2:first-child,
+.sl-markdown-content > h2:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+:where(:focus-visible) {
+  outline: 2px solid var(--tp-docs-focus);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+/* Rows that sit against a clipping edge keep their ring inside. */
+mobile-starlight-toc :focus-visible {
+  outline-offset: -2px;
+}
+
+/* ==========================================================================
+ * 3. Content measure
+ * The column stays wide for tables, code and diagrams; only prose is capped.
+ * ========================================================================== */
+
+.sl-markdown-content
+  > :is(p, ul, ol, blockquote, dl, .sl-heading-wrapper, h2, h3, h4, h5, h6) {
+  max-inline-size: var(--tp-docs-measure);
+}
+
+/* ==========================================================================
+ * 4. Header
+ * `header.header`, not `.header`: Starlight uses that class twice.
+ * ========================================================================== */
+
+header.header {
+  background-color: var(--sl-color-bg-nav);
+  border-bottom: 1px solid var(--sl-color-hairline-shade);
+}
+@supports (background: color-mix(in srgb, red 50%, transparent)) {
+  header.header {
+    background-color: color-mix(in srgb, var(--sl-color-bg-nav) 86%, transparent);
+    -webkit-backdrop-filter: saturate(160%) blur(12px);
+    backdrop-filter: saturate(160%) blur(12px);
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  header.header {
+    background-color: var(--sl-color-bg-nav);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (min-width: 50rem) {
+  site-search button[data-open-modal] {
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 9px;
+    background-color: var(--tp-docs-page);
+  }
+}
+site-search button[data-open-modal] kbd {
+  font-family: var(--sl-font-mono);
+  font-size: 11px;
+}
+
+/* ==========================================================================
+ * 5. Sidebar
+ * ========================================================================== */
+
+@media (min-width: 50rem) {
+  .sidebar-pane {
+    border-inline-end: 1px solid var(--tp-docs-line);
+  }
+}
+
+/* Nested group labels stay quiet; the top level reads as an eyebrow. */
+.sidebar-content summary .group-label .large {
+  font-size: 14px;
+}
+.sidebar-content ul.top-level > li > details > summary .group-label .large {
+  font-family: var(--sl-font-mono);
+  font-weight: 500;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--tp-docs-link);
+}
+
+.sidebar-content a {
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--sl-color-gray-2);
+}
+.sidebar-content a:hover {
+  background-color: var(--tp-docs-hover);
+  color: var(--sl-color-white);
+}
+.sidebar-content a[aria-current="page"],
+.sidebar-content a[aria-current="page"]:hover,
+.sidebar-content a[aria-current="page"]:focus {
+  background-color: var(--tp-docs-active-bg);
+  color: var(--tp-docs-active-text);
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--tp-docs-link);
+}
+
+/* Version badge: a milestone diamond on an amber chip (ADR-0103: amber is the
+ * milestone color). The text comes from astro.config.mjs and the version gate
+ * parses it there; nothing here adds words. */
+.sidebar-content .sl-badge.caution,
+.sidebar-content a[aria-current="page"] > .sl-badge.caution {
+  font-family: var(--sl-font-mono);
+  font-weight: 500;
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 7px 3px 6px;
+  border: 1px solid var(--tp-docs-badge-line);
+  border-radius: 4px;
+  background-color: var(--tp-docs-badge-bg);
+  color: var(--tp-docs-badge-text);
+}
+.sidebar-content .sl-badge.caution::before {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-inline-end: 5px;
+  vertical-align: 1px;
+  background: currentColor;
+  transform: rotate(45deg);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .sidebar-content a {
+    transition:
+      color 120ms,
+      background-color 120ms;
+  }
+}
+
+/* ==========================================================================
+ * 6. Table of contents
+ * ========================================================================== */
+
+starlight-toc h2 {
+  font-family: var(--sl-font-mono);
+  font-weight: 500;
+  font-size: 11.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tp-docs-mute);
+}
+starlight-toc nav > ul {
+  border-inline-start: 1px solid var(--tp-docs-line);
+}
+starlight-toc a {
+  padding-block: 4px;
+  padding-inline-start: 12px;
+  border-radius: 0;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--sl-color-gray-3);
+}
+starlight-toc a:hover {
+  color: var(--sl-color-white);
+}
+starlight-toc a[aria-current="true"] {
+  margin-inline-start: -1px;
+  padding-inline-start: 13px;
+  color: var(--tp-docs-link);
+  box-shadow: inset 2px 0 0 var(--tp-docs-link);
+}
+mobile-starlight-toc a[aria-current="true"],
+mobile-starlight-toc a[aria-current="true"]:hover,
+mobile-starlight-toc a[aria-current="true"]:focus {
+  color: var(--tp-docs-link);
+}
+
+/* ==========================================================================
+ * 7. Asides
+ * The version-status variants key on `aria-label`, which Starlight sets to the
+ * directive title: the same text scripts/check-version-status.sh reads. No page
+ * edits, and the style disappears with the block at release.
+ * ========================================================================== */
+
 .starlight-aside {
-  color: var(--sl-color-gray-1);
+  --tp-aside-bar: var(--sl-color-asides-border);
+  padding: 14px 18px;
+  border: 1px solid var(--tp-aside-line, var(--tp-docs-line));
+  border-inline-start: 3px solid var(--tp-aside-bar);
+  border-radius: 8px;
+  color: var(--tp-docs-aside-body);
+}
+.starlight-aside__title {
+  gap: 8px;
+  font-size: 15px;
+  line-height: 1.3;
+}
+.starlight-aside__icon {
+  width: 18px;
+  height: 18px;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.starlight-aside__content {
+  font-size: 15px;
+  line-height: 1.65;
+}
+.sl-markdown-content .starlight-aside code:not(:where(pre *, .not-content *)) {
+  background-color: var(--tp-docs-aside-code);
+}
+.sl-markdown-content .starlight-aside a:not(.sl-link-button) {
+  color: var(--sl-color-asides-text-accent);
 }
 
-/* Mermaid diagrams (ADR-0198).
+.starlight-aside--note {
+  --sl-color-asides-text-accent: #6fa0e8;
+  --sl-color-asides-border: #6fa0e8;
+  --tp-aside-line: #2a3a57;
+  background-color: #15223c;
+}
+.starlight-aside--tip {
+  --sl-color-asides-text-accent: #66b998;
+  --sl-color-asides-border: #66b998;
+  --tp-aside-line: #2a3a57;
+  background-color: #15223c;
+}
+.starlight-aside--caution {
+  --sl-color-asides-text-accent: #e9b35a;
+  --sl-color-asides-border: #e9b35a;
+  --tp-aside-line: #2a3a57;
+  background-color: #15223c;
+}
+.starlight-aside--danger {
+  --sl-color-asides-text-accent: #e8645a;
+  --sl-color-asides-border: #e8645a;
+  --tp-aside-line: #2a3a57;
+  background-color: #15223c;
+}
+:root[data-theme="light"] .starlight-aside--note {
+  --sl-color-asides-text-accent: #1d4f9f;
+  --sl-color-asides-border: #2f6fd1;
+  --tp-aside-line: #c9daf5;
+  background-color: #e5eefb;
+}
+:root[data-theme="light"] .starlight-aside--tip {
+  --sl-color-asides-text-accent: #316f57;
+  --sl-color-asides-border: #4fa884;
+  --tp-aside-line: #c4e4d5;
+  background-color: #edf7f2;
+}
+:root[data-theme="light"] .starlight-aside--caution {
+  --sl-color-asides-text-accent: #7a4b0a;
+  --sl-color-asides-border: #de9326;
+  --tp-aside-line: #f0d9ae;
+  background-color: #fbf0dc;
+}
+:root[data-theme="light"] .starlight-aside--danger {
+  --sl-color-asides-text-accent: #9b2c23;
+  --sl-color-asides-border: #cf4438;
+  --tp-aside-line: #f2c6c1;
+  background-color: #fbe6e4;
+}
+
+/* Version-status and edition callouts: a small mono stamp instead of an icon. */
+.starlight-aside:is(
+    [aria-label^="Ships in"],
+    [aria-label^="Coming in"],
+    [aria-label^="Added in"],
+    [aria-label="Edition"]
+  )
+  .starlight-aside__icon {
+  display: none;
+}
+.starlight-aside:is(
+    [aria-label^="Ships in"],
+    [aria-label^="Coming in"],
+    [aria-label^="Added in"],
+    [aria-label="Edition"]
+  )
+  .starlight-aside__title {
+  font-family: var(--sl-font-mono);
+  font-weight: 500;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Upcoming: dashed means "forecast, not yet" (ADR-0280), plus a milestone
+ * diamond, so it differs from a caution by pattern and glyph, not hue alone. */
+.starlight-aside:is([aria-label^="Ships in"], [aria-label^="Coming in"]) {
+  --sl-color-asides-text-accent: #f0b429;
+  --sl-color-asides-border: #f0b429;
+  --tp-aside-line: #6b4e14;
+  border-style: dashed;
+  border-inline-start-style: solid;
+  background-color: #15223c;
+}
+:root[data-theme="light"]
+  .starlight-aside:is([aria-label^="Ships in"], [aria-label^="Coming in"]) {
+  --sl-color-asides-text-accent: #7a4b0a;
+  --sl-color-asides-border: #e8a020;
+  --tp-aside-line: #e3c58a;
+  background-color: #fffbf2;
+}
+.starlight-aside:is([aria-label^="Ships in"], [aria-label^="Coming in"])
+  .starlight-aside__title::before {
+  content: "";
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  margin-inline: 2px;
+  background: var(--tp-aside-bar);
+  transform: rotate(45deg);
+}
+
+/* Shipped stamp: the mark's resolved node. */
+.starlight-aside[aria-label^="Added in"] {
+  --sl-color-asides-text-accent: #66b998;
+  --sl-color-asides-border: #66b998;
+  --tp-aside-line: #2a3a57;
+  background-color: transparent;
+}
+:root[data-theme="light"] .starlight-aside[aria-label^="Added in"] {
+  --sl-color-asides-text-accent: #316f57;
+  --sl-color-asides-border: #4fa884;
+  --tp-aside-line: #e5e0d5;
+  background-color: transparent;
+}
+.starlight-aside[aria-label^="Added in"] .starlight-aside__title::before {
+  content: "";
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--tp-aside-bar);
+}
+
+/* Edition: identity, so navy. */
+.starlight-aside[aria-label="Edition"] {
+  --sl-color-asides-text-accent: #b0bdd3;
+  --sl-color-asides-border: #8194b5;
+  --tp-aside-line: #2a3a57;
+  background-color: #15223c;
+}
+:root[data-theme="light"] .starlight-aside[aria-label="Edition"] {
+  --sl-color-asides-text-accent: #1b2a4a;
+  --sl-color-asides-border: #1b2a4a;
+  --tp-aside-line: #d8dfec;
+  background-color: #eef1f7;
+}
+
+/* ==========================================================================
+ * 8. Prose elements: inline code, tables, images, quotes, links, footer
+ * (Fenced code blocks are themed in astro.config.mjs, `expressiveCode`.)
+ * ========================================================================== */
+
+.sl-markdown-content code:not(:where(pre *, svg *, .not-content *)) {
+  padding: 0.1em 0.35em;
+  border: 1px solid var(--tp-docs-code-line);
+  border-radius: 4px;
+  font-size: 0.875em;
+  color: var(--sl-color-white);
+}
+
+/* `fit-content` keeps the border on the rows: Starlight's table is a scrolling
+ * block box, which would otherwise draw the frame wider than a narrow table. */
+.sl-markdown-content table:not(:where(.not-content *)) {
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid var(--tp-docs-line);
+  border-radius: 9px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.sl-markdown-content :is(th, td):not(:where(.not-content *)) {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--tp-docs-line);
+}
+.sl-markdown-content th:not(:where(.not-content *)) {
+  background-color: var(--tp-docs-th-bg);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--sl-color-white);
+}
+.sl-markdown-content td:not(:where(.not-content *)) {
+  font-size: 14.5px;
+  line-height: 1.55;
+}
+.sl-markdown-content tbody tr:last-child > td:not(:where(.not-content *)) {
+  border-bottom: 0;
+}
+.sl-markdown-content tbody tr:hover:not(:where(.not-content *)) {
+  background-color: var(--tp-docs-row-hover);
+}
+
+.sl-markdown-content img:not(:where(.not-content *)) {
+  display: block;
+  margin-block: 1.5rem;
+  border: 1px solid var(--tp-docs-shot-line);
+  border-radius: 12px;
+}
+
+.sl-markdown-content blockquote:not(:where(.not-content *)) {
+  border-inline-start: 3px solid var(--tp-docs-line-2);
+  color: var(--sl-color-gray-2);
+  font-style: normal;
+}
+.sl-markdown-content hr:not(:where(.not-content *)) {
+  border-bottom: 1px solid var(--tp-docs-line);
+}
+
+/* Links are always underlined: the link color against body ink is under 3:1,
+ * so color alone cannot mark one (WCAG 1.4.1). */
+.sl-markdown-content a:not(.sl-link-button, .sl-anchor-link):not(:where(.not-content *)) {
+  color: var(--tp-docs-link);
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+}
+.sl-markdown-content a:not(.sl-link-button, .sl-anchor-link):hover:not(:where(.not-content *)) {
+  text-decoration-color: currentColor;
+}
+
+.pagination-links a {
+  border: 1px solid var(--tp-docs-line);
+  border-radius: 12px;
+  box-shadow: none;
+}
+.pagination-links a:hover {
+  border-color: var(--tp-docs-link);
+}
+.pagination-links a > span {
+  font-family: var(--sl-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--tp-docs-mute);
+}
+.pagination-links .link-title {
+  font-family: var(--tp-docs-font-display);
+  font-weight: 600;
+  font-size: 17px;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--sl-color-white);
+}
+
+footer .meta {
+  font-size: 13px;
+  color: var(--sl-color-gray-3);
+}
+
+/* ==========================================================================
+ * 9. Landing: a contained navy panel in both themes, and quiet cards
+ * ========================================================================== */
+
+.hero {
+  grid-template-columns: minmax(0, 1fr);
+  margin-block: 2rem 2.5rem;
+  padding: 44px 24px;
+  border: 1px solid #2a3a57;
+  border-radius: 22px;
+  background: var(--tp-docs-hero-bg);
+}
+@media (min-width: 50rem) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 72px 56px;
+  }
+}
+/* The ring must clear 3:1 on the navy panel in the light theme too. */
+.hero :focus-visible {
+  outline-color: #66b998;
+}
+.hero .copy::before {
+  content: "Documentation";
+  /* The empty alternative text keeps the eyebrow out of the accessibility tree. */
+  content: "Documentation" / "";
+  padding-inline-start: 26px;
+  background: linear-gradient(#66b998, #66b998) left center / 16px 1px no-repeat;
+  font-family: var(--sl-font-mono);
+  font-weight: 500;
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #66b998;
+}
+.hero h1 {
+  max-width: 18ch;
+  font-family: var(--tp-docs-font-display);
+  font-weight: 600;
+  font-size: clamp(2.25rem, 1rem + 4vw, 3.75rem);
+  letter-spacing: -0.03em;
+  line-height: 1.02;
+  color: #e9edf3;
+}
+.hero .tagline {
+  max-width: 60ch;
+  font-size: clamp(1.0625rem, 0.9rem + 0.6vw, 1.25rem);
+  line-height: 1.55;
+  color: #9baac6;
+}
+.hero .actions {
+  gap: 0.75rem;
+}
+.hero .sl-link-button {
+  padding: 13px 20px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  font-weight: 500;
+  font-size: 15px;
+  line-height: 1.2;
+}
+.hero .sl-link-button.primary {
+  border-color: #66b998;
+  background: #66b998;
+  color: #0e1626;
+}
+.hero .sl-link-button.primary:hover {
+  border-color: #84cbac;
+  background: #84cbac;
+}
+.hero .sl-link-button.secondary {
+  border-color: #3a4d70;
+  background: transparent;
+  color: #e9edf3;
+}
+.hero .sl-link-button.secondary:hover {
+  border-color: #9baac6;
+  background: rgba(255, 255, 255, 0.04);
+}
+.hero .sl-link-button.minimal {
+  padding-inline: 8px;
+  color: #66b998;
+}
+.hero .sl-link-button.minimal:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .hero .sl-link-button {
+    transition:
+      color 120ms,
+      background-color 120ms,
+      border-color 120ms;
+  }
+  .hero .sl-link-button svg {
+    transition: transform 120ms;
+  }
+  .hero .sl-link-button:hover svg {
+    transform: translateX(3px);
+  }
+}
+
+/* Light-theme link buttons outside the hero. */
+:root[data-theme="light"] .sl-markdown-content .sl-link-button.primary {
+  border: 1px solid #316f57;
+  background: #4fa884;
+  color: #0e1626;
+}
+:root[data-theme="light"] .sl-markdown-content .sl-link-button.primary:hover {
+  background: #316f57;
+  color: #ffffff;
+}
+
+/* Cards: one calm treatment. Starlight cycles five hues by position, which
+ * would make color say something it does not mean. */
+.card.card {
+  --sl-card-border: var(--tp-docs-line-2);
+  --sl-card-bg: var(--tp-docs-chrome);
+  padding: 24px;
+  border: 1px solid var(--tp-docs-line);
+  border-radius: 14px;
+  background-color: var(--tp-docs-card-bg);
+}
+.card .title {
+  font-family: var(--tp-docs-font-display);
+  font-weight: 600;
+  font-size: 19px;
+  letter-spacing: -0.015em;
+  color: var(--sl-color-white);
+}
+.card .title .icon {
+  box-sizing: border-box;
+  width: 38px;
+  height: 38px;
+  padding: 8.5px;
+  border: 1px solid var(--tp-docs-line-2);
+  border-radius: 9px;
+  background-color: var(--tp-docs-icon-bg);
+  color: var(--tp-docs-link);
+}
+.card .body {
+  font-size: 15px;
+  color: var(--sl-color-gray-2);
+}
+
+/* ==========================================================================
+ * 10. Mermaid (ADR-0198)
  *
- * Diagrams are rendered to a single static inline <svg> at build time
- * (rehype-mermaid, strategy "inline-svg") using a design-system palette tuned to
- * read on BOTH the light (#ffffff) and dark (#17181c) page bodies — filled indigo
- * nodes with white labels and neutral gray-3 edges. Two defensive overrides keep
- * it correct in dark mode without any client-side JavaScript:
- *
- *   1. Mermaid bakes a near-black arrowhead fill (#0b0b0b) that is invisible on
- *      the dark body. Pin arrow markers to the neutral edge color (gray-3, the
- *      same hex in both modes) so edge direction stays visible in either theme.
- *   2. Center the diagram and let it shrink on narrow screens (mobile-first).
- */
+ * Diagrams are static inline <svg> rendered at build time, with a palette baked
+ * in astro.config.mjs. Filled chips carry their own contrast; the unfilled parts
+ * (edges, arrowheads, cluster outlines and titles) need a value per theme, which
+ * these overrides supply with no client-side JavaScript.
+ * ========================================================================== */
+
 svg[id^="mermaid-"] {
   display: block;
+  box-sizing: border-box;
   margin-inline: auto;
+  margin-block: 1.5rem;
   max-width: 100%;
   height: auto;
+  padding: 20px;
+  border: 1px solid var(--tp-docs-line);
+  border-radius: 12px;
+  background: var(--tp-docs-diagram-bg);
 }
-svg[id^="mermaid-"] .arrowheadPath,
-svg[id^="mermaid-"] marker path {
-  fill: #8b90a0 !important;
-  stroke: #8b90a0 !important;
+@media (max-width: 49.99em) {
+  svg[id^="mermaid-"] {
+    padding: 12px;
+  }
 }
+svg[id^="mermaid-"] :is(.flowchart-link, .edgePath .path, .transition) {
+  stroke: var(--tp-docs-diagram-line) !important;
+}
+svg[id^="mermaid-"] :is(.arrowheadPath, marker path) {
+  fill: var(--tp-docs-diagram-line) !important;
+  stroke: var(--tp-docs-diagram-line) !important;
+}
+svg[id^="mermaid-"] .cluster rect {
+  stroke: var(--tp-docs-diagram-line) !important;
+}
+svg[id^="mermaid-"] .cluster-label :is(span, p, div, text) {
+  color: var(--tp-docs-diagram-title) !important;
+  fill: var(--tp-docs-diagram-title) !important;
+}
+/* A subgraph the author filled (`style x fill:...`) is pale in both themes, so
+   its title needs dark ink rather than the per-theme title color. */
+svg[id^="mermaid-"] .cluster:has(> rect[style*="fill"]) .cluster-label :is(span, p, div, text) {
+  color: #141413 !important;
+  fill: #141413 !important;
+}
+
+/* ==========================================================================
+ * 11. Table of contents footprint
+ * ========================================================================== */
 
 /* "On this page" (right TOC) footprint.
  *
@@ -113,10 +857,6 @@ svg[id^="mermaid-"] marker path {
  * !important. Below 72rem Starlight already collapses the TOC into an inline
  * dropdown, so this only affects the two-column desktop layout.
  */
-:root {
-  --toc-column-width: 16rem;
-  --sl-content-width: 52rem;
-}
 @media (min-width: 72rem) {
   .right-sidebar-container {
     width: var(--toc-column-width);
@@ -129,8 +869,12 @@ svg[id^="mermaid-"] marker path {
   }
 }
 
+/* ==========================================================================
+ * 12. Mermaid block-beta
+ * ========================================================================== */
+
 /* Mermaid block-beta dependency diagrams (features/scheduler). Mermaid's own
-   `.cluster span, p { color: #8b90a0 }` rule is more specific than a classDef
+   `.cluster span, p` color rule (the neutral cluster-title color) is more specific than a classDef
    color and leaves the <p> inside each node at 2.7-3.2:1 on the pale panel
    fills. Scoped to block diagrams so other Mermaid types are untouched. */
 svg[aria-roledescription="block"] .pt p,
@@ -141,4 +885,22 @@ svg[aria-roledescription="block"] .ttl p {
 }
 svg[aria-roledescription="block"] .edgeLabel p {
   color: #fff !important;
+}
+
+/* ==========================================================================
+ * 13. Print: the navy panel becomes plain ink on paper.
+ * ========================================================================== */
+
+@media print {
+  .hero {
+    border: 0;
+    background: none;
+  }
+  .hero *,
+  .hero .copy::before {
+    color: #1b2a4a !important;
+  }
+  .hero .sl-link-button {
+    background: none !important;
+  }
 }
