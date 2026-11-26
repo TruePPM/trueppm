@@ -266,6 +266,65 @@ test.describe('shell v2 role homes: content and states', () => {
     await expect(page.getByRole('heading', { name: 'Forecast · Beacon Program' })).toBeVisible();
   });
 
+  const SHARE_LINK = {
+    id: '00000000-0000-0000-0000-0000000000a1',
+    content_kind: 'board',
+    token_prefix: 'prefix-0001',
+    label: 'Client review',
+    show_assignees: false,
+    show_milestone_dates: true,
+    status_update: null,
+    show_risks: false,
+    show_decisions: false,
+    created_by: 7,
+    created_by_name: 'Casey',
+    created_at: '2026-11-01T10:00:00Z',
+    expires_at: null,
+    revoked_at: null,
+    access_count: 4,
+    last_accessed_at: '2026-11-20T10:00:00Z',
+    is_active: true,
+    is_expired: false,
+  };
+
+  test('Executive home share status lists the selected program’s live links and revokes one', async ({
+    page,
+  }) => {
+    await setup(page, { home: 'exec' });
+    let links: unknown[] = [SHARE_LINK];
+    const revoked: string[] = [];
+    await page.route(`**/api/v1/projects/${PJ}/share-links/`, (r) => r.fulfill(json(links)));
+    await page.route(`**/api/v1/projects/${PJ}/share-links/*/revoke/`, (r) => {
+      revoked.push(r.request().url());
+      links = [];
+      return r.fulfill(json({ ...SHARE_LINK, is_active: false }));
+    });
+    await page.goto('/home');
+    const share = page.getByRole('region', { name: 'Share status' });
+    await expect(share.getByText('Client review')).toBeVisible();
+    await expect(share.getByText('Board · never expires · 4 views')).toBeVisible();
+    const revoke = share.getByRole('button', { name: 'Revoke Client review on Atlas Migration' });
+    expect((await revoke.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await revoke.click();
+    expect(revoked).toHaveLength(0);
+    await share.getByRole('button', { name: 'Revoke link' }).click();
+    await expect.poll(() => revoked.length).toBe(1);
+    // The list refetch is what removes the row: it must echo the write.
+    await expect(share.getByText('Not shared.')).toBeVisible();
+    await expect(page.getByText(/enterprise|upgrade/i)).toHaveCount(0);
+  });
+
+  test('Executive home share status says so when links cannot be read', async ({ page }) => {
+    await setup(page, { home: 'exec' });
+    await page.route(`**/api/v1/projects/${PJ}/share-links/`, (r) =>
+      r.fulfill(json({ detail: 'boom' }, 500)),
+    );
+    await page.goto('/home');
+    await expect(
+      page.getByRole('region', { name: 'Share status' }).getByText("Couldn't load share links."),
+    ).toBeVisible();
+  });
+
   test('Executive home with no program opens on the empty state', async ({ page }) => {
     await setup(page, { home: 'exec', programs: 'none' });
     await page.goto('/home');

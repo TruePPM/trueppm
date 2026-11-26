@@ -11,6 +11,7 @@ import { useProgramForecast } from './useProgramForecast';
 import { ProgramForecastHero } from './ProgramForecastHero';
 import { ProgramDecisionsCard } from './ProgramDecisionsCard';
 import { ProgramProjectsTable } from './ProgramProjectsTable';
+import { ProgramShareStatus } from './ProgramShareStatus';
 import { ProgramSwitcher } from './ProgramSwitcher';
 
 /**
@@ -96,6 +97,7 @@ export function ExecHome({ initialProgramId }: { initialProgramId: string | null
               )}
             </section>
           </div>
+          {!projectsQuery.error && !projectsQuery.isLoading && <ProgramShareStatus rows={rows} />}
         </div>
       )}
     </PageFrame>

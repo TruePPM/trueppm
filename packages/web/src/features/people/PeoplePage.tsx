@@ -5,6 +5,10 @@ import { SHELL_V2_FLAG } from '@/features/shell2/shellFlag';
 import { usePeopleLoad } from '@/hooks/usePeopleLoad';
 import { OverallocBanner } from '@/components/Overalloc';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { useUpdateHomeOverride } from '@/hooks/useHomeOverride';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { FOCUS_RING } from '@/components/page2/classes';
 import { LoadHeatMap } from './LoadHeatMap';
 
 const ResourcesPage = lazy(() =>
@@ -46,7 +50,10 @@ function PeoplePageBody() {
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-4 md:py-6">
-      <h1 className="text-lg font-semibold text-p1-text-1">People</h1>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-lg font-semibold text-p1-text-1">People</h1>
+        <MakeHomeControl />
+      </div>
       <div
         role="tablist"
         aria-label="People views"
@@ -103,6 +110,40 @@ function CapacityPanel() {
         onRetry={() => void refetch()}
         label="Load by person and week"
       />
+    </div>
+  );
+}
+
+/**
+ * "Make this my home" (#4770): sets `home_override = rm`, the same field the Preferences
+ * toggle writes (`RmHomeToggle`), so Home opens on team capacity. Once set it reads as a
+ * status, not a button; turning it off stays in Preferences, one control for one field.
+ */
+function MakeHomeControl() {
+  const { user } = useCurrentUser();
+  const update = useUpdateHomeOverride();
+  const online = useOnlineStatus();
+  if (user?.landing?.home === 'rm') {
+    return <p className="m-0 text-sm text-p1-text-2">Capacity is your home screen.</p>;
+  }
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <button
+        type="button"
+        disabled={!online || update.isPending}
+        onClick={() => update.mutate('rm')}
+        className={`inline-flex min-h-[44px] items-center rounded-md border border-p1-hairline bg-p1-surface-1 px-3 text-sm text-p1-text-1 hover:bg-p1-surface-2 disabled:opacity-60 ${FOCUS_RING}`}
+      >
+        Make this my home
+      </button>
+      {update.isError && (
+        <p role="alert" className="m-0 text-sm text-p1-critical">
+          Couldn&rsquo;t save your home screen. Try again.
+        </p>
+      )}
+      {!online && (
+        <p className="m-0 text-xs text-p1-text-2">Reconnect to change your home screen.</p>
+      )}
     </div>
   );
 }

@@ -168,6 +168,69 @@ test.describe('shell v2 People destination', () => {
     await expect(page.getByRole('tabpanel')).toBeVisible();
   });
 
+  test('"Make this my home" writes home_override = rm and then reads as a status', async ({
+    page,
+  }) => {
+    await setup(page, {});
+    const patches: unknown[] = [];
+    let home = 'contributor';
+    await page.route('**/api/v1/auth/me/profile/', async (r) => {
+      patches.push(r.request().postDataJSON());
+      home = 'rm';
+      await r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({ home_override: 'rm' }),
+      });
+    });
+    // The re-read after the write must echo it, or the status line can never appear.
+    await page.route('**/api/v1/auth/me/', async (r) => {
+      await r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: pj({
+          id: '7',
+          username: 'dana',
+          display_name: 'Dana',
+          initials: 'D',
+          email: 'dana@example.com',
+          max_project_role: 200,
+          workspace_role: null,
+          can_access_admin_settings: false,
+          default_landing: 'auto',
+          landing: {
+            intent: 'my_work',
+            path: '/me/work',
+            resolved_by: 'role_policy',
+            home,
+            home_program: null,
+          },
+        }),
+      });
+    });
+    await page.goto('/people');
+    const btn = page.getByRole('button', { name: 'Make this my home' });
+    expect((await btn.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    await btn.click();
+    await expect.poll(() => patches.length).toBe(1);
+    expect(patches[0]).toEqual({ home_override: 'rm' });
+    await expect(page.getByText('Capacity is your home screen.')).toBeVisible();
+    await expect(btn).toHaveCount(0);
+  });
+
+  test('"Make this my home" says so when the save fails', async ({ page }) => {
+    await setup(page, {});
+    await page.route('**/api/v1/auth/me/profile/', (r) =>
+      r.fulfill({ status: 500, contentType: 'application/json', body: pj({ detail: 'boom' }) }),
+    );
+    await page.goto('/people');
+    await page.getByRole('button', { name: 'Make this my home' }).click();
+    await expect(
+      page.getByRole('alert').filter({ hasText: 'save your home screen' }),
+    ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Make this my home' })).toBeVisible();
+  });
+
   test('empty range says so, with no upsell', async ({ page }) => {
     await setup(page, { load: EMPTY });
     await page.goto('/people');

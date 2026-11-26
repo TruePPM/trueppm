@@ -20,6 +20,9 @@ const h = vi.hoisted(() => ({
     unknown
   >,
 }));
+vi.mock('./ProgramShareStatus', () => ({
+  ProgramShareStatus: () => <div data-testid="share-status" />,
+}));
 vi.mock('@/hooks/usePrograms', () => ({ usePrograms: () => h.programs }));
 vi.mock('@/hooks/useProgramProjects', () => ({ useProgramProjects: () => h.projects }));
 vi.mock('@/hooks/useProjectsHealthSummary', () => ({
