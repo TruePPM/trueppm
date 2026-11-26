@@ -58,6 +58,8 @@ _SLACK_EVENT_META: dict[str, tuple[str, str]] = {
     "baseline.captured": ("Baseline captured", _SLACK_COLOR),
     "baseline.kept": ("Baseline kept", _SLACK_COLOR_NEUTRAL),
     "changeset.opened": ("Baseline changeset opened", _SLACK_COLOR_NEUTRAL),
+    "changeset.entry_added": ("Baseline changeset entry added", _SLACK_COLOR_NEUTRAL),
+    "changeset.entry_reasoned": ("Baseline changeset entry reasoned", _SLACK_COLOR_NEUTRAL),
     "schedule.change_undone": ("Schedule change undone", _SLACK_COLOR_NEUTRAL),
     "sprint.scope_change_requested": ("Sprint scope change requested", _SLACK_COLOR_CRITICAL),
     "schedule.finish_changed": ("Headline forecast changed", _SLACK_COLOR_NEUTRAL),
@@ -123,8 +125,9 @@ _SLACK_FIELDS_BY_EVENT: dict[str, tuple[tuple[str, str], ...]] = {
         ("Decision", "status"),
         ("Goal impact", "goal_impact"),
     ),
+    # No item name: the event is new under ADR-1485 D6 ("no names beyond the
+    # actor"), so it carries ids only and the title falls back to the row id.
     "sprint.scope_change_requested": (
-        ("Item", "item_name"),
         ("Kind", "kind"),
         ("Goal impact", "goal_impact"),
     ),

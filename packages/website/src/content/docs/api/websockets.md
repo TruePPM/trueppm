@@ -588,6 +588,8 @@ configured webhook endpoints:
 | `sprint.scope_change_requested` | No WS broadcast. A scope change is awaiting a decision (ADR-1485 D6). Ships in 0.5. |
 | `schedule.change_undone` | No WS broadcast. A structural act was undone (ADR-1485 D6). Ships in 0.5. |
 | `changeset.opened` | No WS broadcast under this name (a counts-only `changeset_updated` WS event exists). Ships in 0.5. |
+| `changeset.entry_added` | No WS broadcast under this name (a counts-only `changeset_updated` WS event exists). Each later changeset entry (ADR-1477). Ships in 0.5. |
+| `changeset.entry_reasoned` | No WS broadcast under this name (a counts-only `changeset_updated` WS event exists). An entry was given its reason (ADR-1477). Ships in 0.5. |
 | `baseline.kept` | No WS broadcast under this name. Keep v1 exit (ADR-1477). Ships in 0.5. |
 | `risk.opened` | No WS broadcast under this name (a generic `risk_created` WS event exists). First-party domain event (ADR-0206). |
 | `risk.escalated` | No WS broadcast under this name. Fires when computed severity (probability × impact) increases (ADR-0206). |
@@ -604,7 +606,7 @@ The OSS webhook event set is capped at 19 events: `task.created`,
 agile trio (`sprint.*`) was added in ADR-0147, raising the cap from 11 to 14; the
 risk/baseline/comment domain events were added in ADR-0206, raising it from 14 to
 19. In 0.5, ADR-1485 will add `schedule.finish_changed`, `schedule.change_undone` and
-`sprint.scope_change_requested`, and ADR-1477 `changeset.opened` and `baseline.kept`,
-raising it to 24. Adding
-a 25th event requires its own ADR — the cap is the gate against per-customer
+`sprint.scope_change_requested`, and ADR-1477 `changeset.opened`, `changeset.entry_added`,
+`changeset.entry_reasoned` and `baseline.kept`, raising it to 26. Adding
+a 27th event requires its own ADR — the cap is the gate against per-customer
 event proliferation.

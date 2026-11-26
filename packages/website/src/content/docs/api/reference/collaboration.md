@@ -15,9 +15,9 @@ Webhooks are scoped to a project or a program:
 | PUT / PATCH | `/api/v1/projects/{id}/webhooks/{wid}/` | Update |
 | DELETE | `/api/v1/projects/{id}/webhooks/{wid}/` | Delete |
 | POST | `/api/v1/projects/{id}/webhooks/{wid}/test/` | Send a test ping (Project Manager+) |
-| GET | `/api/v1/projects/{id}/webhooks/{wid}/deliveries/` | Delivery history, cursor-paginated (**Admin**) |
+| GET | `/api/v1/projects/{id}/webhooks/{wid}/deliveries/` | Delivery history, cursor-paginated (**Admin**, session or full-access token; a `webhooks:manage`-only token is refused, so it can replay a dead letter by id but cannot list them) |
 | POST | `/api/v1/projects/{id}/webhooks/{wid}/deliveries/{delivery_id}/replay/` | Replay a `failed` delivery (**Admin**, session or `webhooks:manage` token; ships in 0.5) |
-| POST | `/api/v1/programs/{id}/webhooks/{wid}/deliveries/{delivery_id}/replay/` | The same, for a program webhook (ships in 0.5) |
+| POST | `/api/v1/programs/{id}/webhooks/{wid}/deliveries/{delivery_id}/replay/` | The same, for a program webhook; registrant only (ships in 0.5) |
 
 On a **closed program**, creating or updating a program webhook returns `403`.
 Deleting one still works: the program's projects keep accepting writes, so its
@@ -25,7 +25,7 @@ webhooks keep delivering, and deleting is how you stop that without reopening th
 program. The test ping and delivery history also stay available.
 
 TruePPM emits **19 event types** across tasks, dependencies, schedule, projects,
-sprints, risks, baselines, and comments (0.5 will add five more, for 24: `schedule.finish_changed`, `schedule.change_undone`, `sprint.scope_change_requested`, `changeset.opened` and `baseline.kept`). The full catalog — every event name, what
+sprints, risks, baselines, and comments (0.5 will add seven more, for 26: `schedule.finish_changed`, `schedule.change_undone`, `sprint.scope_change_requested`, `changeset.opened`, `changeset.entry_added`, `changeset.entry_reasoned` and `baseline.kept`). The full catalog — every event name, what
 triggers it, the payload shape, HMAC signature verification, request headers,
 delivery ordering and gap detection, and the retry schedule — is documented in
 [Webhooks](/features/webhooks/). Start there before subscribing:

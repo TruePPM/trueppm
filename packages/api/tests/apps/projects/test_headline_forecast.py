@@ -275,6 +275,35 @@ def test_the_webhook_names_the_kind_when_velocity_is_shared_outward(
     }
 
 
+@pytest.mark.parametrize(
+    ("recorded_finish", "expected"),
+    [(date(2026, 3, 2), 5), (None, None)],
+    ids=["moved-a-week", "no-recorded-finish"],
+)
+def test_the_webhook_carries_the_finish_shift_in_working_days(
+    project: Project,
+    django_capture_on_commit_callbacks: Any,
+    recorded_finish: date | None,
+    expected: int | None,
+) -> None:
+    """Monday to the next Monday is five working days on the standard calendar.
+
+    ``None`` previous finish is the upgrade case: a state row written before the
+    ``finish`` column existed has no recorded finish, so the shift is unknown.
+    """
+    _share_velocity(project)
+    _tasks(project, 5)
+    note_headline_forecast_kind(project.pk)
+    HeadlineForecastState.objects.filter(project=project).update(finish=recorded_finish)
+    Task.objects.filter(project=project).update(early_finish=date(2026, 3, 9))
+    _velocity_history(project)
+
+    with patch(DISPATCH) as dispatch, django_capture_on_commit_callbacks(execute=True):
+        assert note_headline_forecast_kind(project.pk) is True
+
+    assert dispatch.call_args.args[2]["finish_delta_working_days"] == expected
+
+
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("row_exists", [True, False], ids=["row-lock", "first-insert"])
 def test_the_kind_is_computed_after_the_state_row_is_locked(

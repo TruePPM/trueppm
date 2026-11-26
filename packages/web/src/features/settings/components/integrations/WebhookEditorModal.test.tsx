@@ -324,6 +324,8 @@ describe('WebhookEditorModal — event selection', () => {
       'schedule.change_undone',
       'sprint.scope_change_requested',
       'changeset.opened',
+      'changeset.entry_added',
+      'changeset.entry_reasoned',
       'baseline.kept',
     ]) {
       expect(screen.getByText(id)).toBeInTheDocument();

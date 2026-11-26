@@ -80,11 +80,14 @@ def test_new_event_names_fit_the_column_and_are_registered() -> None:
         "schedule.change_undone",
         "sprint.scope_change_requested",
         "changeset.opened",
+        "changeset.entry_added",
+        "changeset.entry_reasoned",
         "baseline.kept",
     ):
         assert name in WebhookEventType.values
         assert len(name) <= 30
-    # sprint.commitment_at_risk has no emitter until #5127: not advertised.
+    # sprint.commitment_at_risk has no emitter until #5127 (which registers and
+    # emits it): not advertised.
     assert "sprint.commitment_at_risk" not in WebhookEventType.values
 
 
@@ -120,10 +123,19 @@ def test_first_entry_opens_the_changeset_once(
             "reason_state": "unreasoned",
             "task_ids": [str(tasks[0].pk)],
             "author": str(owner.pk),
-            "agent_actor_id": None,
+            "actor": {"agent_actor_id": None, "on_behalf_of": None},
+            "finish_impact": {
+                "before": entry.finish_before.isoformat(),
+                "after": None,
+                "_provenance": {"source": "cpm_early_finish", "computed": False},
+            },
             "opened_at": entry.opened_at.isoformat(),
         },
     }
+    # The second entry is announced as an addition, not as a second opener.
+    (added,) = _events(dispatch, "changeset.entry_added")
+    assert added["entry"]["kind"] == "add"
+    assert "baseline_version" not in added
 
 
 @pytest.mark.django_db
@@ -140,6 +152,125 @@ def test_a_batched_act_does_not_reopen(
                 committed, kind="move", surface="grid", actor=owner, tasks=[t]
             )
     assert len(_events(dispatch, "changeset.opened")) == 1
+    assert _events(dispatch, "changeset.entry_added") == []
+
+
+_ENTRY_KEYS = {
+    "id",
+    "kind",
+    "surface",
+    "reason_state",
+    "task_ids",
+    "author",
+    "actor",
+    "finish_impact",
+    "opened_at",
+}
+
+
+@pytest.mark.django_db
+def test_a_batched_session_after_the_opener_fires_exactly_one_entry_added(
+    committed: Project, owner: Any, django_capture_on_commit_callbacks: Any
+) -> None:
+    tasks = list(Task.objects.filter(project=committed))
+    amend.record_structural_change(
+        committed, kind="add", surface="grid", actor=owner, tasks=tasks[:1]
+    )  # the opener
+    with (
+        patch.object(views, "_dispatch_webhooks") as dispatch,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        for t in tasks:  # one group: three acts, one entry
+            amend.record_structural_change(
+                committed, kind="move", surface="gantt", actor=owner, tasks=[t]
+            )
+    (added,) = _events(dispatch, "changeset.entry_added")
+    assert set(added) == {"project", "baseline_id", "entry"}
+    assert set(added["entry"]) == _ENTRY_KEYS
+    assert added["entry"]["kind"] == "move"
+    assert added["entry"]["task_ids"] == [str(tasks[0].pk)]  # built at the entry's birth
+    assert _events(dispatch, "changeset.opened") == []
+
+
+@pytest.mark.django_db
+def test_an_agent_entry_names_the_agent_and_its_on_behalf_of_human(
+    committed: Project, owner: Any
+) -> None:
+    """No 0.5 write path sets ``agent_actor_id``; the payload contract is pinned here."""
+    tasks = list(Task.objects.filter(project=committed))
+    entry = amend.record_structural_change(
+        committed, kind="move", surface="api", actor=owner, tasks=tasks[:1]
+    )
+    agent = uuid.uuid4()
+    entry.agent_actor_id = agent
+    entry.finish_after = date(2026, 3, 27)
+    body = amend.entry_webhook_payload(entry)
+    assert body["actor"] == {"agent_actor_id": str(agent), "on_behalf_of": str(owner.pk)}
+    assert body["finish_impact"]["after"] == "2026-03-27"
+    assert body["finish_impact"]["_provenance"]["computed"] is True
+    assert set(body) == _ENTRY_KEYS
+
+
+@pytest.mark.django_db
+def test_answering_a_reason_fires_entry_reasoned_once(
+    committed: Project, owner: Any, django_capture_on_commit_callbacks: Any
+) -> None:
+    tasks = list(Task.objects.filter(project=committed))
+    entry = amend.record_structural_change(
+        committed, kind="move", surface="grid", actor=owner, tasks=tasks[:1]
+    )
+    c = APIClient()
+    c.force_authenticate(user=owner)
+    url = f"/api/v1/projects/{committed.pk}/changeset/entries/{entry.pk}/"
+    with (
+        patch.object(views, "_dispatch_webhooks") as dispatch,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        assert c.patch(url, {"reason": "Permit slipped"}, format="json").status_code == 200
+        assert c.patch(url, {"reason": "Again"}, format="json").status_code == 409
+    (reasoned,) = _events(dispatch, "changeset.entry_reasoned")
+    assert set(reasoned) == {"project", "baseline_id", "entry"}
+    assert reasoned["entry"]["id"] == str(entry.pk)
+    assert reasoned["entry"]["reason_state"] == "reasoned"
+    assert "Permit slipped" not in str(reasoned)  # no reason text on the wire
+
+
+@pytest.mark.django_db
+def test_an_inline_reasoned_entry_is_not_also_announced_as_reasoned(
+    committed: Project, owner: Any, django_capture_on_commit_callbacks: Any
+) -> None:
+    tasks = list(Task.objects.filter(project=committed))
+    with (
+        patch.object(views, "_dispatch_webhooks") as dispatch,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        amend.record_structural_change(
+            committed, kind="move", surface="grid", actor=owner, tasks=tasks[:1], reason="Why"
+        )
+    assert _events(dispatch, "changeset.opened")[0]["entry"]["reason_state"] == "reasoned"
+    assert _events(dispatch, "changeset.entry_reasoned") == []
+
+
+@pytest.mark.django_db
+def test_the_opener_check_locks_the_active_baseline(committed: Project, owner: Any) -> None:
+    """Two concurrent first entries with different keys share no entry row to lock,
+    so the "first since this baseline" read is serialized on the baseline row."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    tasks = list(Task.objects.filter(project=committed))
+    with CaptureQueriesContext(connection) as ctx:
+        amend.record_structural_change(
+            committed, kind="move", surface="grid", actor=owner, tasks=tasks[:1], reason="r"
+        )
+    locked = [
+        q["sql"]
+        for q in ctx.captured_queries
+        if q["sql"].lstrip().startswith("SELECT")
+        and 'FROM "projects_baseline"' in q["sql"]
+        and q["sql"].rstrip().endswith("FOR UPDATE")
+    ]
+    assert len(locked) == 1
 
 
 @pytest.mark.django_db
@@ -234,7 +365,9 @@ def test_take_v2_captured_carries_the_reason_and_v1_does_not(
     (captured,) = _events(dispatch, "baseline.captured")
     assert captured["reason_code"] == "scope_change"
     assert captured["reason"] == "Owner added scope"
-    assert captured["commitment_moved"] is False
+    # Derived from the decision, not asserted: the row and the event agree, and a
+    # True is refused until #3901 (test below), so both are False today.
+    assert captured["commitment_moved"] is row.commitment_moved is False
     assert captured["changeset_id"] == str(row.pk)
     assert _events(dispatch, "baseline.kept") == []
 
@@ -250,6 +383,136 @@ def test_take_v2_captured_carries_the_reason_and_v1_does_not(
 
 
 # --- #5131 sprint scope requests --------------------------------------------
+
+
+_SCOPE_KEYS = {
+    "id",
+    "sprint",
+    "project",
+    "task",
+    "status",
+    "kind",
+    "goal_impact",
+    "requested_by",
+    "decided_by",
+    "added_at",
+    "source",
+}
+_SLIP_KEYS = {"batch_id", "proposed_start", "proposed_finish", "proposed_duration"}
+
+
+@pytest.fixture
+def active_sprint(committed: Project) -> Sprint:
+    sprint = Sprint.objects.create(
+        project=committed,
+        name="S1",
+        start_date=date(2026, 3, 2),
+        finish_date=date(2026, 3, 13),
+        state=SprintState.ACTIVE,
+    )
+    Task.objects.filter(project=committed).update(sprint=sprint)
+    return sprint
+
+
+def _slip(task: Task, sprint: Sprint, by: Any, **kw: Any) -> Any:
+    from trueppm_api.apps.projects.services import record_commitment_slip
+
+    return record_commitment_slip(
+        task=task,
+        sprint=sprint,
+        by=by,
+        proposed_start=task.planned_start,
+        proposed_finish=date(2026, 3, 27),
+        proposed_duration=task.duration + 5,
+        base_start=task.planned_start,
+        base_duration=task.duration,
+        **kw,
+    )
+
+
+@pytest.mark.django_db
+def test_a_direct_slip_with_a_reason_is_a_decision(
+    committed: Project, owner: Any, active_sprint: Sprint, django_capture_on_commit_callbacks: Any
+) -> None:
+    task = Task.objects.filter(project=committed).first()
+    assert task is not None
+    with (
+        patch.object(views, "_dispatch_webhooks") as dispatch,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        _slip(task, active_sprint, owner, status="accepted", reason="Vendor late")
+    (changed,) = _events(dispatch, "sprint.scope_changed")
+    assert set(changed) == _SCOPE_KEYS | _SLIP_KEYS | {"item_name"}  # D6 amendment
+    assert changed["status"] == "accepted"
+    assert changed["kind"] == "slip"
+    assert changed["decided_by"] == str(owner.pk)
+    assert _events(dispatch, "sprint.scope_change_requested") == []
+
+
+@pytest.mark.django_db
+def test_a_pending_slip_requests_and_its_reject_decides(
+    committed: Project, owner: Any, active_sprint: Sprint, django_capture_on_commit_callbacks: Any
+) -> None:
+    from trueppm_api.apps.projects.services import reject_scope_change
+
+    task = Task.objects.filter(project=committed).first()
+    assert task is not None
+    with (
+        patch.object(views, "_dispatch_webhooks") as dispatch,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        row = _slip(task, active_sprint, owner)
+    (requested,) = _events(dispatch, "sprint.scope_change_requested")
+    assert set(requested) == _SCOPE_KEYS | _SLIP_KEYS
+    assert _events(dispatch, "sprint.scope_changed") == []
+
+    with (
+        patch.object(views, "_dispatch_webhooks") as dispatch,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        reject_scope_change(row, owner)
+    (changed,) = _events(dispatch, "sprint.scope_changed")
+    assert changed["id"] == str(row.pk)
+    assert changed["status"] == "rejected"
+    assert changed["decided_by"] == str(owner.pk)
+
+
+@pytest.mark.django_db
+def test_a_pending_slip_accept_decides(
+    committed: Project, owner: Any, active_sprint: Sprint, django_capture_on_commit_callbacks: Any
+) -> None:
+    from trueppm_api.apps.projects.services import accept_scope_change
+
+    task = Task.objects.filter(project=committed).first()
+    assert task is not None
+    row = _slip(task, active_sprint, owner)
+    with (
+        patch.object(views, "_dispatch_webhooks") as dispatch,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        accept_scope_change(row, owner, reason="Fine")
+    (changed,) = _events(dispatch, "sprint.scope_changed")
+    assert changed["id"] == str(row.pk)
+    assert changed["status"] == "accepted"
+
+
+@pytest.mark.django_db
+def test_a_system_closed_slip_announces_no_decision(
+    committed: Project, owner: Any, active_sprint: Sprint, django_capture_on_commit_callbacks: Any
+) -> None:
+    """A superseded slip is closed with no decider: nobody decided anything."""
+    task = Task.objects.filter(project=committed).first()
+    assert task is not None
+    first = _slip(task, active_sprint, owner)
+    with (
+        patch.object(views, "_dispatch_webhooks") as dispatch,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        second = _slip(task, active_sprint, owner)
+    first.refresh_from_db()
+    assert first.status == "rejected" and first.decided_by_id is None
+    assert _events(dispatch, "sprint.scope_changed") == []
+    assert [e["id"] for e in _events(dispatch, "sprint.scope_change_requested")] == [str(second.pk)]
 
 
 @pytest.mark.django_db
@@ -276,7 +539,6 @@ def test_an_injection_request_fires_scope_change_requested(
         "sprint": str(sprint.pk),
         "project": str(committed.pk),
         "task": str(task.pk),
-        "item_name": task.name,
         "status": "pending",
         "kind": "injection",
         "goal_impact": False,
@@ -285,6 +547,8 @@ def test_an_injection_request_fires_scope_change_requested(
         "added_at": sc.added_at.isoformat(),
         "source": "api",
     }
+    # ADR-1485 D6: a new event carries no names beyond the actor.
+    assert "item_name" not in payload
     assert _events(dispatch, "sprint.scope_changed") == []
 
 
@@ -371,6 +635,7 @@ def test_replay_requeues_a_failed_delivery_under_the_same_identity(
     hook = _webhook(committed, owner)
     delivery = _failed_delivery(hook)
     sequence = delivery.sequence_number
+    before = delivery.created_at
     c = APIClient()
     c.force_authenticate(user=owner)
     with (
@@ -385,6 +650,139 @@ def test_replay_requeues_a_failed_delivery_under_the_same_identity(
     assert delivery.status == DeliveryStatus.PENDING
     assert delivery.attempt_count == 0
     assert delivery.sequence_number == sequence
+    # The drain clock restarts, so the next drain tick does not resend it.
+    assert delivery.created_at > before
+
+
+@pytest.mark.django_db
+def test_commitment_moved_cannot_be_taken_until_the_field_exists(
+    committed: Project, owner: Any
+) -> None:
+    """If #3901 lifts this refusal, ``commitment_moved`` starts flowing from the input."""
+    with pytest.raises(baselines.DecisionRefused) as refused:
+        baselines.decide(
+            committed,
+            user=owner,
+            data=baselines.DecisionInput(
+                kind="taken", reason_code="scope_change", reason="x", commitment_moved=True
+            ),
+        )
+    assert refused.value.body == {"code": "commitment_not_available"}
+
+
+@pytest.mark.django_db
+def test_two_dispatches_of_a_replayed_delivery_send_one_request(
+    committed: Project, owner: Any, django_capture_on_commit_callbacks: Any
+) -> None:
+    from datetime import timedelta as td
+    from unittest.mock import MagicMock
+
+    from django.utils import timezone
+
+    from trueppm_api.apps.webhooks import tasks as wh_tasks
+
+    hook = _webhook(committed, owner)
+    delivery = _failed_delivery(hook)
+    # An old dead letter: before the fix, its created_at put it straight back in
+    # the drain's stranded selector the moment replay reset it to PENDING.
+    WebhookDelivery.objects.filter(pk=delivery.pk).update(created_at=timezone.now() - td(days=3))
+    c = APIClient()
+    c.force_authenticate(user=owner)
+    with (
+        patch("trueppm_api.apps.webhooks.views.deliver_webhook"),
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        assert c.post(_replay_url(committed, hook, delivery)).status_code == 202
+
+    sent: list[object] = []
+
+    def ok(req: object, **kwargs: object) -> MagicMock:
+        sent.append(req)
+        resp = MagicMock()
+        resp.status = 200
+        resp.__enter__ = lambda s: s
+        resp.__exit__ = MagicMock(return_value=False)
+        return resp
+
+    with (
+        patch.object(wh_tasks, "assert_url_allowed"),
+        patch.object(wh_tasks._no_redirect_opener, "open", side_effect=ok),
+        patch.object(wh_tasks.deliver_webhook, "delay") as drained,
+    ):
+        wh_tasks._do_drain_webhooks()  # the next drain tick
+        assert drained.call_count == 0
+        wh_tasks.deliver_webhook.run(str(delivery.pk))  # the replay's own dispatch
+        wh_tasks.deliver_webhook.run(str(delivery.pk))  # any late duplicate
+    assert len(sent) == 1
+    delivery.refresh_from_db()
+    assert delivery.status == DeliveryStatus.SUCCESS
+
+
+def _program_hook(owner: Any) -> tuple[Any, Webhook]:
+    from trueppm_api.apps.access.models import ProgramMembership
+    from trueppm_api.apps.projects.models import Program
+
+    program = Program.objects.create(name="Prog")
+    ProgramMembership.objects.create(program=program, user=owner, role=Role.ADMIN)
+    hook = Webhook.objects.create(
+        program=program,
+        url="https://example.com/hook",
+        secret="s" * 40,
+        events=["baseline.kept"],
+        created_by=owner,
+    )
+    return program, hook
+
+
+def _program_replay_url(program: Any, hook: Webhook, delivery: WebhookDelivery) -> str:
+    return f"/api/v1/programs/{program.pk}/webhooks/{hook.pk}/deliveries/{delivery.pk}/replay/"
+
+
+@pytest.mark.django_db
+def test_program_replay_is_registrant_only(
+    owner: Any, django_capture_on_commit_callbacks: Any
+) -> None:
+    from trueppm_api.apps.access.models import ProgramMembership
+
+    program, hook = _program_hook(owner)
+    delivery = _failed_delivery(hook)
+    other_admin = get_user_model().objects.create_user(username="ev-padmin", password="pw")
+    ProgramMembership.objects.create(program=program, user=other_admin, role=Role.ADMIN)
+    oc = APIClient()
+    oc.force_authenticate(user=other_admin)
+    assert oc.post(_program_replay_url(program, hook, delivery)).status_code == 403
+
+    c = APIClient()
+    c.force_authenticate(user=owner)
+    with (
+        patch("trueppm_api.apps.webhooks.views.deliver_webhook") as task,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        assert c.post(_program_replay_url(program, hook, delivery)).status_code == 202
+    task.delay.assert_called_once_with(str(delivery.pk))
+
+
+@pytest.mark.django_db
+def test_replay_cannot_reach_another_scopes_delivery(committed: Project, owner: Any) -> None:
+    """IDOR: a delivery id from another project's or another program's webhook is 404."""
+    elsewhere = Project.objects.create(name="Other", start_date=date(2026, 3, 2))
+    ProjectMembership.objects.create(project=elsewhere, user=owner, role=Role.OWNER)
+    foreign_project_delivery = _failed_delivery(_webhook(elsewhere, owner))
+    program, program_hook = _program_hook(owner)
+    foreign_program_delivery = _failed_delivery(program_hook)
+
+    mine = _webhook(committed, owner)
+    c = APIClient()
+    c.force_authenticate(user=owner)
+    for foreign in (foreign_project_delivery, foreign_program_delivery):
+        assert c.post(_replay_url(committed, mine, foreign)).status_code == 404
+        foreign.refresh_from_db()
+        assert foreign.status == DeliveryStatus.FAILED
+    # And the program route cannot reach a project webhook's delivery.
+    assert (
+        c.post(_program_replay_url(program, program_hook, foreign_project_delivery)).status_code
+        == 404
+    )
 
 
 @pytest.mark.django_db

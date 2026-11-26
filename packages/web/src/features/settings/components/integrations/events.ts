@@ -97,6 +97,8 @@ export const WEBHOOK_EVENT_CATALOG: WebhookEventGroup[] = [
       { id: 'baseline.captured', label: 'Baseline captured', isNew: true },
       { id: 'baseline.kept', label: 'Baseline kept (variance stands)', isNew: true },
       { id: 'changeset.opened', label: 'Baseline changeset opened', isNew: true },
+      { id: 'changeset.entry_added', label: 'Baseline changeset entry added', isNew: true },
+      { id: 'changeset.entry_reasoned', label: 'Changeset entry given a reason', isNew: true },
     ],
   },
   {

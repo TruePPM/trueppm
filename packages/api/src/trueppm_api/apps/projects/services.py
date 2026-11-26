@@ -3489,7 +3489,8 @@ def accept_scope_change(
         sprint_id_str = str(sprint.pk)
         task_id_str = str(task.pk)
         # ADR-0147: build the sprint.scope_changed webhook payload while the row is
-        # loaded inside the transaction, fired only here (accept), never on reject or
+        # loaded inside the transaction. Since ADR-1485 D6 the event fires on every
+        # decision (this accept, reject_scope_change, a decided slip), never on a
         # silent injection. Carries no velocity signal, so no privacy gate applies.
         scope_payload = _sprint_scope_change_webhook_payload(locked, source="api")
 
@@ -4069,8 +4070,14 @@ def _on_commit_scope_webhook(row: Any, event_type: str, *, source: str = "api") 
     """Send ``sprint.scope_changed`` / ``sprint.scope_change_requested`` after commit.
 
     The payload is built now, inside the write transaction, and captured by value.
-    ``_dispatch_webhooks`` is a registered outbox helper: it inserts the delivery
-    rows before enqueueing, so a lost broker call is replayed by the drain.
+    ``_dispatch_webhooks`` inserts the delivery rows before enqueueing, so a lost
+    broker call is replayed by the drain; but it runs in the on-commit callback,
+    not in the write transaction, so a crash between the commit and the callback
+    loses the event (the pre-existing pattern for every webhook).
+
+    ``sprint.scope_change_requested`` is new under ADR-1485 D6 and carries no
+    ``item_name`` (no names beyond the actor). ``sprint.scope_changed`` keeps it for
+    its existing subscribers (recorded as a D6 amendment).
     """
     from trueppm_api.apps.projects.views import (
         _dispatch_webhooks,
@@ -4078,6 +4085,8 @@ def _on_commit_scope_webhook(row: Any, event_type: str, *, source: str = "api") 
     )
 
     payload = _sprint_scope_change_webhook_payload(row, source=source)
+    if event_type == "sprint.scope_change_requested":
+        payload.pop("item_name", None)
     pid = payload["project"]
     transaction.on_commit(lambda: _dispatch_webhooks(pid, event_type, payload))
 

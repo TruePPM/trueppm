@@ -422,7 +422,10 @@ def decide(
                 webhook_extra={
                     "reason_code": data.reason_code or "",
                     "reason": data.reason,
-                    "commitment_moved": False,
+                    # Derived, not asserted: a True is refused above until #3901
+                    # adds the commitment field, so this is False today and follows
+                    # the input the day the refusal goes.
+                    "commitment_moved": data.commitment_moved,
                     "changeset_id": str(decision_pk),
                 },
             )
@@ -436,7 +439,7 @@ def decide(
             reason_code=(data.reason_code or "") if data.kind == BaselineDecisionKind.TAKEN else "",
             reason=data.reason if data.kind == BaselineDecisionKind.TAKEN else "",
             note=data.note if data.kind == BaselineDecisionKind.KEPT else "",
-            commitment_moved=False,
+            commitment_moved=data.commitment_moved,
             decision=program_decision,
             entry_ids=entry_ids,
             finish_at_decision=amend.current_finish(locked.pk),

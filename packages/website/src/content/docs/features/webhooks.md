@@ -113,7 +113,7 @@ Point a `slack`-format webhook at a Slack/Discord/Mattermost incoming-webhook UR
 
 ## Event types
 
-OSS fires **19 event types** (a deliberate hard cap), and 0.5 will add five more: `schedule.finish_changed`, `schedule.change_undone`, `sprint.scope_change_requested`, `changeset.opened` and `baseline.kept`, for 24:
+OSS fires **19 event types** (a deliberate hard cap), and 0.5 will add seven more: `schedule.finish_changed`, `schedule.change_undone`, `sprint.scope_change_requested`, `changeset.opened`, `changeset.entry_added`, `changeset.entry_reasoned` and `baseline.kept`, for 26:
 
 | Event | When fired |
 |-------|-----------|
@@ -135,6 +135,8 @@ OSS fires **19 event types** (a deliberate hard cap), and 0.5 will add five more
 | `sprint.scope_change_requested` | A scope change is left awaiting a decision: a mid-sprint injection or a commitment slip (ships in 0.5) |
 | `schedule.change_undone` | A structural act on the plan was undone; `event_id` names the reversed change (ships in 0.5) |
 | `changeset.opened` | The first structural change since a baseline was taken, on a committed plan (ships in 0.5) |
+| `changeset.entry_added` | Each later changeset entry on a committed plan: once per entry, not per act, so a batched editing session sends one (ships in 0.5) |
+| `changeset.entry_reasoned` | An unreasoned changeset entry is given its reason (ships in 0.5) |
 | `baseline.kept` | **Keep v1, let variance stand**: the plan's active baseline was kept on purpose (ships in 0.5) |
 | `risk.opened` | A risk is created (new risks default to status OPEN) |
 | `risk.escalated` | A risk's computed severity (probability × impact) increases |
@@ -146,11 +148,20 @@ OSS fires **19 event types** (a deliberate hard cap), and 0.5 will add five more
 0.4 and earlier do not have this event. From 0.5 it is sent **only when the team has shared the `velocity` signal outward** (audience `program_shared` in the project's signal-privacy settings). Which forecast a project headlines tells a reader whether it has a velocity forecast, so under the default audience no event is sent, even to a subscribed webhook. When sharing is on, it fires when the project's headline forecast switches between `cpm_monte_carlo` and `team_velocity`, checked after a schedule recalculation and after a sprint close. The check runs only at those two moments, so another change (for example a new dependency before the recalculation runs) is announced at the next one. The first check of a project records the kind and sends nothing, and a switch that happened before you turned sharing on is not sent afterwards. The payload is `project`, `finish_delta_working_days` (how far the project finish moved since the previous check, in working days, positive is later, `null` when either finish is unknown), `velocity_suppressed` (always `false`), `headline_forecast_kind`, `headline_forecast_reason`, and `previous_headline_forecast_kind`; it carries no velocity figure.
 ::::
 
+::::note[Ships in 0.5: changeset, undo and scope-request payloads]
+These payloads carry ids, enums, counts and dates, with no names beyond the actor.
+
+- The three `changeset.*` events carry `project`, `baseline_id` and an `entry` object: `id`, `kind`, `surface`, `reason_state`, `task_ids`, `author`, `actor` (`agent_actor_id` and `on_behalf_of`, the human an agent acted for; both `null` for a person's own edit), `finish_impact` (`before`, `after` and a `_provenance` block; `after` is `null` until the recalculation that follows the change) and `opened_at`. `changeset.opened` also carries `baseline_version`. No task names and no reason text: read the changeset for those. Edits that land in the same open group within two minutes are one entry and send one event.
+- `schedule.change_undone` fires for an undo from the structural operations list. Undoing a paste, a cascade classification, an import fix or a template application sends nothing yet, and the payload carries no finish delta (#5151); the finish change arrives with `schedule.recalculated`.
+- `sprint.scope_change_requested` carries no item name. `sprint.scope_changed` keeps its `item_name` field, which it has carried since 0.3, so existing subscribers keep working.
+- `sprint.commitment_at_risk` is not in the catalog yet: it arrives with the commitment at-risk detection (#5127).
+::::
+
 All of them are selectable from the **Integrations** settings page as well as the API. A single PATCH that both reassigns a task and moves its date fires `task.updated` **plus** the specific events — subscribe to whichever you want.
 
 The last four task events were added in 0.2 (available since the `0.2.0-alpha.1` pre-release).
 
-The three `sprint.*` events were added in **0.3** so external dashboards, Slack, and CI can observe the sprint cadence. `sprint.scope_changed` fires only when a mid-sprint injection is *accepted* (it models scope that entered the commitment) — never on a silent injection or a reject.
+The three `sprint.*` events were added in **0.3** so external dashboards, Slack, and CI can observe the sprint cadence. In 0.3 and 0.4 `sprint.scope_changed` fires only when a mid-sprint injection is *accepted* (it models scope that entered the commitment), never on a silent injection or a reject. From 0.5 it fires on every decision, a reject included, and never on a silent injection or on a slip the system closes (superseded or stale).
 
 The five `risk.*`, `baseline.*`, and `comment.created` events shipped in **0.4**, extending the catalog beyond agile so external reporting and alerting tooling can observe the risk register, baseline captures, and the comment thread. `risk.escalated` fires whenever an update raises the computed severity (probability × impact); `risk.closed` fires on the transition into CLOSED (never on a move to RESOLVED or another state). A single risk update may fire both `risk.escalated` and `risk.closed`. `comment.created` fires for *every* comment (distinct from `task.mentioned`, which fires only when a comment @mentions someone) and deliberately carries **no comment body** — only the comment id, author, task context, and timestamp — so a webhook consumer never receives comment content.
 
@@ -501,8 +512,16 @@ consumer deduplicates on either. Delivery is **at-least-once**: expect to see th
 `delivery_id` more than once and treat it as the idempotency key. The stored body is
 re-sent unchanged and the signature is recomputed.
 
-Replay needs Admin on the scope, from a session or a `webhooks:manage` token. A
-full-access (`api:full`) token is refused with `403`. It answers `404` for a delivery
+Replay needs Admin on the scope, from a session or a `webhooks:manage` token. On a
+program webhook it also needs you to be the webhook's registrant, the same rule as
+the program delivery log: another Program Admin is refused with `403`. A
+full-access (`api:full`) token is refused with `403`.
+
+**A `webhooks:manage`-only token can replay a delivery by id but cannot list them.**
+The delivery history (including `?status=failed`) is refused to a narrow-scoped
+token, because each record carries a full past payload. Find dead-letter ids from a
+signed-in session or a full-access token, or from your own receiver's logs (the
+`X-TruePPM-Delivery` header), then replay them with the narrow token. It answers `404` for a delivery
 that is not this webhook's, and `409` when the delivery is not `failed` or the webhook
 is inactive.
 

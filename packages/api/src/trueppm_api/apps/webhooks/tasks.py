@@ -372,10 +372,24 @@ def deliver_webhook(self: object, delivery_id: str) -> None:
     """
     from trueppm_api.apps.webhooks.models import DeliveryStatus, WebhookDelivery
 
+    # Terminal-state guard: a SUCCESS or FAILED row is never sent again, so a
+    # second dispatch of one row (the on-commit enqueue and a drain tick, or a
+    # replay's enqueue and a drain tick) that runs after the first finished does
+    # nothing. Only terminal states are refused, so a Celery retry or an
+    # acks_late redelivery of a PENDING row still proceeds (at-least-once). Two
+    # dispatches in flight at the same moment can still both send; consumers
+    # deduplicate on X-TruePPM-Delivery. A lock held across the HTTP call would
+    # close that too, but would also hold a transaction open for up to the
+    # 30-second soft limit and roll back the pre-retry save on ``task.retry``.
     try:
         delivery = WebhookDelivery.objects.select_related("webhook").get(pk=delivery_id)
     except WebhookDelivery.DoesNotExist:
         logger.warning("deliver_webhook: delivery %s not found, skipping", delivery_id)
+        return
+    if delivery.status != DeliveryStatus.PENDING:
+        logger.info(
+            "deliver_webhook: delivery %s is already %s, skipping", delivery_id, delivery.status
+        )
         return
 
     webhook = delivery.webhook

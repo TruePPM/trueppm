@@ -31489,7 +31489,7 @@
         "/api/v1/projects/{project_pk}/changeset/entries/{entry_pk}/": {
             "patch": {
                 "operationId": "v1_projects_changeset_entries_partial_update",
-                "description": "PATCH /projects/{project_pk}/changeset/entries/{entry_pk}/ ``{reason}`` — answer once.\n\nSet-once: a second write is ``409 reason_already_set``. A given reason cannot\nbe edited, only noted (Q3.6) — the trail is evidence. Answering closes the\ngroup, so a later act opens a new entry rather than reopening a reasoned one.\nSends no notification (D11: notified once, on the change).",
+                "description": "PATCH /projects/{project_pk}/changeset/entries/{entry_pk}/ ``{reason}`` — answer once.\n\nSet-once: a second write is ``409 reason_already_set``. A given reason cannot\nbe edited, only noted (Q3.6) — the trail is evidence. Answering closes the\ngroup, so a later act opens a new entry rather than reopening a reasoned one.\nSends no notification (D11: notified once, on the change); the\n``changeset.entry_reasoned`` webhook is the integrator's signal (#5121).",
                 "summary": "Answer a changeset entry's reason",
                 "parameters": [
                     {
@@ -67921,11 +67921,13 @@
                     "schedule.change_undone",
                     "sprint.scope_change_requested",
                     "changeset.opened",
+                    "changeset.entry_added",
+                    "changeset.entry_reasoned",
                     "baseline.kept",
                     "ping"
                 ],
                 "type": "string",
-                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed\n* `risk.opened` - Risk Opened\n* `risk.escalated` - Risk Escalated\n* `risk.closed` - Risk Closed\n* `baseline.captured` - Baseline Captured\n* `comment.created` - Comment Created\n* `schedule.finish_changed` - Schedule Finish Changed\n* `schedule.change_undone` - Schedule Change Undone\n* `sprint.scope_change_requested` - Sprint Scope Change Requested\n* `changeset.opened` - Changeset Opened\n* `baseline.kept` - Baseline Kept\n* `ping` - Test Ping",
+                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed\n* `risk.opened` - Risk Opened\n* `risk.escalated` - Risk Escalated\n* `risk.closed` - Risk Closed\n* `baseline.captured` - Baseline Captured\n* `comment.created` - Comment Created\n* `schedule.finish_changed` - Schedule Finish Changed\n* `schedule.change_undone` - Schedule Change Undone\n* `sprint.scope_change_requested` - Sprint Scope Change Requested\n* `changeset.opened` - Changeset Opened\n* `changeset.entry_added` - Changeset Entry Added\n* `changeset.entry_reasoned` - Changeset Entry Reasoned\n* `baseline.kept` - Baseline Kept\n* `ping` - Test Ping",
                 "x-trueppm-enum": "open"
             },
             "EventsEnum": {
@@ -67953,10 +67955,12 @@
                     "schedule.change_undone",
                     "sprint.scope_change_requested",
                     "changeset.opened",
+                    "changeset.entry_added",
+                    "changeset.entry_reasoned",
                     "baseline.kept"
                 ],
                 "type": "string",
-                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed\n* `risk.opened` - Risk Opened\n* `risk.escalated` - Risk Escalated\n* `risk.closed` - Risk Closed\n* `baseline.captured` - Baseline Captured\n* `comment.created` - Comment Created\n* `schedule.finish_changed` - Schedule Finish Changed\n* `schedule.change_undone` - Schedule Change Undone\n* `sprint.scope_change_requested` - Sprint Scope Change Requested\n* `changeset.opened` - Changeset Opened\n* `baseline.kept` - Baseline Kept",
+                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed\n* `risk.opened` - Risk Opened\n* `risk.escalated` - Risk Escalated\n* `risk.closed` - Risk Closed\n* `baseline.captured` - Baseline Captured\n* `comment.created` - Comment Created\n* `schedule.finish_changed` - Schedule Finish Changed\n* `schedule.change_undone` - Schedule Change Undone\n* `sprint.scope_change_requested` - Sprint Scope Change Requested\n* `changeset.opened` - Changeset Opened\n* `changeset.entry_added` - Changeset Entry Added\n* `changeset.entry_reasoned` - Changeset Entry Reasoned\n* `baseline.kept` - Baseline Kept",
                 "x-trueppm-enum": "open"
             },
             "ExecutorKindEnum": {

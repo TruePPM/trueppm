@@ -256,7 +256,8 @@ class ChangesetEntryReasonView(IdempotencyMixin, APIView):
     Set-once: a second write is ``409 reason_already_set``. A given reason cannot
     be edited, only noted (Q3.6) — the trail is evidence. Answering closes the
     group, so a later act opens a new entry rather than reopening a reasoned one.
-    Sends no notification (D11: notified once, on the change).
+    Sends no notification (D11: notified once, on the change); the
+    ``changeset.entry_reasoned`` webhook is the integrator's signal (#5121).
     """
 
     permission_classes = (
@@ -292,6 +293,8 @@ class ChangesetEntryReasonView(IdempotencyMixin, APIView):
             entry.reason_at = now
             entry.closed_at = entry.closed_at or now
             entry.save(update_fields=["reason", "reason_by", "reason_at", "closed_at"])
+            # Set-once (the 409 above), so this fires at most once per entry.
+            amend.announce_entry(project, entry, "changeset.entry_reasoned")
             amend.broadcast_changeset(project.pk)
         return Response(ChangesetEntrySerializer(entry).data)
 

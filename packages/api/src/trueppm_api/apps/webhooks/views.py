@@ -7,6 +7,7 @@ import logging
 import redis as redis_lib
 from django.db import transaction
 from django.db.models import QuerySet
+from django.utils import timezone
 from django.utils.translation import gettext as _
 from drf_spectacular.utils import (
     OpenApiParameter,
@@ -575,15 +576,28 @@ class WebhookViewSet(
                 raise NotFound("Delivery not found.") from None
             if delivery.status != DeliveryStatus.FAILED or not webhook.is_active:
                 raise ReplayRefused()
-            # Back to the state a freshly written delivery has. The PENDING row is
-            # committed before the enqueue, so a lost broker call is picked up by
-            # drain_webhook_queue (attempt_count=0) rather than lost.
+            # Back to the state a freshly written delivery has, created_at included.
+            # The drain re-dispatches PENDING, attempt_count=0 rows older than
+            # _DRAIN_ORPHAN_MINUTES; a replayed row keeping its original (old)
+            # created_at would be re-dispatched by the next drain tick alongside the
+            # on-commit enqueue below, so every replay would send twice. Restarting
+            # the clock gives the enqueue the same head start a new delivery gets, and
+            # a lost broker call is still drained, just after the usual window.
+            # deliver_webhook's terminal-state guard makes a late second dispatch a
+            # no-op.
             delivery.status = DeliveryStatus.PENDING
             delivery.attempt_count = 0
             delivery.response_status = None
             delivery.completed_at = None
+            delivery.created_at = timezone.now()
             delivery.save(
-                update_fields=["status", "attempt_count", "response_status", "completed_at"]
+                update_fields=[
+                    "status",
+                    "attempt_count",
+                    "response_status",
+                    "completed_at",
+                    "created_at",
+                ]
             )
             replay_id = str(delivery.pk)
 
