@@ -133,8 +133,9 @@ view a project has turned off may still be listed. Today the palette shows only 
 that project, or a reference such as `PLAT-T-10` (a task), `PLAT-SP-3` (a sprint) or
 `PLAT-R-7` (a risk) and a **Reference** group at the top of the palette offers it;
 Enter opens it, wherever you are. A reference is resolved on the server, so a key
-that was renamed still finds the same item and the row shows its current form. A
-reference to something you cannot see reads "No matches", the same as one that does
+that was renamed still finds the same item and the row shows its current form. The
+lookup covers only projects you are a member of (for a program key, programs you are
+a member of); a reference outside them reads "No matches", the same as one that does
 not exist. Until then, open the project and search its tasks by name.
 :::
 

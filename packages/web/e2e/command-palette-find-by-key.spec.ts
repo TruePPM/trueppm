@@ -13,12 +13,42 @@ import {
  *
  * Golden path: a task reference resolves, the row shows the current form, and
  * Enter opens the task under the project key; a bare key in capitals offers its
- * project. Empty state: a reference the server
- * 404s (missing or not visible, indistinguishable by design) reads "No matches".
+ * project. A risk reference opened from the register
+ * itself opens that risk's drawer. Empty state: a reference the server 404s
+ * (missing, or in a project you are not a member of, indistinguishable by design)
+ * reads "No matches".
  */
 
 const PROJECT: ProjectFixture = { id: 'cmdk-key-proj', name: 'Platform Core' };
 const TASK_ID = '7a1d0c4e-2b3f-4c5d-8e9f-0a1b2c3d4e5f';
+const RISK_ID = '9b2e1d5f-3c4a-4d6e-9f10-1b2c3d4e5f6a';
+const RISK = {
+  id: RISK_ID,
+  short_id: '7',
+  short_id_display: 'R-007',
+  qualified_id: 'PLAT-R-7',
+  server_version: 1,
+  project: PROJECT.id,
+  title: 'Vendor delay',
+  description: 'Lead time may slip',
+  status: 'OPEN',
+  probability: 4,
+  impact: 4,
+  severity: 16,
+  owner: null,
+  owner_name: null,
+  owner_initials: null,
+  created_by: null,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: '2026-01-02T00:00:00Z',
+  tasks: [],
+  category: 'TECHNICAL',
+  response: 'MITIGATE',
+  mitigation_due_date: null,
+  trigger: '',
+  contingency: '',
+  notes: '',
+};
 
 async function setup(page: Page, refs: string[]): Promise<void> {
   await setupAuth(page);
@@ -49,6 +79,19 @@ async function setup(page: Page, refs: string[]): Promise<void> {
           program_id: null,
           key: 'PLAT',
           canonical_ref: 'PLAT',
+        },
+      });
+      return;
+    }
+    if (ref.toUpperCase() === 'PLAT-R-7') {
+      await route.fulfill({
+        json: {
+          type: 'risk',
+          id: RISK_ID,
+          project_id: PROJECT.id,
+          program_id: null,
+          key: 'PLAT',
+          canonical_ref: 'PLAT-R-7',
         },
       });
       return;
@@ -88,6 +131,27 @@ test.describe('command palette: find by key', () => {
     await expect(dialog.getByRole('option', { name: 'PLAT Project', exact: true })).toBeVisible();
     await expect(dialog.getByText('Reference', { exact: true })).toBeVisible();
     expect(refs).toContain('PLAT');
+  });
+
+  test('a risk reference opened from the register opens that risk', async ({ page }) => {
+    const refs: string[] = [];
+    await setup(page, refs);
+    await page.route('**/api/v1/projects/*/risks/', (route) =>
+      route.fulfill({ json: { count: 1, next: null, previous: null, results: [RISK] } }),
+    );
+    await page.goto('/projects/PLAT/risk');
+    await expect(page.getByRole('button', { name: 'Open risk: Vendor delay' })).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+
+    await page.keyboard.press('Control+k');
+    const palette = page.getByRole('dialog', { name: 'Command palette' });
+    await expect(palette).toBeVisible();
+    await paletteSearch(page).fill('PLAT-R-7');
+    await expect(palette.getByRole('option', { name: 'PLAT-R-7 Risk', exact: true })).toBeVisible();
+    await paletteSearch(page).press('Enter');
+
+    await expect(page).toHaveURL(new RegExp(`/projects/PLAT/risk\\?risk=${RISK_ID}$`));
+    await expect(page.getByRole('dialog').getByText('Vendor delay').first()).toBeVisible();
   });
 
   test('a reference the server does not resolve reads as no matches', async ({ page }) => {

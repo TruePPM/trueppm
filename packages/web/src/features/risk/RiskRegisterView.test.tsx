@@ -1,8 +1,12 @@
-import { fireEvent, screen, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { createMemoryRouter, RouterProvider, useLocation } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 // RiskRegisterView reads `?severity=high` via useSearchParams (#1691), so it
 // needs a Router in the tree — use the router-wrapping render helper.
-import { renderWithProvidersAndRouter as renderWithProviders } from '@/test/utils';
+import {
+  renderWithProviders as renderWithPlainProviders,
+  renderWithProvidersAndRouter as renderWithProviders,
+} from '@/test/utils';
 import type { Risk } from '@/api/types';
 
 const FIXTURE_RISK: Risk = {
@@ -115,7 +119,7 @@ vi.mock('./RiskImportModal', () => ({
 // imports the entire risk subtree just to assert a layout invariant would
 // otherwise drag global branch coverage below the 78% threshold.
 vi.mock('./RiskDrawer', () => ({
-  RiskDrawer: ({ risk }: { risk: Risk | null }) => (
+  RiskDrawer: ({ risk, onClose }: { risk: Risk | null; onClose: () => void }) => (
     <div
       role="dialog"
       aria-modal="true"
@@ -123,6 +127,9 @@ vi.mock('./RiskDrawer', () => ({
       className="hidden md:flex w-[480px] shrink-0 flex-col"
     >
       drawer
+      <button type="button" onClick={onClose}>
+        Close drawer
+      </button>
     </div>
   ),
 }));
@@ -555,5 +562,80 @@ describe('RiskRegisterView', () => {
     // is replaced by the animated skeleton until the query resolves.
     expect(screen.getByRole('complementary', { name: 'Risk heatmap' })).toBeInTheDocument();
     expect(screen.queryByTestId('risk-matrix')).toBeNull();
+  });
+});
+
+// A ⌘K risk reference navigates while the register is already mounted (#3888):
+// the route keeps the view across search and project changes.
+describe('RiskRegisterView ?risk= while mounted', () => {
+  const OTHER_PROJECT_RISK: Risk = {
+    ...FIXTURE_RISK,
+    id: 'risk-900',
+    project: 'p2',
+    title: 'Other project risk',
+  };
+  const one = () => screen.getByRole('dialog', { name: 'Critical infrastructure failure' });
+
+  function Page() {
+    return (
+      <>
+        <RiskRegisterView />
+        <span data-testid="search">{useLocation().search}</span>
+      </>
+    );
+  }
+
+  function mount(entry: string) {
+    const router = createMemoryRouter([{ path: '/:project/risk', element: <Page /> }], {
+      initialEntries: [entry],
+    });
+    renderWithPlainProviders(<RouterProvider router={router} />);
+    return (to: string) => act(async () => void (await router.navigate(to)));
+  }
+
+  beforeEach(() => {
+    useProjectIdState.value = 'p1';
+    useRisksState.risks = [FIXTURE_RISK, HIGH_RISK];
+    useRisksState.isLoading = false;
+    useRisksState.error = null;
+    localStorage.clear();
+  });
+
+  it('opens the named risk when no drawer is open', async () => {
+    const go = mount('/p1/risk');
+    await go('/p1/risk?risk=risk-002');
+    expect(screen.getByRole('dialog', { name: 'Vendor delay' })).toBeInTheDocument();
+    expect(screen.getByTestId('search')).toHaveTextContent('?risk=risk-002');
+  });
+
+  it('switches an open drawer to the named risk and keeps the URL on it', async () => {
+    const go = mount('/p1/risk?risk=risk-001');
+    expect(one()).toBeInTheDocument();
+    await go('/p1/risk?risk=risk-002');
+    expect(screen.getByRole('dialog', { name: 'Vendor delay' })).toBeInTheDocument();
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    expect(screen.getByTestId('search')).toHaveTextContent('?risk=risk-002');
+  });
+
+  it('does not reopen a drawer the user closed, and reopens on a new navigation', async () => {
+    const go = mount('/p1/risk?risk=risk-001');
+    fireEvent.click(screen.getByRole('button', { name: 'Close drawer' }));
+    await waitFor(() => expect(screen.getByTestId('search').textContent).toBe(''));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await go('/p1/risk?risk=risk-001');
+    expect(one()).toBeInTheDocument();
+  });
+
+  it('closes the old drawer across projects and opens the target once it loads', async () => {
+    const go = mount('/p1/risk?risk=risk-001');
+    useProjectIdState.value = 'p2';
+    useRisksState.risks = [];
+    await go('/p2/risk?risk=risk-900');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByTestId('search')).toHaveTextContent('?risk=risk-900');
+
+    useRisksState.risks = [OTHER_PROJECT_RISK];
+    await go('/p2/risk?risk=risk-900');
+    expect(screen.getByRole('dialog', { name: 'Other project risk' })).toBeInTheDocument();
   });
 });
