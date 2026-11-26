@@ -104,8 +104,8 @@ frozen snapshot, with a **Read-only** label. It has no workspace navigation and 
 link into TruePPM, and it follows the reader's light or dark setting. On a phone the
 narrative shows its first paragraph and a **Read all N paragraphs** button. A link
 that is unknown, revoked or expired shows the same "This link isn't available" page.
-The page makes one request, to the public share endpoint, and none to the signed-in
-API.
+The page makes no request to the signed-in API. It reads the public share endpoint
+and the anonymous edition check (`/api/v1/edition/`).
 
 ## What the snapshot holds
 

@@ -69,6 +69,7 @@ test.describe('Public status update share', () => {
     await page.goto('/share/status-update/tok123');
 
     await expect(page.getByRole('heading', { name: 'Riverside Renovation' })).toBeVisible();
+    await expect(page.getByTestId('status-update-public-page')).toBeVisible();
     await expect(page.getByTestId('share-read-only-chip')).toHaveText('Read-only');
     await expect(page.getByTestId('share-call')).toContainText('At risk');
     await expect(page.getByText('Next call Friday.')).toBeVisible();
@@ -106,6 +107,6 @@ test.describe('Public status update share', () => {
     );
     await page.goto('/share/status-update/nope');
     await expect(page.getByRole('heading', { name: 'This link isn’t available' })).toBeVisible();
-    await expect(page.getByTestId('status-update-share')).toHaveCount(0);
+    await expect(page.getByTestId('status-update-public-page')).toHaveCount(0);
   });
 });

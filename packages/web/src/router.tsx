@@ -283,13 +283,13 @@ const PublicBoardSharePage = lazy(() =>
   })),
 );
 
-// Public read-only schedule share viewer (#1486, ADR-0265) — unauthenticated sibling
-// of the board viewer; lazy so it adds nothing to the logged-in app bundle.
 const PublicStatusUpdateSharePage = lazy(() =>
   import('@/features/share/PublicStatusUpdateSharePage').then((m) => ({
     default: m.PublicStatusUpdateSharePage,
   })),
 );
+// Public read-only schedule share viewer (#1486, ADR-0265) — unauthenticated sibling
+// of the board viewer; lazy so it adds nothing to the logged-in app bundle.
 const PublicScheduleSharePage = lazy(() =>
   import('@/features/share/PublicScheduleSharePage').then((m) => ({
     default: m.PublicScheduleSharePage,

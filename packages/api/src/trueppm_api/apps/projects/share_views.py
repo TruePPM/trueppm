@@ -119,8 +119,10 @@ class ProjectShareLinkListCreateView(IdempotencyMixin, APIView):
     def get(self, request: Request, project_pk: str) -> Response:
         project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
         self.check_object_permissions(request, project)
-        # select_related: ``created_by_name`` reads the creator's name per row.
-        links = project.share_links.filter(revoked_at__isnull=True).select_related("created_by")
+        # select_related: ``created_by_name`` and ``status_update_seq`` read a row each.
+        links = project.share_links.filter(revoked_at__isnull=True).select_related(
+            "created_by", "status_update"
+        )
         return Response(ShareLinkSerializer(links, many=True).data)
 
     @extend_schema(

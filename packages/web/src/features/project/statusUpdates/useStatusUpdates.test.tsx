@@ -45,7 +45,9 @@ describe('downloadStatusUpdatePdf', () => {
       responseType: 'blob',
     });
     expect(click).toHaveBeenCalledOnce();
-    expect(revoke).toHaveBeenCalledWith('blob:x');
+    // Deferred past the click, so the browser can still read the URL.
+    expect(revoke).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(revoke).toHaveBeenCalledWith('blob:x'));
   });
 
   it('rejects when the server refuses, so the row can say so', async () => {

@@ -88,7 +88,7 @@ function ShareBody({ data }: { data: PublicStatusUpdate }) {
   const band = asHealthBand(data.computed_health);
   const posted = fmtUtcMedium(data.posted_at);
   return (
-    <div className="min-h-screen bg-p1-surface-0" data-testid="status-update-share">
+    <div className="min-h-screen bg-p1-surface-0" data-testid="status-update-public-page">
       {/* A bare header, not app chrome: no navigation and no link into the workspace. */}
       <header className="border-b border-p1-hairline bg-p1-surface-1">
         <div className="mx-auto flex min-h-[44px] max-w-3xl items-center justify-between gap-2 px-4">

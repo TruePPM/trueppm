@@ -1,6 +1,7 @@
 ---
 title: Public sharing (board & schedule)
 description: Generate a public, revocable, read-only link to a project's board or schedule so external stakeholders can view status without a TruePPM login.
+documentedFor: "0.5"
 ---
 
 **Public sharing** lets a project Admin hand a stakeholder — a client, a sponsor,
@@ -44,6 +45,14 @@ In the dialog:
 The Sharing page groups active links by kind (**Schedule** / **Board**) and shows each
 link's label, a non-revealing prefix, its expiry, who created it, and how many times it
 has been viewed.
+
+:::note[Ships in 0.5]
+A Project Manager or above can also share one posted
+[status update](/features/status-updates/) from its history. Such a link is created
+there, not from **Create link…**, and always expires. The Sharing page lists it in a
+third group, **Status update**, with the update's number, and you revoke it there as
+you would a board or schedule link. The current release has no status-update links.
+:::
 
 ## What a viewer sees — and doesn't
 

@@ -37,6 +37,9 @@ class ShareLinkSerializer(serializers.ModelSerializer[ShareLink]):
         read_only=True, allow_null=True
     )
     created_by_name = serializers.SerializerMethodField()
+    # The bound update's number, so the management list can say which update a
+    # status-update link publishes without a second read. Null on other kinds.
+    status_update_seq = serializers.SerializerMethodField()
     is_active = serializers.BooleanField(read_only=True)
 
     class Meta:
@@ -49,6 +52,7 @@ class ShareLinkSerializer(serializers.ModelSerializer[ShareLink]):
             "show_assignees",
             "show_milestone_dates",
             "status_update",
+            "status_update_seq",
             "show_risks",
             "show_decisions",
             "created_by",
@@ -62,6 +66,11 @@ class ShareLinkSerializer(serializers.ModelSerializer[ShareLink]):
             "is_expired",
         ]
         read_only_fields = fields
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_status_update_seq(self, obj: ShareLink) -> int | None:
+        update = obj.status_update
+        return None if update is None else update.seq
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_created_by_name(self, obj: ShareLink) -> str | None:

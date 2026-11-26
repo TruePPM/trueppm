@@ -358,4 +358,20 @@ describe('ProjectSharingPage — failed GET (#3542)', () => {
     render(<ProjectSharingPage />);
     expect(screen.getByRole('button', { name: 'Create link…' })).toBeEnabled();
   });
+
+  it('lists a status-update link with its update number and revokes it (#4805)', async () => {
+    const user = userEvent.setup();
+    sharedLinksResult = {
+      data: [link({ id: 'u1', contentKind: 'status_update', statusUpdateSeq: 3, label: '' })],
+      isLoading: false,
+    };
+    render(<ProjectSharingPage />);
+    expect(screen.getByRole('heading', { name: /Status update links/ })).toBeInTheDocument();
+    expect(screen.getByText(/update 3/)).toBeInTheDocument();
+    expect(screen.getByText(/share\/status-update\//)).toBeInTheDocument();
+    expect(screen.queryByText(/No share links yet/i)).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Revoke' }));
+    await user.click(screen.getByRole('button', { name: 'Confirm' }));
+    expect(revokeMutate).toHaveBeenCalledWith('u1', expect.anything());
+  });
 });

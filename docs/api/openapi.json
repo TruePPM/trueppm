@@ -86886,6 +86886,11 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "status_update_seq": {
+                        "type": "integer",
+                        "nullable": true,
+                        "readOnly": true
+                    },
                     "show_risks": {
                         "type": "boolean",
                         "readOnly": true,
@@ -86964,6 +86969,7 @@
                     "show_milestone_dates",
                     "show_risks",
                     "status_update",
+                    "status_update_seq",
                     "token_prefix"
                 ]
             },
@@ -87056,6 +87062,11 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "status_update_seq": {
+                        "type": "integer",
+                        "nullable": true,
+                        "readOnly": true
+                    },
                     "show_risks": {
                         "type": "boolean",
                         "readOnly": true,
@@ -87143,6 +87154,7 @@
                     "show_milestone_dates",
                     "show_risks",
                     "status_update",
+                    "status_update_seq",
                     "token",
                     "token_prefix"
                 ]

@@ -146,4 +146,49 @@ test.describe('Project Settings → Sharing (#283 / #1486)', () => {
     await sharing.getByRole('button', { name: 'Retry' }).click();
     await expect(sharing.getByText('Client board')).toBeVisible();
   });
+
+  test('lists a status-update link and revokes it (#4805)', async ({ page }) => {
+    await setup(page);
+    let revoked = false;
+    const statusLink = {
+      ...FIXTURE_LINK,
+      id: 'link-su',
+      content_kind: 'status_update',
+      label: '',
+      status_update: 'update-3',
+      status_update_seq: 3,
+      show_risks: false,
+      show_decisions: false,
+      expires_at: '2099-01-01T00:00:00Z',
+    };
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/share-links/`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(revoked ? [] : [statusLink]),
+      }),
+    );
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/share-links/link-su/revoke/`, (r) => {
+      revoked = true;
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          ...statusLink,
+          is_active: false,
+          revoked_at: '2026-05-02T00:00:00Z',
+        }),
+      });
+    });
+
+    await page.goto(`/projects/${PROJECT_ID}/settings#sharing`);
+
+    const sharing = page.getByRole('region', { name: 'Sharing', exact: true });
+    await expect(sharing.getByRole('heading', { name: /Status update links/ })).toBeVisible();
+    await expect(sharing.getByText(/update 3/)).toBeVisible();
+    await sharing.getByRole('button', { name: 'Revoke', exact: true }).click();
+    await sharing.getByRole('button', { name: 'Confirm' }).click();
+    await expect(sharing.getByText(/No share links yet/i)).toBeVisible();
+    expect(revoked).toBe(true);
+  });
 });

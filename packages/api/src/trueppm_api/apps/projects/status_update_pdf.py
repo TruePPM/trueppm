@@ -45,6 +45,9 @@ MAX_DECISION_ROWS = 3
 #: Wrapped narrative lines. 600 characters wrap to about 8 lines on either page; the
 #: cap only bites on a narrative of many short lines, which ends in an ellipsis.
 MAX_NARRATIVE_LINES = 14
+#: Per footer paragraph. Three paragraphs at three lines each reach up into the
+#: longest body on Letter, so each is held to two and ellipsized past that.
+MAX_FOOTER_PARAGRAPH_LINES = 2
 #: Bump when the drawing changes, so cached files from the old layout are not served.
 LAYOUT_VERSION = 1
 CACHE_SECONDS = 7 * 24 * 3600
@@ -576,7 +579,11 @@ def layout_status_update(facts: PdfFacts, size: str) -> _Page:
     ]
     flines: list[str] = []
     for para in footer:
-        flines.extend(wrap(para, inner, 7)[:3])
+        wrapped = wrap(para, inner, 7)
+        if len(wrapped) > MAX_FOOTER_PARAGRAPH_LINES:
+            wrapped = wrapped[:MAX_FOOTER_PARAGRAPH_LINES]
+            wrapped[-1] = fit(wrapped[-1] + ELLIPSIS, inner, 7)
+        flines.extend(wrapped)
     fy = ph - MARGIN - 11 * len(flines)
     page.footer_top = fy - 10
     page.rule(left, fy - 10, inner)

@@ -2,13 +2,15 @@
 
 PDF: members only, Letter and A4, drawn from the frozen snapshot, one page for the
 longest allowed content, refused when the row no longer matches its seal. Share:
-the anonymous read serves the frozen projection, and an unknown, revoked or expired
-token is the same 404 (no enumeration oracle).
+the anonymous read serves the frozen projection, and an unknown or expired token is
+the same 404 (no enumeration oracle). Revoked tokens are covered in
+``test_status_updates.py``.
 """
 
 from __future__ import annotations
 
 import re
+import secrets
 import zlib
 from datetime import date, timedelta
 from typing import Any
@@ -22,7 +24,14 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects import share_services, status_update_pdf
-from trueppm_api.apps.projects.models import Calendar, Project, Task
+from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
+from trueppm_api.apps.projects.models import (
+    SCOPE_MCP_READ,
+    ApiToken,
+    Calendar,
+    Project,
+    Task,
+)
 
 User = get_user_model()
 
@@ -206,6 +215,28 @@ def test_pdf_is_cached_per_update_and_follows_a_rename(
     assert b"Riverside Phase 2" in _text(renamed)
 
 
+@pytest.mark.django_db
+def test_mcp_read_token_can_download(project: Project, pm_client: APIClient, settings: Any) -> None:
+    settings.TRUEPPM_MCP_ENABLED = True
+    created = _post(pm_client, project)
+    owner = User.objects.get(username="pm")
+    raw = f"{TOKEN_PREFIX}{secrets.token_hex(32)}"
+    ApiToken.objects.create(
+        owner=owner,
+        name="reader",
+        token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
+        token_hash=sha256_hex(raw),
+        created_by=owner,
+        scopes=[SCOPE_MCP_READ],
+        expires_at=timezone.now() + timedelta(days=30),
+    )
+    agent = APIClient()
+    agent.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+    resp = agent.get(_pdf_url(project, created["id"]))
+    assert resp.status_code == 200
+    assert resp.content.startswith(b"%PDF-1.4")
+
+
 # --- One page for the longest allowed content --------------------------------------
 
 
@@ -214,7 +245,7 @@ def _longest_facts() -> status_update_pdf.PdfFacts:
         return {
             "value": value,
             "as_of": "2026-11-25T12:00:00+00:00",
-            "definition": "A long definition sentence that wraps across the page. " * 3,
+            "definition": "A long definition sentence that wraps across the page. " * 12,
         }
 
     long = "W" * 200
@@ -275,7 +306,14 @@ def test_longest_content_fits_one_page(size: str, narrative: str) -> None:
     facts = _longest_facts()
     facts = status_update_pdf.PdfFacts(**{**facts.__dict__, "narrative": narrative})
     page = status_update_pdf.layout_status_update(facts, size)
-    _, height = status_update_pdf.PAGE_SIZES[size]
+    width, height = status_update_pdf.PAGE_SIZES[size]
+    # The definitions must overrun the footer cap, or the worst case is not tested.
+    definition = facts.snapshot["forecast"]["p80"]["definition"]
+    inner = width - 2 * status_update_pdf.MARGIN
+    assert (
+        len(status_update_pdf.wrap(f"P80: {definition}", inner, 7))
+        > status_update_pdf.MAX_FOOTER_PARAGRAPH_LINES
+    )
     assert page.body_bottom < page.footer_top, "body runs into the footer"
     assert page.lowest <= height - status_update_pdf.MARGIN + 10
     pdf = status_update_pdf.render_pdf(facts, size)
@@ -304,6 +342,8 @@ def test_anonymous_share_read_and_uniform_404(project: Project, pm_client: APICl
         {"content_kind": "status_update", "status_update": created["id"]},
         format="json",
     ).json()
+    listed = pm_client.get(f"/api/v1/projects/{project.pk}/share-links/").json()
+    assert [(r["content_kind"], r["status_update_seq"]) for r in listed] == [("status_update", 1)]
     anon = APIClient()
     ok = anon.get(f"/api/v1/share/status-update/{minted['token']}/")
     assert ok.status_code == 200

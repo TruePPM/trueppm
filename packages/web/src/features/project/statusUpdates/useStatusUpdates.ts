@@ -85,7 +85,9 @@ export async function downloadStatusUpdatePdf(
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
-  URL.revokeObjectURL(url);
+  // Deferred: some browsers start the download after click() returns, and a URL
+  // revoked in the same tick saves nothing.
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 /** What the one-time mint returns that the row shows: the raw token's path, once. */
