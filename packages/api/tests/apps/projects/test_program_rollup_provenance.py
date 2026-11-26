@@ -461,3 +461,60 @@ def test_query_count_does_not_grow_with_projects(program: Program, calendar: Cal
         _critical(p)
         _run(p, datetime.date(2027, 1, 1 + i), timezone.now())
     assert count() == two
+
+
+# ---------------------------------------------------------------------------
+# Overview summary tiles (#4799)
+# ---------------------------------------------------------------------------
+
+
+def test_summary_counts_risks_and_only_cross_project_accepted_links(
+    member: Any, program: Program, calendar: Calendar
+) -> None:
+    from trueppm_api.apps.projects.models import Dependency, Risk, RiskStatus
+
+    a = _project(program, calendar, "A")
+    b = _project(program, calendar, "B")
+    other = Project.objects.create(
+        name="Elsewhere", start_date=datetime.date(2026, 1, 1), calendar=calendar
+    )
+    ta = Task.objects.create(project=a, name="a1", duration=1)
+    ta2 = Task.objects.create(project=a, name="a2", duration=1)
+    tb = Task.objects.create(project=b, name="b1", duration=1)
+    to = Task.objects.create(project=other, name="o1", duration=1)
+    Dependency.objects.create(predecessor=ta, successor=tb)  # counts
+    Dependency.objects.create(predecessor=ta, successor=ta2)  # same project
+    Dependency.objects.create(predecessor=ta2, successor=to)  # leaves the program
+    Dependency.objects.create(predecessor=tb, successor=ta2, pending_acceptance=True)  # inert
+    Risk.objects.create(project=a, title="r", probability=2, impact=2, status=RiskStatus.OPEN)
+    Risk.objects.create(project=b, title="r", probability=2, impact=2, status=RiskStatus.CLOSED)
+
+    summary = _get(member, program)["summary"]
+
+    assert summary["cross_project_link_count"] == 1
+    assert summary["open_risk_count"] == 1
+    assert summary["projects_on_track"] == 0
+
+
+def test_summary_of_an_empty_program_is_zeros(member: Any, program: Program) -> None:
+    assert _get(member, program)["summary"] == {
+        "projects_on_track": 0,
+        "open_risk_count": 0,
+        "cross_project_link_count": 0,
+    }
+
+
+def test_budget_gap_names_the_projects_without_a_budget(
+    owner: Any, program: Program, calendar: Calendar
+) -> None:
+    _configure(program, [RollupKpi.BUDGET_UTILIZATION.value])
+    ProjectMembership.objects.create(
+        project=(unbudgeted := _project(program, calendar, "No budget")),
+        user=owner,
+        role=Role.ADMIN,
+    )
+
+    entry = _get(owner, program)["kpis"]["budget_utilization"]
+
+    assert entry["reason"] == "no_budget"
+    assert entry["projects_without_budget_ids"] == [str(unbudgeted.pk)]

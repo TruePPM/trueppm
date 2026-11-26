@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { Band, partialRollupLine } from './ProgramOverview2';
+import { Band, budgetBurnMissing, partialRollupLine } from './ProgramOverview2';
 import { buildAxis } from './programAxis';
 import type { ProgramRollupRow } from './ProgramOverviewPage';
 
@@ -76,5 +76,41 @@ describe('Band edge markers', () => {
     const axis = buildAxis([far], 120)!;
     render(<Band axis={axis} row={far} />);
     expect(screen.queryByTestId('program-row-clamp-commitment')).toBeNull();
+  });
+});
+
+describe('budgetBurnMissing', () => {
+  const projects = [row('a', 'Alpha'), row('b', 'Identity Consolidation')];
+  const kpis = (entry: unknown) => ({ budget_utilization: entry }) as never;
+
+  it('names the one project without a budget baseline', () => {
+    expect(
+      budgetBurnMissing({
+        projects,
+        kpis: kpis({
+          available: false,
+          reason: 'no_budget',
+          projects_without_budget: 1,
+          projects_without_budget_ids: ['b'],
+        }),
+      }),
+    ).toBe('Identity Consolidation has no budget baseline');
+  });
+
+  it('falls back to a count when it cannot name them', () => {
+    expect(
+      budgetBurnMissing({
+        projects,
+        kpis: kpis({ available: false, reason: 'no_budget', projects_without_budget: 2 }),
+      }),
+    ).toBe('2 projects have no budget baseline');
+  });
+
+  it('says nothing when restricted, computed, or not configured', () => {
+    expect(
+      budgetBurnMissing({ projects, kpis: kpis({ available: false, reason: 'cost_restricted' }) }),
+    ).toBeNull();
+    expect(budgetBurnMissing({ projects, kpis: kpis({ available: true, value: 0.4 }) })).toBeNull();
+    expect(budgetBurnMissing({ projects, kpis: {} })).toBeNull();
   });
 });

@@ -226,10 +226,21 @@ report (Identity Consolidation); the program P80 excludes it until it reports."
 A project you are not a member of shows only its name: program roles do not
 grant access to a project's figures or its status updates.
 
+Between the lead figure and the rows sit three supporting tiles: **Projects on
+track** (by schedule health), **Cross-project links** (accepted dependencies
+between two projects of this program), and **Open risks** (open or mitigating).
+Each is a count the server returns, not one the page tallies. Two figures that
+cannot be computed are stated on one line instead of shown as an empty tile:
+**Over-allocated** (no program-wide over-allocation figure is served yet), and,
+when the budget-utilization KPI is on and you may see cost, **Program budget
+burn** ("Identity Consolidation has no budget baseline").
+
 The rows come from `GET /programs/{id}/rollup/`, which now carries `projects`
-(one row per project) and `forecast` (the program P80, served whether or not the
-P80 KPI is enabled), and names the projects without a forecast in
-`projects_without_forecast_ids`.
+(one row per project), `forecast` (the program P80, served whether or not the
+P80 KPI is enabled), and `summary` (the three tile counts), and names the
+projects without a forecast in `projects_without_forecast_ids` and, for a caller
+who may see cost, the projects without a budget in
+`kpis.budget_utilization.projects_without_budget_ids`.
 
 ## Program settings
 

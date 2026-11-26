@@ -780,6 +780,10 @@ def program_cost_kpis(costs: Collection[ProjectCost], currency: str) -> dict[str
         "projects_without_budget": no_budget,
         "missing_rate_count": len(missing_people),
         "projects_without_planned_duration": no_duration,
+        # Which projects the count names, so the overview can say "<Project> has no
+        # budget baseline" instead of a bare number (#4799). Only reaches a caller who
+        # already passed the cost gate; a restricted caller gets no entry detail.
+        "projects_without_budget_ids": sorted(str(c.project_id) for c in costs if not c.has_budget),
     }
     if not costs:
         return {

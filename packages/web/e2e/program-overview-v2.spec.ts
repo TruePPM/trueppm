@@ -77,7 +77,7 @@ const ROWS = [
   row(C, 'Identity Consolidation'),
 ];
 
-function rollup(projects: unknown[], withoutIds: string[]) {
+function rollup(projects: unknown[], withoutIds: string[], budget?: unknown) {
   const forecast = {
     available: true,
     unit: 'date',
@@ -95,7 +95,7 @@ function rollup(projects: unknown[], withoutIds: string[]) {
     project_count: projects.length,
     program_health: projects.length ? 'at_risk' : 'unknown',
     program_health_reason: projects.length ? null : 'no_projects',
-    kpis: { p80_completion: forecast },
+    kpis: { p80_completion: forecast, ...(budget ? { budget_utilization: budget } : {}) },
     as_of: '2026-11-20T09:12:00Z',
     definitions: {
       program_health: 'Server program health sentence.',
@@ -103,6 +103,7 @@ function rollup(projects: unknown[], withoutIds: string[]) {
     },
     projects,
     forecast,
+    summary: { projects_on_track: 1, open_risk_count: 4, cross_project_link_count: 2 },
   };
 }
 
@@ -160,6 +161,37 @@ test.describe('shell v2 program overview', () => {
     await expect(page.getByTestId('program-overview2-partial')).toHaveCount(0);
     await expect(page.getByText(/Enterprise/)).toHaveCount(0);
     await expectNoA11yViolationsBothThemes(page, testInfo);
+  });
+
+  test('supporting tiles are the server counts; over-allocated and budget burn say why not', async ({
+    page,
+  }) => {
+    await open(
+      page,
+      rollup(ROWS, [], {
+        available: false,
+        reason: 'no_budget',
+        projects_without_budget: 1,
+        projects_without_budget_ids: [C],
+      }),
+    );
+    const tiles = page.getByTestId('program-overview2-tile');
+    await expect(tiles).toHaveCount(3);
+    await expect(tiles.nth(0)).toContainText('1 of 3');
+    await expect(tiles.nth(1)).toContainText('2');
+    await expect(tiles.nth(2)).toContainText('4');
+    const lines = page.getByTestId('not-computable');
+    await expect(lines).toHaveCount(2);
+    await expect(lines.nth(0)).toContainText('Over-allocated');
+    await expect(lines.nth(1)).toContainText(
+      'Program budget burn can’t be computed: Identity Consolidation has no budget baseline.',
+    );
+  });
+
+  test('no budget line when the budget KPI is not configured', async ({ page }) => {
+    await open(page, rollup(ROWS, []));
+    await expect(page.getByTestId('not-computable')).toHaveCount(1);
+    await expect(page.getByText('Program budget burn')).toHaveCount(0);
   });
 
   test('empty program: one add action, no upsell', async ({ page }) => {

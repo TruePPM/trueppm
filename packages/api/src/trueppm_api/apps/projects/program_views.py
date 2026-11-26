@@ -3327,6 +3327,7 @@ class ProgramViewSet(
             compute_program_rollup,
             p80_completion_entry,
             program_project_rows,
+            program_summary,
         )
 
         program = self.get_object()
@@ -3371,6 +3372,9 @@ class ProgramViewSet(
             kpi_entry
             if kpi_entry is not None and kpi_entry.get("available")
             else p80_completion_entry([row["id"] for row in payload["projects"]])
+        )
+        payload["summary"] = program_summary(
+            [row["id"] for row in payload["projects"]], schedule_bands
         )
         # The lead P80 and the rows are defined whether or not the KPI is enabled.
         payload["definitions"]["p80_completion"] = METRIC_DEFINITIONS["rollup.p80_completion"]

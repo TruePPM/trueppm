@@ -79175,6 +79175,15 @@
                         ],
                         "readOnly": true,
                         "description": "The p80_completion figure, served whether or not that KPI is enabled, so the overview's lead figure and its partial-rollup line always have a source."
+                    },
+                    "summary": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProgramRollupSummary"
+                            }
+                        ],
+                        "readOnly": true,
+                        "description": "The overview's supporting tiles: counts over this program's own projects, served whether or not the matching KPI is enabled (#4799)."
                     }
                 },
                 "required": [
@@ -79188,7 +79197,8 @@
                     "program_health",
                     "program_health_reason",
                     "project_count",
-                    "projects"
+                    "projects",
+                    "summary"
                 ]
             },
             "ProgramRollupConfig": {
@@ -79327,6 +79337,15 @@
                         "type": "integer",
                         "readOnly": true
                     },
+                    "projects_without_budget_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "readOnly": true,
+                        "description": "Which projects projects_without_budget counts (cost-gated callers only)."
+                    },
                     "missing_rate_count": {
                         "type": "integer",
                         "readOnly": true
@@ -79371,6 +79390,7 @@
                     "driver_project_id",
                     "missing_rate_count",
                     "projects_without_budget",
+                    "projects_without_budget_ids",
                     "projects_without_forecast",
                     "projects_without_forecast_ids",
                     "projects_without_planned_duration",
@@ -79532,6 +79552,32 @@
                     "p80_delta_vs_commitment_days",
                     "p80_delta_vs_commitment_reason",
                     "schedule_health"
+                ]
+            },
+            "ProgramRollupSummary": {
+                "type": "object",
+                "description": "Supporting-tile counts on the program rollup (#4799). One program only.",
+                "properties": {
+                    "projects_on_track": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "description": "Projects whose schedule health band is on_track, of project_count."
+                    },
+                    "open_risk_count": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "description": "Open or mitigating risks across the program's projects."
+                    },
+                    "cross_project_link_count": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "description": "Accepted dependencies whose predecessor and successor sit in two different projects of this program."
+                    }
+                },
+                "required": [
+                    "cross_project_link_count",
+                    "open_risk_count",
+                    "projects_on_track"
                 ]
             },
             "ProgramSchedule": {

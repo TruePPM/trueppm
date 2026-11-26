@@ -3561,6 +3561,12 @@ class ProgramRollupKpiEntrySerializer(serializers.Serializer[dict[str, Any]]):
     # Cost-KPI detail (ADR-1324 §3) — present on cost_variance / budget_utilization
     # whenever the caller may see cost, so a reason names how much is missing.
     projects_without_budget = serializers.IntegerField(read_only=True, required=False)
+    projects_without_budget_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        read_only=True,
+        required=False,
+        help_text="Which projects projects_without_budget counts (cost-gated callers only).",
+    )
     missing_rate_count = serializers.IntegerField(read_only=True, required=False)
     projects_without_planned_duration = serializers.IntegerField(
         read_only=True,
@@ -3704,6 +3710,25 @@ class ProgramRollupDefinitionsSerializer(serializers.Serializer[dict[str, str]])
     )
 
 
+class ProgramRollupSummarySerializer(serializers.Serializer[dict[str, Any]]):
+    """Supporting-tile counts on the program rollup (#4799). One program only."""
+
+    projects_on_track = serializers.IntegerField(
+        read_only=True,
+        help_text="Projects whose schedule health band is on_track, of project_count.",
+    )
+    open_risk_count = serializers.IntegerField(
+        read_only=True, help_text="Open or mitigating risks across the program's projects."
+    )
+    cross_project_link_count = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Accepted dependencies whose predecessor and successor sit in two different "
+            "projects of this program."
+        ),
+    )
+
+
 class ProgramRollupSerializer(serializers.Serializer[dict[str, Any]]):
     """Response for ``GET /api/v1/programs/{id}/rollup/`` (ADR-0088, #3652).
 
@@ -3760,6 +3785,13 @@ class ProgramRollupSerializer(serializers.Serializer[dict[str, Any]]):
         help_text=(
             "The p80_completion figure, served whether or not that KPI is enabled, so the "
             "overview's lead figure and its partial-rollup line always have a source."
+        ),
+    )
+    summary = ProgramRollupSummarySerializer(
+        read_only=True,
+        help_text=(
+            "The overview's supporting tiles: counts over this program's own projects, "
+            "served whether or not the matching KPI is enabled (#4799)."
         ),
     )
 
