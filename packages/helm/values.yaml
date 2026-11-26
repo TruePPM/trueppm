@@ -832,6 +832,13 @@ resources:
       cpu: 250m
       memory: 512Mi
       ephemeral-storage: 256Mi
+    # Schedule recalculation memory grows with the task count of one project, or
+    # of all members of a cross-linked program. Per the sizing guide
+    # (administration/sizing.md, #3831), from 0.5 plan about 13 KB per task per
+    # concurrent recalculation plus ~150 MiB per worker process (0.4: ~30 KB per
+    # task). Measured up to 16,000 tasks; beyond that these are extrapolations:
+    # two concurrent recalculations fit this 2Gi limit near 70,000 tasks each,
+    # and 3Gi covers two 100,000-task recalculations at once.
     limits:
       cpu: "1"
       memory: 2Gi
