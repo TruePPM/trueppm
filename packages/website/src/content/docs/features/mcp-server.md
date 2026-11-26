@@ -203,10 +203,10 @@ Planned for 0.5: `get_project_cost` ships in 0.5, with the cost model. Cost is v
 
 | Tool | Arguments | Returns |
 |------|-----------|---------|
-| `list_sprints` | `project_id` | The project's sprints (health bands and aggregates only — no per-person velocity). The per-sprint point totals it carries are not under the velocity gate yet; closing that gap is planned for a later release. |
-| `get_sprint` | `sprint_id` | One sprint with its project's health band (aggregates only). |
+| `list_sprints` | `project_id` | The project's sprints (health bands and aggregates only — no per-person velocity). The per-sprint point totals it carries are outside the velocity gate. |
+| `get_sprint` | `sprint_id` | One sprint with its project's health band (aggregates only). The per-sprint point totals it carries are outside the velocity gate. |
 | `get_sprint_velocity` | `project_id` | The team's velocity trend: up to the last 8 closed sprints, oldest first, each with committed and completed points and task counts and the change against the prior sprint, plus the rolling average and the forecast **range** (`forecast_range_low` to `forecast_range_high`). Sprints the team excluded from velocity are listed but left out of every statistic. Velocity belongs to the team ([team-private by default](/features/velocity/)): when your token's owner is outside the team's velocity audience, which a project Admin or Owner is until the team shares it upward, the answer is `velocity_suppressed: true` with no series and no point figures. That is a normal answer, not a refusal. Carries a `_provenance` stamp. Ships in 0.5. |
-| `get_sprint_burndown` | `sprint_id` | One sprint's burndown: the daily snapshots (remaining and completed points and task counts, scope changes) and the server's pace verdict (`burn_status` with its reason, `projected_finish_date`), with `as_of` for when the pace was computed. The per-sprint point totals are not under the velocity gate yet; closing that gap is planned for a later release. Ships in 0.5. |
+| `get_sprint_burndown` | `sprint_id` | One sprint's burndown: the daily snapshots (remaining and completed points and task counts, scope changes) and the server's pace verdict (`burn_status` with its reason, `projected_finish_date`), with `as_of` for when the pace was computed. The per-sprint point totals it carries are outside the velocity gate. Ships in 0.5. |
 | `get_sprint_close_request` | `sprint_id` | The outcome of the sprint's most recent close attempt — closing is asynchronous, so this is what distinguishes "still running" from "abandoned, and the sprint stays open". Branch on `terminal`, not `status`. |
 
 ### Identity

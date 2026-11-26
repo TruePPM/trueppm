@@ -372,6 +372,7 @@ test.describe('Product backlog grooming (#494/#921/#922)', () => {
     // The story cards nest a DoR toggle button inside a role=button card (a
     // pre-existing nested-interactive finding in MobileGroomingCard, outside this
     // change), so that one rule is disabled here; the forecast strip is still scanned.
+    // SUPPRESSED-UNTIL(#5152)
     await expectNoA11yViolations(page, testInfo, { disableRules: ['nested-interactive'] });
   });
 
