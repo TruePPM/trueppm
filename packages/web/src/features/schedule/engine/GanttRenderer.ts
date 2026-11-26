@@ -44,6 +44,9 @@ import {
   CADENCE_RAIL_HEIGHT,
   CHART_HEADER_HEIGHT,
   HEADER_HEIGHT,
+  MARKER_LANE_HEIGHT,
+  getMarkerLane,
+  markerLaneTop,
   ROW_HEIGHT,
   BAR_TOP_OFFSET,
   BAR_HEIGHT,
@@ -1558,6 +1561,28 @@ function drawCadenceSegmentLabel(
   // `textSecondary` is the ink for an outlined cell sitting on the surface.
   ctx.fillStyle = segment.active ? _palette.chipTextOnHighlight : _palette.textSecondary;
   ctx.fillText(label, x, top + CADENCE_RAIL_HEIGHT / 2);
+}
+
+/**
+ * Draw the opaque backing of the timescale marker lane (#4068) — the 18px strip
+ * under the ruler and cadence rail that the Today / P80 / Target chips sit in.
+ * The chips themselves are an HTML overlay (`TimescaleMarkerLane`), so this only
+ * paints the band they sit on and its bottom rule. A no-op while the lane is off,
+ * which keeps the header byte-identical for surfaces that do not install it.
+ */
+export function drawMarkerLane(ctx: CanvasRenderingContext2D, canvasWidth: number): void {
+  if (!getMarkerLane()) return;
+  const top = markerLaneTop();
+  ctx.save();
+  ctx.fillStyle = _palette.surface;
+  ctx.fillRect(0, top, canvasWidth, MARKER_LANE_HEIGHT);
+  ctx.strokeStyle = _palette.gridLine;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, top + MARKER_LANE_HEIGHT - 0.5);
+  ctx.lineTo(canvasWidth, top + MARKER_LANE_HEIGHT - 0.5);
+  ctx.stroke();
+  ctx.restore();
 }
 
 // ---------------------------------------------------------------------------

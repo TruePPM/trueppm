@@ -72,7 +72,7 @@ test.describe('Timeline right-click (#2978)', () => {
     if (!box) throw new Error('canvas has no box');
 
     // First row: just below the 28px ruler, half a 28px row down.
-    await page.mouse.click(box.x + 200, box.y + 28 + 14, { button: 'right' });
+    await page.mouse.click(box.x + 200, box.y + 28 + 18 + 14, { button: 'right' });
 
     // The app's own menu — the same portal the outline row opens.
     const menu = page.getByRole('menu');
@@ -97,7 +97,7 @@ test.describe('Timeline right-click (#2978)', () => {
     const canvas = page.getByTestId('schedule-canvas-scroll');
     const box = await canvas.boundingBox();
     if (!box) throw new Error('canvas has no box');
-    await page.mouse.click(box.x + 200, box.y + 28 + 14, { button: 'right' });
+    await page.mouse.click(box.x + 200, box.y + 28 + 18 + 14, { button: 'right' });
     await page.getByRole('menuitem', { name: 'Move to…' }).click();
     // The same dialog the row menu's twin opens — one implementation of the
     // move, reached from either place.
@@ -121,7 +121,7 @@ test.describe('Timeline right-click (#2978)', () => {
     if (!box) throw new Error('canvas has no box');
 
     // Two tasks — well past them.
-    await page.mouse.click(box.x + 200, box.y + 28 + 28 * 8, { button: 'right' });
+    await page.mouse.click(box.x + 200, box.y + 28 + 18 + 28 * 8, { button: 'right' });
     await expect(page.getByRole('menu')).toHaveCount(0);
   });
 });

@@ -252,6 +252,14 @@ Three ways to zoom:
 - **Enter creates a new row** — by default, pressing `Enter` in the outline commits the row you are on **and** inserts a new one below it, which is the motion for typing a plan in one pass. When you are editing rows that already exist — renaming one, fixing a typo — that extra blank row is something to delete every time. **Display → Outline → Enter creates a new row** turns the insert off: `Enter` then commits the field and leaves the cursor in the name cell of the row you were on. `Shift`+`Enter` (sibling above) and `⌘`/`Ctrl`+`Enter` (child) still insert either way, because a modifier is an explicit request for a row.
 - **Keyboard** — `⌘/Ctrl` + `=` zooms in, `-` zooms out, and `0` fits the project to the viewport.
 
+### Today, P80 and Target markers
+
+An 18px lane under the timescale rows (and under the sprint-window rail, when it is drawn) carries the labels for **Today**, the Monte Carlo **P80** date, and the **Target** (the commitment the forecast is measured against, when the project has one). The P80 label sits to the left of its line and the Target label to the right, so two dates a few days apart open away from each other. If labels would still touch, the one that does not fit shortens to its name (for example "P80" without the date), and as a last resort it drops its label and keeps its tick; hover the tick for the full date. P80 is labeled once, in the lane. The P50 and P95 lines keep their own labels at the top of the chart.
+
+:::note[Ships in 0.5]
+The marker lane lands in 0.5. In 0.4 the P80 label is a chip over the first task rows and Today has no label.
+:::
+
 ### Timescale labels
 
 :::note[Ships in 0.5]
@@ -284,6 +292,14 @@ use.
 - **Snap-to-day** is applied inside the renderer before emitting `drag-task-move`; hold Shift to suspend snap
 - **Pointer events** throughout (no mouse/touch branching); pinch-to-zoom via two simultaneous active pointers
 - **Keyboard reschedule** as a WCAG 2.1.1 alternative (left/right arrows nudge dates; Enter confirms; Esc cancels) — see issue #34
+
+### The confirmation popover names what moves with the task
+
+Releasing a drag or a resize opens a **Confirm / Cancel** popover. Under the task's own change (the old and new start, or the old and new duration) it carries one line from the same live calculation that drew the preview: how many downstream tasks move, and whether the project finish moves with them, for example "3 downstream tasks move; finish 2d later" or "No downstream tasks move; finish unchanged". The finish clause compares the project's latest finish before and after, so a task that is not on the longest chain reads "finish unchanged" even when its successors shift. This is the in-browser preview; the schedule the server then computes is the one that is saved.
+
+:::note[Ships in 0.5]
+The cascade line lands in 0.5. In 0.4 the popover states only the dragged task's own change.
+:::
 
 ### Resizing a task, and why the bar sometimes doesn't move
 

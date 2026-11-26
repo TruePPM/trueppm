@@ -281,4 +281,12 @@ export interface ResultMessage {
   worstMilestone: PreviewMilestone | null;
   /** Number of affected tasks beyond the first 10 (for "+N more" label). */
   overflowCount: number;
+  /**
+   * Downstream tasks (the gesture's own task excluded) whose finish moved, counted
+   * BEFORE the 10-result cap — `results` is capped, so counting it would undercount
+   * (#4314). Optional so older fixtures that build a RESULT by hand stay valid.
+   */
+  movedCount?: number;
+  /** Latest `earlyFinish` across the whole uncapped subgraph, ISO. */
+  maxFinish?: string | null;
 }
