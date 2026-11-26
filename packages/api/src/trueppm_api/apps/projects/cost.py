@@ -144,13 +144,19 @@ COST_DEFINITIONS: dict[str, str] = {
         "50% of the simulated schedules in the latest recorded Monte Carlo run finish at "
         "or below this cost: actual to date + remaining assigned hours x each person's "
         "current rate. Priced from the same runs as the P50 date. as_of is when that run "
-        "was recorded; rates have no history, so a rate change applies from the next run."
+        "was recorded; rates have no history, so a rate change applies from the next run. "
+        "actual_to_date is the actual cost that run started from; stale is true when "
+        "today's actual differs. The percentile is not adjusted, so a stale figure can "
+        "be below today's actual. Run the simulation again to refresh it."
     ),
     "p80_cost": (
         "80% of the simulated schedules in the latest recorded Monte Carlo run finish at "
         "or below this cost: actual to date + remaining assigned hours x each person's "
         "current rate. Priced from the same runs as the P80 date; n_simulations says how "
-        "many schedules. Unavailable (missing_rates) when anyone in scope had no rate."
+        "many schedules. actual_to_date is the actual cost that run started from; stale "
+        "is true when today's actual differs, and the percentile is not adjusted. "
+        "Unavailable (missing_rates) when anyone in scope had no rate at the run or has "
+        "none now."
     ),
 }
 
@@ -704,30 +710,52 @@ def mc_cost_record(forecast: Any, cost: ProjectCost) -> dict[str, Any] | None:
     }
 
 
-def mc_cost_entries(project_id: Any) -> dict[str, dict[str, Any]]:
+def mc_cost_entries(cost: ProjectCost) -> dict[str, dict[str, Any]]:
     """``p50_cost`` / ``p80_cost`` for the cost summary, from the latest costed run.
 
-    One query. Each is ``{available, value | reason, as_of, n_simulations}``: ``as_of``
-    is when the run was recorded, since the figure is that run's, not this request's.
+    One query. Each is ``{available, value | reason, as_of, n_simulations,
+    actual_to_date, stale}``: ``as_of`` is when the run was recorded, since the figure
+    is that run's, not this request's.
+
+    ``cost`` is this request's live facts. A rate can go missing after a run (assign an
+    unrated person), and the summary must not show a number beside
+    ``cost_computable: false``, so either side being uncomputable withholds it. Actual
+    cost can also move after a run. The stored percentiles are never adjusted for that
+    (they belong to that run's schedules); ``stale`` says the run's ``actual_to_date``
+    no longer matches, so a figure below today's actual is explained, not hidden.
     """
     from trueppm_api.apps.scheduling.models import MonteCarloRun
 
     run = (
-        MonteCarloRun.objects.filter(project_id=project_id, cost_forecast__isnull=False)
+        MonteCarloRun.objects.filter(project_id=cost.project_id, cost_forecast__isnull=False)
         .order_by("-taken_at")
         .only("taken_at", "n_simulations", "cost_forecast")
         .first()
     )
     if run is None:
         return {
-            f"p{q}_cost": kpi_entry(None, REASON_NO_SIMULATION, as_of=None, n_simulations=None)
+            f"p{q}_cost": kpi_entry(
+                None,
+                REASON_NO_SIMULATION,
+                as_of=None,
+                n_simulations=None,
+                actual_to_date=None,
+                stale=False,
+            )
             for q in (50, 80)
         }
     record: dict[str, Any] = run.cost_forecast or {}
-    reason = None if record.get("computable") else REASON_MISSING_RATES
+    computable = bool(record.get("computable")) and cost.cost_computable
+    reason = None if computable else REASON_MISSING_RATES
+    run_actual: str = record["actual_to_date"]
     return {
         f"p{q}_cost": kpi_entry(
-            record.get(f"p{q}"), reason, as_of=run.taken_at, n_simulations=run.n_simulations
+            record.get(f"p{q}"),
+            reason,
+            as_of=run.taken_at,
+            n_simulations=run.n_simulations,
+            actual_to_date=run_actual,
+            stale=Decimal(run_actual) != cost.actual,
         )
         for q in (50, 80)
     }
@@ -827,7 +855,7 @@ def project_cost_payload(cost: ProjectCost, currency: str) -> dict[str, Any]:
         "vac": _forecast_entry(*_money_result(cost.vac_result())),
         "tcpi": _forecast_entry(*cost.tcpi_result()),
         "provenance": cost_provenance(cost),
-        **mc_cost_entries(cost.project_id),
+        **mc_cost_entries(cost),
         "cost_computable": cost.cost_computable,
         "missing_rate_count": cost.missing_rate_count,
         "missing_rate_resources": [

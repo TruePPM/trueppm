@@ -17,6 +17,7 @@ from trueppm_scheduler import (
     CostAssignment,
     CostForecast,
     CostModel,
+    DeliveryMode,
     Dependency,
     DependencyType,
     InvalidScheduleInput,
@@ -24,6 +25,7 @@ from trueppm_scheduler import (
     Task,
     monte_carlo,
 )
+from trueppm_scheduler.engine.montecarlo.cost import _CostCollector
 
 MON = date(2026, 1, 5)
 
@@ -196,3 +198,41 @@ def test_non_model_cost_is_refused() -> None:
     project, _ = _two_people()
     with pytest.raises(InvalidScheduleInput):
         monte_carlo(project, runs=10, seed=1, cost={"actual_to_date": 1})  # type: ignore[arg-type]
+
+
+def test_partly_done_velocity_task_prices_its_realized_days(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A velocity task's realized days are already its remaining work (ADR-1412).
+
+    Unlike a PERT task, its elapsed days must not come off again, so each run costs
+    exactly rate x the days the run realized.
+    """
+    project = _project(
+        _task(
+            "a",
+            10,
+            story_points=40.0,
+            delivery_mode=DeliveryMode.SCRUM,
+            percent_complete=50.0,
+            actual_start=MON,
+        ),
+        status_date=MON + timedelta(days=7),
+        velocity_samples=[5.0, 10.0, 20.0],
+        sprint_length_days=10,
+    )
+    model = CostModel(assignments=[CostAssignment(task_id="a", resource_id="ana", rate=10.0)])
+    per_run: list[np.ndarray] = []
+    price = _CostCollector.result
+
+    def capture(self: _CostCollector, missing: int) -> CostForecast:
+        per_run.append(self.costs.copy())
+        return price(self, missing)
+
+    monkeypatch.setattr(_CostCollector, "result", capture)
+    result = monte_carlo(project, runs=500, seed=5, cost=model, return_samples=True)
+    assert result.samples is not None
+    realized = result.samples.durations[:, 0].astype(np.float64)
+    # The velocity sampler ran: whole sprints of varying count, not the 10-day estimate.
+    assert len(set(realized.tolist())) > 1
+    np.testing.assert_allclose(per_run[0], 8 * 10.0 * realized)

@@ -10,6 +10,7 @@ from collections.abc import Callable
 from datetime import date as _date
 from datetime import datetime as _datetime
 from datetime import timedelta
+from functools import partial
 from typing import Any, TypedDict, cast
 
 from django.conf import settings
@@ -1062,6 +1063,7 @@ def simulate_and_record_monte_carlo(
     ``result_summary`` is that body plus ``status_code``), so the refusal contract
     is unchanged — only where it is delivered moved.
     """
+    from trueppm_scheduler import InvalidScheduleInput
     from trueppm_scheduler.engine import CyclicDependencyError, SimulationCapExceeded, monte_carlo
     from trueppm_scheduler.models import Project as SchedProject
 
@@ -1199,7 +1201,8 @@ def simulate_and_record_monte_carlo(
             if not admitted:
                 return busy_response()
             with monte_carlo_span(pk, simulation_count=n_simulations):
-                mc_result = monte_carlo(
+                simulate = partial(
+                    monte_carlo,
                     sched_project,
                     runs=n_simulations,
                     seed=_mc_input_seed(sched_project, n_simulations),
@@ -1207,8 +1210,19 @@ def simulate_and_record_monte_carlo(
                     max_tasks=settings.MC_TASK_CAP,
                     **_mc_lag_delta_kwargs(),
                     **mc_deadline_kwargs(),
-                    cost=cost_model,
                 )
+                try:
+                    mc_result = simulate(cost=cost_model)
+                except InvalidScheduleInput:
+                    # A cost input the engine refuses (a negative units or rate written
+                    # outside the API) must not withhold the dates. Re-run unpriced:
+                    # no cost is recorded for this run. If the schedule itself is what
+                    # is invalid, this raises again and is refused below as before.
+                    mc_result = simulate(cost=None)
+                    logger.warning(
+                        "monte carlo: project %s has invalid cost inputs; run not priced",
+                        project.pk,
+                    )
     except SimulationCapExceeded as exc:
         # codeql[py/stack-trace-exposure] -- intentional user-facing validation message
         return _simulation_cap_response(exc)

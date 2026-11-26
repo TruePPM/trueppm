@@ -88,8 +88,8 @@ class McCostEntrySerializer(serializers.Serializer[dict[str, Any]]):
         required=False,
         help_text=(
             "Why there is no value: missing_rates (someone in scope had no rate when the "
-            "run was recorded) or no_simulation (no recorded Monte Carlo run carries a "
-            "cost yet; a run by a Scheduler or above records one)."
+            "run was recorded, or has none now) or no_simulation (no recorded Monte Carlo "
+            "run carries a cost yet; a run by a Scheduler or above records one)."
         ),
     )
     as_of = serializers.DateTimeField(
@@ -101,6 +101,21 @@ class McCostEntrySerializer(serializers.Serializer[dict[str, Any]]):
         read_only=True,
         allow_null=True,
         help_text="How many simulated schedules the percentile is taken over.",
+    )
+    actual_to_date = serializers.DecimalField(
+        max_digits=18,
+        decimal_places=2,
+        read_only=True,
+        allow_null=True,
+        help_text="The actual cost that run started from. Null with no_simulation.",
+    )
+    stale = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True when today's actual cost differs from actual_to_date. The value is "
+            "not adjusted; run the simulation again to refresh it. False with "
+            "no_simulation."
+        ),
     )
 
 

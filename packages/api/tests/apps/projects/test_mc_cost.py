@@ -18,6 +18,8 @@ from trueppm_api.apps.projects.models import Task
 from trueppm_api.apps.resources.models import TaskResource
 from trueppm_api.apps.scheduling.models import MonteCarloRun
 
+User = h.User
+
 
 @pytest.fixture
 def scenario(db: object) -> dict[str, Any]:
@@ -64,6 +66,8 @@ def test_hand_computed_p50_p80_cost_on_the_summary(scenario: dict[str, Any]) -> 
         assert data[key]["value"] == "4700.00"
         assert data[key]["n_simulations"] == 50
         assert data[key]["as_of"] is not None
+        assert data[key]["actual_to_date"] == "100.00"
+        assert data[key]["stale"] is False
         assert key in data["definitions"]
     assert run.cost_forecast == {
         "computable": True,
@@ -96,6 +100,8 @@ def test_unrated_assignee_reports_missing_rates_and_dates_are_unchanged(
         "reason": "missing_rates",
         "as_of": data["p80_cost"]["as_of"],
         "n_simulations": 50,
+        "actual_to_date": "100.00",
+        "stale": False,
     }
     latest = MonteCarloRun.objects.filter(project=scenario["p"]).order_by("-taken_at").first()
     assert latest is not None and latest.cost_forecast is not None
@@ -122,6 +128,8 @@ def test_no_recorded_run_reports_no_simulation(scenario: dict[str, Any]) -> None
         "reason": "no_simulation",
         "as_of": None,
         "n_simulations": None,
+        "actual_to_date": None,
+        "stale": False,
     }
 
 
@@ -133,3 +141,53 @@ def test_member_run_records_no_cost_and_leaks_none(scenario: dict[str, Any]) -> 
     assert not MonteCarloRun.objects.filter(project=scenario["p"]).exists()
     latest = h.client(m).get(f"/api/v1/projects/{scenario['p'].pk}/monte-carlo/latest/")
     assert "cost" not in latest.data
+
+
+def test_assigning_an_unrated_person_after_the_run_withholds_the_percentiles(
+    scenario: dict[str, Any],
+) -> None:
+    """The stored run was computable; the live facts are not, and the live facts win."""
+    c = h.client(scenario["pm"])
+    _simulate(c, scenario["p"])
+    h.assign(scenario["b"], h.resource("Cy", h.user("cy"), None))
+    data = _cost(c, scenario["p"])
+    assert data["cost_computable"] is False
+    for key in ("p50_cost", "p80_cost"):
+        assert data[key]["available"] is False
+        assert data[key]["reason"] == "missing_rates"
+        assert "value" not in data[key]
+
+
+def test_actual_logged_after_the_run_marks_it_stale_without_altering_it(
+    scenario: dict[str, Any],
+) -> None:
+    c = h.client(scenario["pm"])
+    _simulate(c, scenario["p"])
+    assert _cost(c, scenario["p"])["p80_cost"]["stale"] is False
+    # 100 h more @ 100.00: live actual 10,100.00, above the run's 4,700.00 percentile.
+    h.log(scenario["a"], User.objects.get(username="alice"), 6000)
+    data = _cost(c, scenario["p"])
+    assert data["actual"] == "10100.00"
+    for key in ("p50_cost", "p80_cost"):
+        assert data[key]["stale"] is True
+        assert data[key]["actual_to_date"] == "100.00"
+        assert data[key]["value"] == "4700.00"
+    _simulate(c, scenario["p"])
+    fresh = _cost(c, scenario["p"])["p80_cost"]
+    assert fresh["stale"] is False
+    assert fresh["actual_to_date"] == "10100.00"
+
+
+def test_invalid_cost_input_still_forecasts_dates_and_records_no_cost(
+    scenario: dict[str, Any],
+) -> None:
+    """Negative units can only be written around the API; they must not 400 the dates."""
+    c = h.client(scenario["pm"])
+    good = _simulate(c, scenario["p"]).data
+    MonteCarloRun.objects.filter(project=scenario["p"]).delete()
+    TaskResource.objects.filter(task=scenario["b"]).update(units=Decimal("-1.00"))
+    bad = _simulate(c, scenario["p"]).data
+    assert (bad["p50"], bad["p80"], bad["p95"]) == (good["p50"], good["p80"], good["p95"])
+    run = MonteCarloRun.objects.get(project=scenario["p"])
+    assert run.cost_forecast is None
+    assert _cost(c, scenario["p"])["p80_cost"]["reason"] == "no_simulation"

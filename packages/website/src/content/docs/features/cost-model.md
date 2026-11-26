@@ -152,8 +152,10 @@ A [Monte Carlo](/features/monte-carlo/) run also prices every simulated schedule
 - **P80 cost**: 80% of the simulated schedules finish at or below this cost: actual to date + remaining assigned hours x each person's current rate. P50 is the same at 50%.
 - A task's remaining hours in a run are its remaining working days in that run x 8 hours, or the project calendar's hours per day, x the assignment's units. Completed tasks are not priced again; their cost is already in the actual.
 - Each figure carries `as_of`, when that run was recorded, and `n_simulations`, how many schedules it is taken over. Rates have no history, so a rate change shows up from the next run.
-- A run records a cost only when a Scheduler or above runs it, as with [forecast history](/features/monte-carlo/#forecast-history). Before then each figure says `no_simulation`.
-- When anyone in scope has no rate, each figure says `missing_rates` and gives no number. Pricing everyone else would understate every percentile. The date percentiles are not affected.
+- A run records a cost only when a Scheduler or above starts it, as with [forecast history](/features/monte-carlo/#forecast-history). A Member's run records none, and no simulation runs on a schedule. Until a run records one, each figure says `no_simulation`.
+- Each figure also carries `actual_to_date`, the actual cost that run started from, and `stale`, which is true when today's actual cost differs. The percentiles are never adjusted after the run, so a stale P80 cost can be lower than today's actual. Run the simulation again to refresh it. `stale` compares actual cost only: a change to assignments, units or estimates does not set it.
+- A run whose cost inputs are invalid (for example negative units written directly to the database) still returns its dates but records no cost, so the figures stay those of the last run that did, with its `as_of`.
+- When anyone in scope had no rate at the run, or has none now, each figure says `missing_rates` and gives no number. Pricing everyone else would understate every percentile. The date percentiles are not affected.
 - Non-human resources are not priced in 0.5.
 
 The Monte Carlo forecast response itself does not include cost, because any project member can read the forecast and cost is restricted to Project Managers.

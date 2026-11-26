@@ -68369,7 +68369,7 @@
                             }
                         ],
                         "readOnly": true,
-                        "description": "Why there is no value: missing_rates (someone in scope had no rate when the run was recorded) or no_simulation (no recorded Monte Carlo run carries a cost yet; a run by a Scheduler or above records one).\n\n* `missing_rates` - missing_rates\n* `no_simulation` - no_simulation"
+                        "description": "Why there is no value: missing_rates (someone in scope had no rate when the run was recorded, or has none now) or no_simulation (no recorded Monte Carlo run carries a cost yet; a run by a Scheduler or above records one).\n\n* `missing_rates` - missing_rates\n* `no_simulation` - no_simulation"
                     },
                     "as_of": {
                         "type": "string",
@@ -68383,13 +68383,28 @@
                         "readOnly": true,
                         "nullable": true,
                         "description": "How many simulated schedules the percentile is taken over."
+                    },
+                    "actual_to_date": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,16}(?:\\.\\d{0,2})?$",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "The actual cost that run started from. Null with no_simulation."
+                    },
+                    "stale": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "description": "True when today's actual cost differs from actual_to_date. The value is not adjusted; run the simulation again to refresh it. False with no_simulation."
                     }
                 },
                 "required": [
+                    "actual_to_date",
                     "as_of",
                     "available",
                     "n_simulations",
                     "reason",
+                    "stale",
                     "value"
                 ]
             },
