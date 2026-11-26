@@ -111,15 +111,22 @@ def _resolve_payload(
     )
 
 
-def _parent_refusal(project: Project, parent_wbs: str) -> str | None:
-    """Why the task may not attach under ``parent_wbs``, or ``None`` when it may.
+def _parent_refusal(project: Project, parent_wbs: str, status: str) -> str | None:
+    """Why a task with ``status`` may not attach under ``parent_wbs``, or ``None``.
 
     Attaching gives a leaf parent its first child, which makes it a summary; a
     summary may not drive a Start-to-Start or Start-to-Finish link (ADR-0370), and a
-    project holding one fails every recalculation (#4830). The parent row is locked
-    so a concurrent restructure cannot make the same decision against it.
+    project holding one fails every recalculation (#4830). A parent whose children
+    are all backlog, epic or recurring is still a leaf to the CPM, so its first
+    *scheduled* child does the same (#5046) — that case, and any other graph the
+    recalculation would refuse, is asked of the engine. The parent row is locked so a
+    concurrent restructure cannot make the same decision against it.
     """
-    from trueppm_api.apps.projects.summary_link_guard import summary_start_link_block
+    from trueppm_api.apps.projects.summary_link_guard import (
+        is_feed_eligible,
+        recalc_transition_block,
+        summary_start_link_block,
+    )
 
     parent = (
         Task.objects.select_for_update()
@@ -131,9 +138,21 @@ def _parent_refusal(project: Project, parent_wbs: str) -> str | None:
     has_child = Task.objects.filter(
         project=project, is_deleted=False, wbs_path__descendant=parent_wbs
     ).exists()
-    if has_child:
+    if not has_child:
+        block = summary_start_link_block(parent)
+        if block is not None:
+            return block.detail
+    import re
+
+    direct = Task.objects.filter(
+        project=project, is_deleted=False, wbs_path__regex=rf"^{re.escape(parent_wbs)}\.[^.]+$"
+    ).values_list("status", "type", "is_recurring")
+    if any(is_feed_eligible(*row) for row in direct):
         return None
-    block = summary_start_link_block(parent)
+    # Inbound children are drawer subtasks (``_allocate_wbs``).
+    block = recalc_transition_block(
+        project.pk, add_child=(parent_wbs, {"status": status, "is_subtask": True})
+    )
     return block.detail if block is not None else None
 
 
@@ -177,7 +196,7 @@ def _create_inbound_task(
     """
     parent_wbs = resolved.parent_wbs
     if parent_wbs is not None:
-        refusal = _parent_refusal(project, parent_wbs)
+        refusal = _parent_refusal(project, parent_wbs, resolved.status)
         if refusal is not None:
             warnings.append(
                 f"Not attached under its parent; added to the backlog instead. {refusal}"
@@ -276,7 +295,7 @@ def _status_transition_fields(
 
 
 def _update_inbound_task(
-    link: InboundTaskLink, token: ProjectApiToken, resolved: _Resolved
+    link: InboundTaskLink, token: ProjectApiToken, resolved: _Resolved, warnings: list[str]
 ) -> Task:
     """Write through the mutable fields onto an already-linked task.
 
@@ -284,10 +303,28 @@ def _update_inbound_task(
     the ``status_changed_at`` side effect (``Task.save()`` resets it on a status
     transition; we want "when status flipped in the external system", not "when
     the webhook arrived").
+
+    A status the recalculation could not schedule afterwards is not written: moving a
+    task out of the backlog can make its backlog-only parent a summary with an FF/SF
+    link into it (#5046). The rest of the push still lands and ``warnings`` says why
+    the status did not — the same degrade-and-say-so the create path uses for a
+    refused parent, so an external sync loop is not handed a refusal to retry forever.
     """
+    from trueppm_api.apps.projects.summary_link_guard import (
+        is_feed_eligible,
+        recalc_transition_block,
+    )
+
     task = link.task
     old_status = task.status
     new_status = resolved.status
+    if new_status != old_status and is_feed_eligible(
+        old_status, task.type, task.is_recurring
+    ) != is_feed_eligible(new_status, task.type, task.is_recurring):
+        block = recalc_transition_block(task.project_id, changes={task.pk: {"status": new_status}})
+        if block is not None:
+            warnings.append(f"Status not changed to '{new_status}'. {block.detail}")
+            new_status = old_status
     status_changed = old_status != new_status
 
     # The bulk UPDATE bypasses VersionedModel.save(), so the sync delta cursor
@@ -585,7 +622,7 @@ def upsert_inbound_task(
     if link is None:
         task, link = _create_inbound_task(project, token, resolved, warnings)
     else:
-        task = _update_inbound_task(link, token, resolved)
+        task = _update_inbound_task(link, token, resolved, warnings)
 
     # Audit row — same transaction; survives even if downstream broadcast fails.
     ApiTokenAuditEntry.objects.create(

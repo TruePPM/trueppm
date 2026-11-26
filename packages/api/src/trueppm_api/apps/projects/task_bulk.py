@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import dataclasses
 import uuid
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from django.db import DatabaseError, connection, transaction
@@ -427,6 +428,7 @@ def _resolve_bulk_create_placement(
     is_subtask: bool,
     ctx: BulkContext,
     out: BulkOutcome,
+    new_task: Mapping[str, Any] | None = None,
 ) -> tuple[Task | None, str] | None:
     """Resolve a bulk create's WBS placement, or record its rejection and return ``None``.
 
@@ -472,7 +474,9 @@ def _resolve_bulk_create_placement(
         return cached.task, wbs_path
 
     try:
-        parent, wbs_path = _resolve_create_parent(ctx.project, parent_id, is_subtask=is_subtask)
+        parent, wbs_path = _resolve_create_parent(
+            ctx.project, parent_id, is_subtask=is_subtask, new_task=new_task
+        )
     except DRFValidationError as exc:
         out.reject(index, row_id, CODE_INVALID, _first_error_message(exc))
         return None
@@ -580,7 +584,17 @@ def _apply_create(index: int, op: dict[str, Any], ctx: BulkContext, out: BulkOut
     # THIS SAME BATCH resolves: the parent's INSERT already committed to this
     # transaction, just not to the outer request's response yet — client-minted
     # ids (ADR-0772) make that forward reference possible without a round trip.
-    placement = _resolve_bulk_create_placement(index, row_id, parent_id_raw, is_subtask, ctx, out)
+    placement = _resolve_bulk_create_placement(
+        index,
+        row_id,
+        parent_id_raw,
+        is_subtask,
+        ctx,
+        out,
+        # Raw row values: the serializer validates them below. They only tell the
+        # #5046 placement check whether the new row is one the CPM schedules.
+        new_task={f: data[f] for f in ("status", "type") if isinstance(data.get(f), str)},
+    )
     if placement is None:
         return
     parent_task, wbs_path = placement

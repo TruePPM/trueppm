@@ -1011,10 +1011,7 @@ release it is scheduled for:
   still laid out over its full span, so it can finish after the data date
   ([#5043](https://gitlab.com/trueppm/trueppm/-/issues/5043)). Moving the
   project start later can still move a floored milestone's successors earlier
-  ([#5055](https://gitlab.com/trueppm/trueppm/-/issues/5055)), and an FF/SF link
-  into a parent breaks recalculation when a backlog, epic or recurring child
-  becomes committed
-  ([#5046](https://gitlab.com/trueppm/trueppm/-/issues/5046)).
+  ([#5055](https://gitlab.com/trueppm/trueppm/-/issues/5055)).
 - **Monte Carlo** — sprint-horizon
   clamping truncates the slow tail of a velocity-driven P80/P95, so it reads
   as a lower bound rather than a full forecast. From 0.5 the result will report

@@ -340,7 +340,13 @@ from trueppm_api.apps.projects.summary_link_guard import (
     BLOCKING_DEPENDENCIES_SCHEMA,
     SUMMARY_DESCENDANT_LINK_CODE,
     SUMMARY_START_LINK_CODE,
+    UNSCHEDULABLE_CHANGE_CODE,
     SummaryStartLinkBlock,
+    UnschedulableChange,
+    capture_recalc_state,
+    is_feed_eligible,
+    recalc_state_block,
+    recalc_transition_block,
     summary_descendant_link_block,
     summary_start_link_block,
 )
@@ -6038,7 +6044,13 @@ def _attach_dropped_field_warnings(
     )
 
 
-def _resolve_create_parent(project: Any, parent_id: Any, *, is_subtask: bool) -> tuple[Task, str]:
+def _resolve_create_parent(
+    project: Any,
+    parent_id: Any,
+    *,
+    is_subtask: bool,
+    new_task: Mapping[str, Any] | None = None,
+) -> tuple[Task, str]:
     """Lock the requested parent, enforce the placement guards, and pick the child path.
 
     All three guards reject a structurally impossible placement rather than let it
@@ -6096,6 +6108,20 @@ def _resolve_create_parent(project: Any, parent_id: Any, *, is_subtask: bool) ->
         if block is not None:
             raise DRFValidationError(
                 {"parent_id": [ErrorDetail(block.detail, code=SUMMARY_START_LINK_CODE)]}
+            )
+    if not any(is_feed_eligible(c.status, c.type, c.is_recurring) for c in children):
+        # #5046: children the CPM feed leaves out (backlog, epic, recurring) do not
+        # make the parent a summary to the engine, so "already has children" is not
+        # "already a summary". The new task may be its first scheduled child; ask the
+        # engine about the graph the create leaves, which also sees what the pair rule
+        # above cannot (a summary link colliding with a leaf link, #4828).
+        block = recalc_transition_block(
+            project.pk,
+            add_child=(str(parent.wbs_path), {**(new_task or {}), "is_subtask": is_subtask}),
+        )
+        if block is not None:
+            raise DRFValidationError(
+                {"parent_id": [ErrorDetail(block.detail, code=UNSCHEDULABLE_CHANGE_CODE)]}
             )
     return parent, _build_wbs_path(str(parent.wbs_path), len(children) + 1)
 
@@ -7332,7 +7358,14 @@ class TaskViewSet(
                 parent_id = _parse_create_parent_id(body)
                 if parent_id:
                     parent, wbs_path = _resolve_create_parent(
-                        project, parent_id, is_subtask=is_subtask
+                        project,
+                        parent_id,
+                        is_subtask=is_subtask,
+                        new_task={
+                            f: serializer.validated_data[f]
+                            for f in ("status", "type")
+                            if f in serializer.validated_data
+                        },
                     )
                 else:
                     wbs_path = _next_root_wbs_path(project)
@@ -7820,8 +7853,17 @@ class TaskViewSet(
                 "(code ``cyclic_dependency`` or ``self_reference``, with ``offending``) "
                 "when restoring would leave the dependency graph unschedulable, e.g. "
                 "the row's old WBS position is now under a live task it is linked to "
-                "(#4858). Nothing is restored.",
-                codes=(SUMMARY_START_LINK_CODE, "cyclic_dependency", "self_reference"),
+                "(#4858). Code ``unschedulable_change`` when the restored task would be "
+                "the first scheduled subtask of a parent whose other children are all "
+                "backlog, epic or recurring, and that parent has a Finish-to-Finish or "
+                "Start-to-Finish link into it, or the restore otherwise leaves a graph "
+                "the recalculation refuses (#5046). Nothing is restored.",
+                codes=(
+                    SUMMARY_START_LINK_CODE,
+                    "cyclic_dependency",
+                    "self_reference",
+                    UNSCHEDULABLE_CHANGE_CODE,
+                ),
                 extra_properties={
                     **BLOCKING_DEPENDENCIES_SCHEMA,
                     "offending": {
@@ -7885,6 +7927,12 @@ class TaskViewSet(
                 if block is not None:
                     return Response(block.body(), status=status.HTTP_400_BAD_REQUEST)
                 before = capture_graph_state(project_id)
+                # #5046: a parent whose live children are all backlog, epic or
+                # recurring is a leaf to the CPM, so the check above (no live child at
+                # all) misses the restore that makes it a summary. The revived subtree
+                # and links are too broad to state up front; compare the recalculation
+                # graph after the restore against this snapshot instead.
+                recalc_before = capture_recalc_state(project_id)
                 task.restore()
                 cascade_task_children_restore(task)
                 # ADR-1477 §3: undoing a delete retracts the `delete` it recorded,
@@ -7900,6 +7948,9 @@ class TaskViewSet(
                 # asked for this row back and must decide which side moves. The
                 # differential guard leaves a project that was already infeasible alone.
                 assert_graph_feasible(project_id, before)
+                recalc_block = recalc_state_block(project_id, recalc_before)
+                if recalc_block is not None:
+                    raise GroupingRejected(recalc_block.code, recalc_block.detail)
                 cross_edges = cross_project_edge_rows(tasks=task_subtree(task))
         except GroupingRejected as rejected:
             # Raised inside the atomic block, so the restore is already rolled back.
@@ -10116,6 +10167,18 @@ class CrossProjectSlipConflictViewSet(
             ),
         ],
     ),
+    destroy=extend_schema(
+        responses={
+            204: None,
+            400: state_refusal_400(
+                "Refused with ``unschedulable_change`` when the template rejoining the "
+                "schedule would leave a graph the recalculation refuses, such as an "
+                "FF/SF link into a parent the template turns into a summary (#5046). "
+                "Nothing is changed.",
+                codes=(UNSCHEDULABLE_CHANGE_CODE,),
+            ),
+        },
+    ),
 )
 class TaskRecurrenceRuleViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[TaskRecurrenceRule]):
     """CRUD for a task's recurrence rule (ADR-0090, #736).
@@ -10184,6 +10247,15 @@ class TaskRecurrenceRuleViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task
         task = serializer.validated_data.get("task")
         if task is not None:
             self.check_object_permissions(self.request, task)
+            # #5046: the template leaving the CPM graph changes which tasks are
+            # summaries and which leaves a summary link expands onto, with no edge
+            # written. Refuse, unwritten, a detach the recalculation could not schedule.
+            if not task.is_recurring:
+                block = recalc_transition_block(
+                    task.project_id, changes={task.pk: {"is_recurring": True}}
+                )
+                if block is not None:
+                    raise UnschedulableChange(block)
         instance = serializer.save()
         template = instance.task
         project_id = str(template.project_id)
@@ -10212,6 +10284,15 @@ class TaskRecurrenceRuleViewSet(ProjectScopedViewSet, viewsets.ModelViewSet[Task
         # is_deleted rules). Existing occurrences are real tasks and are retained.
         template = instance.task
         project_id = str(template.project_id)
+        # #5046: the template rejoining the CPM graph can turn its backlog-only
+        # parent into a summary with an FF/SF link into it, or land a summary link on
+        # a leaf pair another link already holds. Refuse before the rule is touched.
+        if template.is_recurring:
+            block = recalc_transition_block(
+                template.project_id, changes={template.pk: {"is_recurring": False}}
+            )
+            if block is not None:
+                raise UnschedulableChange(block)
         instance.soft_delete()
         # The template rejoins the CPM graph — clear the flag and recompute.
         flag_flipped = template.is_recurring
@@ -10442,9 +10523,10 @@ def _restore_parent_summary_start_link_block(task: Task) -> SummaryStartLinkBloc
 
     Resolves the parent by path rather than through ``structural_parent``, which
     skips subtasks: a restored drawer subtask makes its parent a summary to the CPM
-    just as a structural child does. Only a parent with no live child is checked —
-    one that already has children is already a summary, and its links are not this
-    restore's doing.
+    just as a structural child does. Only a parent with no live child is checked here,
+    for the specific ADR-0370 body; a parent whose children are all outside the CPM
+    feed (backlog, epic, recurring) is not yet a summary to the engine either, and
+    the restore's post-write ``recalc_state_block`` check refuses that case (#5046).
     """
     if not task.wbs_path:
         return None
@@ -10611,8 +10693,17 @@ def _require_wbs_restructure_permission(request: Request, task: Task) -> None:
                 "one (#4830). Refused with ``summary_descendant_link`` when the sibling "
                 "is linked to the task or one of its subtasks: the move would link a "
                 "summary to its own descendant, which the scheduler treats as a cycle "
-                "(#4705).",
-                codes=("child_of_milestone", SUMMARY_START_LINK_CODE, SUMMARY_DESCENDANT_LINK_CODE),
+                "(#4705). "
+                "Refused with ``unschedulable_change`` when the move would leave a "
+                "graph the schedule recalculation refuses for any other reason, such "
+                "as a summary link and a differently typed subtask link resolving to "
+                "the same pair of tasks (#4828).",
+                codes=(
+                    "child_of_milestone",
+                    SUMMARY_START_LINK_CODE,
+                    SUMMARY_DESCENDANT_LINK_CODE,
+                    UNSCHEDULABLE_CHANGE_CODE,
+                ),
                 extra_properties=BLOCKING_DEPENDENCIES_SCHEMA,
             ),
         },
@@ -10704,6 +10795,12 @@ class TaskIndentView(IdempotencyMixin, APIView):
             block = summary_descendant_link_block([prev_sibling], [task, *descendants])
             if block is not None:
                 return Response(block.body(), status=status.HTTP_400_BAD_REQUEST)
+            # #4828: every other way the move can leave a graph the recalculation
+            # refuses (a summary link and a differently typed leaf link landing on one
+            # leaf pair, a cycle closed through the new summary), asked of the engine.
+            block = recalc_transition_block(project.pk, reparent={task.pk: prev_sibling.wbs_path})
+            if block is not None:
+                return Response(block.body(), status=status.HTTP_400_BAD_REQUEST)
             new_position = len(prev_children) + 1
             old_path = task.wbs_path
             new_path = _build_wbs_path(prev_sibling.wbs_path, new_position)
@@ -10788,8 +10885,16 @@ class TaskIndentView(IdempotencyMixin, APIView):
                 "drive one (#4830). Refused with ``summary_descendant_link`` when the task "
                 "is linked to a following sibling or one of its subtasks: adopting them "
                 "would link a summary to its own descendant, which the scheduler treats "
-                "as a cycle (#4705).",
-                codes=(SUMMARY_START_LINK_CODE, SUMMARY_DESCENDANT_LINK_CODE),
+                "as a cycle (#4705). "
+                "Refused with ``unschedulable_change`` when the move would leave a "
+                "graph the schedule recalculation refuses for any other reason, such "
+                "as a summary link and a differently typed subtask link resolving to "
+                "the same pair of tasks (#4828).",
+                codes=(
+                    SUMMARY_START_LINK_CODE,
+                    SUMMARY_DESCENDANT_LINK_CODE,
+                    UNSCHEDULABLE_CHANGE_CODE,
+                ),
                 extra_properties=BLOCKING_DEPENDENCIES_SCHEMA,
             ),
         },
@@ -10914,6 +11019,17 @@ class TaskOutdentView(IdempotencyMixin, APIView):
                     for follower in following_siblings
                     for moved in (follower, *follower_descendants[follower.pk])
                 ],
+            )
+            if block is not None:
+                return Response(block.body(), status=status.HTTP_400_BAD_REQUEST)
+            # #4828: the task moves up to the grandparent and adopts its followers;
+            # ask the engine whether the resulting graph still schedules.
+            block = recalc_transition_block(
+                project.pk,
+                reparent={
+                    task.pk: grandparent_path,
+                    **{follower.pk: task.wbs_path for follower in following_siblings},
+                },
             )
             if block is not None:
                 return Response(block.body(), status=status.HTTP_400_BAD_REQUEST)
@@ -11131,7 +11247,10 @@ def _new_reparent_ancestors(
                 "to the task or one of its subtasks (``summary_descendant_link``, #4705): "
                 "the move would link a summary to its own descendant, which the "
                 "scheduler treats as a cycle. The last two carry "
-                "``blocking_dependencies``.",
+                "``blocking_dependencies``. Refused with ``unschedulable_change`` when "
+                "the move would leave a graph the schedule recalculation refuses for "
+                "any other reason, such as a summary link and a differently typed "
+                "subtask link resolving to the same pair of tasks (#4828).",
                 extra_properties=BLOCKING_DEPENDENCIES_SCHEMA,
             ),
         },
@@ -11227,6 +11346,11 @@ class TaskReparentView(IdempotencyMixin, APIView):
                 _new_reparent_ancestors(str(project.pk), old_parent_path, new_parent_path),
                 [task, *descendants],
             )
+            if block is not None:
+                return Response(block.body(), status=status.HTTP_400_BAD_REQUEST)
+            # #4828: the engine's own verdict on the moved graph — a mixed-type leaf-pair
+            # collision or a cycle through the new summary, which neither check above names.
+            block = recalc_transition_block(project.pk, reparent={task.pk: new_parent_path})
             if block is not None:
                 return Response(block.body(), status=status.HTTP_400_BAD_REQUEST)
 

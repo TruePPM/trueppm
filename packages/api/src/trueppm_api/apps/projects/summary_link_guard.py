@@ -28,17 +28,21 @@ on it, for the same differential reason.
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable, Sequence
+import re
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 from django.db.models import Q
+from rest_framework.exceptions import APIException, ValidationError
 
 from trueppm_api.apps.scheduling.graph_guard import (
     SUMMARY_FORBIDDEN_INBOUND_LINK_TYPES,
     SUMMARY_FORBIDDEN_LINK_TYPES,
+    TypedPair,
     find_summary_start_links,
     printable_label,
+    validate_graph_transition,
 )
 
 if TYPE_CHECKING:
@@ -64,6 +68,9 @@ SUMMARY_START_LINK_CODE = "summary_start_link"
 
 #: Stable machine code for a move that would link a summary to its own descendant (#4705).
 SUMMARY_DESCENDANT_LINK_CODE = "summary_descendant_link"
+
+#: Stable machine code for a write the recalculation could not schedule afterwards (#4828, #5046).
+UNSCHEDULABLE_CHANGE_CODE = "unschedulable_change"
 
 #: Most links a refusal names before collapsing the rest into a count — the message is
 #: prose a person reads, and the full list travels in ``blocking_dependencies``.
@@ -414,3 +421,314 @@ def summary_descendant_link_block(
     return SummaryStartLinkBlock(
         detail=detail, blocking_dependencies=payload, code=SUMMARY_DESCENDANT_LINK_CODE
     )
+
+
+_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+#: Fields whose value decides whether the recalculation schedules a task at all.
+FEED_ELIGIBILITY_FIELDS: frozenset[str] = frozenset({"status", "type", "is_recurring"})
+
+
+def is_feed_eligible(status: Any, task_type: Any, is_recurring: Any) -> bool:
+    """Whether the CPM recalculation feed admits a task with these values.
+
+    The same three exclusions ``scheduling.tasks._run_schedule`` applies before it
+    builds the children map (ADR-0090, ADR-0105, #1772): a recurring row, an epic, or
+    a backlog row is not scheduled, so it is neither a summary's child nor a link
+    endpoint as far as the engine is concerned.
+    """
+    from trueppm_api.apps.projects.models import TaskStatus, TaskType
+
+    return not is_recurring and task_type != TaskType.EPIC and status != TaskStatus.BACKLOG
+
+
+@dataclass
+class _FeedRow:
+    path: str | None
+    status: Any
+    task_type: Any
+    is_recurring: bool
+    is_subtask: bool
+    name: str
+    parent: str | None = None
+
+
+def _feed_graph(
+    rows: dict[str, _FeedRow], edges: list[TypedPair], *, rolled_up: bool
+) -> tuple[list[TypedPair], dict[str, list[str]]]:
+    """The ``(edges, children_map)`` the recalculation would build from ``rows``.
+
+    ``rolled_up=False`` reads each row's status as stored, which is what the very next
+    recalculation sees. ``rolled_up=True`` first re-derives every phase's status from
+    its leaves the way ``rollup_phase_statuses`` does in that pass's write-back (a phase
+    is ``BACKLOG`` exactly when every non-subtask leaf under it is), which is what the
+    follow-up recalculation ``_schedule_backlog_flip_recompute`` enqueues sees. #5046
+    lives in the second view: a phase whose only child is a backlog row is itself
+    ``BACKLOG`` and outside the feed, so its FF/SF inbound link is harmless until that
+    child commits, the rollup commits the phase, and it re-enters the feed a summary.
+    """
+    children: dict[str, list[str]] = {}
+    for tid, row in rows.items():
+        if row.parent is not None:
+            children.setdefault(row.parent, []).append(tid)
+
+    committed_leaf: dict[str, bool] = {}
+
+    def has_committed_leaf(tid: str) -> bool:
+        # Leaves for the rollup are non-subtask rows with no non-subtask descendant.
+        if tid in committed_leaf:
+            return committed_leaf[tid]
+        kids = [c for c in children.get(tid, []) if not rows[c].is_subtask]
+        from trueppm_api.apps.projects.models import TaskStatus
+
+        value = (
+            any(has_committed_leaf(c) for c in kids)
+            if kids
+            else rows[tid].status != TaskStatus.BACKLOG
+        )
+        committed_leaf[tid] = value
+        return value
+
+    def eligible(tid: str) -> bool:
+        row = rows[tid]
+        status = row.status
+        if (
+            rolled_up
+            and not row.is_subtask
+            and any(not rows[c].is_subtask for c in children.get(tid, []))
+        ):
+            from trueppm_api.apps.projects.models import TaskStatus
+
+            # Any non-backlog value stands in for the derived one: only the BACKLOG
+            # boundary changes what the feed admits.
+            status = TaskStatus.NOT_STARTED if has_committed_leaf(tid) else TaskStatus.BACKLOG
+        return is_feed_eligible(status, row.task_type, row.is_recurring)
+
+    included = {tid for tid in rows if eligible(tid)}
+    children_map: dict[str, list[str]] = {}
+    for tid in included:
+        parent = rows[tid].parent
+        if parent is not None and parent in included:
+            children_map.setdefault(parent, []).append(tid)
+    return [e for e in edges if e[0] in included and e[1] in included], children_map
+
+
+def _load_feed(project_id: Any) -> tuple[dict[str, _FeedRow], dict[str, str], list[TypedPair]]:
+    """The project's rows, ``{wbs_path: id}`` and live same-project edges, as stored.
+
+    Rows carry their parent resolved by path, which is the parenthood the CPM's own
+    children map reads. Returns no rows when the project has no dependencies: a
+    graph without edges cannot fail the recalculation, so the row read is skipped.
+    """
+    from trueppm_api.apps.projects.models import Dependency, Task
+
+    edges: list[TypedPair] = [
+        (str(p), str(s), str(t))
+        for p, s, t in Dependency.live.filter(predecessor__project_id=project_id).values_list(
+            "predecessor_id", "successor_id", "dep_type"
+        )
+    ]
+    rows: dict[str, _FeedRow] = {}
+    by_path: dict[str, str] = {}
+    if not edges:
+        return rows, by_path, edges
+    for pk, path, status, task_type, is_recurring, is_subtask, name in Task.objects.filter(
+        project_id=project_id, is_deleted=False
+    ).values_list("id", "wbs_path", "status", "type", "is_recurring", "is_subtask", "name"):
+        rows[str(pk)] = _FeedRow(
+            path=str(path) if path else None,
+            status=status,
+            task_type=task_type,
+            is_recurring=bool(is_recurring),
+            is_subtask=bool(is_subtask),
+            name=name,
+        )
+    for key, feed_row in rows.items():
+        if feed_row.path:
+            by_path.setdefault(feed_row.path, key)
+    for feed_row in rows.values():
+        if feed_row.path and "." in feed_row.path:
+            feed_row.parent = by_path.get(feed_row.path.rpartition(".")[0])
+    return rows, by_path, edges
+
+
+_FeedGraph = tuple[list[TypedPair], dict[str, list[str]]]
+
+
+def _both_views(rows: dict[str, _FeedRow], edges: list[TypedPair]) -> tuple[_FeedGraph, _FeedGraph]:
+    """The graph as stored and after the phase-status rollup (see :func:`_feed_graph`)."""
+    return _feed_graph(rows, edges, rolled_up=False), _feed_graph(rows, edges, rolled_up=True)
+
+
+def _transition_block(
+    before: tuple[_FeedGraph, _FeedGraph],
+    after: tuple[_FeedGraph, _FeedGraph],
+    names: Mapping[str, str],
+) -> SummaryStartLinkBlock | None:
+    """Ask the engine about ``after`` against ``before`` in both views; render a refusal."""
+    from trueppm_scheduler import CyclicDependencyError, InvalidScheduleInput
+
+    from trueppm_api.apps.scheduling.graph_guard import InfeasibleGraphError
+
+    try:
+        validate_graph_transition(before[0], after[0])
+        validate_graph_transition(before[1], after[1])
+    except (InvalidScheduleInput, CyclicDependencyError, InfeasibleGraphError) as exc:
+        # The engine names tasks by id. Every id it can name here is a row of this
+        # project, which the caller is authorized on, so naming them discloses nothing.
+        message = _UUID.sub(
+            lambda m: (
+                f"“{printable_label(names[m.group(0)])}”"
+                if m.group(0) in names
+                else "a task in another project"
+            ),
+            str(exc),
+        )
+        return SummaryStartLinkBlock(
+            detail=(
+                "This change would leave a schedule that cannot be recalculated: "
+                f"{message} Nothing was changed."
+            ),
+            code=UNSCHEDULABLE_CHANGE_CODE,
+        )
+    return None
+
+
+#: Stand-in id for the row a create is about to insert. Not a UUID, so it can never
+#: collide with a stored row, and it has no edges for the engine to name it by.
+_NEW_ROW = "new-task"
+
+
+def recalc_transition_block(
+    project_id: Any,
+    *,
+    reparent: Mapping[Any, str] | None = None,
+    changes: Mapping[Any, Mapping[str, Any]] | None = None,
+    add_child: tuple[str, Mapping[str, Any]] | None = None,
+) -> SummaryStartLinkBlock | None:
+    """Refuse a write that would make the project's recalculation raise (#4828, #5046).
+
+    The one structural guard that asks the engine itself. ``summary_start_link_block``
+    and ``summary_descendant_link_block`` each name one rule; this rebuilds the graph
+    the CPM pass would build after the write and runs the engine's expansion and cycle
+    check over it (:func:`~trueppm_api.apps.scheduling.graph_guard.validate_graph_transition`),
+    so a rule neither of them states — a summary link and a differently typed leaf
+    link expanding onto the same leaf pair, a cycle a move closes through a summary —
+    is refused too. Callers run it after the narrower guards, which give a more
+    specific body for the cases they cover.
+
+    Args:
+        project_id: The project being written. Same-project edges only, as the
+            single-project recalculation reads them.
+        reparent: ``{task_id: new_parent_wbs_path}`` — each task moves, with its
+            subtree, under the task at that path (``""`` for the root). Paths are the
+            pre-write ones, so a caller states the move before it writes anything.
+        changes: ``{task_id: {field: value}}`` for :data:`FEED_ELIGIBILITY_FIELDS`
+            about to be written.
+        add_child: ``(parent_wbs_path, fields)`` for a task about to be created under
+            that parent, ``fields`` holding any of ``status``, ``type``,
+            ``is_recurring`` and ``is_subtask`` (defaults: not started, a plain task,
+            not recurring, not a subtask). A parent whose existing children are all
+            backlog, epic or recurring is a leaf to the engine, so its first
+            *committed* child makes it a summary even though it "already has
+            children" (#5046).
+
+    Differential: a project whose recalculation already fails is not refused, so the
+    edits that repair it stay possible. Two queries; a project with no dependencies
+    returns after one.
+    """
+    from trueppm_api.apps.projects.models import TaskStatus, TaskType
+
+    rows, by_path, edges = _load_feed(project_id)
+    if not edges:
+        return None
+    before = _both_views(rows, edges)
+
+    for tid, new_parent_path in (reparent or {}).items():
+        moved = rows.get(str(tid))
+        if moved is not None:
+            moved.parent = by_path.get(new_parent_path) if new_parent_path else None
+    for tid, fields in (changes or {}).items():
+        changed = rows.get(str(tid))
+        if changed is None:
+            continue
+        changed.status = fields.get("status", changed.status)
+        changed.task_type = fields.get("type", changed.task_type)
+        changed.is_recurring = bool(fields.get("is_recurring", changed.is_recurring))
+    if add_child is not None:
+        parent_path, fields = add_child
+        parent_id = by_path.get(parent_path)
+        if parent_id is None:
+            return None
+        rows[_NEW_ROW] = _FeedRow(
+            path=None,
+            status=fields.get("status") or TaskStatus.NOT_STARTED,
+            task_type=fields.get("type") or TaskType.TASK,
+            is_recurring=bool(fields.get("is_recurring", False)),
+            is_subtask=bool(fields.get("is_subtask", False)),
+            name="",
+            parent=parent_id,
+        )
+
+    return _transition_block(
+        before, _both_views(rows, edges), {tid: row.name for tid, row in rows.items()}
+    )
+
+
+@dataclass(frozen=True)
+class RecalcState:
+    """A project's recalculation graph captured before a write :func:`recalc_state_block` checks."""
+
+    views: tuple[_FeedGraph, _FeedGraph]
+
+
+def capture_recalc_state(project_id: Any) -> RecalcState:
+    """Snapshot the graph the recalculation would build now, for a post-write check.
+
+    For a write too broad to state up front — a trash restore revives a subtree and
+    the links touching it at once. Take the snapshot inside the write's transaction,
+    write, then call :func:`recalc_state_block` and roll back on a refusal. Two queries.
+    """
+    rows, _, edges = _load_feed(project_id)
+    return RecalcState(views=_both_views(rows, edges))
+
+
+def recalc_state_block(project_id: Any, before: RecalcState) -> SummaryStartLinkBlock | None:
+    """:func:`recalc_transition_block` for a write already applied, against ``before``."""
+    rows, _, edges = _load_feed(project_id)
+    if not edges:
+        return None
+    return _transition_block(
+        before.views, _both_views(rows, edges), {tid: row.name for tid, row in rows.items()}
+    )
+
+
+class UnschedulableChange(APIException):
+    """A write refused with :data:`UNSCHEDULABLE_CHANGE_CODE`, as a ``{code, detail}`` 400.
+
+    For a path with no request field to hang the refusal on (a recurrence rule's
+    attach or detach flips the template's ``is_recurring``, which no client writes):
+    raised from ``perform_create``/``perform_destroy`` before any row is written, so
+    DRF's handler returns the same body the WBS endpoints do.
+    """
+
+    status_code = 400
+    default_code = UNSCHEDULABLE_CHANGE_CODE
+
+    def __init__(self, block: SummaryStartLinkBlock) -> None:
+        super().__init__(detail={"code": block.code, "detail": block.detail})
+
+
+class UnschedulableTaskChange(ValidationError):
+    """``TaskSerializer.update``'s refusal of a status or type change (#5046).
+
+    A field error under the written field, so the REST PATCH and ``tasks/bulk`` rows
+    report it as any other validation failure. Its own type so the mobile sync upload
+    can report that one row as a conflict and commit the rest of the batch, rather
+    than roll the whole upload back over a row the client must fix by hand.
+    """
+
+    def __init__(self, field: str, detail: str) -> None:
+        super().__init__({field: [detail]}, code=UNSCHEDULABLE_CHANGE_CODE)
+        self.field = field
+        self.message = detail

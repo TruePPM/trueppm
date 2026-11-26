@@ -323,6 +323,9 @@ _STATE_REFUSAL_OPERATIONS: frozenset[tuple[str, str]] = frozenset(
         ("post", "/api/v1/projects/{id}/views/reset/"),
         ("delete", "/api/v1/projects/{project_pk}/members/{id}/"),
         ("delete", "/api/v1/projects/{project_pk}/phases/{id}/"),
+        # #5046: detaching a rule returns its template to the CPM feed, which can make
+        # a backlog-only parent a summary with an FF/SF link into it (state, not body).
+        ("delete", "/api/v1/recurrence-rules/{id}/"),
         # The four task-collaboration deletes (attachments, comments, reactions,
         # notes) LEFT this set in #3365. Their only refusal was an ownership guard
         # that raised ValidationError, so the 400 declared here was a 400 in fact

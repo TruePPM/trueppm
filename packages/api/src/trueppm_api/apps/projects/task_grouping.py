@@ -327,11 +327,11 @@ def capture_graph_state(project_id: Any) -> GraphState:
 
 def _guard_errors() -> tuple[type[Exception], ...]:
     """The exception types the ADR-0259 guard raises, as a single ``except`` target."""
-    from trueppm_scheduler import InvalidScheduleInput
+    from trueppm_scheduler import CyclicDependencyError, InvalidScheduleInput
 
     from trueppm_api.apps.scheduling.graph_guard import InfeasibleGraphError
 
-    return (InfeasibleGraphError, InvalidScheduleInput)
+    return (InfeasibleGraphError, InvalidScheduleInput, CyclicDependencyError)
 
 
 def _assert_schedulable(state: GraphState) -> None:
@@ -345,6 +345,7 @@ def _assert_schedulable(state: GraphState) -> None:
     from trueppm_api.apps.scheduling.graph_guard import (
         InfeasibleGraphError,
         find_summary_start_links,
+        validate_summary_expansion,
         validate_task_graph,
     )
 
@@ -367,6 +368,10 @@ def _assert_schedulable(state: GraphState) -> None:
             # the successor for FF into one (#4437).
             list(dict.fromkeys(p if p in summaries else s for p, s, _ in offending)),
         )
+    # #4828: the engine's own expansion, so a summary link and a differently typed
+    # leaf link that land on one leaf pair are refused too — the pairs above cannot see
+    # it, and structural undo restores edges through this guard.
+    validate_summary_expansion(edges, children_map)
 
 
 def _is_schedulable(state: GraphState) -> bool:

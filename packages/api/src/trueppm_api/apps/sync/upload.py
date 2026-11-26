@@ -441,11 +441,21 @@ def _save_or_defer_slip(ser: Any, row_id: Any, ctx: _ApplyContext, result: Batch
     ``code: commitment_slip_requires_acceptance`` so the client keeps its local
     edit pending rather than treating it as synced. Returns the saved task, or
     ``None`` when the row was deferred.
+
+    A status or type change the schedule recalculation could not survive (#5046) is
+    reported the same way, with ``code: unschedulable_change``: it is not applied, and
+    the rest of the batch still commits. Unlike a malformed row it cannot be fixed by
+    retrying — another task's link decides it — so rolling the whole upload back would
+    strand every other offline edit behind it.
     """
     from trueppm_api.apps.projects.services import (
         CommitmentSlipDeferred,
         commitment_slip_conflict_body,
         record_deferred_slip,
+    )
+    from trueppm_api.apps.projects.summary_link_guard import (
+        UNSCHEDULABLE_CHANGE_CODE,
+        UnschedulableTaskChange,
     )
 
     try:
@@ -454,6 +464,16 @@ def _save_or_defer_slip(ser: Any, row_id: Any, ctx: _ApplyContext, result: Batch
     except CommitmentSlipDeferred as exc:
         row = record_deferred_slip(exc, ctx.request)
         result.conflicts.append({"id": str(row_id), **commitment_slip_conflict_body(row)})
+        return None
+    except UnschedulableTaskChange as exc:
+        result.conflicts.append(
+            {
+                "id": str(row_id),
+                "code": UNSCHEDULABLE_CHANGE_CODE,
+                "detail": exc.message,
+                "fields": [exc.field],
+            }
+        )
         return None
 
 
