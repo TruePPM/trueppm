@@ -239,6 +239,60 @@ and `/api/v1/task-skill-requirements/` — create, update, delete, and the
 every role including Owner. Reads are unaffected. Before 0.4, those writes still
 succeeded on an archived project.
 
+## Allocation check
+
+:::note[Ships in 0.5]
+`POST /api/v1/allocations/` and the roster entry's booking fields ship in 0.5.
+:::
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/allocations/?dry_run=1` | Verdict on a proposed booking; writes nothing |
+| POST | `/api/v1/allocations/` | Check and save the booking |
+
+Body: `project`, `resource`, `share_pct` (0 to 400; `0` removes the booking),
+`start`, `end` (inclusive, at most 104 weeks, years 2000 to 2200), and optionally
+`accept_overage` with `reason` (up to 500 characters). `accept_overage` without a
+reason is a `400`. A booking replaces the project's previous one for that person.
+
+A `200` returns `dry_run`, `saved`, `allocation_id` (the roster entry, or `null`)
+and `verdict`: `fits`, `ceiling_pct`, `peak_pct`, `weeks[]` (each with
+`load_pct`, `over` and `breaks`), `first_breaking_week` (with
+`contributions[]` of kind `this_change`, `other_project`, `other_work` or
+`time_off`), `resolutions` (`shorten`, `move`, `accept`; `null` when it fits),
+`as_of` and `definitions`. Only the days of each week inside the window are
+judged. A week `breaks` when it is over the ceiling and higher than without the
+change; only a breaking week makes `fits` false.
+
+The person must be on the roster of a live, non-draft project where you hold
+Resource Manager or above, or the request is a `400` identical to an unknown
+`resource`. Load on a project whose per-person load you cannot read (below
+Resource Manager there, or its team does not share the ADR-0104 `capacity`
+signal with your role) counts toward `fits`, `over` and `breaks` but is not
+returned as a number: its `other_work` line has `pct: null`, and any `load_pct` or `peak_pct`
+that includes it is `null` with `reason` / `peak_reason` set to `withheld`.
+Because the verdict says whether a booking fits, that load can be inferred from
+repeated checks.
+Draft projects are not counted; archived projects are. Bookings count only here:
+people load, utilization and capacity read task units. A save judges the same
+way as a dry run, so on unchanged data the two verdicts differ only in `as_of`.
+
+| Status | Meaning |
+|---|---|
+| `409` `allocation_over_ceiling` | Over the ceiling and not accepted; body carries `verdict`; nothing saved |
+| `503` `allocation_check_unavailable` | The check could not complete; nothing saved |
+| `400` | Invalid body, `accept_overage` without a reason, or the person is not on a roster you schedule |
+| `403` | Below Resource Manager on the project, or the project is archived |
+
+Saves for one person are serialized, so two concurrent bookings cannot jointly
+pass the ceiling. The request honors the `Idempotency-Key` header, so a retried
+save is replayed and does not notify the person twice. A full-scope personal access token acts as its owner; a
+read-only agent token is refused, including for a dry run (agent access is
+tracked in #5146). `share_pct`,
+`share_start`, `share_end` and the `overage_*` fields are read-only on
+`/api/v1/project-resources/`. The `overage_*` values are returned only to the
+Resource Manager role or above and to the booked person; others read them empty.
+
 ## Load across your projects
 
 `GET /api/v1/me/people-load/` will return, from 0.5, each person's weekly load

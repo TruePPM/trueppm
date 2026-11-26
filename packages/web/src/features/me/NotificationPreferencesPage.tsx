@@ -110,6 +110,11 @@ const EVENT_LABELS: Record<string, { title: string; example: string }> = {
     title: 'When one of your agents is refused',
     example: '“Refused: agent Claude (tppm_ab12cd34) is paused”',
   },
+  // #4806: someone booked me over my capacity and accepted the overage with a reason.
+  'allocation.overage_accepted': {
+    title: 'When you are booked over your capacity',
+    example: '“You are booked over capacity on Apollo”',
+  },
 };
 
 /** Event types sent on the weekly slot — used to gate the schedule card. */

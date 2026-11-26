@@ -160,6 +160,7 @@ api/v1/^tasks/delete-untouched-seeded/$
 api/v1/^template-applications/(?P<pk>[^/.]+)/undo/$
 api/v1/^velocity-suggestions/(?P<pk>[^/.]+)/accept/$
 api/v1/^velocity-suggestions/(?P<pk>[^/.]+)/dismiss/$
+api/v1/allocations/
 api/v1/auth/me/profile/
 api/v1/calendars/<calendar_pk>/exceptions/
 api/v1/calendars/<calendar_pk>/exceptions/<pk>/

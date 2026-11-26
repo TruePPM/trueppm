@@ -302,6 +302,64 @@ program's projects only). It is a different figure from a sprint's capacity pane
 which covers one sprint on one project; the
 [metric vocabulary](/features/metric-vocabulary/) explains the difference.
 
+## Checking an allocation before you save it
+
+:::note[Ships in 0.5]
+Bookings and the allocation check, `POST /api/v1/allocations/`, ship in 0.5, in
+the API only. In 0.4 there is no booking: you set a roster entry's capacity
+override or assign task units, and you see over-allocation after saving.
+:::
+
+A **booking** holds a share of one person's full time on one project, every week
+from a start date to an end date. A project has one booking per person. Send it
+with `?dry_run=1` to get the verdict without saving anything:
+
+- The ceiling is the person's own **max units**, so someone at `0.6` is over at 70%.
+- Each week is judged on its busiest day across every project, counting only the
+  days of that week inside the booking's window. On a project, the booking and the
+  person's assigned task units are not added together: the larger one counts.
+  Tasks without scheduled dates, completed tasks, backlog tasks and a bare assignee
+  do not count. Draft projects do not count; archived projects do, as on the
+  people load view.
+- Non-working days on the person's calendar inside the window take that part of
+  the week out of their capacity, shown as a **time off** percentage.
+- A week **breaks** when the booking leaves it over the ceiling and higher than it
+  is without the booking. Only a breaking week refuses a save, so lowering a
+  booking, or booking into a week that is already over for other reasons without
+  adding to its busiest day, is never refused. Such a week shows as **over**.
+- If a week breaks, the verdict names the first one, lists what adds up to it, and
+  says what each way out would leave: **shorten** (end before that week), **move**
+  (same length, the first later start within 26 weeks that breaks nothing) or
+  **accept**.
+
+**Whom you can check, and what you see.** The check follows the same rules as the
+people load view. You can check a person only if they are on the roster of a live,
+non-draft project where you hold the Resource Manager role or above; anyone else
+gets the same answer as a person who does not exist. Load on a project whose
+per-person load you can read there (Resource Manager or above, and the team shares
+its capacity signal with your role) is shown by name and percent. Load on any other
+project still counts toward the verdict, but it is not displayed as a number: it
+appears as one unnamed **other work** line with no percent, and every figure that
+includes it (that week's load, the peak, a resolution's peak) is empty and marked
+`withheld`. This is not a privacy guarantee: because the check answers whether a
+booking fits, load you cannot see can be inferred from repeated checks.
+
+Bookings count only in this check. The people load view, project utilization and
+sprint capacity read assigned task units, not bookings, so a booking with no tasks
+behind it does not show there.
+
+Saving a booking that is over the ceiling is refused unless you accept the overage
+**with a reason**. The reason, the week it first breaks and who accepted it are kept
+on the roster entry until a save leaves no week over (lowering a booking while the
+person stays over keeps the record), and the person gets an inbox notification if their
+resource is linked to a user account and someone else made the booking (the
+project is named only if they are a member of it). If the check
+cannot run, nothing is saved. Checking, saving and accepting all need the
+**Resource Manager** role or above on the project.
+
+The ceiling is enforced on bookings only. Assigning task units still warns and saves.
+Read-only agent tokens cannot use the check yet; agent access is tracked in #5146.
+
 ## What a resource manager can do today
 
 1. Maintain the Workspace resource catalog (name, role, capacity, calendar). From

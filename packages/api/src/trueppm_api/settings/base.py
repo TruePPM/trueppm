@@ -2721,6 +2721,9 @@ SPECTACULAR_SETTINGS = {
         # exists to prevent. Pin the incumbent to its stable name; the new
         # Monte Carlo set is then free to take the prefixed form.
         "ReasonEnum": ["ancestor_selected", "different_parent"],
+        # #4806: the allocation verdict's `reason` / `peak_reason` (a figure left
+        # out because it includes load the caller may not read).
+        "AllocationWithheldReasonEnum": ["withheld"],
         "StateEnum": "trueppm_api.apps.projects.models.SprintState",
         "PurgeRunStateEnum": "trueppm_api.apps.observability.models.PurgeRun.State",
         "PurgeRunTriggerEnum": "trueppm_api.apps.observability.models.PurgeRun.Trigger",

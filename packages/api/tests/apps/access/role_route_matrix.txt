@@ -498,6 +498,7 @@
 -++++++  POST api/v1/agents/<uuid:pk>/pause/::post
 -++++++  POST api/v1/agents/<uuid:pk>/resume/::post
 -++++++  POST api/v1/agents/<uuid:pk>/revoke/::post
+-++++++  POST api/v1/allocations/::post
 +++++++  POST api/v1/auth/logout/::post
 +++++++  POST api/v1/auth/password/reset/::post
 +++++++  POST api/v1/auth/password/reset/confirm/::post
