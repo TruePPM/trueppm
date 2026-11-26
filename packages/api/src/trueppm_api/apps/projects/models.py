@@ -3108,6 +3108,28 @@ class DeliveryMode(models.TextChoices):
     MILESTONE = "milestone", "Milestone"
 
 
+class ExecutorKind(models.TextChoices):
+    """Who performs a task: a person or an agent (ADR-1485 child 14, ADR-0112)."""
+
+    HUMAN = "human", "Human"
+    AGENT = "agent", "Agent"
+
+
+class AgentTaskState(models.TextChoices):
+    """Where an agent-executed task is in the agent's own lifecycle.
+
+    Distinct from ``Task.status`` (the PM-visible board/schedule status): this is the
+    agent's work state. The empty string is "not an agent task / not queued yet" and is
+    the only value valid while ``executor_kind`` is ``human``.
+    """
+
+    QUEUED = "queued", "Queued"
+    RUNNING = "running", "Running"
+    DONE = "done", "Done"
+    NEEDS_REVIEW = "needs_review", "Needs review"
+    REFUSED = "refused", "Refused"
+
+
 class TaskSource(models.TextChoices):
     """What wrote a task row (ADR-0786, #2730).
 
@@ -4329,6 +4351,39 @@ class Task(VersionedModel):
     # write; see Task.save(). Null means "no person has ever touched this row".
     edited_at = models.DateTimeField(null=True, blank=True)
 
+    # Agent-task fields (ADR-1485 child 14, extends ADR-0112). Data model only: the
+    # Schedule's agent glyph / run strip read these. Write rules (who may set which)
+    # live in TaskSerializer._validate_agent_task_fields so REST and sync share them.
+    executor_kind = models.CharField(
+        max_length=5,
+        choices=ExecutorKind.choices,
+        default=ExecutorKind.HUMAN,
+        help_text="Whether a person or an agent performs this task.",
+    )
+    agent_state = models.CharField(
+        max_length=12,
+        choices=AgentTaskState.choices,
+        blank=True,
+        default="",
+        help_text="Agent lifecycle state; empty unless executor_kind is 'agent'.",
+    )
+    agent_refusal_reason = models.CharField(
+        max_length=500,
+        blank=True,
+        default="",
+        help_text="Why the agent refused the task; non-empty only when agent_state is 'refused'.",
+    )
+    # The human an agent acts for. SET_NULL: deleting the user must not delete or
+    # corrupt the task; the audit trail (AgentAction.principal) keeps the identity.
+    on_behalf_of = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="agent_tasks_on_behalf",
+        help_text="The person an agent task is performed for.",
+    )
+
     history = HistoricalRecords(excluded_fields=_HISTORY_EXCLUDED_TASK)
 
     # Default manager — unfiltered. Listed first so it remains _default_manager
@@ -4422,6 +4477,17 @@ class Task(VersionedModel):
             ),
         ]
         constraints = [
+            # safe-constraint: executor_kind defaults to 'human' and agent_state /
+            # agent_refusal_reason default to '' on every existing row, so both
+            # constraints below hold for all pre-existing data (columns are new).
+            models.CheckConstraint(
+                name="task_agent_state_requires_agent",
+                condition=models.Q(executor_kind="agent") | models.Q(agent_state=""),
+            ),
+            models.CheckConstraint(
+                name="task_refusal_reason_only_when_refused",
+                condition=models.Q(agent_refusal_reason="") | models.Q(agent_state="refused"),
+            ),
             models.UniqueConstraint(
                 fields=["project", "short_id"],
                 name="unique_task_short_id_per_project",

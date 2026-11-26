@@ -77,6 +77,7 @@ from trueppm_api.apps.projects.models import (
     SCOPE_MCP_READ,
     SCOPE_WEBHOOKS_MANAGE,
     AcceptanceCriterion,
+    AgentTaskState,
     ApiTokenAuditEntry,
     BacklogItem,
     BacklogItemStatus,
@@ -100,6 +101,7 @@ from trueppm_api.apps.projects.models import (
     EstimateAuthority,
     EstimateStatus,
     EstimationMode,
+    ExecutorKind,
     ExportJobStatus,
     ForecastSnapshot,
     GovernanceClass,
@@ -4809,6 +4811,11 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # than re-deriving the rule from sprint state, so presentation and enforcement
     # call one predicate (ADR-0133's "one rule; it is called twice").
     dates_locked_by_sprint = serializers.SerializerMethodField()
+    # Narrowed to active accounts (pii-exposure gate); project membership is enforced in
+    # _validate_agent_task_fields, so a non-member id is refused without confirming the account.
+    on_behalf_of = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(is_active=True), required=False, allow_null=True
+    )
 
     class Meta:
         model = Task
@@ -4953,6 +4960,11 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
             "seeded_at",
             "edited_at",
             "is_untouched_seed",
+            # Agent-task fields (ADR-1485 child 14). Write rules: _validate_agent_task_fields.
+            "executor_kind",
+            "agent_state",
+            "agent_refusal_reason",
+            "on_behalf_of",
         ]
         read_only_fields = [
             "id",
@@ -5217,6 +5229,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         self._validate_sprint_project_ownership(attrs)
         self._validate_blocking_task(attrs)
         self._validate_assignee_membership(attrs)
+        self._validate_agent_task_fields(attrs)
         self._reject_pending_sprint_relink(attrs)
         self._reject_status_change_on_closed_sprint(attrs)
         self._evaluate_sprint_guardrails(attrs)
@@ -5795,6 +5808,107 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                     raise serializers.ValidationError(
                         {"assignee": "The assignee must be a member of this project."}
                     )
+
+    _AGENT_TASK_FIELDS = frozenset(
+        {"executor_kind", "agent_state", "agent_refusal_reason", "on_behalf_of"}
+    )
+
+    def _validate_agent_task_fields(self, attrs: dict[str, Any]) -> None:
+        """ADR-1485 child 14: who may write the agent-task fields, and what is coherent.
+
+        The fields are an attribution claim ("an agent does this for person X"), so an
+        unrestricted write would let a Member forge ``on_behalf_of`` onto anyone. Rules:
+
+        - ``executor_kind`` is a planning decision: Project Manager (``Role.ADMIN``) or
+          above only. Switching back to ``human`` clears the agent-only fields.
+        - ``on_behalf_of`` must be an active project member; below ``Role.ADMIN`` a caller
+          may name only themselves.
+        - ``agent_state`` / ``agent_refusal_reason`` need an agent task and keep the
+          refusal reason valid only while ``agent_state == "refused"`` (also a DB check).
+
+        Enforced here, not in the view, because the sync upload reuses this serializer.
+        Without a request (internal callers) the role gate is skipped.
+        """
+        from rest_framework.exceptions import PermissionDenied
+
+        touched = self._AGENT_TASK_FIELDS & set(attrs)
+        if not touched:
+            return
+        inst = self.instance
+        project = attrs.get("project") or (inst.project if inst is not None else None)
+
+        def effective(name: str, default: Any) -> Any:
+            if name in attrs:
+                return attrs[name]
+            return getattr(inst, name) if inst is not None else default
+
+        kind = effective("executor_kind", ExecutorKind.HUMAN)
+        request = self.context.get("request")
+        role: int | None = None
+        if request is not None and project is not None:
+            from trueppm_api.apps.access.permissions import _membership_role
+
+            role = _membership_role(request, str(project.pk))
+        is_admin = request is None or (role is not None and role >= Role.ADMIN)
+
+        if "executor_kind" in attrs and attrs["executor_kind"] != (
+            inst.executor_kind if inst is not None else ExecutorKind.HUMAN
+        ):
+            if not is_admin:
+                raise PermissionDenied("Only a project Admin may change a task's executor kind.")
+            if attrs["executor_kind"] == ExecutorKind.HUMAN:
+                # Cleared rather than rejected: the fields only mean something for agents.
+                attrs["agent_state"] = ""
+                attrs["agent_refusal_reason"] = ""
+                attrs["on_behalf_of"] = None
+                return
+
+        if kind != ExecutorKind.AGENT:
+            if (
+                attrs.get("agent_state")
+                or attrs.get("agent_refusal_reason")
+                or attrs.get("on_behalf_of")
+            ):
+                raise serializers.ValidationError(
+                    "agent_state, agent_refusal_reason and on_behalf_of require "
+                    "executor_kind 'agent'."
+                )
+            return
+
+        state = effective("agent_state", "")
+        if (
+            "agent_state" in attrs
+            and state != AgentTaskState.REFUSED
+            and ("agent_refusal_reason" not in attrs)
+        ):
+            attrs["agent_refusal_reason"] = ""
+        reason = effective("agent_refusal_reason", "")
+        if reason and state != AgentTaskState.REFUSED:
+            raise serializers.ValidationError(
+                {
+                    "agent_refusal_reason": (
+                        "A refusal reason is only valid when agent_state is refused."
+                    )
+                }
+            )
+
+        target = attrs.get("on_behalf_of")
+        if "on_behalf_of" in attrs and target is not None:
+            if request is not None and not is_admin and target.pk != request.user.pk:
+                raise PermissionDenied("Below Admin you may only set on_behalf_of to yourself.")
+            if (
+                project is not None
+                and not ProjectMembership.objects.filter(
+                    project=project,
+                    project__is_deleted=False,
+                    user=target,
+                    user__is_active=True,
+                    is_deleted=False,
+                ).exists()
+            ):
+                raise serializers.ValidationError(
+                    {"on_behalf_of": "on_behalf_of must be a member of this project."}
+                )
 
     def _reject_pending_sprint_relink(self, attrs: dict[str, Any]) -> None:
         """ADR-0102 §3: a task pending sprint-acceptance is team-owned.

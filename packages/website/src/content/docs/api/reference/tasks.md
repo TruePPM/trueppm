@@ -127,6 +127,23 @@ cannot clear the edited stamp on a row it edited.
 | `edited_at` | Last human-caused write; `null` means nobody has ever touched the row |
 | `is_untouched_seed` | The server's verdict: `seeded_at` is set **and** `edited_at` is not |
 
+### Agent-task fields
+
+:::note[Ships in 0.5]
+These fields ship in 0.5. The 0.4 API does not return them.
+:::
+
+Tasks carry four fields that say whether a person or an agent performs the work. Every existing task reads `executor_kind: "human"` with the other fields empty.
+
+| Field | Meaning |
+|---|---|
+| `executor_kind` | `human` (default) or `agent`. Only a project Admin or above may change it; switching back to `human` clears the three fields below |
+| `agent_state` | The agent's own lifecycle: `queued`, `running`, `done`, `needs_review`, `refused`. Empty string unless `executor_kind` is `agent` |
+| `agent_refusal_reason` | Why the agent refused, up to 500 characters. Valid only while `agent_state` is `refused`; leaving `refused` clears it. The database enforces this too |
+| `on_behalf_of` | User id of the person the agent acts for, or `null`. Must be an active project member. Below Admin, a caller may name only themselves, so a Member cannot attribute agent work to someone else |
+
+A write that breaks these rules returns `400` (incoherent combination) or `403` (not permitted). The fields also ride the offline sync pull and the MCP `get_task` and `list_tasks` tools. `agent_refusal_reason` is wrapped as untrusted content in MCP results because an agent wrote it.
+
 Read `is_untouched_seed` rather than re-deriving it from the two timestamps. It is
 the predicate behind the seeded-project landing's "Delete untouched rows (N)"
 offer, so a client copy that drifts by one clause would disagree with the server

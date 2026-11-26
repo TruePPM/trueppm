@@ -253,6 +253,11 @@ export interface Task {
    * `undefined` on rows that predate the field; callers fall back to the mode check.
    */
   canEditEstimates?: boolean;
+  /** Agent-task fields (ADR-1485 child 14); wire keys snake_case, mapped in `mapTask`. */
+  executorKind?: 'human' | 'agent';
+  agentState?: '' | 'queued' | 'running' | 'done' | 'needs_review' | 'refused';
+  agentRefusalReason?: string;
+  onBehalfOf?: number | null;
   /**
    * Sprint sovereignty (#2984). Wire key `dates_locked_by_sprint`, mapped in
    * `mapTask`. `true` when the task has no `planned_start`, is `BACKLOG` status, and

@@ -82,6 +82,14 @@ export interface ApiTask {
    *  `can_edit`: under `pm_only` a Member may edit the task but not its PERT
    *  fields. Optional for the same reason as the two above. */
   can_edit_estimates?: boolean;
+  /** Agent-task fields (ADR-1485 child 14). Optional: absent on rows that predate them. */
+  executor_kind?: 'human' | 'agent';
+  /** Empty string unless `executor_kind` is `agent`. */
+  agent_state?: '' | 'queued' | 'running' | 'done' | 'needs_review' | 'refused';
+  /** Non-empty only when `agent_state` is `refused`. */
+  agent_refusal_reason?: string;
+  /** User id of the person an agent task is performed for. */
+  on_behalf_of?: number | null;
   /** Sprint sovereignty (#2984): `true` when the task has no `planned_start`, is
    *  `BACKLOG` status, and sits in a PLANNED or ACTIVE sprint (the rows the
    *  Unscheduled gutter renders read-only), so the server refuses any write that dates
@@ -429,6 +437,10 @@ export function mapTask(t: ApiTask): Task {
     canEdit: t.can_edit,
     canDelete: t.can_delete,
     canEditEstimates: t.can_edit_estimates,
+    executorKind: t.executor_kind,
+    agentState: t.agent_state,
+    agentRefusalReason: t.agent_refusal_reason,
+    onBehalfOf: t.on_behalf_of,
     datesLockedBySprint: t.dates_locked_by_sprint,
     actualStart: t.actual_start ?? undefined,
     actualFinish: t.actual_finish ?? undefined,

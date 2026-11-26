@@ -195,7 +195,13 @@ class SyncTaskSerializer(serializers.ModelSerializer[Task]):
             "is_phase",
             "label_ids",
             "custom_fields",
+            # Agent-task fields (ADR-1485 child 14) ride Task.server_version.
+            "executor_kind",
+            "agent_state",
+            "agent_refusal_reason",
+            "on_behalf_of",
         ]
+        read_only_fields = ["on_behalf_of"]
 
 
 class SyncDependencySerializer(serializers.ModelSerializer[Dependency]):
