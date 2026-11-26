@@ -216,11 +216,13 @@ Planned for 0.5: `get_project_cost` ships in 0.5, with the cost model. Cost is v
 | `whoami` | — | The identity behind your configured token — a quick connection check. |
 | `resolve_reference` | `ref`, `kind` (`project` or `program`, default `project`) | Turns a human-readable key or citation into the UUIDs every other tool takes: a project key (`PLAT`), a task (`PLAT-T-10`), a sprint (`PLAT-SP-3`), a risk (`PLAT-R-7`), or a program key. A renamed key still resolves, and `canonical_ref` gives the current form. Returns `found: false`, with the same wording either way, when the reference does not exist or belongs to a project you cannot see. Ships in 0.5. |
 
-Tasks, sprints and risks carry a `qualified_id` such as `PLAT-T-10`: the
-[project key](/administration/project-settings/#project-key) plus the object's number. The server tells
-the assistant to cite that form rather than a UUID, so an answer like "PLAT-T-10
-is on the critical path" is something you can paste into the web app's `⌘K`
-palette or back into `resolve_reference`.
+Task, sprint and risk records can carry a `qualified_id` such as `PLAT-T-10`: the
+[project key](/administration/project-settings/#project-key) plus the object's number. Where a payload
+carries it, the server tells the assistant to cite that form rather than a UUID, so an
+answer like "PLAT-T-10 is on the critical path" is something you can paste into the web
+app's `⌘K` palette or back into `resolve_reference`. Some payloads, such as
+`get_schedule_driving_chain` nodes and `list_dependencies` rows, identify tasks by UUID
+only.
 
 ## Example prompts
 

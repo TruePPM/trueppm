@@ -222,6 +222,8 @@ describe('useCommandItems — tier assembly', () => {
     const { result } = renderHook(() => useCommandItems(true));
     const items = byId(result.current);
     expect(items.get('jump:program:prog1')?.label).toBe('Platform');
+    // The program key finds the row too (#3888).
+    expect(items.get('jump:program:prog1')?.keywords).toBe('PLT');
     expect(items.get('jump:project:p1')?.label).toBe('Atlas');
     expect(items.get('jump:project:p2')?.label).toBe('Hoover Dam');
   });

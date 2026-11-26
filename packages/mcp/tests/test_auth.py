@@ -140,7 +140,7 @@ async def test_unexpected_status_raises_api_error(
 
 
 async def test_server_registers_read_tool_surface(settings: Settings) -> None:
-    """The server registers the read-only tool surface (32 tools, no writes)."""
+    """The server registers the read-only tool surface (33 tools, no writes)."""
     client = TruePPMClient(settings)
     try:
         server = build_server(client)

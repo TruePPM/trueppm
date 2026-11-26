@@ -1631,9 +1631,9 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         ``found: false`` when nothing you can read matches; that answer is the same
         for "does not exist" and "not visible to you", so do not guess which.
 
-        When you cite a task, sprint or risk in an answer, use its
-        ``qualified_id`` field (``PLAT-T-10``), not its UUID: a person can read it,
-        search for it, and paste it back here.
+        When you cite a task, sprint or risk in an answer and the payload carries its
+        ``qualified_id`` field (``PLAT-T-10``), use that, not its UUID: a person can
+        read it, search for it, and paste it back here.
 
         Args:
             ref: The key or reference, e.g. ``PLAT-T-10``. Letters, digits and
