@@ -360,6 +360,30 @@ A manual `entry_date` cannot be in the future, nor older than the backdate windo
 ceiling (`TRUEPPM_TIMETRACKING_TIMER_MAX_MINUTES`, default 600) is flagged `stale: true`, and
 on stop its logged minutes are capped at the ceiling rather than the raw elapsed time. Both settings ship under the `TRUEPPM_` prefix in 0.5; 0.4 reads them without the prefix (`TIMETRACKING_BACKDATE_DAYS`, `TIMETRACKING_TIMER_MAX_MINUTES`).
 
+### Timesheet review
+
+:::note[Ships in 0.5]
+The routes below ship in 0.5. In the current release a submitted week has no reviewer and no
+lock, entries have no `category`, and none of these routes exist.
+:::
+
+From 0.5 each entry will carry a `category` (`task` by default, `pto`, `admin`, `training`);
+only `task` time counts toward project actual cost. A workspace admin will set each person's
+one direct manager, who reviews that person's submitted weeks. A week in the `approved` state
+will refuse every write into it with `409 timesheet_week_approved`. See
+[Timesheet](/features/timesheet/#submitting-your-week) for the state machine.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/reporting-lines/` | Every reporting line; workspace Admin+, tokens refused |
+| GET | `/api/v1/reporting-lines/{user_id}/` | One person's manager; workspace Admin+ |
+| PUT | `/api/v1/reporting-lines/{user_id}/` | Set a manager (`{manager: <user id>}`); self and cycles are `400`; every change is audited |
+| DELETE | `/api/v1/reporting-lines/{user_id}/` | Clear a person's manager |
+| GET | `/api/v1/me/reports/` | The caller's direct reports, each with the week's `status` and `week_minutes` (`?week=`, default this week) |
+| GET | `/api/v1/me/reports/{user_id}/timesheets/{week_start}/` | One direct report's week; entry detail outside the caller's projects is `restricted`; `404` for anyone who is not a direct report |
+| POST | `/api/v1/me/reports/{user_id}/timesheets/{week_start}/approve/` | Approve a submitted week; `409` if not submitted or its entries changed since submit; API tokens `403` |
+| POST | `/api/v1/me/reports/{user_id}/timesheets/{week_start}/return/` | Return a submitted week with a required `{reason}` (blank is `400`); the reason goes to the submitter's Inbox; API tokens `403` |
+
 Time cannot be logged against a **phase** (a task with structural children — see
 [Phase rollup locks](/api/reference/templates/#phase-rollup-locks)): a phase rolls up the logged time of its
 child tasks, so a direct entry would double-count. Logging time or starting a timer
