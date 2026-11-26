@@ -292,7 +292,10 @@ class AllocationView(APIView):
             # being rostered is not membership. So a non-member gets an
             # account-scoped notice that does not name the project.
             member = ProjectMembership.objects.filter(
-                project=project, user_id=resource.user_id, is_deleted=False
+                project=project,
+                user_id=resource.user_id,
+                is_deleted=False,
+                project__is_deleted=False,
             ).exists()
             where = project.name if member else "a project you are not a member of"
             create_event_notifications(
