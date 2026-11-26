@@ -42,4 +42,18 @@ describe('ScheduleViewOnlyBadge', () => {
     rerender(<ScheduleViewOnlyBadge canLinkDependencies />);
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
+
+  it('names the active baseline plainly, and nothing when there is none (#3757)', () => {
+    const { rerender } = render(<ScheduleViewOnlyBadge baselineName="Baseline v1" />);
+    expect(screen.getByTestId('schedule-view-only-baseline')).toHaveTextContent(
+      'Baseline: Baseline v1',
+    );
+    expect(screen.getByTestId('schedule-view-only-baseline')).toHaveAttribute(
+      'title',
+      'Baseline v1',
+    );
+    rerender(<ScheduleViewOnlyBadge />);
+    expect(screen.queryByTestId('schedule-view-only-baseline')).not.toBeInTheDocument();
+    expect(screen.getByTestId('schedule-view-only')).not.toHaveTextContent(/baseline/i);
+  });
 });

@@ -58,3 +58,14 @@ describe('ScheduleLegendV2 (#4796)', () => {
     expect(within(list).getAllByRole('listitem')).toHaveLength(3);
   });
 });
+
+describe('ScheduleLegendV2 baseline slip (#5065)', () => {
+  it('lists Baseline slip only when both baseline and slip marks are drawn', () => {
+    const { rerender } = render(<ScheduleLegendV2 placement="bar" baselineShown />);
+    expect(screen.queryByText('Baseline slip')).not.toBeInTheDocument();
+    rerender(<ScheduleLegendV2 placement="bar" baselineShown baselineSlipShown />);
+    expect(screen.getByText('Baseline slip')).toBeInTheDocument();
+    rerender(<ScheduleLegendV2 placement="bar" baselineShown={false} baselineSlipShown />);
+    expect(screen.queryByText('Baseline slip')).not.toBeInTheDocument();
+  });
+});

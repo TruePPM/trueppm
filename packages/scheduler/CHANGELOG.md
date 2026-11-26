@@ -16,6 +16,18 @@ change between releases. Pin an exact version (e.g.
 
 ## [Unreleased]
 
+### Added
+
+- **A JSON Schema for the project document
+  ([#4164](https://gitlab.com/trueppm/trueppm/-/issues/4164)).** Shipped in the wheel
+  as `trueppm_scheduler/project.schema.json` (draft 2020-12), generated from
+  `trueppm_scheduler.models`. It checks shape only; the engine's semantic rules (cycles,
+  unknown task ids, calendar consistency, caps) are outside what a schema can express.
+- **The conformance corpus is a release artifact
+  ([#4165](https://gitlab.com/trueppm/trueppm/-/issues/4165)).** Each `scheduler-v*`
+  release attaches the corpus as a tarball with a SHA-256. It certifies agreement with
+  the reference engine, not correctness.
+
 ### Changed
 
 - **The derivation vocabulary is published as enums
@@ -37,6 +49,15 @@ change between releases. Pin an exact version (e.g.
 
 ### Added
 
+- **Per-task completion percentiles: `monte_carlo(targets=[...])`
+  ([#4135](https://gitlab.com/trueppm/trueppm/-/issues/4135)).**
+  `result.targets` maps each requested task id to a `TargetForecast` with its own
+  P50/P80/P95 and per-run distribution, read from the same per-run finishes the
+  project finish is the maximum of, so a target is never later than the project at
+  any level (a reading that would be shown later takes the project's). At most `MC_TARGET_CAP` (50) targets per call. Off by default. It draws nothing
+  from the RNG, so seeded percentiles and the tornado ranking are unchanged.
+  `TargetForecast.percentiles` is the extensible `dict[int, Percentile]` mapping,
+  as `MonteCarloResult.percentiles` is (#4514).
 - **`monte_carlo(return_samples=True)`
   ([#4166](https://gitlab.com/trueppm/trueppm/-/issues/4166)).**
   `result.samples` (a `MonteCarloSamples`) carries the `(runs, n_tasks)`

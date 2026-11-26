@@ -304,6 +304,68 @@ class Percentile:
 
 
 @pickle_as_field_dict
+@dataclass(frozen=True, slots=True)
+class TargetForecast:
+    """The completion distribution of one task, from ``monte_carlo(targets=...)`` (#4135).
+
+    The same reading as the project-level result, for a single task: each level is
+    an order statistic over the task's own per-run working-time finish, shown on a
+    day the way :attr:`ScheduleResult.project_finish` is. Because the project
+    finish is the maximum over every task in each run, a target's date at a level is
+    never later than the project's at the same level: a reading that would be shown
+    later takes the project's, and can then sit ahead of ``distribution``'s own
+    quantile. A completed task reports its
+    recorded finish at every level; an in-progress one is read from its
+    remaining-work window, exactly as the deterministic pass places it.
+
+    ``percentiles`` is the extensible ``dict[int, Percentile]`` mapping, the same
+    form as :attr:`MonteCarloResult.percentiles` (#4514), so a further level is a key
+    rather than a new field; ``p50``/``p80``/``p95`` are convenience properties over
+    it (the shape settled on #4135).
+
+    Attributes:
+        task_id: Id of the target task.
+        percentiles: Confidence levels keyed by integer level (50, 80, 95).
+        distribution: Sorted per-run finish days of the task, one per run.
+    """
+
+    task_id: str
+    percentiles: dict[int, Percentile]
+    distribution: list[_Date]
+
+    @property
+    def p50(self) -> _Date:
+        """Finish date 50% of runs completed this task on or before."""
+        return self.percentiles[50].date
+
+    @property
+    def p80(self) -> _Date:
+        """Finish date 80% of runs completed this task on or before."""
+        return self.percentiles[80].date
+
+    @property
+    def p95(self) -> _Date:
+        """Finish date 95% of runs completed this task on or before."""
+        return self.percentiles[95].date
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the target's percentiles as a JSON-serializable dict.
+
+        Returns:
+            ``{"task_id", "p50", "p80", "p95", "p50_at_day_start",
+            "p80_at_day_start", "p95_at_day_start"}`` with ISO-8601 dates. The
+            per-run ``distribution`` is not emitted: it is one date per run per
+            target, and the percentiles are what a consumer stores.
+        """
+        out: dict[str, Any] = {"task_id": self.task_id}
+        for q in (50, 80, 95):
+            out[f"p{q}"] = self.percentiles[q].date.isoformat()
+        for q in (50, 80, 95):
+            out[f"p{q}_at_day_start"] = self.percentiles[q].at_day_start
+        return out
+
+
+@pickle_as_field_dict
 @dataclass(slots=True, eq=False)
 class MonteCarloSamples:
     """The per-run matrices behind one simulation, for a caller's own analysis.
@@ -399,6 +461,9 @@ class MonteCarloResult:
         samples: The per-run matrices, when ``monte_carlo(return_samples=True)``
             asked for them; ``None`` otherwise. Not part of equality, ``repr`` or
             :meth:`to_dict`.
+        targets: Per-task completion forecasts keyed by task id, in the order
+            requested, when ``monte_carlo(targets=...)`` asked for them; ``None``
+            otherwise (#4135).
     """
 
     project_id: str
@@ -409,6 +474,7 @@ class MonteCarloResult:
     velocity_saturated_runs: int
     velocity_fallback_reasons: tuple[str, ...]
     samples: MonteCarloSamples | None = field(default=None, compare=False)
+    targets: dict[str, TargetForecast] | None = None
 
     def __init__(
         self,
@@ -427,6 +493,7 @@ class MonteCarloResult:
         velocity_saturated_runs: int = 0,
         velocity_fallback_reasons: tuple[str, ...] = (),
         samples: MonteCarloSamples | None = None,
+        targets: dict[str, TargetForecast] | None = None,
     ) -> None:
         """Build a Monte Carlo result from legacy keywords or ``percentiles=``.
 
@@ -456,6 +523,10 @@ class MonteCarloResult:
                 horizon (#2469). Keyword-only; defaults to ``0``.
             velocity_fallback_reasons: Why a supplied velocity history was not
                 used (#5013). Keyword-only; defaults to ``()``.
+            samples: The per-run matrices (``return_samples=True``).
+                Keyword-only; defaults to ``None``.
+            targets: Per-task completion forecasts (#4135). Keyword-only;
+                defaults to ``None``.
 
         Raises:
             TypeError: If both forms are given, if neither is complete, or if
@@ -493,6 +564,7 @@ class MonteCarloResult:
         self.velocity_saturated_runs = velocity_saturated_runs
         self.velocity_fallback_reasons = tuple(velocity_fallback_reasons)
         self.samples = samples
+        self.targets = targets
 
     def __repr__(self) -> str:
         """Summarize the result: run count, the confidence-level dates, a few ids.
@@ -568,9 +640,12 @@ class MonteCarloResult:
             serializing), the duration-sensitivity tornado, and each percentile's
             edge-of-day reading (``p50_at_day_start`` etc., #4204), and
             ``velocity_saturated_runs`` (#2469), and ``velocity_fallback_reasons``
-            as a list (#5013).
+            as a list (#5013). ``targets`` (a list of
+            :meth:`TargetForecast.to_dict`, #4135) is
+            added only when the run computed it, so a default run's shape is
+            unchanged.
         """
-        return {
+        out: dict[str, Any] = {
             "project_id": self.project_id,
             "runs": self.runs,
             "p50": self.p50.isoformat(),
@@ -584,6 +659,9 @@ class MonteCarloResult:
             "velocity_saturated_runs": self.velocity_saturated_runs,
             "velocity_fallback_reasons": list(self.velocity_fallback_reasons),
         }
+        if self.targets is not None:
+            out["targets"] = [t.to_dict() for t in self.targets.values()]
+        return out
 
 
 _MILESTONE_REPLAY_ATTR = "_trueppm_milestone_replay"

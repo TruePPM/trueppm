@@ -1,6 +1,7 @@
 ---
 title: Schedule Toolbar
 description: Reference for the Schedule view toolbar — filter groups, summary chip, column controls, and zoom.
+documentedFor: "0.5"
 ---
 
 This is for anyone working in the Schedule view day to day. The toolbar gives you the at-a-glance project status (rightmost summary chip), the day-to-day filtering controls (toggle groups), and the actions for adding to the plan (`+ Item`, `+ Milestone`, `+ Phase`).
@@ -8,6 +9,10 @@ This is for anyone working in the Schedule view day to day. The toolbar gives yo
 Of the three, only **`+ Item`** sits in the bar by default. `+ Milestone` and `+ Phase` start in the `Actions` menu: each is a one-click structural insert that lands at your current insertion point, and the bar is also where you click while simply reading a plan. Both keep their keyboard shortcuts, and either can be pinned into the bar from **Display → Outline**.
 
 The **mode chip** comes first, ahead of `+ Item`, because it decides whether the controls after it are there at all. In **Read** mode it reads **Read only · Switch to Author to edit**, and `+ Item`, `+ Milestone`, `+ Phase`, Group and Ungroup are hidden, both in the bar and in the `Actions` menu. To edit, open the chip and turn on **Author mode**, or press `Alt + A`. If the plan has an active baseline, the chip shows which one your edits are measured against (for example **Author · vs Baseline v1**).
+
+:::note[Ships in 0.5]
+The baseline name on the Read chip and the View only badge ships in 0.5. In 0.4 the Read chip does not name the baseline. In 0.5, in **Read** mode the chip names the active baseline plainly (for example **Read only · Baseline v1 · Switch to Author to edit**), and the **View only** badge carries the same name, so you can see which baseline the plan is compared with without opening a menu. Nothing is shown while baselines are loading or when none is active. Below 1280px wide the "Switch to Author to edit" hint is hidden and the name shortens; both stay in the chip's accessible name.
+:::
 
 ![The Schedule view toolbar: item and milestone insert controls, the Author mode chip, display and zoom controls, Today, Fit to project, and Export PDF](../../../assets/screenshots/schedule-toolbar.webp)
 

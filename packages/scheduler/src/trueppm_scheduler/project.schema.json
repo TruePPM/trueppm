@@ -1,0 +1,373 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TruePPM scheduler project document",
+  "description": "The TruePPM scheduler project document: the JSON accepted by trueppm_scheduler.Project.from_json and produced by Project.to_json. This schema checks SHAPE only: property names, JSON types, enum values, required keys and numeric ranges. It cannot express the semantic rules the engine enforces (dependency cycles, duplicate task ids, edges naming an unknown task, calendar consistency, span and duration caps, date ordering), so a document that validates here can still be refused by the engine. A pass is not a promise that the engine will accept the document. Durations, float and lag are numbers of seconds; dates are strict ISO-8601 YYYY-MM-DD strings.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "start_date": {
+      "type": "string",
+      "pattern": "^(?!0000-)\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Task"
+      }
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Dependency"
+      }
+    },
+    "calendar": {
+      "$ref": "#/$defs/Calendar"
+    },
+    "velocity_samples": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sprint_length_days": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "minimum": 1
+    },
+    "status_date": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^(?!0000-)\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "calendars": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Calendar"
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "start_date"
+  ],
+  "$defs": {
+    "DateRange": {
+      "type": "object",
+      "properties": {
+        "start": {
+          "type": "string",
+          "pattern": "^(?!0000-)\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+        },
+        "end": {
+          "type": "string",
+          "pattern": "^(?!0000-)\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ]
+    },
+    "Task": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "duration": {
+          "type": "number",
+          "description": "Seconds."
+        },
+        "planned_start": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(?!0000-)\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "planned_finish": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(?!0000-)\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "early_start": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(?!0000-)\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "early_finish": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(?!0000-)\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "late_start": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(?!0000-)\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "late_finish": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(?!0000-)\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "total_float": {
+          "type": "number",
+          "description": "Seconds."
+        },
+        "free_float": {
+          "type": "number",
+          "description": "Seconds."
+        },
+        "is_critical": {
+          "type": "boolean"
+        },
+        "percent_complete": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "actual_start": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(?!0000-)\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "actual_finish": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(?!0000-)\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "optimistic_duration": {
+          "anyOf": [
+            {
+              "type": "number",
+              "description": "Seconds."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "most_likely_duration": {
+          "anyOf": [
+            {
+              "type": "number",
+              "description": "Seconds."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pessimistic_duration": {
+          "anyOf": [
+            {
+              "type": "number",
+              "description": "Seconds."
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "delivery_mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "waterfall",
+                "scrum"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "story_points": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "calendar_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scheduled_start": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(?!0000-)\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "milestone_at_day_end": {
+          "type": "boolean"
+        },
+        "live_day_end_on": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^(?!0000-)\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "zero_remaining": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "duration"
+      ],
+      "additionalProperties": false
+    },
+    "Dependency": {
+      "type": "object",
+      "properties": {
+        "predecessor_id": {
+          "type": "string"
+        },
+        "successor_id": {
+          "type": "string"
+        },
+        "dep_type": {
+          "enum": [
+            "FS",
+            "FF",
+            "SS",
+            "SF"
+          ]
+        },
+        "lag": {
+          "type": "number",
+          "description": "Seconds."
+        }
+      },
+      "required": [
+        "predecessor_id",
+        "successor_id"
+      ]
+    },
+    "Calendar": {
+      "type": "object",
+      "properties": {
+        "working_days": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 127
+        },
+        "exceptions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DateRange"
+          }
+        },
+        "hours_per_day": {
+          "type": "number"
+        },
+        "timezone": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

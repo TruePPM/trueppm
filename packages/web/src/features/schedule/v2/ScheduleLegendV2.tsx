@@ -25,7 +25,7 @@ import { COLOR, COLOR_DARK } from '../engine/GanttRenderer';
  */
 
 export interface LegendEntry {
-  key: 'critical' | 'near-critical' | 'baseline' | 'today';
+  key: 'critical' | 'near-critical' | 'baseline' | 'baseline-slip' | 'today';
   label: string;
   /** Tailwind classes for the swatch — asserted by the grayscale test. */
   swatch: string;
@@ -56,6 +56,11 @@ export const LEGEND_ENTRIES: readonly LegendEntry[] = [
       'h-1.5 w-5 rounded-sm border border-dotted border-neutral-text-secondary bg-neutral-border',
   },
   {
+    key: 'baseline-slip',
+    label: 'Baseline slip',
+    swatch: 'h-0 w-5 border-t-2 border-solid border-neutral-text-secondary',
+  },
+  {
     key: 'today',
     label: 'Today',
     swatch: 'h-3 w-0.5 bg-brand-primary',
@@ -74,10 +79,20 @@ export interface ScheduleLegendV2Props {
   placement: 'bar' | 'timeline-header';
   /** Drop the Baseline entry when no baseline is drawn — name only marks on screen. */
   baselineShown: boolean;
+  /** A summary row or milestone is drawing a slip mark (#5065). */
+  baselineSlipShown?: boolean;
 }
 
-export function ScheduleLegendV2({ placement, baselineShown }: ScheduleLegendV2Props) {
-  const entries = LEGEND_ENTRIES.filter((e) => e.key !== 'baseline' || baselineShown);
+export function ScheduleLegendV2({
+  placement,
+  baselineShown,
+  baselineSlipShown = false,
+}: ScheduleLegendV2Props) {
+  const entries = LEGEND_ENTRIES.filter(
+    (e) =>
+      (e.key !== 'baseline' || baselineShown) &&
+      (e.key !== 'baseline-slip' || (baselineShown && baselineSlipShown)),
+  );
   return (
     <ul
       aria-label="Schedule legend"

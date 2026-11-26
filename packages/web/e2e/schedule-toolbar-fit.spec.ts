@@ -166,6 +166,55 @@ async function overflowCount(page: Page): Promise<number> {
 
 const WIDTHS = [1920, 1440, 1280, 1024] as const;
 
+// #3757: Read names the active baseline on the chip (up to 10rem wide), so the
+// fit ladder must be re-measured with the widest legitimate chip (rules 343/366).
+test.describe('Schedule toolbar — Read chip with a long baseline name (#3757)', () => {
+  const LONG_NAME = 'Board-approved re-baseline after the Q3 scope change v12';
+  for (const width of WIDTHS) {
+    test(`fits at ${width}px with the baseline named on the Read chip`, async ({ page }) => {
+      await setupAuth(page);
+      await setupCatchAll(page);
+      await setupApiMocks(page, { projects: PROJECTS, projectId: PROJECT_ID, tasks: TASKS });
+      await page.route(new RegExp(`/api/v1/projects/${PROJECT_ID}/baselines/(\\?.*)?$`), (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            count: 1,
+            next: null,
+            previous: null,
+            results: [
+              {
+                id: 'bl-0000-0000-0000-000000000001',
+                project: PROJECT_ID,
+                name: LONG_NAME,
+                created_by: null,
+                created_at: '2026-04-01T09:00:00Z',
+                is_active: true,
+                has_cpm_dates: true,
+                task_count: 4,
+              },
+            ],
+          }),
+        }),
+      );
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(BASE_URL);
+      await expect(outline(page)).toBeVisible({ timeout: 10_000 });
+      const chip = page.getByTestId('schedule-mode-chip');
+      await expect(chip).toContainText('vs Board-approved');
+      await chip.click();
+      await page.getByRole('menuitemcheckbox', { name: /Author mode/ }).click();
+      await page.keyboard.press('Escape');
+      await expect(chip).toContainText('Read only');
+      await expect(page.getByTestId('schedule-mode-chip-baseline')).toBeVisible();
+      await expect.poll(() => overflowCount(page), { timeout: 5_000 }).toBe(0);
+      const report = await fitReport(page);
+      expect(report.scrollWidth).toBeLessThanOrEqual(report.clientWidth);
+    });
+  }
+});
+
 test.describe('Schedule toolbar — nothing clips at any width (#3076)', () => {
   test.beforeEach(({ page }) => goto(page));
 
