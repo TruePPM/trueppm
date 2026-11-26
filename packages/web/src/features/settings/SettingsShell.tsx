@@ -360,8 +360,7 @@ export function SettingsShell({
   // Id of the active route-link item, so the mobile "Jump to section" <select>
   // reflects the current route the same way the desktop rail highlights it.
   const activeRouteId = useMemo(
-    () =>
-      navGroups.flatMap((g) => g.items).find((i) => i.to === activeRouteTo)?.id ?? null,
+    () => navGroups.flatMap((g) => g.items).find((i) => i.to === activeRouteTo)?.id ?? null,
     [navGroups, activeRouteTo],
   );
 
@@ -584,225 +583,238 @@ export function SettingsShell({
     <div className="flex h-full min-h-0">
       {/* ── Left rail (md+) — collapses to the mobile header below md: (issue 539) ── */}
       {!isMobile && (
-      <aside
-        className="w-60 shrink-0 flex flex-col bg-neutral-surface-raised border-r border-neutral-border overflow-hidden"
-        aria-label="Settings navigation"
-      >
-        {/* Scope switcher + context selector */}
-        <div className="px-3.5 pt-3 pb-2 shrink-0 space-y-2">
-          <ScopeSwitcher scope={scope} scopeLinks={scopeLinks} onNavigate={navGuarded} v2={v2} />
-          <ContextRow
-            scope={scope}
-            contextName={contextName}
-            contextHealth={contextHealth}
-            contextOptions={contextOptions}
-            contextActiveId={contextActiveId}
-            onNavigate={navGuarded}
-            onCopyLink={handleCopyLink}
-            copyConfirmed={copyConfirmed}
-          />
-        </div>
+        <aside
+          className="w-60 shrink-0 flex flex-col bg-neutral-surface-raised border-r border-neutral-border overflow-hidden"
+          aria-label="Settings navigation"
+        >
+          {/* Scope switcher + context selector */}
+          <div className="px-3.5 pt-3 pb-2 shrink-0 space-y-2">
+            <ScopeSwitcher scope={scope} scopeLinks={scopeLinks} onNavigate={navGuarded} v2={v2} />
+            <ContextRow
+              scope={scope}
+              contextName={contextName}
+              contextHealth={contextHealth}
+              contextOptions={contextOptions}
+              contextActiveId={contextActiveId}
+              onNavigate={navGuarded}
+              onCopyLink={handleCopyLink}
+              copyConfirmed={copyConfirmed}
+            />
+          </div>
 
-        {/* Rail filter (#2320). A form field, so it keeps focus-visible: (rule 214
+          {/* Rail filter (#2320). A form field, so it keeps focus-visible: (rule 214
             carves out shell-chrome buttons, not inputs). Narrows the list below by
             label + keywords; Enter jumps to the first match. */}
-        <div className="px-3.5 pb-2 shrink-0">
-          <div className="relative">
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 16 16"
-              aria-hidden="true"
-              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-text-disabled"
-            >
-              <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
-              <path d="M10.5 10.5L14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-            <input
-              ref={railFilterInputRef}
-              type="text"
-              role="searchbox"
-              value={railFilter}
-              onChange={(e) => setRailFilter(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  handleRailFilterEnter();
-                } else if (e.key === 'Escape' && railFilter) {
-                  // Clear on Escape while there is a query; stop it reaching any
-                  // global handler so the shell stays put. An empty field lets
-                  // Escape bubble (nothing to clear here).
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setRailFilter('');
-                }
-              }}
-              aria-label="Filter settings sections"
-              aria-controls="settings-section-list"
-              placeholder="Filter settings…"
-              className="w-full h-8 pl-8 pr-7 rounded-control text-[13px] bg-neutral-surface-sunken border border-neutral-border text-neutral-text-primary placeholder:text-neutral-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-            />
-            {railFilter && (
-              <button
-                type="button"
-                aria-label="Clear filter"
-                onClick={() => {
-                  setRailFilter('');
-                  railFilterInputRef.current?.focus();
-                }}
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 grid h-5 w-5 place-items-center rounded-control text-neutral-text-secondary hover:text-neutral-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary"
+          <div className="px-3.5 pb-2 shrink-0">
+            <div className="relative">
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 16 16"
+                aria-hidden="true"
+                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-text-disabled"
               >
-                <svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true">
-                  <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-                </svg>
-              </button>
-            )}
+                <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
+                <path
+                  d="M10.5 10.5L14 14"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              </svg>
+              <input
+                ref={railFilterInputRef}
+                type="text"
+                role="searchbox"
+                value={railFilter}
+                onChange={(e) => setRailFilter(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleRailFilterEnter();
+                  } else if (e.key === 'Escape' && railFilter) {
+                    // Clear on Escape while there is a query; stop it reaching any
+                    // global handler so the shell stays put. An empty field lets
+                    // Escape bubble (nothing to clear here).
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setRailFilter('');
+                  }
+                }}
+                aria-label="Filter settings sections"
+                aria-controls="settings-section-list"
+                placeholder="Filter settings…"
+                className="w-full h-8 pl-8 pr-7 rounded-control text-[13px] bg-neutral-surface-sunken border border-neutral-border text-neutral-text-primary placeholder:text-neutral-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+              />
+              {railFilter && (
+                <button
+                  type="button"
+                  aria-label="Clear filter"
+                  onClick={() => {
+                    setRailFilter('');
+                    railFilterInputRef.current?.focus();
+                  }}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 grid h-5 w-5 place-items-center rounded-control text-neutral-text-secondary hover:text-neutral-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary"
+                >
+                  <svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true">
+                    <path
+                      d="M4 4l8 8M12 4l-8 8"
+                      stroke="currentColor"
+                      strokeWidth="1.75"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
+              )}
+            </div>
           </div>
-        </div>
 
-        {/* Polite count so a filter keystroke is announced without moving focus. */}
-        <div className="sr-only" role="status" aria-live="polite">
-          {trimmedRailFilter
-            ? railFilterHasMatches
-              ? `${filteredNavGroups.reduce((n, g) => n + g.items.length, 0)} settings sections`
-              : 'No settings sections'
-            : ''}
-        </div>
+          {/* Polite count so a filter keystroke is announced without moving focus. */}
+          <div className="sr-only" role="status" aria-live="polite">
+            {trimmedRailFilter
+              ? railFilterHasMatches
+                ? `${filteredNavGroups.reduce((n, g) => n + g.items.length, 0)} settings sections`
+                : 'No settings sections'
+              : ''}
+          </div>
 
-        {/* Scroll-spy nav. Inline items scroll to their section; `to` items navigate.
+          {/* Scroll-spy nav. Inline items scroll to their section; `to` items navigate.
             min-h-0 is load-bearing (same reason as the content panel below, #2252):
             a flex-1 child defaults to min-height:auto (its content height), so
             without it this nav refuses to shrink, the list overflows the aside's
             bounded height, and the aside's overflow-hidden clips the bottom group
             (SYSTEM) with no scrollbar — the rail can't reach System health/Trash. */}
-        <nav
-          id="settings-section-list"
-          className="flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable] px-2 py-1"
-          aria-label="Settings sections"
-        >
-          {!railFilterHasMatches && (
-            // Not role="status" — the sr-only live region above already announces
-            // the empty state; a second polite region would double-announce it.
-            <p className="px-3.5 py-3 text-[13px] text-neutral-text-secondary">
-              No settings match “{railFilter.trim()}”
-            </p>
-          )}
-          {filteredNavGroups.map((group, groupIdx) => {
-            // A group whose every item is a route-departure tool page (System
-            // health, Observability, Retention & purge, Trash — `external: true`)
-            // is NOT part of the consolidated page's scroll-spy flow: clicking one
-            // navigates away. Styled like the config groups above it, the rail
-            // reads top-to-bottom as one scroll flow, so users try to scroll down
-            // to it, never reach it (the last inline section is Danger), then
-            // resort to clicking — which breaks the single-page feel (#2291). Set
-            // it off with a top divider + an "Opens a separate page" caption so it
-            // reads as a distinct "tool pages you open" cluster, reinforcing the
-            // route-departure intent of ADR-0146/#2252 (which this does NOT
-            // reverse). Inferred from `external` (not `to`): on the off-route tool
-            // shells the config items also carry a `/settings#slug` `to`, but they
-            // are scroll anchors, not departures — only `external` marks a tool.
-            const isToolGroup = group.items.length > 0 && group.items.every((i) => i.external);
-            const captionId = isToolGroup ? `${railCaptionIdBase}-${groupIdx}` : undefined;
-            return (
-            <div
-              key={group.label}
-              className={isToolGroup ? 'mb-2 mt-2 pt-2 border-t border-neutral-border' : 'mb-2'}
-            >
-              <h2
-                className={`px-2 pt-1.5 ${isToolGroup ? 'pb-0' : 'pb-1.5'} text-xs font-semibold tracking-[.08em] uppercase text-neutral-text-secondary`}
-              >
-                {group.label}
-              </h2>
-              {isToolGroup && (
-                // Settings density (rule 118) permits text-[11px]; text-secondary
-                // clears WCAG 1.4.3 on the raised rail surface. This visible caption
-                // carries the "these navigate away" context that the per-item ↗ (an
-                // aria-hidden decoration) does not expose to screen readers.
-                <p id={captionId} className="px-2 pb-1.5 text-[11px] font-normal text-neutral-text-secondary">
-                  Opens a separate page
-                </p>
-              )}
-              {group.items.map((item) => {
-                const isInline = !item.to;
-                // Inline sections track the scroll-spy; route links track the URL.
-                // On a route-link page the scroll-spy sections aren't mounted (yet
-                // `activeId` still seeds to the first section id), so suppress the
-                // inline highlight there — only the matching route item is active.
-                const isActive = isInline
-                  ? activeRouteTo == null && activeId === item.id
-                  : item.to === activeRouteTo;
-                const className = [
-                  'w-full flex items-center gap-2 px-2.5 py-[7px] rounded-control text-[13px] text-left transition-colors',
-                  // a11y rule 214: standalone shell-chrome controls (rail items,
-                  // save-bar, scope switcher, copy-link) use focus: not focus-visible:
-                  // so a pointer click still paints a ring in Firefox/desktop Safari
-                  // (WCAG 2.4.7). The mobile <select> jump-to-section and the heading
-                  // scroll-target below keep focus-visible: (form field / a11y target).
-                  'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
-                  isActive
-                    ? 'font-semibold text-neutral-text-primary bg-neutral-surface-sunken -ml-0.5 pl-[9px] border-l-2 border-brand-primary'
-                    : 'text-neutral-text-secondary hover:text-neutral-text-primary',
-                ].join(' ');
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    aria-current={isActive ? (isInline ? 'true' : 'page') : undefined}
-                    // Tool-page buttons point at the group's "Opens a separate page"
-                    // caption so AT announces the route-departure context on direct
-                    // focus, not only when reading the rail top-to-bottom (#2291).
-                    aria-describedby={captionId}
-                    onClick={() => {
-                      if (item.to) {
-                        if (guardedNavigate(item.to)) return;
-                        void navigate(item.to);
-                      } else {
-                        handleSectionNav(item.id);
-                      }
-                    }}
-                    className={className}
+          <nav
+            id="settings-section-list"
+            className="flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable] px-2 py-1"
+            aria-label="Settings sections"
+          >
+            {!railFilterHasMatches && (
+              // Not role="status" — the sr-only live region above already announces
+              // the empty state; a second polite region would double-announce it.
+              <p className="px-3.5 py-3 text-[13px] text-neutral-text-secondary">
+                No settings match “{railFilter.trim()}”
+              </p>
+            )}
+            {filteredNavGroups.map((group, groupIdx) => {
+              // A group whose every item is a route-departure tool page (System
+              // health, Observability, Retention & purge, Trash — `external: true`)
+              // is NOT part of the consolidated page's scroll-spy flow: clicking one
+              // navigates away. Styled like the config groups above it, the rail
+              // reads top-to-bottom as one scroll flow, so users try to scroll down
+              // to it, never reach it (the last inline section is Danger), then
+              // resort to clicking — which breaks the single-page feel (#2291). Set
+              // it off with a top divider + an "Opens a separate page" caption so it
+              // reads as a distinct "tool pages you open" cluster, reinforcing the
+              // route-departure intent of ADR-0146/#2252 (which this does NOT
+              // reverse). Inferred from `external` (not `to`): on the off-route tool
+              // shells the config items also carry a `/settings#slug` `to`, but they
+              // are scroll anchors, not departures — only `external` marks a tool.
+              const isToolGroup = group.items.length > 0 && group.items.every((i) => i.external);
+              const captionId = isToolGroup ? `${railCaptionIdBase}-${groupIdx}` : undefined;
+              return (
+                <div
+                  key={group.label}
+                  className={isToolGroup ? 'mb-2 mt-2 pt-2 border-t border-neutral-border' : 'mb-2'}
+                >
+                  <h2
+                    className={`px-2 pt-1.5 ${isToolGroup ? 'pb-0' : 'pb-1.5'} text-xs font-semibold tracking-[.08em] uppercase text-neutral-text-secondary`}
                   >
-                    <span
-                      className={isActive ? 'text-brand-primary' : 'text-neutral-text-disabled'}
-                      aria-hidden="true"
+                    {group.label}
+                  </h2>
+                  {isToolGroup && (
+                    // Settings density (rule 118) permits text-[11px]; text-secondary
+                    // clears WCAG 1.4.3 on the raised rail surface. This visible caption
+                    // carries the "these navigate away" context that the per-item ↗ (an
+                    // aria-hidden decoration) does not expose to screen readers.
+                    <p
+                      id={captionId}
+                      className="px-2 pb-1.5 text-[11px] font-normal text-neutral-text-secondary"
                     >
-                      {item.icon}
-                    </span>
-                    {item.label}
-                    {/* Route-departure tool page (#2252): a trailing ↗ signals
+                      Opens a separate page
+                    </p>
+                  )}
+                  {group.items.map((item) => {
+                    const isInline = !item.to;
+                    // Inline sections track the scroll-spy; route links track the URL.
+                    // On a route-link page the scroll-spy sections aren't mounted (yet
+                    // `activeId` still seeds to the first section id), so suppress the
+                    // inline highlight there — only the matching route item is active.
+                    const isActive = isInline
+                      ? activeRouteTo == null && activeId === item.id
+                      : item.to === activeRouteTo;
+                    const className = [
+                      'w-full flex items-center gap-2 px-2.5 py-[7px] rounded-control text-[13px] text-left transition-colors',
+                      // a11y rule 214: standalone shell-chrome controls (rail items,
+                      // save-bar, scope switcher, copy-link) use focus: not focus-visible:
+                      // so a pointer click still paints a ring in Firefox/desktop Safari
+                      // (WCAG 2.4.7). The mobile <select> jump-to-section and the heading
+                      // scroll-target below keep focus-visible: (form field / a11y target).
+                      'focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1',
+                      isActive
+                        ? 'font-semibold text-neutral-text-primary bg-neutral-surface-sunken -ml-0.5 pl-[9px] border-l-2 border-brand-primary'
+                        : 'text-neutral-text-secondary hover:text-neutral-text-primary',
+                    ].join(' ');
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        aria-current={isActive ? (isInline ? 'true' : 'page') : undefined}
+                        // Tool-page buttons point at the group's "Opens a separate page"
+                        // caption so AT announces the route-departure context on direct
+                        // focus, not only when reading the rail top-to-bottom (#2291).
+                        aria-describedby={captionId}
+                        onClick={() => {
+                          if (item.to) {
+                            if (guardedNavigate(item.to)) return;
+                            void navigate(item.to);
+                          } else {
+                            handleSectionNav(item.id);
+                          }
+                        }}
+                        className={className}
+                      >
+                        <span
+                          className={isActive ? 'text-brand-primary' : 'text-neutral-text-disabled'}
+                          aria-hidden="true"
+                        >
+                          {item.icon}
+                        </span>
+                        {item.label}
+                        {/* Route-departure tool page (#2252): a trailing ↗ signals
                         "opens a separate page" so these items don't read as
                         scroll-spy sections. aria-hidden — the label carries the
                         accessible name (rule 6). */}
-                    {item.external && (
-                      <svg
-                        width="11"
-                        height="11"
-                        viewBox="0 0 16 16"
-                        aria-hidden="true"
-                        // The ↗ is the sole visual "opens a separate page" signifier
-                        // (#2252), so it must clear WCAG 1.4.11 3:1 — text-secondary,
-                        // not text-disabled, which fails on the active item's sunken
-                        // background (rule 87).
-                        className="ml-auto shrink-0 text-neutral-text-secondary"
-                      >
-                        <path
-                          d="M6 3.5h6.5V10 M12.5 3.5L4 12"
-                          stroke="currentColor"
-                          strokeWidth="1.5"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          fill="none"
-                        />
-                      </svg>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-            );
-          })}
-        </nav>
-      </aside>
+                        {item.external && (
+                          <svg
+                            width="11"
+                            height="11"
+                            viewBox="0 0 16 16"
+                            aria-hidden="true"
+                            // The ↗ is the sole visual "opens a separate page" signifier
+                            // (#2252), so it must clear WCAG 1.4.11 3:1 — text-secondary,
+                            // not text-disabled, which fails on the active item's sunken
+                            // background (rule 87).
+                            className="ml-auto shrink-0 text-neutral-text-secondary"
+                          >
+                            <path
+                              d="M6 3.5h6.5V10 M12.5 3.5L4 12"
+                              stroke="currentColor"
+                              strokeWidth="1.5"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              fill="none"
+                            />
+                          </svg>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </nav>
+        </aside>
       )}
 
       {/* ── Right content area ── */}
@@ -819,60 +831,66 @@ export function SettingsShell({
             mirrors the scroll-spy (value tracks activeId). Native <select> gives an
             OS-native, 44px, screen-reader-friendly picker with zero popover code. */}
         {isMobile && (
-        <div className="shrink-0 bg-neutral-surface-raised border-b border-neutral-border px-3.5 py-3 space-y-2">
-          {/* Exit affordance — mobile only. Desktop exit is the always-visible
+          <div className="shrink-0 bg-neutral-surface-raised border-b border-neutral-border px-3.5 py-3 space-y-2">
+            {/* Exit affordance — mobile only. Desktop exit is the always-visible
               global Sidebar (rule 123); on mobile the Sidebar is a hidden drawer
               and BottomNav self-suppresses on program/workspace scope, so this is
               the only clear way out of settings (issue 1709). Routes through
               navGuarded so a dirty form still hits ConfirmDiscardDialog. */}
-          <button
-            type="button"
-            onClick={() => navGuarded(exitTo)}
-            className="inline-flex items-center gap-1.5 min-h-[44px] -my-1.5 px-1 rounded-control text-[13px] font-medium text-neutral-text-secondary hover:text-neutral-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
-          >
-            <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" className="shrink-0">
-              <path
-                d="M10 3.5L5.5 8l4.5 4.5"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                fill="none"
-              />
-            </svg>
-            Back to {exitLabel}
-          </button>
-          <ScopeSwitcher scope={scope} scopeLinks={scopeLinks} onNavigate={navGuarded} v2={v2} />
-          <ContextRow
-            scope={scope}
-            contextName={contextName}
-            contextHealth={contextHealth}
-            contextOptions={contextOptions}
-            contextActiveId={contextActiveId}
-            onNavigate={navGuarded}
-            onCopyLink={handleCopyLink}
-            copyConfirmed={copyConfirmed}
-          />
-          <label htmlFor="settings-section-jump" className="sr-only">
-            Jump to section
-          </label>
-          <select
-            id="settings-section-jump"
-            value={activeRouteId ?? activeId ?? ''}
-            onChange={(e) => handleSectionSelect(e.target.value)}
-            className="w-full min-h-[44px] rounded-control border border-neutral-border bg-neutral-surface px-3 text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
-          >
-            {navGroups.map((group) => (
-              <optgroup key={group.label} label={group.label}>
-                {group.items.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.label}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-        </div>
+            <button
+              type="button"
+              onClick={() => navGuarded(exitTo)}
+              className="inline-flex items-center gap-1.5 min-h-[44px] -my-1.5 px-1 rounded-control text-[13px] font-medium text-neutral-text-secondary hover:text-neutral-text-primary focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 16 16"
+                aria-hidden="true"
+                className="shrink-0"
+              >
+                <path
+                  d="M10 3.5L5.5 8l4.5 4.5"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="none"
+                />
+              </svg>
+              Back to {exitLabel}
+            </button>
+            <ScopeSwitcher scope={scope} scopeLinks={scopeLinks} onNavigate={navGuarded} v2={v2} />
+            <ContextRow
+              scope={scope}
+              contextName={contextName}
+              contextHealth={contextHealth}
+              contextOptions={contextOptions}
+              contextActiveId={contextActiveId}
+              onNavigate={navGuarded}
+              onCopyLink={handleCopyLink}
+              copyConfirmed={copyConfirmed}
+            />
+            <label htmlFor="settings-section-jump" className="sr-only">
+              Jump to section
+            </label>
+            <select
+              id="settings-section-jump"
+              value={activeRouteId ?? activeId ?? ''}
+              onChange={(e) => handleSectionSelect(e.target.value)}
+              className="w-full min-h-[44px] rounded-control border border-neutral-border bg-neutral-surface px-3 text-[13px] text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            >
+              {navGroups.map((group) => (
+                <optgroup key={group.label} label={group.label}>
+                  {group.items.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.label}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </div>
         )}
 
         {/* The single scrolling page. min-h-0 is load-bearing: a flex child
@@ -893,7 +911,16 @@ export function SettingsShell({
             visible jump). */}
         <div
           ref={scrollRef}
-          className="relative flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable] bg-app-canvas scroll-smooth motion-reduce:scroll-auto"
+          className={[
+            'relative flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable] bg-app-canvas scroll-smooth motion-reduce:scroll-auto',
+            // Shell v2 phone pass (#5102): pages that predate FieldRow keep their own
+            // markup, so the 44px touch floor is applied to every control in the page body
+            // at phone width rather than page by page. Checkboxes and radios keep their
+            // native box; their labels carry the target.
+            v2
+              ? 'max-md:[&_button:not(.sr-only)]:min-h-11 max-md:[&_select]:min-h-11 max-md:[&_input:not([type=checkbox]):not([type=radio]):not([type=file]):not(.sr-only)]:min-h-11'
+              : '',
+          ].join(' ')}
           data-testid="settings-content-scroll"
         >
           {/* Publish the scope so each <SettingsSection> below can resolve its own
@@ -1046,7 +1073,8 @@ function ScopeSwitcher({
   const visible: Array<Omit<SettingsScopeLink, 'scope'> & { scope: string }> = v2
     ? [{ scope: 'personal', label: 'Personal', to: PERSONAL_SETTINGS_PATH }, ...visibleLinks]
     : visibleLinks;
-  const soleScope = visible.length <= 1 ? (visible[0] ?? scopeLinks.find((sl) => sl.scope === scope)) : null;
+  const soleScope =
+    visible.length <= 1 ? (visible[0] ?? scopeLinks.find((sl) => sl.scope === scope)) : null;
 
   return (
     <div>
@@ -1650,10 +1678,7 @@ export function FieldRow({ label, hint, help, children, error, errorId }: FieldR
           {help}
         </div>
         {hint && (
-          <div
-            id={hintId}
-            className="text-[12px] text-neutral-text-secondary mt-0.5 leading-snug"
-          >
+          <div id={hintId} className="text-[12px] text-neutral-text-secondary mt-0.5 leading-snug">
             {hint}
           </div>
         )}

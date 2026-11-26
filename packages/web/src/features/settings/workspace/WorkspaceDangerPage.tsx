@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuthStore } from '@/stores/authStore';
+import { useFeatureFlag } from '@/lib/featureFlags';
 import { useIsWorkspaceOwner, WORKSPACE_OWNER_ROLE } from '@/hooks/useIsWorkspaceOwner';
 import { SettingsPageTitle, LearnMoreLink } from '../SettingsShell';
 import { useWorkspaceSettings } from '../hooks/useWorkspaceSettings';
@@ -119,7 +120,9 @@ function DangerToast({ toast }: { toast: InlineToast }) {
       aria-live={isError ? 'assertive' : 'polite'}
       className={[
         'fixed bottom-6 right-6 z-50 px-4 py-2.5 rounded-card border border-neutral-border text-[13px] font-medium',
-        isError ? 'bg-semantic-critical text-semantic-on-critical' : 'bg-neutral-text-primary text-white dark:text-navy-900',
+        isError
+          ? 'bg-semantic-critical text-semantic-on-critical'
+          : 'bg-neutral-text-primary text-white dark:text-navy-900',
       ].join(' ')}
     >
       {toast.message}
@@ -237,6 +240,10 @@ export function WorkspaceDangerPage() {
   const remove = useDeleteWorkspace();
   const [confirmText, setConfirmText] = useState('');
   const confirmed = confirmTarget !== '' && confirmText === confirmTarget;
+  // Shell v2: the confirmation names what the delete takes with it, in the same shape as
+  // the program close confirmation, with a 44px input and a full-width button on phone.
+  const v2 = useFeatureFlag('shell_v2');
+  const confirmId = useId();
   const deleteError = remove.error ? errorMessage(remove.error, 'Delete failed.') : null;
 
   const onDelete = () => {
@@ -345,30 +352,55 @@ export function WorkspaceDangerPage() {
           <div className="mb-3">
             <LearnMoreLink href="administration/workspace-settings" label="Learn more" />
           </div>
-          <div className="rounded-card border border-neutral-border bg-neutral-surface px-3 py-2.5 mb-3">
-            <div className="text-[12px] text-neutral-text-secondary mb-2">
-              To confirm, type the workspace name:
-            </div>
-            <div className="flex items-center gap-2">
-              <code className="px-2 py-0.5 rounded-chip bg-neutral-surface-sunken border border-neutral-border tppm-mono text-[12px] text-neutral-text-primary">
-                {confirmTarget || '…'}
-              </code>
+          {v2 ? (
+            <div className="rounded-card border border-neutral-border bg-neutral-surface px-3 py-2.5 mb-3">
+              <label htmlFor={confirmId} className="block text-[13px] text-neutral-text-primary">
+                Type <span className="tppm-mono font-semibold">{confirmTarget || '…'}</span> to
+                delete this workspace. Every program, project, task, baseline, group, and member in
+                it is deleted, and all members lose access immediately.
+              </label>
               <input
+                id={confirmId}
                 type="text"
                 value={confirmText}
                 onChange={(e) => setConfirmText(e.target.value)}
-                placeholder={confirmTarget ? `Type ${confirmTarget} to confirm` : 'Loading…'}
-                aria-label="Confirm delete by typing the workspace name"
+                autoComplete="off"
                 disabled={!confirmTarget || ownerBlocked}
                 className={[
-                  'w-[260px] h-8 px-2.5 rounded-control border tppm-mono text-[12px] text-neutral-text-primary bg-neutral-surface-raised',
-                  'placeholder:text-neutral-text-secondary',
+                  'mt-2 h-9 w-full max-w-[420px] rounded-control border bg-neutral-surface-raised px-2.5 tppm-mono text-[13px] text-neutral-text-primary max-md:h-11 [@media(pointer:coarse)]:h-11',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical',
                   confirmText && !confirmed ? 'border-semantic-critical' : 'border-neutral-border',
                 ].join(' ')}
               />
             </div>
-          </div>
+          ) : (
+            <div className="rounded-card border border-neutral-border bg-neutral-surface px-3 py-2.5 mb-3">
+              <div className="text-[12px] text-neutral-text-secondary mb-2">
+                To confirm, type the workspace name:
+              </div>
+              <div className="flex items-center gap-2">
+                <code className="px-2 py-0.5 rounded-chip bg-neutral-surface-sunken border border-neutral-border tppm-mono text-[12px] text-neutral-text-primary">
+                  {confirmTarget || '…'}
+                </code>
+                <input
+                  type="text"
+                  value={confirmText}
+                  onChange={(e) => setConfirmText(e.target.value)}
+                  placeholder={confirmTarget ? `Type ${confirmTarget} to confirm` : 'Loading…'}
+                  aria-label="Confirm delete by typing the workspace name"
+                  disabled={!confirmTarget || ownerBlocked}
+                  className={[
+                    'w-[260px] h-8 px-2.5 rounded-control border tppm-mono text-[12px] text-neutral-text-primary bg-neutral-surface-raised',
+                    'placeholder:text-neutral-text-secondary',
+                    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical',
+                    confirmText && !confirmed
+                      ? 'border-semantic-critical'
+                      : 'border-neutral-border',
+                  ].join(' ')}
+                />
+              </div>
+            </div>
+          )}
           <button
             type="button"
             disabled={!confirmed || remove.isPending || ownerBlocked}
@@ -377,6 +409,7 @@ export function WorkspaceDangerPage() {
             className={[
               'px-4 py-2 rounded-control text-[13px] font-semibold text-semantic-on-critical bg-semantic-critical transition-opacity',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-semantic-critical focus-visible:ring-offset-1',
+              v2 ? 'max-md:min-h-[44px] max-md:w-full' : '',
               confirmed && !remove.isPending && !ownerBlocked
                 ? 'opacity-100 hover:opacity-90'
                 : 'opacity-40 cursor-not-allowed',

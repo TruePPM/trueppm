@@ -282,6 +282,31 @@ test.describe('Settings v2: a11y and phone viewport (#4800)', () => {
       expect(await heightOf(seg)).toBeGreaterThanOrEqual(44);
     }
   });
+
+  test('phone (390px): every button, select and text input in the page body is >= 44px', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await setupWorkspace(page);
+    await page.goto(`/settings/general${V2}`);
+    await expect(page.getByRole('switch', { name: 'Allow guest access' })).toBeVisible();
+    const short = await page.evaluate(() => {
+      const root = document.querySelector('[data-testid="settings-content-scroll"]')!;
+      return [
+        ...root.querySelectorAll<HTMLElement>(
+          'button, select, input:not([type=checkbox]):not([type=radio]):not([type=file])',
+        ),
+      ]
+        .filter((el) => !el.classList.contains('sr-only'))
+        .map((el) => ({ el, r: el.getBoundingClientRect() }))
+        .filter(({ r }) => r.width > 0 && r.height > 0 && r.height < 43.5)
+        .map(
+          ({ el, r }) =>
+            `${el.tagName} ${el.getAttribute('aria-label') ?? el.textContent?.slice(0, 30)} ${r.height}`,
+        );
+    });
+    expect(short).toEqual([]);
+  });
 });
 
 test.describe('Settings v2: project archive confirmation (#4800)', () => {
