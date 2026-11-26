@@ -62963,6 +62963,9 @@
                     "removed": {
                         "type": "integer"
                     },
+                    "summary": {
+                        "$ref": "#/components/schemas/BaselineVarianceSummary"
+                    },
                     "as_of": {
                         "type": "string",
                         "format": "date-time"
@@ -62979,7 +62982,8 @@
                     "next",
                     "previous",
                     "removed",
-                    "results"
+                    "results",
+                    "summary"
                 ]
             },
             "BaselineVarianceRow": {
@@ -63049,6 +63053,44 @@
                     "start_delta_working_days",
                     "task_id",
                     "task_name"
+                ]
+            },
+            "BaselineVarianceSummary": {
+                "type": "object",
+                "description": "The \"what moved\" rollup over every row, not just this page.\n\nSummary tasks are left out of the counts so a slip is counted once. A task\nmoved when its start or finish moved by at least ``max(min_days, 1)`` working days.",
+                "properties": {
+                    "tasks_moved": {
+                        "type": "integer"
+                    },
+                    "tasks_finishing_later": {
+                        "type": "integer"
+                    },
+                    "tasks_finishing_earlier": {
+                        "type": "integer"
+                    },
+                    "finish_slip_working_days_total": {
+                        "type": "integer",
+                        "description": "Sum of the finish slips of the tasks finishing later, in working days."
+                    },
+                    "top_slip": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/TopSlip"
+                            }
+                        ],
+                        "nullable": true
+                    },
+                    "project_finish": {
+                        "$ref": "#/components/schemas/ProjectFinishVariance"
+                    }
+                },
+                "required": [
+                    "finish_slip_working_days_total",
+                    "project_finish",
+                    "tasks_finishing_earlier",
+                    "tasks_finishing_later",
+                    "tasks_moved",
+                    "top_slip"
                 ]
             },
             "BeatHealthResponse": {
@@ -80351,6 +80393,34 @@
                     "status"
                 ]
             },
+            "ProjectFinishVariance": {
+                "type": "object",
+                "description": "The project finish (latest task finish) in the baseline and now.",
+                "properties": {
+                    "baseline_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true,
+                        "description": "Latest finish in the snapshot, deleted tasks included; null when the baseline predates CPM (has_cpm_dates=false)."
+                    },
+                    "current_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true,
+                        "description": "Latest finish of the live tasks, added tasks included."
+                    },
+                    "delta_working_days": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Signed working days the project finish moved; positive is later. Null when either side has no finish, or the baseline predates CPM (has_cpm_dates=false)."
+                    }
+                },
+                "required": [
+                    "baseline_finish",
+                    "current_finish",
+                    "delta_working_days"
+                ]
+            },
             "ProjectForecast": {
                 "type": "object",
                 "description": "Project forecast read response (ADR-0106 §5, #487/#860).\n\n``velocity`` is the full ``velocity_summary_unfiltered`` payload (avg ± 1σ + the\nper-sprint series). The ADR-0104 velocity privacy gate (#553/#981) suppresses\nthe series — and nulls ``remaining_committed_points`` + ``sprints_to_complete_*``\nand the milestone velocity band — for readers below the velocity audience, so\nthose fields are nullable. ``sprints_to_complete_*`` is the remaining committed\nbacklog re-paced by the velocity band into a sprint count range; ``milestones``\nis the latest snapshot per bound milestone.",
@@ -95136,6 +95206,53 @@
                 "type": "string",
                 "description": "* `info` - info\n* `warn` - warn",
                 "x-trueppm-enum": "open"
+            },
+            "TopSlip": {
+                "type": "object",
+                "description": "The leaf task whose finish slipped most, with the provenance of its current finish.",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "task_name": {
+                        "type": "string"
+                    },
+                    "baseline_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "current_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "finish_delta_working_days": {
+                        "type": "integer"
+                    },
+                    "cause": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "derivation_ref": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/DerivationRef"
+                            }
+                        ],
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "baseline_finish",
+                    "cause",
+                    "current_finish",
+                    "derivation_ref",
+                    "finish_delta_working_days",
+                    "task_id",
+                    "task_name"
+                ]
             },
             "TransferOwnershipRequest": {
                 "type": "object",
