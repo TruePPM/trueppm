@@ -3,8 +3,8 @@ import { expectNoA11yViolations, setupAuth, setupApiMocks, setupCatchAll } from 
 import { setupTaskStore, type TaskRow } from './fixtures/task-store';
 
 /**
- * Shell v2 Board page (#4797), behind `?ff=shell_v2`. Phase lanes, five toolbar
- * controls, four equal columns above the fold. Card moves go through the same
+ * Shell v2 Board page (#4797), behind `?ff=shell_v2`. Phase lanes, six toolbar
+ * buttons plus a search box, four equal columns above the fold. Card moves go through the same
  * PATCH the v1 board sends, so the write is asserted on the wire; the list mock
  * is `setupTaskStore` so the post-move DOM is the refetch's, not the optimistic patch's.
  */

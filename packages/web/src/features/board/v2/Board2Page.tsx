@@ -189,8 +189,8 @@ function ColumnHeader({ head, showWip }: { head: ColumnHead; showWip: boolean })
 }
 
 /**
- * The shell v2 Board page (#4797, behind `shell_v2`): phase lanes, five toolbar
- * controls, four equal columns above the fold. It reads and writes through the SAME
+ * The shell v2 Board page (#4797, behind `shell_v2`): phase lanes, six toolbar
+ * buttons plus a search box, four equal columns above the fold. It reads and writes through the SAME
  * hooks as the v1 board (`useScheduleTasks`, `useUpdateTaskStatus`), so a card move
  * keeps the optimistic update, the rollback, the offline outbox and the server's
  * `broadcast_board_event` fan-out. Nothing about the server changed.

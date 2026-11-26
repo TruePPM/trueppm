@@ -283,14 +283,8 @@ test.describe('Settings v2: a11y and phone viewport (#4800)', () => {
     }
   });
 
-  test('phone (390px): every button, select and text input in the page body is >= 44px', async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await setupWorkspace(page);
-    await page.goto(`/settings/general${V2}`);
-    await expect(page.getByRole('switch', { name: 'Allow guest access' })).toBeVisible();
-    const short = await page.evaluate(() => {
+  async function shortControls(page: Page): Promise<string[]> {
+    return page.evaluate(() => {
       const root = document.querySelector('[data-testid="settings-content-scroll"]')!;
       return [
         ...root.querySelectorAll<HTMLElement>(
@@ -305,7 +299,132 @@ test.describe('Settings v2: a11y and phone viewport (#4800)', () => {
             `${el.tagName} ${el.getAttribute('aria-label') ?? el.textContent?.slice(0, 30)} ${r.height}`,
         );
     });
-    expect(short).toEqual([]);
+  }
+
+  test('phone (390px): every button, select and text input in the page body is >= 44px', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await setupWorkspace(page);
+    await page.goto(`/settings/general${V2}`);
+    await expect(page.getByRole('switch', { name: 'Allow guest access' })).toBeVisible();
+    expect(await shortControls(page)).toEqual([]);
+  });
+
+  test('phone (390px): Workspace > Archive / Delete (select, text input, buttons) is >= 44px', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await setupDangerV2(page);
+    await page.goto(`/settings/danger${V2}`);
+    await expect(page.getByRole('button', { name: 'Delete workspace permanently' })).toBeVisible();
+    await expect(page.locator('#new-owner')).toBeVisible();
+    expect(await shortControls(page)).toEqual([]);
+  });
+
+  test('phone (390px): Project > Lifecycle buttons are >= 44px', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await setup(page);
+    const project = { ...FIXTURE_PROJECT, code: 'ATLAS', is_archived: false };
+    await page.route(new RegExp(`/api/v1/projects/${PROJECT_ID}/(\\?.*)?$`), (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(project) }),
+    );
+    await page.goto(`/projects/${PROJECT_ID}/settings/lifecycle${V2}`);
+    await expect(page.getByRole('button', { name: /Archive Atlas Migration/i })).toBeVisible();
+    expect(await shortControls(page)).toEqual([]);
+  });
+});
+
+const DANGER_MEMBER = {
+  id: '2',
+  name: 'Bob Stone',
+  initials: 'BS',
+  color: '#C17A10',
+  email: 'bob@example.com',
+  role: 'Member',
+  role_value: 100,
+  groups: [],
+  project_count: 1,
+  last_active: '1d ago',
+  status: 'active',
+  sso: false,
+  two_fa: false,
+  availability_percent: 100,
+  availability_effective_from: null,
+  availability_effective_to: null,
+  availability_notes: '',
+};
+
+/** Workspace Owner (400) + the reads the Archive / Delete page makes. */
+async function setupDangerV2(page: Page, onDelete?: (confirmHeader: string | null) => void) {
+  await setupWorkspace(page);
+  await page.route('**/api/v1/auth/me/', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ ...FIXTURE_ME, workspace_role: 400 }),
+    }),
+  );
+  await page.route('**/api/v1/workspace/members/**', (r) =>
+    r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ next: null, previous: null, results: [DANGER_MEMBER] }),
+    }),
+  );
+  await page.route('**/api/v1/workspace/', (r) => {
+    if (r.request().method() === 'DELETE') {
+      onDelete?.(r.request().headers()['x-confirm-workspace'] ?? null);
+      return r.fulfill({ status: 204, body: '' });
+    }
+    return r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(WORKSPACE),
+    });
+  });
+}
+
+test.describe('Settings v2: workspace delete typed confirmation', () => {
+  test('Delete stays disabled until the workspace name is typed exactly', async ({ page }) => {
+    let deleted = 0;
+    let header: string | null = null;
+    await setupDangerV2(page, (h) => {
+      deleted += 1;
+      header = h;
+    });
+    await page.goto(`/settings/danger${V2}`);
+
+    const del = page.getByRole('button', { name: 'Delete workspace permanently' });
+    // Under v2 the accessible name is the long visible label, not the v1 aria-label.
+    const input = page.getByRole('textbox', { name: /to delete this workspace/i });
+    await expect(del).toBeDisabled();
+
+    await input.fill('wrong name');
+    await expect(del).toBeDisabled();
+
+    await input.fill('TrueScope Aerospace');
+    await expect(del).toBeEnabled();
+    expect(deleted).toBe(0);
+
+    await del.click();
+    await expect.poll(() => deleted).toBe(1);
+    expect(header).toBe('TrueScope Aerospace');
+  });
+
+  test('backing out (clearing the name) re-disables Delete and sends nothing', async ({ page }) => {
+    let deleted = 0;
+    await setupDangerV2(page, () => (deleted += 1));
+    await page.goto(`/settings/danger${V2}`);
+
+    const del = page.getByRole('button', { name: 'Delete workspace permanently' });
+    const input = page.getByRole('textbox', { name: /to delete this workspace/i });
+    await input.fill('TrueScope Aerospace');
+    await expect(del).toBeEnabled();
+
+    await input.fill('');
+    await expect(del).toBeDisabled();
+    expect(deleted).toBe(0);
   });
 });
 
