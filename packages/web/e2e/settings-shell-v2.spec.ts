@@ -356,10 +356,13 @@ test.describe('Settings v2: a11y and phone viewport (#4800)', () => {
     expect(cardBox).not.toBeNull();
     expect(btnBox!.width).toBeGreaterThanOrEqual(cardBox!.width - 34);
 
-    // The typed-confirm input is wider than its 240px desktop width.
+    // The typed-confirm input is stacked full width, not its 240px desktop width.
     const confirm = page.getByLabel('Confirm delete by typing the project code or name');
     await expect(confirm).toBeVisible();
-    expect((await confirm.boundingBox())!.width).toBeGreaterThan(280);
+    // It spans its inner card (12px padding + 1px border a side), not the 240px desktop width.
+    const innerCard = await confirm.locator('xpath=../..').boundingBox();
+    expect(innerCard).not.toBeNull();
+    expect((await confirm.boundingBox())!.width).toBeGreaterThanOrEqual(innerCard!.width - 26);
   });
 });
 

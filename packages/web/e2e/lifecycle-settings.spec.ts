@@ -398,8 +398,11 @@ test.describe('Program lifecycle settings (#530)', () => {
     expect(box?.height ?? 0).toBeGreaterThanOrEqual(43.5);
     const input = page.getByLabel('Confirm delete by typing the program code or name');
     const inputBox = await input.boundingBox();
-    // Stacked: the input spans the card, so it is wider than the 240px desktop width.
-    expect(inputBox?.width ?? 0).toBeGreaterThan(280);
+    // Stacked: the input spans its inner card (12px padding + 1px border a side), not the
+    // 240px desktop width.
+    const innerCard = await input.locator('xpath=../..').boundingBox();
+    expect(innerCard).not.toBeNull();
+    expect(inputBox?.width ?? 0).toBeGreaterThanOrEqual((innerCard?.width ?? Infinity) - 26);
     const close = page.getByRole('button', { name: 'Close program…' });
     expect((await close.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(43.5);
   });
