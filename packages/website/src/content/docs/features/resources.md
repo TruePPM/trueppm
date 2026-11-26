@@ -330,7 +330,8 @@ with `?dry_run=1` to get the verdict without saving anything:
 Saving a booking that is over the ceiling is refused unless you accept the overage
 **with a reason**. The reason, the peak and who accepted it are kept on the roster
 entry until a later save fits, and the person gets an inbox notification if their
-resource is linked to a user account and someone else made the booking. If the check
+resource is linked to a user account and someone else made the booking (the
+project is named only if they are a member of it). If the check
 cannot run, nothing is saved. Checking, saving and accepting all need the
 **Resource Manager** role or above on the project.
 

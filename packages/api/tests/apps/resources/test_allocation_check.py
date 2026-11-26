@@ -220,6 +220,10 @@ def test_accept_with_reason_records_and_notifies_and_matches_dry_run(
     assert row.overage_week == MON + datetime.timedelta(days=7)
     assert row.overage_accepted_by_id == world["booker"].pk
     note = Notification.objects.get(recipient=world["person"].user)
+    # Aisha is rostered but not a member: the notice must survive the #3510
+    # redaction, so it is account-scoped and does not name the project.
+    assert note.project_id is None
+    assert "Mine" not in note.subject
     assert note.event_type == "allocation.overage_accepted"
     assert "Launch week" in note.body
     # And re-checking the stored booking gives the same answer as before it was saved.
@@ -244,6 +248,25 @@ def test_overage_record_is_withheld_below_scheduler(
     assert data["share_pct"] == 50
     assert data["overage_reason"] == ("Launch week" if visible else "")
     assert (data["overage_peak_pct"] is not None) is visible
+
+
+def test_member_is_told_which_project_and_the_inbox_shows_it(world: dict[str, Any]) -> None:
+    ProjectMembership.objects.create(
+        user=world["person"].user, project=world["mine"], role=Role.MEMBER
+    )
+    save(world, accept_overage=True, reason="Launch week")
+    client = APIClient()
+    client.force_authenticate(world["person"].user)
+    row = client.get("/api/v1/me/notifications/").data["results"][0]
+    assert row["subject"] == "You are booked over capacity on Mine"
+
+
+def test_non_member_notice_is_readable_in_the_inbox(world: dict[str, Any]) -> None:
+    save(world, accept_overage=True, reason="Launch week")
+    client = APIClient()
+    client.force_authenticate(world["person"].user)
+    row = client.get("/api/v1/me/notifications/").data["results"][0]
+    assert "Launch week" in row["body"]
 
 
 def test_a_later_fitting_save_clears_the_overage(world: dict[str, Any]) -> None:

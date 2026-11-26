@@ -288,17 +288,24 @@ class AllocationView(APIView):
 
         # The person is told in the same transaction as the booking they are told about.
         if overage and week and resource.user_id and resource.user_id != request.user.pk:
+            # The inbox blanks a project-scoped row for a non-member (#3510), and
+            # being rostered is not membership. So a non-member gets an
+            # account-scoped notice that does not name the project.
+            member = ProjectMembership.objects.filter(
+                project=project, user_id=resource.user_id, is_deleted=False
+            ).exists()
+            where = project.name if member else "a project you are not a member of"
             create_event_notifications(
                 event_type=NotificationEventType.ALLOCATION_OVERAGE_ACCEPTED,
                 recipient_ids=[resource.user_id],
-                subject=f"You are booked over capacity on {project.name}",
+                subject=f"You are booked over capacity on {where}",
                 body=(
                     f"A booking of {data['share_pct']}% from {data['start']} to {data['end']} "
                     f"takes you to {overage['peak_pct']}% against a ceiling of "
                     f"{overage['ceiling_pct']}%, first in the week of {week['week_start']}. "
                     f"Reason given: {row.overage_reason}"
                 ),
-                project_id=project.pk,
+                project_id=project.pk if member else None,
             )
 
         project_id = str(project.pk)
