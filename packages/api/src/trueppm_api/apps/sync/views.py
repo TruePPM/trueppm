@@ -79,6 +79,7 @@ from trueppm_api.apps.sync.serializers import (
 )
 from trueppm_api.apps.sync.ws_auth import TICKET_TTL_SECONDS, issue_ticket
 from trueppm_api.apps.timetracking.models import TimeEntry
+from trueppm_api.core.credential_cutoff import lock_and_recheck_credential_cutoff
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User as _User
@@ -95,6 +96,13 @@ class WebSocketTicketView(IdempotencyMixin, APIView):
 
     Authentication only — authorization (project membership/role) is enforced by
     the consumer on connect. No project scope is required to mint a ticket.
+
+    **The mint serializes against a password reset (#4958).** ``post`` takes the
+    ``UserProfile`` row lock and re-checks the account's credential cutoff from the
+    locked row before it issues the ticket, as the durable-grant mints do. A reset
+    that holds the lock first commits before this check, which then refuses a
+    pre-reset access token; a mint that holds it first makes the reset wait until
+    the request commits.
 
     **A personal access token may not mint a ticket (#4462).** Every real client
     that opens a project socket — the web app and the mobile offline layer — mints
@@ -132,6 +140,9 @@ class WebSocketTicketView(IdempotencyMixin, APIView):
         description="Issue a single-use WebSocket connection ticket (ADR-0141).",
     )
     def post(self, request: Request) -> Response:
+        # Held to the end of the request's transaction (ATOMIC_REQUESTS), so a reset
+        # cannot commit between this check and the ticket write.
+        lock_and_recheck_credential_cutoff(request)
         ticket = issue_ticket(str(request.user.pk))
         return Response({"ticket": ticket, "expires_in": TICKET_TTL_SECONDS})
 

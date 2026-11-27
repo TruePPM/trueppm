@@ -142,6 +142,17 @@ _MINTS = [
         {"url": "https://example.com/h", "events": ["task.created"]},
         lambda u: Webhook.objects.filter(created_by=u, is_active=True).exists(),
     ),
+    # #4958: the grant is a Valkey ticket the handshake compares to the cutoff, so
+    # there is no row for the sweep to revoke; both orderings still must serialize.
+    # ``issue_ticket`` is stubbed by ``_no_real_ticket_store``.
+    _Mint(
+        "ws-ticket",
+        "trueppm_api.apps.sync.views",
+        lambda p, g: "/api/v1/ws/ticket/",
+        {},
+        None,
+        200,
+    ),
     _Mint(
         "workspace-invite",
         "trueppm_api.apps.workspace.views",
@@ -159,6 +170,13 @@ def _clear_cache() -> Any:
     cache.clear()
     yield
     cache.clear()
+
+
+@pytest.fixture(autouse=True)
+def _no_real_ticket_store() -> Any:
+    """Keep the ws-ticket mint off Valkey and let tests see whether a ticket was issued."""
+    with patch("trueppm_api.apps.sync.views.issue_ticket", return_value="race-ticket") as mint:
+        yield mint
 
 
 @pytest.fixture
@@ -361,6 +379,16 @@ def test_mint_that_passed_auth_before_a_reset_commits_is_refused(
     _, out = _reset_first("view", _post(mint, project, program), user)
     assert out["resp"].status_code == 401, (mint.id, out["resp"].status_code, out["resp"].data)
     _no_grants(user)
+
+
+def test_ws_ticket_mint_during_an_open_reset_issues_no_ticket(
+    user: Any, project: Project, program: Program, _no_real_ticket_store: Any
+) -> None:
+    """#4958: refused *before* the ticket is written, not merely answered with a 401."""
+    mint = next(m for m in _MINTS if m.id == "ws-ticket")
+    _, out = _reset_first("view", _post(mint, project, program), user)
+    assert out["resp"].status_code == 401, out["resp"].data
+    _no_real_ticket_store.assert_not_called()
 
 
 @pytest.mark.parametrize("mint", _MINTS, ids=lambda m: m.id)
