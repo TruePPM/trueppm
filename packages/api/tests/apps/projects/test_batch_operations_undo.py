@@ -1687,3 +1687,54 @@ def test_both_undo_declarations_name_the_counts_they_return(committed_schema: di
     assert set(
         schemas["CascadeClassificationOperationUndo"]["properties"]["undo"]["properties"]
     ) == {"reverted", "kept"}
+
+
+@pytest.mark.django_db
+def test_paste_many_undo_keeps_the_parent_of_an_edited_row(
+    owner_client: APIClient, project: Project
+) -> None:
+    """#4941: the per-row delete of the parent cascaded over the edited child."""
+    ops = [{"op": "create", "data": {"name": f"Row {i}", "duration": 1}} for i in range(3)]
+    r = owner_client.post(bulk_url(project), {"operations": ops}, format="json")
+    ids = [row["id"] for row in r.data["applied"]]
+    # Nest the second pasted row under the first without bumping either version.
+    for task_id, path in zip(ids, ("1", "1.1", "2"), strict=True):
+        Task.objects.filter(pk=task_id).update(wbs_path=path)
+    child = Task.objects.get(pk=ids[1])
+    child.name = "Renamed by a person"
+    child.save()
+    operation_id = PasteManyOperation.objects.get(project=project).pk
+
+    undo_resp = owner_client.post(
+        f"/api/v1/paste-many-operations/{operation_id}/undo/", {}, format="json"
+    )
+
+    assert undo_resp.data["undo"] == {"deleted": 1, "kept": 2}
+    live = Task.objects.filter(project=project, is_deleted=False)
+    assert {str(pk) for pk in live.values_list("pk", flat=True)} == {ids[0], ids[1]}
+
+
+@pytest.mark.django_db
+def test_import_fix_undo_keeps_the_rows_above_an_edited_row(project: Project) -> None:
+    parsed = parse_spreadsheet(REFERENCE_CSV, "plan.csv")
+    summary = import_project(str(project.pk), parsed.project_data)
+    req = _make_request(project, status=CsvImportStatus.DONE)
+    finalize_import_fix_operation(str(req.pk), project.pk, summary["created_task_ids"])
+    req.refresh_from_db()
+
+    deepest = max(
+        Task.objects.filter(pk__in=summary["created_task_ids"]),
+        key=lambda t: str(t.wbs_path).count("."),
+    )
+    path = str(deepest.wbs_path)
+    assert "." in path, "the reference CSV must nest for this test to mean anything"
+    deepest.name = "Renamed after import"
+    deepest.save()
+
+    result = undo_import_fix_operation(req)
+
+    labels = path.split(".")
+    expected = {".".join(labels[:i]) for i in range(1, len(labels) + 1)}
+    live = Task.objects.filter(project=project, is_deleted=False)
+    assert {str(p) for p in live.values_list("wbs_path", flat=True)} == expected
+    assert result == {"deleted": 7 - len(expected), "kept": len(expected)}

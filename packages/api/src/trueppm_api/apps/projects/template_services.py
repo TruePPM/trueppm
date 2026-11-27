@@ -95,7 +95,8 @@ def undo_template_application(application: TemplateApplication) -> dict[str, int
     removed it emits its forward path's own ``tasks_restructured`` and enqueues a
     recalculation, both on commit — see the call at the end.
 
-    It deliberately skips rows a person has since touched. An undo that discards
+    It deliberately skips rows a person has since touched, and every row above one in
+    the outline, because deleting a parent deletes its subtree (#4941). An undo that discards
     typed work in order to reverse a machine's write is the same unrecoverable
     failure ADR-0786 §4 is organized around, and the asymmetry is identical —
     leaving a row behind is disappointing, deleting a sentence somebody wrote is
@@ -112,6 +113,7 @@ def undo_template_application(application: TemplateApplication) -> dict[str, int
         Task,
         TemplateApplicationStatus,
         bulk_soft_delete_tasks,
+        rows_whose_delete_spares_all_others,
     )
 
     # Lifecycle floor, mirroring `enqueue_template_apply` above and the two
@@ -127,13 +129,13 @@ def undo_template_application(application: TemplateApplication) -> dict[str, int
         return {"deleted": 0, "kept": 0}
 
     rows = list(Task.objects.filter(pk__in=ids, is_deleted=False))
-    to_delete = [row for row in rows if not _has_been_touched(row)]
+    safe = rows_whose_delete_spares_all_others(row.pk for row in rows if not _has_been_touched(row))
+    to_delete = [row for row in rows if row.pk in safe]
     kept = len(rows) - len(to_delete)
     # One set-based cascade for the whole undo set rather than a `soft_delete()` per
     # row (#2765): same edge + WBS-subtree reach, same version/cursor/tombstone
-    # stamping, but O(1) queries in the number of rows. `deleted` counts the undo
-    # set's own rows (the figure the summary has always reported), not descendants
-    # swept along with them.
+    # stamping, but O(1) queries in the number of rows. Every descendant of a row in
+    # `to_delete` is itself in it, so `deleted` counts everything the cascade takes.
     bulk_soft_delete_tasks(to_delete)
     deleted = len(to_delete)
     # ADR-1477 §3: undoing a template apply retracts an `add`.

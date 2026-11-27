@@ -138,6 +138,10 @@ The "has a person touched this" test is `edited_at IS NULL` (ADR-0786, merged as
 an edit, every row would be protected within seconds of seeding and undo would
 silently become a no-op.
 
+Amended (#4941): a task delete cascades over its WBS subtree, so undo also keeps
+every row above a row that stays (edited, or added under the template's rows by a
+person) and counts it as kept.
+
 ### 6. RBAC follows ADR-0773, which already decided this
 
 ADR-0773's matrix lists **"Apply a template"** as Admin+ (Owner and Admin only;

@@ -2700,6 +2700,38 @@ def task_subtrees(tasks: Iterable[Task]) -> QuerySet[Task]:
     return Task.objects.filter(cond)
 
 
+def rows_whose_delete_spares_all_others(task_ids: Iterable[Any]) -> set[Any]:
+    """The subset of ``task_ids`` that can be deleted without taking any other row.
+
+    A task delete cascades over its whole WBS subtree, so an undo or sweep that
+    skips edited rows must also skip every row *above* one: deleting an untouched
+    summary would tombstone the edited child it had just reported as kept
+    (ADR-0789 §5, #4941). The same holds for any other live descendant outside the
+    set, such as a row somebody added under a seeded summary. Keeping the ancestor,
+    rather than deleting it and sparing the child, avoids stranding the child under a
+    deleted parent.
+
+    One pass is enough: a row outside the set that survives under a kept row is
+    also under every ancestor of that row.
+    """
+    ids = set(task_ids)
+    candidates = list(
+        Task.objects.filter(pk__in=ids, is_deleted=False).values_list(
+            "pk", "project_id", "wbs_path"
+        )
+    )
+    held: set[tuple[Any, str]] = set()
+    survivors = Task.objects.filter(
+        project_id__in={project_id for _, project_id, _ in candidates}, is_deleted=False
+    ).exclude(pk__in=ids)
+    for project_id, path in survivors.values_list("project_id", "wbs_path"):
+        labels = str(path or "").split(".")
+        held.update((project_id, ".".join(labels[:depth])) for depth in range(1, len(labels)))
+    return {
+        pk for pk, project_id, path in candidates if not path or (project_id, str(path)) not in held
+    }
+
+
 def cross_project_edge_rows(
     *, project_id: Any = None, tasks: QuerySet[Task] | None = None
 ) -> list[dict[str, Any]]:

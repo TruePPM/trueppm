@@ -8026,15 +8026,13 @@ class TaskViewSet(
         destructive sweep so it is checked here rather than trusted to a class
         that cannot see the project this request names.
 
-        No explicit subtree cascade (contrast ``restore``, which must cascade
-        because ``trash`` collapses subtrees to their roots for display only).
-        Every row ``untouched_seeded`` returns is independently eligible — a
-        child a person has since edited is excluded by its own ``edited_at``,
-        the same partial-subtree outcome ``undo_template_application`` already
-        produces and ADR-0786 §4 already accepts.
+        ``Task.soft_delete`` cascades over the subtree, so an untouched row above
+        one that survives (edited since, or added by a person) is kept as well
+        (#4941), the same rule ``undo_template_application`` applies.
         """
         from trueppm_api.apps.access.permissions import _membership_role
         from trueppm_api.apps.projects.models import Task as TaskModel
+        from trueppm_api.apps.projects.models import rows_whose_delete_spares_all_others
         from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
         # Two independent type confusions, and guarding one does not guard the other.
@@ -8086,11 +8084,13 @@ class TaskViewSet(
             )
 
         rows = list(TaskModel.objects.untouched_seeded(project))
+        safe = rows_whose_delete_spares_all_others(row.pk for row in rows)
         deleted = 0
         with transaction.atomic():
             for row in rows:
-                row.soft_delete()
-                deleted += 1
+                if row.pk in safe:
+                    row.soft_delete()
+                    deleted += 1
 
         if deleted:
             project_id_str = str(project.pk)

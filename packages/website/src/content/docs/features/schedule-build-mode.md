@@ -237,7 +237,7 @@ until you act on it:
 
 | Action | What it does |
 |---|---|
-| `⌘ Z` / **Undo** | Removes the whole paste as one step, keeping any row you've already edited since. Needs the Project Manager role — see below |
+| `⌘ Z` / **Undo** | Removes the whole paste as one step, keeping any row you've already edited since, and the rows above it. Needs the Project Manager role — see below |
 | **Keep** | Dismisses the strip; the rows stay |
 | **Map columns…** | Corrects a wrong column guess and re-applies the paste under the new mapping |
 | `F8` | Walks to the next row the paste couldn't infer a duration for, or whose Owner it couldn't resolve |

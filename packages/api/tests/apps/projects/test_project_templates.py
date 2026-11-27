@@ -2092,3 +2092,62 @@ def test_template_drain_propagates_soft_time_limit_and_row_stays_pending(
 
     application.refresh_from_db()
     assert application.status == TemplateApplicationStatus.PENDING
+
+
+def _live_names(project: Project) -> set[str]:
+    return set(
+        Task.objects.filter(project=project, is_deleted=False).values_list("name", flat=True)
+    )
+
+
+def _applied(project: Project, rows: list[tuple[str, str]]) -> tuple[Any, dict[str, Task]]:
+    """An application owning ``rows`` ((name, wbs_path)), none of them edited."""
+    template = ProjectTemplate.objects.create(name="Tree", structure={"version": 1, "tasks": []})
+    tasks = {
+        name: Task.objects.create(project=project, name=name, duration=1, wbs_path=path)
+        for name, path in rows
+    }
+    Task.objects.filter(project=project).update(edited_at=None)
+    application = TemplateApplication.objects.create(
+        template=template,
+        project=project,
+        status=TemplateApplicationStatus.SUCCESS,
+        created_task_ids=[t.pk for t in tasks.values()],
+    )
+    return application, tasks
+
+
+@pytest.mark.django_db
+def test_undo_keeps_the_rows_above_an_edited_descendant(target_project: Project) -> None:
+    """#4941: deleting the untouched summary cascaded over the edit it reported as kept."""
+    application, tasks = _applied(
+        target_project,
+        [
+            ("root", "1"),
+            ("phase", "1.1"),
+            ("edited", "1.1.1"),
+            ("sibling", "1.1.2"),
+            ("other phase", "1.2"),
+            ("other root", "2"),
+            ("other child", "2.1"),
+        ],
+    )
+    edited = Task.objects.get(pk=tasks["edited"].pk)
+    edited.name = "typed by a person"
+    edited.save()
+
+    summary = undo_template_application(application)
+
+    assert _live_names(target_project) == {"root", "phase", "typed by a person"}
+    assert summary == {"deleted": 4, "kept": 3}
+
+
+@pytest.mark.django_db
+def test_undo_keeps_a_summary_somebody_added_a_row_under(target_project: Project) -> None:
+    application, _ = _applied(target_project, [("root", "1"), ("child", "1.1")])
+    Task.objects.create(project=target_project, name="added by hand", duration=1, wbs_path="1.2")
+
+    summary = undo_template_application(application)
+
+    assert _live_names(target_project) == {"root", "added by hand"}
+    assert summary == {"deleted": 1, "kept": 1}
