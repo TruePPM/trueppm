@@ -227,6 +227,18 @@
         "className": {
           "type": "string"
         },
+        "largeBody": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "size": {
+              "type": "string"
+            }
+          }
+        },
         "webhookBodyLimit": {
           "type": "object",
           "additionalProperties": false,

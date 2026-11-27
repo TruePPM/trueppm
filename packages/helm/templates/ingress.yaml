@@ -108,10 +108,10 @@ spec:
           {{- end }}
     {{- end }}
 {{- /*
-  Webhook body ceiling (#2932). ingress.annotations carries proxy-body-size 110m
-  for the attachment uploads, and ingress-nginx applies an annotation to every
-  path of its Ingress — so without a second object an anonymous caller could push
-  110 MB at the Git-event receiver (the app's own 1 MB cap runs only after ASGI
+  Webhook body ceiling (#2932). ingress.annotations carries proxy-body-size 2m
+  (#5124), and ingress-nginx applies an annotation to every path of its Ingress —
+  so without a second object an anonymous caller could push
+  2 MB at the Git-event receiver (the app's own 1 MB cap runs only after ASGI
   has already read and spooled the whole body). A separate Ingress is the only
   way to scope proxy-body-size to one path. It is emitted only for hosts that
   route something straight to the API Service; a host whose paths all use
@@ -169,6 +169,90 @@ spec:
                 name: {{ include "trueppm.fullname" $ }}-api
                 port:
                   number: {{ $.Values.service.port }}
+    {{- end }}
+{{- end }}
+{{- end }}
+{{- /*
+  Large-body routes (#5124). ingress.annotations carries a TIGHT proxy-body-size
+  (2m), so every route, anonymous ones included, is bounded at the edge before
+  ASGI spools the body. Only the routes that take more are raised, on a second
+  Ingress. The list mirrors LARGE_BODY_ROUTES in
+  packages/api/src/trueppm_api/core/request_body_limits.py, which the app already
+  enforces, so no request the application accepts is refused here;
+  tests/core/test_request_body_limits.py fails if the two drift. Same use-regex
+  and no-tls reasoning as the webhook Ingress above. Unlike that one it is
+  rendered for web-tier hosts too, because the main Ingress's 2m would cap an
+  upload before it reached the web tier's own per-route limits. Each host sends
+  these paths to the same Service as its longest path covering /api/v1/.
+*/ -}}
+{{- $large := .Values.ingress.largeBody | default dict }}
+{{- if and $large.enabled (not .Values.demo.enabled) }}
+{{- $largePaths := list
+  "/api/v1/projects/[^/]+/tasks/[^/]+/attachments/"
+  "/api/v1/projects/[^/]+/import/msproject/"
+  "/api/v1/projects/import/msproject/"
+  "/api/v1/projects/[^/]+/import/jira/"
+  "/api/v1/projects/[^/]+/import/csv/"
+  "/api/v1/projects/[^/]+/risks/import/"
+  "/api/v1/workspace/logo/"
+  "/api/v1/programs/import/"
+  "/api/v1/projects/[^/]+/tasks/bulk/"
+  "/api/v1/projects/[^/]+/sync/"
+  "/api/v1/projects/[^/]+/task-sync/" }}
+{{- $targets := list }}
+{{- range $h := .Values.ingress.hosts }}
+{{- $best := "" }}
+{{- $svc := "" }}
+{{- range $p := $h.paths }}
+{{- if and (hasPrefix $p.path "/api/v1/") (gt (len $p.path) (len $best)) }}
+{{- $best = $p.path }}
+{{- $svc = $p.service | default "api" }}
+{{- end }}
+{{- end }}
+{{- if $svc }}
+{{- $targets = append $targets (dict "host" $h.host "web" (and (eq $svc "web") $.Values.web.enabled)) }}
+{{- end }}
+{{- end }}
+{{- if $targets }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "trueppm.fullname" . }}-large-body
+  labels:
+    {{- include "trueppm.labels" . | nindent 4 }}
+  annotations:
+    {{- range $k, $v := .Values.ingress.annotations }}
+    {{- if ne $k "nginx.ingress.kubernetes.io/proxy-body-size" }}
+    {{ $k | quote }}: {{ $v | quote }}
+    {{- end }}
+    {{- end }}
+    nginx.ingress.kubernetes.io/proxy-body-size: {{ $large.size | quote }}
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  rules:
+    {{- range $t := $targets }}
+    - host: {{ $t.host | quote }}
+      http:
+        paths:
+          {{- range $largePaths }}
+          - path: {{ . }}
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                {{- if $t.web }}
+                name: {{ include "trueppm.fullname" $ }}-web
+                port:
+                  number: {{ $.Values.service.web.port }}
+                {{- else }}
+                name: {{ include "trueppm.fullname" $ }}-api
+                port:
+                  number: {{ $.Values.service.port }}
+                {{- end }}
+          {{- end }}
     {{- end }}
 {{- end }}
 {{- end }}

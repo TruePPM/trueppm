@@ -2435,14 +2435,20 @@ helm:template:
     # Both are 110M/110m since #3189, sized against the largest cap — attachments
     # at 100 MB — plus 10 MB of multipart framing headroom. The ingress one is
     # the load-bearing assertion: /api goes straight to the API Service, so it is
-    # the only limit an attachment upload meets on a default install.
+    # the only limit an attachment upload meets on a default install. Since #5124
+    # that 110m lives on the <release>-large-body Ingress and the main Ingress is
+    # 2m, so every other route (anonymous ones included) is tight at the edge.
     - |
       grep -q 'client_max_body_size 110M;' /tmp/rendered.yaml \
         || { echo "PROD REGRESSION: web nginx no longer clears the 100 MB attachment cap (#2604, #3189)"; exit 1; }
     - |
-      helm template trueppm packages/helm --set image.tag=latest --set ingress.enabled=true \
-        | grep -q 'nginx.ingress.kubernetes.io/proxy-body-size: 110m' \
-        || { echo "PROD REGRESSION: ingress no longer clears the 100 MB attachment cap — a default install 413s every attachment >50 MB (#2604, #3189)"; exit 1; }
+      helm template trueppm packages/helm --set image.tag=latest --set ingress.enabled=true > /tmp/rendered-large.yaml
+      awk '/name: .*-large-body$/{f=1} /^---/{f=0} f' /tmp/rendered-large.yaml > /tmp/rendered-large-only.yaml
+      grep -q 'proxy-body-size: "110m"' /tmp/rendered-large-only.yaml \
+        && grep -qF 'path: /api/v1/projects/[^/]+/tasks/[^/]+/attachments/' /tmp/rendered-large-only.yaml \
+        || { echo "PROD REGRESSION: ingress no longer clears the 100 MB attachment cap — a default install 413s every attachment >2 MB (#2604, #3189, #5124)"; exit 1; }
+      grep -q 'nginx.ingress.kubernetes.io/proxy-body-size: 2m$' /tmp/rendered-large.yaml \
+        || { echo "PROD REGRESSION: the main Ingress no longer bounds anonymous routes at 2m (#5124)"; exit 1; }
     # The anonymous Git-event receiver gets a 1 MB ceiling at BOTH edges (#2932):
     # a dedicated Ingress (the 110m annotation on the main one covers every path
     # of that object) and a nested web-tier nginx location. Without the Ingress

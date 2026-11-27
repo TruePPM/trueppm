@@ -309,3 +309,31 @@ def test_helm_web_tier_pins_the_git_webhook_location_at_1m() -> None:
     """
     _default, located = _parse(_nginx_text("packages/helm/templates/web/configmap.yaml"))
     assert _nginx_tier_size(located, _default, _GIT_WEBHOOK_PATH) == "1M"
+
+
+def test_helm_large_body_ingress_matches_the_table() -> None:
+    """The chart's Ingress raises exactly the table's routes, and nothing else (#5124).
+
+    The main Ingress is capped at the default tier, so a table route missing from
+    ``<release>-large-body`` would be refused at the edge on every default install,
+    and a default-tier route on it would let an anonymous caller push 110 MB again.
+    """
+    helm = REPO_ROOT / "packages/helm"
+    template = (helm / "templates/ingress.yaml").read_text(encoding="utf-8")
+    block = re.search(r"\{\{- \$largePaths := list(.*?)\}\}", template, re.DOTALL)
+    assert block, "large-body path list not found in templates/ingress.yaml"
+    paths = [re.compile(p) for p in re.findall(r'"(/api/\S+)"', block.group(1))]
+
+    for route in LARGE_BODY_ROUTES:
+        assert any(p.match(route.example) for p in paths), f"{route.name} is capped at 2m"
+    for path in (*DEFAULT_TIER_PATHS, _GIT_WEBHOOK_PATH):
+        assert not any(p.match(path) for p in paths), f"{path} must stay on the main Ingress"
+    for p in paths:
+        assert any(p.match(r.example) for r in LARGE_BODY_ROUTES), f"{p.pattern} raises nothing"
+
+    values = (helm / "values.yaml").read_text(encoding="utf-8")
+    main = re.search(r'nginx\.ingress\.kubernetes\.io/proxy-body-size: "(\d+)m"', values)
+    large = re.search(r'^  largeBody:\n    enabled: true\n    size: "(\d+)m"', values, re.MULTILINE)
+    assert main and large
+    assert int(main[1]) * _MIB == DEFAULT_TIER.max_body_bytes
+    assert int(large[1]) * _MIB >= UPLOAD_TIER.max_body_bytes

@@ -131,6 +131,26 @@ retried, so a delivery attempted during the window is not replayed automatically
 once you fix the list. Set the new variables on the API, Celery worker, and Celery
 beat processes. See [Networking](/administration/networking/#split-horizon-and-internal-only-names).
 
+### Helm: the Ingress body ceiling is now tight by default
+
+:::note[Ships in 0.5]
+On 0.4 the chart's Ingress allows `110m` on every route.
+:::
+
+The main Ingress `proxy-body-size` default drops from `110m` to `2m`, and a new
+`<release>-large-body` Ingress carries `110m` for attachments, imports, logo,
+bulk and sync routes. A chart-default install needs no change. Check two cases:
+
+- Your values file sets `nginx.ingress.kubernetes.io/proxy-body-size`. Your value
+  still wins on the main Ingress, so anonymous routes keep it. Remove it, or set
+  `2m`. If it was above `110m` for larger uploads, set
+  `ingress.largeBody.size` to that number, or those uploads now get `413` above
+  `110m`.
+- You upgrade with `--reuse-values`. The new keys are not picked up, and the old
+  `110m` annotation stays.
+
+See [Upload size limits](/administration/helm-values/#upload-size-limits).
+
 ### Workers must consume the `heavy` queue
 
 :::note[Ships in 0.5]

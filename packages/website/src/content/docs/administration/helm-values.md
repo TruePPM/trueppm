@@ -11,7 +11,9 @@ Ingress without it, and the per-route web-tier body limits (2M default, 10M bulk
 knob and `web.maxBodySize` is the ceiling for every route.
 `web.securityHeaders.permissionsPolicy`, the `Permissions-Policy` header and
 `web.rateLimit` ([edge rate limits](/administration/networking/#edge-rate-limits))
-also ship in 0.5. Every other value on this page is in 0.4.
+also ship in 0.5, as does the tight `2m` Ingress body ceiling with
+`ingress.largeBody`. In 0.4 the Ingress `proxy-body-size` is `110m` on every route.
+Every other value on this page is in 0.4.
 :::
 
 This page is the reference for the values the TruePPM Helm chart
@@ -232,7 +234,8 @@ cluster-specific, so a default-on ingress would render a broken object.
 |---|---|---|
 | `ingress.enabled` | `false` | Render a chart-managed Ingress + edge TLS. |
 | `ingress.className` | `""` | IngressClass to bind (`nginx`, `traefik`, …). Empty uses the cluster default. |
-| `ingress.annotations` | `nginx.ingress.kubernetes.io/proxy-body-size: "110m"` | Controller / cert-manager annotations. The shipped default raises the upload ceiling — see [Upload size limits](#upload-size-limits). Helm deep-merges this map, so your own keys are added alongside it. |
+| `ingress.annotations` | `nginx.ingress.kubernetes.io/proxy-body-size: "2m"` | Controller / cert-manager annotations. The shipped default caps every route that does not take a large body — see [Upload size limits](#upload-size-limits). Helm deep-merges this map, so your own keys are added alongside it. |
+| `ingress.largeBody.enabled` / `.size` | `true` / `"110m"` | Render a second Ingress, `<release>-large-body`, that raises the body ceiling for attachment, import, logo, bulk and sync routes only. See [Upload size limits](#upload-size-limits). |
 | `ingress.webhookBodyLimit.enabled` / `.size` | `true` / `"1m"` | Render a second Ingress, `<release>-git-webhook`, that caps the anonymous Git-event receiver (`/api/v1/integrations/projects/<id>/git-webhook/`) at 1 MB. See [Git-webhook body ceiling](#git-webhook-body-ceiling). |
 | `ingress.hosts` | one example host | Virtual hosts; each path routes to `web` or `api`. List `/api` and `/ws` **before** `/` so they win longest-prefix matching. With [`demo.enabled`](#public-read-only-demo-mode) the chart refuses to render unless **every** path uses `service: web`. |
 | `ingress.tls` | `[]` | TLS Secrets per host. Empty renders **HTTP-only** — dev/demo only, never production. |
@@ -245,7 +248,8 @@ application ever sees it.
 
 | Layer | Where | Default |
 |---|---|---|
-| Ingress controller | `ingress.annotations` → `nginx.ingress.kubernetes.io/proxy-body-size` | `110m` |
+| Ingress controller — large-body routes | `ingress.largeBody.size` | `110m` |
+| Ingress controller — everything else | `ingress.annotations` → `nginx.ingress.kubernetes.io/proxy-body-size` | `2m` |
 | Web-tier nginx — uploads | `web.maxBodySize` | `110M` |
 | Web-tier nginx — sync, bulk, seed, logo / everything else | fixed | `10M` / `2M` |
 | Application — transport tiers | [request body ceilings](/administration/configuration/limits/#request-body-ceilings) | 110 / 10 / 2 MB |
@@ -258,46 +262,49 @@ returns a validation error naming the limit and the format. A transport limit
 returns a bare `413` with no explanation and nothing in the logs pointing at the
 import.
 
+Since 0.5 the Ingress ceiling is split. The main Ingress carries a tight `2m`,
+the application's default [request body ceiling](/administration/configuration/limits/#request-body-ceilings),
+so an anonymous caller cannot push a large body at sign-in, password reset, SSO,
+invite or share routes. A second Ingress, `<release>-large-body`, raises only the
+routes the application accepts more on: task attachments, the MS Project, Jira,
+CSV/Excel and risk-CSV imports, program import, workspace logo, task bulk, offline
+sync and inbound task push. Those routes still accept `ingress.largeBody.size` at
+the edge before the caller is authenticated. The second Ingress sets
+`use-regex`, copies your other `ingress.annotations`, works only with
+ingress-nginx, and is never rendered with `demo.enabled`.
+
 The largest cap is the **attachment** one at 100 MB, not the MS Project import at
 50 — which is what both transport limits were sized against before 0.4, so every
-attachment between 50 and 100 MB was rejected at the edge. Both now ship at 110,
+attachment between 50 and 100 MB was rejected at the edge. Both ship at 110,
 the extra 10 covering multipart framing: at exactly 100 a legal 100 MB upload
 still `413`s. If you raise any application cap, raise both transport limits past
 it — otherwise the higher app cap is unreachable.
 
 Which transport limit actually binds depends on your topology. In the default
 routing the Ingress sends `/api` straight to the API Service, so uploads never
-traverse the web tier and **only the ingress annotation applies**;
+traverse the web tier and **only `ingress.largeBody.size` applies**;
 `web.maxBodySize` binds when you route everything through the web tier instead.
 Keep them in step rather than reasoning about which one is live.
 
 :::caution[An explicit annotations map drops the default]
-Helm deep-merges `ingress.annotations`, but only for keys you do not set. The
-`proxy-body-size` default exists precisely because an empty map lets ingress-nginx
-apply its own **1 MB** ceiling, and *every import above 1 MB then fails on an
-otherwise-default install*. If you are carrying a values file that pins
-`ingress.annotations` to your own map, confirm it includes `proxy-body-size` — an
-explicit map that omits it inherits the 1 MB default again.
+Helm deep-merges `ingress.annotations`, but only for keys you do not set. If your
+values file pins `proxy-body-size` (the old default was `110m`), that value still
+applies to every route on the main Ingress: remove it, or set it to `2m`, to get
+the tight ceiling. If you had raised it above `110m` for larger uploads, move that
+number to `ingress.largeBody.size`.
 :::
 
 #### Git-webhook body ceiling
 
-`proxy-body-size` applies to every path of the Ingress that carries it, so the
-`110m` attachment ceiling would also apply to the anonymous inbound Git-event
-receiver. The application's own 1 MB cap there runs only after the body has
-already been received and spooled, so the edge has to enforce it. The chart
-therefore renders a second Ingress, `<release>-git-webhook`, scoped to
+The anonymous inbound Git-event receiver has a tighter cap than other routes. The
+application's own 1 MB cap there runs only after the body has already been
+received and spooled, so the edge has to enforce it. The chart renders another
+Ingress, `<release>-git-webhook`, scoped to
 `/api/v1/integrations/projects/<id>/git-webhook/` with `proxy-body-size: 1m`
 (`ingress.webhookBodyLimit.size`). The web tier's nginx carries the same 1M on that
 path for installs that route everything through it. Both real providers send
-far less than 1 MB.
-
-Only the git-webhook path gets this 1 MiB edge limit, and only in the Helm chart;
-the Compose and bare-metal nginx configs keep the 2 MB default tier for that path.
-Other unauthenticated routes (login, password reset, SSO, invite and share links)
-still inherit the Ingress `proxy-body-size` default. On the default topology the
-application's 2 MiB middleware is the only other limit on them, and it runs after
-the body has been received.
+far less than 1 MB. The Compose and bare-metal nginx configs keep the 2 MB default
+tier for that path.
 
 The path contains a project id, so the second Ingress sets
 `nginx.ingress.kubernetes.io/use-regex: "true"`. ingress-nginx then treats every

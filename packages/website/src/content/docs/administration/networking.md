@@ -489,7 +489,8 @@ ingress:
     # would otherwise silently keep them (deep-merge), which is correct, but
     # worth restating explicitly since this file overrides the whole
     # `ingress.annotations` key by example elsewhere on this page.
-    nginx.ingress.kubernetes.io/proxy-body-size: "110m"
+    # Tight ceiling for every route; uploads use ingress.largeBody.size (110m).
+    nginx.ingress.kubernetes.io/proxy-body-size: "2m"
     # WebSocket lifetime — see the timeout table below.
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
