@@ -265,7 +265,8 @@ heap, so even a bomb the byte ceiling hasn't yet caught dies with a JVM
 `OutOfMemoryError` (a clean non-zero exit) rather than driving the host into swap.
 
 The import paths (below) share these knobs. `IMPORT_MAX_RESOURCES_CREATED` applies to
-CSV/Excel, MS Project and [JSON seed](#seed-import-limit) imports, not Jira:
+CSV/Excel and MS Project imports, not Jira; from 0.5 it will also apply to
+[JSON seed](#seed-import-limit) imports:
 
 | Variable | Default | Unit | What it bounds |
 |----------|---------|------|----------------|
@@ -412,12 +413,12 @@ unlike a throttle `429` — is cleared by an outstanding import finishing rather
 than by waiting out a window. Raise it if your operators legitimately run
 imports in parallel; set it to `0` to leave the rate throttle as the only limit.
 
-A seed import also creates at most `IMPORT_MAX_RESOURCES_CREATED` (default 200)
-resources, from 0.5. Entries past the cap are not created and their task
-assignments are skipped. The finished job's `result_summary` carries
-`resources_created`, `resources_created_names`, `resources_refused_names` and
-`warnings`. The `import_seed` management command prints the cap warning. Loading
-a bundled sample is not capped.
+From 0.5, a seed import will also create at most
+`IMPORT_MAX_RESOURCES_CREATED` (default 200) resources. Entries past the cap will
+not be created and their task assignments will be skipped. The finished job's
+`result_summary` will carry `resources_created`, `resources_created_names`,
+`resources_refused_names` and `warnings`. The `import_seed` management command
+will print the cap warning. Loading a bundled sample will not be capped.
 
 The seed document itself is bounded field by field as well as in total: prose
 fields (`description`) accept up to 100,000 characters and narrative fields
