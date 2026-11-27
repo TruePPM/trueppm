@@ -447,6 +447,92 @@ def test_crafted_low_order_share_is_a_400_not_a_500(owner: Any, url: str) -> Non
     assert "Wrong passphrase" in json.dumps(resp.json())
 
 
+def _age(model: Any, job: Any, **fields: Any) -> None:
+    model.objects.filter(pk=job.pk).update(**fields)
+    job.refresh_from_db()
+
+
+@pytest.mark.django_db
+def test_drain_fails_an_abandoned_job_and_unblocks_a_new_request(
+    owner: Any, project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from trueppm_api.apps.projects import tasks as project_tasks
+
+    monkeypatch.setattr(project_tasks.run_project_export, "delay", lambda _jid: None)
+    resp = _start(owner, project, {"encryption": {"mode": "passphrase", "passphrase": PASSPHRASE}})
+    job = ProjectExportJob.objects.get(pk=resp.json()["id"])
+    # A worker claimed it, then was lost: RUNNING forever, params still on the row.
+    stale = timezone.now() - timedelta(minutes=project_tasks.EXPORT_STALE_JOB_MINUTES + 1)
+    _age(ProjectExportJob, job, status=ExportJobStatus.RUNNING, started_at=stale)
+    assert job.encryption_params
+    assert _start(owner, project).status_code == 409
+
+    project_tasks._do_drain_project_exports()
+    job.refresh_from_db()
+    assert job.status == ExportJobStatus.FAILED
+    assert job.encryption_params == {}
+    assert job.encryption_mode == "passphrase"
+    assert _start(owner, project).status_code == 202
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("status", "age_field", "minutes", "reaped"),
+    [
+        (ExportJobStatus.PENDING, "created_at", 121, True),
+        (ExportJobStatus.PENDING, "created_at", 60, False),
+        (ExportJobStatus.RUNNING, "started_at", 121, True),
+        # Created long ago but its latest attempt started recently: still live.
+        (ExportJobStatus.RUNNING, "started_at", 5, False),
+        (ExportJobStatus.SUCCESS, "created_at", 600, False),
+    ],
+)
+def test_stale_bound_applies_to_both_export_grains(
+    owner: Any,
+    project: Project,
+    monkeypatch: pytest.MonkeyPatch,
+    status: str,
+    age_field: str,
+    minutes: int,
+    reaped: bool,
+) -> None:
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from trueppm_api.apps.projects import tasks as project_tasks
+    from trueppm_api.apps.projects.models import Program, ProgramExportJob
+
+    assert project_tasks.EXPORT_STALE_JOB_MINUTES == 120
+    monkeypatch.setattr(project_tasks.run_project_export, "delay", lambda _jid: None)
+    monkeypatch.setattr(project_tasks.run_program_export, "delay", lambda _jid: None)
+    program = Program.objects.create(name="Sealed program", code="sealp")
+    params = {"recipient": "age1x", "salt": "s", "log_n": 10}
+    old = timezone.now() - timedelta(minutes=600)
+    when = timezone.now() - timedelta(minutes=minutes)
+    jobs = [
+        (ProjectExportJob, ProjectExportJob.objects.create(project=project, requested_by=owner)),
+        (ProgramExportJob, ProgramExportJob.objects.create(program=program, requested_by=owner)),
+    ]
+    for model, job in jobs:
+        fields: dict[str, Any] = {"status": status, "encryption_params": params}
+        fields["created_at"] = old if age_field == "started_at" else when
+        if age_field == "started_at":
+            fields["started_at"] = when
+        _age(model, job, **fields)
+
+    project_tasks._do_drain_project_exports()
+    project_tasks._do_drain_program_exports()
+    for _model, job in jobs:
+        job.refresh_from_db()
+        assert (job.status == ExportJobStatus.FAILED) is reaped
+        assert (job.encryption_params == {}) is reaped
+
+
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     ("passphrase", "message"),

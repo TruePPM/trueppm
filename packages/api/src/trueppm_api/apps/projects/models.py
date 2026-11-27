@@ -10079,7 +10079,10 @@ class ProjectExportJob(models.Model):
     # and, for a passphrase, the scrypt salt and work factor); the passphrase itself
     # is never stored, so nothing on this row can decrypt the file. They are still
     # enough to test passphrase guesses offline, so the worker clears them when the
-    # job finishes (success or failure); only a pending/running row holds them.
+    # job finishes (success or failure), and the export drain fails and clears a
+    # pending/running job its worker abandoned once it is older than
+    # ``tasks.EXPORT_STALE_JOB_MINUTES`` (two hours). Only a row younger than that
+    # bound, still pending or running, holds them.
     encryption_mode = models.CharField(
         max_length=12, choices=ExportEncryptionMode.choices, default=ExportEncryptionMode.NONE
     )
@@ -10160,7 +10163,10 @@ class ProgramExportJob(models.Model):
     # and, for a passphrase, the scrypt salt and work factor); the passphrase itself
     # is never stored, so nothing on this row can decrypt the file. They are still
     # enough to test passphrase guesses offline, so the worker clears them when the
-    # job finishes (success or failure); only a pending/running row holds them.
+    # job finishes (success or failure), and the export drain fails and clears a
+    # pending/running job its worker abandoned once it is older than
+    # ``tasks.EXPORT_STALE_JOB_MINUTES`` (two hours). Only a row younger than that
+    # bound, still pending or running, holds them.
     encryption_mode = models.CharField(
         max_length=12, choices=ExportEncryptionMode.choices, default=ExportEncryptionMode.NONE
     )

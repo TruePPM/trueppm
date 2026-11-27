@@ -324,7 +324,11 @@ Know what passphrase mode does and does not protect against:
   passphrase guesses offline, at the cost of one scrypt (2<sup>17</sup>, about
   128 MiB) per guess, and could build a forged bundle that opens under your
   passphrase. TruePPM clears those values as soon as the build finishes or
-  fails; a finished job keeps only `encryption_mode`. The file itself carries the
+  fails; a finished job keeps only `encryption_mode`. A build whose worker was
+  lost (a killed pod, a dropped queue message) never finishes on its own, so
+  TruePPM marks any job still pending or running after two hours as failed and
+  clears its values then. That is the longest the window lasts, and it also
+  frees you to request a new encrypted export after a lost build. The file itself carries the
   salt and work factor, as every passphrase-encrypted format must, so anyone who
   holds the file can attempt the same offline guessing. Choose a long passphrase.
 - **Retrying with an `Idempotency-Key`**: two requests that differ only in the
