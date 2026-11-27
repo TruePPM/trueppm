@@ -101,7 +101,7 @@ async function setup(page: Page) {
   // shell-preserving error boundary.
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/rollup/`, ok(FIXTURE_ROLLUP));
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/projects/`, ok([]));
-  await page.route(`**/api/v1/programs/${PROGRAM_ID}/backlog-items/**`, ok([]));
+  await page.route(`**/api/v1/programs/${PROGRAM_ID}/backlog-items/**`, ok({ results: [], count: 0, next: null, previous: null }));
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/members/**`, ok([]));
   await page.route(
     `**/api/v1/programs/${PROGRAM_ID}/schedule/`,

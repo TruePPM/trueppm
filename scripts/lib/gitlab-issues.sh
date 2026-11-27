@@ -235,12 +235,24 @@ tracker_gate_base() {
   printf '%s\n' "$base"
 }
 
+# tracker_gate_git <dir> <git args...> — `git -C <dir>` that discovers the
+# repository from <dir>. A hook in a linked worktree exports GIT_DIR without
+# GIT_WORK_TREE, and git then takes the -C directory for the top of the work
+# tree: `./README.md` under packages/scheduler read the ROOT README as the base
+# copy, and a `diff -- .` there showed every file as deleted (#5195). Use it for
+# any command run from a subdirectory.
+tracker_gate_git() {
+  local dir="$1"
+  shift
+  env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR git -C "$dir" "$@"
+}
+
 # tracker_gate_file_at_base <base> <file> — prints <file> as it was at <base>
 # (empty when it did not exist). Resolved relative to the file's own directory
 # so it works for any repo the file lives in, including self-test fixtures.
 tracker_gate_file_at_base() {
   local base="$1" file="$2"
-  git -C "$(dirname "$file")" show "${base}:./$(basename "$file")" 2>/dev/null || true
+  tracker_gate_git "$(dirname "$file")" show "${base}:./$(basename "$file")" 2>/dev/null || true
 }
 
 # closing_ids_from_text — reads text on stdin, prints the issue numbers a

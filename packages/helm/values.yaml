@@ -162,7 +162,7 @@ web:
   #
   # In the DEFAULT topology this is inert: the Ingress routes /api and /ws
   # straight to the API Service, so uploads never traverse this nginx and
-  # `ingress.annotations` proxy-body-size is the binding constraint. It matters
+  # `ingress.largeBody.size` is the binding constraint. It matters
   # when an operator routes everything through the web tier instead (a single
   # `service: web` path, or a LoadBalancer in front of the web Service) — a
   # topology that previously had no knob at all and inherited nginx's 1m default.
@@ -177,10 +177,34 @@ web:
   # setting's own comment instructs operators to set nginx to 100m. At 50M every
   # attachment between 50 and 100 MB got a bare 413 at the edge, on every
   # deployment path. The extra 10M covers multipart framing: at exactly 100M a
-  # legal 100 MB upload still 413s. `ingress.annotations` proxy-body-size below
-  # is raised to 110m in step with this — that one, not this, is what binds on
-  # the default topology.
+  # legal 100 MB upload still 413s. `ingress.largeBody.size` below is 110m in
+  # step with this — that one, not this, is what binds on the default topology.
   maxBodySize: 110M
+  # Edge rate limit for the unauthenticated auth endpoints (sign-in, token
+  # refresh, sign-out, password reset, SSO, invite accept), for /ws/ handshakes,
+  # and a much looser one for the rest of /api/, share links and the Git-event
+  # receiver included (#3852). A coarse flood backstop behind the application's own
+  # throttles; refused requests get 429. Per client address, so it is rendered
+  # ONLY when web.realIpFrom names a trusted proxy: without it nginx sees every
+  # request as coming from the ingress controller (or a node or load balancer),
+  # and one shared bucket would let a single client lock everyone out of sign-in.
+  # With realIpFrom empty, `enabled: true` renders no edge limit and the
+  # application's DRF throttles are the limit. Even then it binds ONLY for traffic
+  # that crosses the web tier: the default ingress.hosts send /api and /ws
+  # straight to the API Service. Rates are `<n>r/s` or `<n>r/m`, n > 0.
+  rateLimit:
+    enabled: true
+    auth:
+      rate: 20r/s
+      burst: 100
+    websocket:
+      rate: 20r/s
+      burst: 200
+    # Everything else under /api/. Keep it generous: one page load is dozens of
+    # requests, and everyone behind one NAT shares the bucket.
+    api:
+      rate: 100r/s
+      burst: 1000
   # Security response headers on everything the web tier serves (#2849).
   #
   # These are NOT redundant with Django's XFrameOptionsMiddleware,
@@ -209,6 +233,12 @@ web:
     frameOptions: DENY
     # Stops a browser from re-typing a response as a script.
     contentTypeOptions: nosniff
+    # Browser features the document and anything it loads may not use (#3851).
+    # TruePPM uses none of these; `()` denies each to every origin. Clipboard
+    # and fullscreen are deliberately not listed, so they keep the browser
+    # default (the app's copy buttons need clipboard write). Empty omits the
+    # header.
+    permissionsPolicy: "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
     # How much of the current URL a browser may disclose to another origin
     # (#3553). Without it, a navigation away from any TruePPM page sends the FULL
     # URL as `Referer`, and the browser default varies by vendor and version.
@@ -247,38 +277,43 @@ ingress:
   # default IngressClass, if one is marked default.
   className: ""
   # Tight body ceiling for the anonymous Git-event receiver (#2932). The
-  # proxy-body-size annotation below is sized for 100 MB attachments and applies
-  # to every path of its Ingress, so a second Ingress scopes a smaller limit to
+  # proxy-body-size annotation below (2m) applies to every path of its Ingress,
+  # so a second Ingress scopes a still smaller limit to
   # /api/v1/integrations/projects/<id>/git-webhook/. Matches the app's 1 MB cap
   # (real providers send far less); the web tier's nginx enforces the same 1M.
   # ingress-nginx only: it sets use-regex for the host (see templates/ingress.yaml).
   webhookBodyLimit:
     enabled: true
     size: "1m"
+  # Higher body ceiling for the routes that legitimately take a large body
+  # (#5124): attachments, file imports, risk import, program import, logo, task
+  # bulk, offline sync and inbound task push. Rendered as two extra Ingresses, one
+  # per application tier, so every other route, including the anonymous ones,
+  # stays at the tight proxy-body-size in `annotations` below. Each path is
+  # anchored with `$`, so only the exact route is raised. ingress-nginx only
+  # (use-regex). Disabling it caps uploads at the main proxy-body-size unless you
+  # raise that.
+  largeBody:
+    enabled: true
+    # <release>-large-body: attachments and file imports. This is what binds on
+    # uploads: keep it >= the largest application upload cap (100 MB
+    # attachments, plus multipart framing).
+    size: "110m"
+    # <release>-bulk-body: workspace logo, program seed import, task bulk,
+    # offline sync and inbound task push. The application caps these at 10 MiB,
+    # and task-sync is reached before its token is checked, so they do not get
+    # the upload ceiling. Keep it equal to the application's bulk tier.
+    bulkSize: "10m"
   # Controller / cert-manager annotations. Example for cert-manager:
   #   cert-manager.io/cluster-issuer: letsencrypt-prod
   #
-  # proxy-body-size (#2604): the transport limit must be >= the largest
-  # application upload cap, or the upload fails at the edge with a bare 413 and
-  # the app never sees the request. Without it, ingress-nginx applies its own 1m
-  # default and **every import above 1 MB fails on a default install** — which is
-  # how this shipped before 0.4.
-  #
-  # 110m, raised from 50m in #3189. This is the knob that BINDS on the default
-  # topology: the Ingress routes /api straight to the API Service, so attachment
-  # and import uploads never traverse the web tier's nginx and never see
-  # web.maxBodySize. 50m was chosen against MSPROJECT_MAX_UPLOAD_MB (MS Project
-  # 50 / Jira 25 / CSV 10 / seed 5), which overlooked the largest cap of all:
-  # attachments at 100 MB (serializers.py MAX_ATTACHMENT_SIZE_BYTES and
-  # settings/base.py DATA_UPLOAD_MAX_MEMORY_SIZE). Every attachment between 50
-  # and 100 MB was rejected at the edge on every Kubernetes install. The extra
-  # 10m covers multipart framing: at exactly 100m a legal 100 MB upload still
-  # 413s. Keep this in step with web.maxBodySize.
-  #
-  # The app cap, not this one, is what should reject an oversized file: it
-  # returns a validation error naming the limit, where the edge returns an
-  # unexplained 413. Raise this to stay ahead of the app; do not use it as the
-  # enforcement point.
+  # proxy-body-size (#2604, #5124): the ceiling for every route that is NOT on
+  # the <release>-large-body Ingress (see largeBody above). 2m matches the
+  # application's default request-body tier, so nothing the app accepts is
+  # refused, and an anonymous caller cannot push a large body at sign-in,
+  # password reset, SSO, invite or share routes. Without any value ingress-nginx
+  # applies its own 1m default. Do not raise this for uploads; raise
+  # largeBody.size.
   #
   # This annotation is ingress-nginx-specific. On Traefik use a
   # `buffering` middleware (`maxRequestBodyBytes`); on HAProxy set
@@ -286,7 +321,7 @@ ingress:
   # your own keys keeps this one unless you override it by name.
   #
   # proxy-read-timeout / proxy-send-timeout: same class of bug as
-  # proxy-body-size above, for WebSockets instead of uploads. The default
+  # proxy-body-size had before #2604, for WebSockets instead of uploads. The default
   # `hosts` topology below routes /ws straight to the API Service, bypassing
   # the web tier's own nginx (templates/web/configmap.yaml), which sets
   # proxy_read_timeout 86400s for exactly this reason. Without a matching
@@ -304,7 +339,7 @@ ingress:
   # is usually just ignored, which silently leaves the controller's own
   # 60s-class default in place.
   annotations:
-    nginx.ingress.kubernetes.io/proxy-body-size: "110m"
+    nginx.ingress.kubernetes.io/proxy-body-size: "2m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
   # One or more virtual hosts. Each path routes to either the web SPA or the API,

@@ -151,7 +151,7 @@ Two behaviors worth knowing before you rely on them:
   default edge termination — reach the Route without a Route template.
 
 `ingress.annotations`' shipped default,
-`nginx.ingress.kubernetes.io/proxy-body-size: "110m"`
+`nginx.ingress.kubernetes.io/proxy-body-size: "2m"`
 (see [Upload size limits](/administration/helm-values/#upload-size-limits)), is
 harmless but inert on OpenShift — it is an `ingress-nginx` annotation, and the
 generated Route ignores it. The application's own upload caps
