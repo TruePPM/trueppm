@@ -56,6 +56,11 @@ def register_sharing_enforcement_provider(provider: Callable[[], bool] | None) -
     )
 
 
+# What the helper hands back when the provider raised. Not ``None``: a provider that
+# *returns* ``None`` answered "inactive" and must not take the fail-closed path.
+_RAISED: object = object()
+
+
 def _provider_state() -> bool | None:
     """The registered provider's answer; ``None`` when it raised (unknown)."""
     if _ENFORCEMENT_PROVIDER is None:
@@ -63,9 +68,9 @@ def _provider_state() -> bool | None:
     # FAIL-CLOSED (#3866): "unknown" must stay distinct from "inactive" so the
     # resolvers below can pick the stricter value instead of dropping the lock.
     answer = invoke_extension_provider(
-        _ENFORCEMENT_PROVIDER, hook="sharing enforcement", fallback=None
+        _ENFORCEMENT_PROVIDER, hook="sharing enforcement", fallback=_RAISED
     )
-    return None if answer is None else bool(answer)
+    return None if answer is _RAISED else bool(answer)
 
 
 def sharing_enforcement_active() -> bool:

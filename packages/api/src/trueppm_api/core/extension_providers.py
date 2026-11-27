@@ -83,6 +83,9 @@ def invoke_extension_provider(
     for the reason ``dispatch_extension_signal()`` does (#4084): a ``DatabaseError``
     it raises, or swallows, would otherwise leave the surrounding OSS write aborted.
 
+    That savepoint is paid per call, so a serializer that asks a predicate per row and
+    per field multiplies it on list reads when a provider is registered.
+
     Args:
         provider: The registered callable. The caller handles the ``None`` (nothing
             registered) case first, so the community edition pays no savepoint.
@@ -94,6 +97,7 @@ def invoke_extension_provider(
         The provider's result, or ``fallback``.
     """
     try:
+        # TODO(#5156): one savepoint per call; list serializers ask per row and field.
         if connection.in_atomic_block:
             with transaction.atomic(savepoint=True):
                 return provider(*args)
