@@ -213,7 +213,10 @@ _SWEEP_EXEMPT: dict[str, str] = {
     "roll_up_summary": "leaf-row helper; total over any leaf list, raises nothing",
     "duration_percentiles": "forecast helper over plain numbers; raises nothing",
     "velocity_band_dates": "forecast helper over plain numbers; raises nothing",
-    "forecast_velocity_delivery": "forecast helper over plain numbers; raises nothing",
+    "forecast_velocity_delivery": (
+        "forecast helper over plain numbers; runs monte_carlo, so it raises only what "
+        "monte_carlo raises for refused input (a SchedulerError)"
+    ),
     "forecast_throughput_delivery": "forecast helper over plain numbers; raises nothing",
 }
 
