@@ -203,12 +203,69 @@ SEVERITY_BY_CODE: dict[str, str] = {
     "self_dependency": "warning",
     "finish_before_start": "warning",
     "excessive_indent_depth": "warning",
+    "span_too_long": "warning",
 }
 
 #: Fallback for a code added without a severity. Warning, not error: a new check
 #: must not silently start dropping rows from the operator's point of view just
 #: because someone forgot the table.
 DEFAULT_SEVERITY = "warning"
+
+
+#: Total days one parse may walk while counting working days. Counting is per day,
+#: so an uploaded file of century-long spans would otherwise hold a request or a
+#: worker for minutes. Far above any real plan (5,000 rows averaging a year each).
+_WORKING_DAY_COUNT_BUDGET = 2_000_000
+
+
+class WorkingDayCounter:
+    """Working days between two imported dates, on the target project's calendar.
+
+    A task's ``duration`` is working days, so deriving it as a calendar span makes
+    CPM schedule the task past the finish written in the file (#4897). Delegates to
+    :func:`~trueppm_api.apps.projects.services.project_working_day_duration`, the
+    same rule every other ``planned_finish`` writer uses, composing the calendar once
+    per parse. ``project=None`` counts Monday to Friday.
+    """
+
+    def __init__(self, project: Any | None = None) -> None:
+        self._project = project
+        self._calendar: Any | None = None
+        self._memo: dict[tuple[date, date], int] = {}
+        self._budget = _WORKING_DAY_COUNT_BUDGET
+
+    def __call__(self, start: date, finish: date) -> int | None:
+        """Count ``[start, finish]`` inclusive, or ``None`` once the budget is spent."""
+        from trueppm_api.apps.projects.services import project_working_day_duration
+
+        if (start, finish) not in self._memo:
+            days = (finish - start).days + 1
+            if days > self._budget:
+                return None
+            self._budget -= max(days, 0)
+            if self._calendar is None and self._project is not None:
+                from trueppm_api.apps.scheduling.calendars import compose_project_calendar
+
+                self._calendar = compose_project_calendar(self._project)
+            self._memo[(start, finish)] = project_working_day_duration(
+                start, finish, self._project, calendar=self._calendar
+            )
+        return self._memo[(start, finish)]
+
+
+def _span_duration(start: date, finish: date, count: WorkingDayCounter) -> int:
+    """The duration a ``start``..``finish`` pair imports as (preview and write share it).
+
+    Never below 1 for an ordered pair: a span that lies wholly on non-working days
+    must not turn the row into a milestone. A reversed pair stays non-positive so
+    the preview shows it as wrong; a span past the counting budget keeps its
+    calendar length.
+    """
+    calendar_days = (finish - start).days + 1
+    if calendar_days < 1:
+        return calendar_days
+    counted = count(start, finish)
+    return calendar_days if counted is None else max(1, counted)
 
 
 @dataclass
@@ -366,6 +423,8 @@ class ParseResult:
     #: cell beside what it was read as, and the duration that produces. The
     #: duration is the column that makes a wrong order impossible to miss.
     date_preview: list[dict[str, Any]] = field(default_factory=list)
+    #: Derives a duration from a start/finish pair, for the import and the preview.
+    count_working_days: WorkingDayCounter = field(default_factory=WorkingDayCounter)
 
     @property
     def error_count(self) -> int:
@@ -813,6 +872,7 @@ def parse_spreadsheet(
     max_uncompressed_bytes: int = 100 * 1024 * 1024,
     project_name: str = "",
     date_order: str = "auto",
+    count_working_days: WorkingDayCounter | None = None,
 ) -> ParseResult:
     """Parse an uploaded CSV/XLSX into ``ProjectData`` plus preview metadata.
 
@@ -839,6 +899,8 @@ def parse_spreadsheet(
             inference nothing can override makes the endpoint non-deterministic
             for a scripted caller, since the same rows import differently
             depending on which values happen to disambiguate the column.
+        count_working_days: Counter on the target project's calendar, used to derive
+            a duration from a start/finish pair. Defaults to Monday to Friday.
 
     Raises:
         CsvImportError: The file is unreadable, empty, has no header row, or has
@@ -892,6 +954,7 @@ def parse_spreadsheet(
         warnings=warnings,
         total_rows=len(data_rows),
         truncated_rows=truncated,
+        count_working_days=count_working_days or WorkingDayCounter(),
     )
     result.sample_rows = [
         [_cell(row, i) for i in range(len(headers))] for row in data_rows[:SAMPLE_ROW_COUNT]
@@ -1052,7 +1115,7 @@ def _build_date_preview(
     name_idx = _optional_index(by_field, "name")
 
     result.date_preview = [
-        _preview_row(row, offset, start_idx, finish_idx, name_idx, order)
+        _preview_row(row, offset, start_idx, finish_idx, name_idx, order, result.count_working_days)
         for offset, row in enumerate(data_rows[:SAMPLE_ROW_COUNT])
     ]
 
@@ -1064,6 +1127,7 @@ def _preview_row(
     finish_idx: int | None,
     name_idx: int | None,
     order: str,
+    count: WorkingDayCounter,
 ) -> dict[str, Any]:
     """One rendered preview row, exactly as the wizard's table shows it."""
     raw_start = _cell(row, start_idx).strip() if start_idx is not None else ""
@@ -1077,8 +1141,8 @@ def _preview_row(
         "raw_finish": raw_finish,
         "start": start.isoformat() if start else None,
         "finish": finish.isoformat() if finish else None,
-        # Inclusive of both endpoints, matching _apply_derived_duration.
-        "duration_days": (finish - start).days + 1 if start and finish else None,
+        # Working days, matching _apply_derived_duration.
+        "duration_days": _span_duration(start, finish, count) if start and finish else None,
         # A cell that was present and would not parse — the state the
         # "{k} of {n} rows cannot be read as {order}" copy counts.
         "unreadable": bool((raw_start and not start) or (raw_finish and not finish)),
@@ -1330,7 +1394,16 @@ def _reading(
         if any(raw.strip() and _parse_date(raw, order) is None for raw in raws):
             reading.rows_unparseable += 1
         if reading.sample_row is None:
-            _capture_sample(reading, row, offset, start_idx, finish_idx, name_idx, order)
+            _capture_sample(
+                reading,
+                row,
+                offset,
+                start_idx,
+                finish_idx,
+                name_idx,
+                order,
+                result.count_working_days,
+            )
     return reading
 
 
@@ -1342,6 +1415,7 @@ def _capture_sample(
     finish_idx: int | None,
     name_idx: int | None,
     order: str,
+    count: WorkingDayCounter,
 ) -> None:
     """Record this row as the worked example, if it has both ends under ``order``.
 
@@ -1358,10 +1432,9 @@ def _capture_sample(
     reading.sample_raw_start = _cell(row, start_idx).strip()
     reading.start = start.isoformat()
     reading.finish = finish.isoformat()
-    # Inclusive of both endpoints, matching _apply_derived_duration — the
-    # comparison is worthless if it disagrees with the duration the import will
-    # actually write.
-    reading.duration_days = (finish - start).days + 1
+    # Matches _apply_derived_duration — the comparison is worthless if it
+    # disagrees with the duration the import will actually write.
+    reading.duration_days = _span_duration(start, finish, count)
 
 
 def _build_task(
@@ -1513,7 +1586,7 @@ def _apply_dates(
         task.start = start.isoformat()
 
     # ProjectData carries a start + duration, not a finish, so a file that gives
-    # both has its duration derived from the span (inclusive of both endpoints).
+    # both has its duration derived from the working days in the span.
     # An explicit Duration column already read above wins, because it is the
     # operator's stated intent rather than something inferred.
     if start and finish and "duration" not in by_field:
@@ -1561,9 +1634,8 @@ def _apply_derived_duration(
     result: ParseResult,
     row_number: int,
 ) -> None:
-    """Set duration from an inclusive ``start``..``finish`` span."""
-    span = (finish - start).days + 1
-    if span < 1:
+    """Set duration to the working days in the inclusive ``start``..``finish`` span."""
+    if finish < start:
         result.row_errors.append(
             RowError(
                 row_number,
@@ -1572,8 +1644,17 @@ def _apply_derived_duration(
                 "Finish is before start; duration defaulted to 1 day.",
             )
         )
-    else:
-        task.duration_days = span
+        return
+    if result.count_working_days(start, finish) is None:
+        result.row_errors.append(
+            RowError(
+                row_number,
+                result.headers[_one(by_field, "planned_finish")],
+                "span_too_long",
+                "Too many days to count working days; imported as calendar days.",
+            )
+        )
+    task.duration_days = _span_duration(start, finish, result.count_working_days)
 
 
 def _apply_percent(

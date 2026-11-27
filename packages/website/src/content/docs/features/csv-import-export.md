@@ -325,6 +325,12 @@ decimal with a period (`Ana:62.5`).
 **Durations** may be written as `5`, `5d`, `5 days`, `16 hours` (converted on an
 8-hour day) or `2 weeks`. A duration of `0` marks the row as a milestone.
 
+**With a start and a finish but no duration column**, the duration is the number of
+working days from start to finish, both included, on the project's calendar
+(weekends, holidays and shutdowns do not count), so the schedule finishes on the date
+in your file. A finish on a non-working day schedules to the last working day before
+it, and a row that spans only non-working days gets one day.
+
 **Percent complete** accepts `50`, `50%`, or Excel's native `0.5`.
 
 **Either decimal convention works.** `3.5` and `3,5` both mean three and a half
@@ -358,7 +364,7 @@ Four settings are offered:
 ### When the file identifies nothing
 
 `Design,03/04/2026,05/04/2026` is a valid date pair under **both** conventions,
-and the difference is a three-day task or a sixty-two-day one. Auto cannot
+and the difference is a one-day task or a forty-four-day one. Auto cannot
 resolve that, and says so rather than quietly picking: the block shows both
 readings with the duration each produces, and the button reads **Confirm M/D/Y
 and continue** so the convention being accepted is named before you press it.
@@ -575,7 +581,8 @@ The preview endpoint reports the same split before you commit, as `task_count`
 The wizard's result step carries an **Undo import (⌘Z)** action once a completed import
 has created or parked any rows. Applying it removes every row the import wrote — plan
 rows and Import review placeholders alike — except any you (or a teammate) have already
-edited since; those are left in place, and the confirmation names how many. Undo is a
+edited since; those are left in place, together with any row above them in the outline,
+and the confirmation names how many. Undo is a
 single step per import and is only offered for a completed import, never a failed or
 still-running one.
 

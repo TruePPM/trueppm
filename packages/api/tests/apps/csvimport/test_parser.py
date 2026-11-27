@@ -684,8 +684,8 @@ class TestDateOrderOverride:
     """#2926 — the operator can assert the convention their own export uses.
 
     The bug this closes is silent: ``Design,03/04/2026,05/04/2026`` means 3 Apr
-    → 5 Apr (three days) to a European exporter, and auto reads it as 4 Mar →
-    4 May (sixty-two days) with no control anywhere to say otherwise.
+    → 5 Apr (one working day) to a European exporter, and auto reads it as 4 Mar →
+    4 May (forty-four working days) with no control anywhere to say otherwise.
     """
 
     #: Every value valid under both conventions — nothing self-identifies.
@@ -695,12 +695,12 @@ class TestDateOrderOverride:
         """`auto` is unchanged, byte for byte — this ticket adds a control, not a new default."""
         result = parse_spreadsheet(self.AMBIGUOUS, "plan.csv", date_order="auto")
         assert result.project_data.tasks[0].start == "2026-03-04"
-        assert result.project_data.tasks[0].duration_days == 62
+        assert result.project_data.tasks[0].duration_days == 44
 
     def test_the_override_produces_the_duration_the_operator_meant(self) -> None:
         result = parse_spreadsheet(self.AMBIGUOUS, "plan.csv", date_order="dmy")
         assert result.project_data.tasks[0].start == "2026-04-03"
-        assert result.project_data.tasks[0].duration_days == 3
+        assert result.project_data.tasks[0].duration_days == 1
 
     def test_an_ambiguous_file_says_so_and_offers_both_readings(self) -> None:
         """The state the ticket exists for: auto is a coin flip and must announce it."""
@@ -711,9 +711,9 @@ class TestDateOrderOverride:
 
         readings = {r.order: r for r in convention.readings}
         assert set(readings) == {"mdy", "dmy"}
-        # The 59-day difference on one task is the whole argument for the block.
-        assert readings["mdy"].duration_days == 62
-        assert readings["dmy"].duration_days == 3
+        # The 43 working-day difference on one task is the whole argument for the block.
+        assert readings["mdy"].duration_days == 44
+        assert readings["dmy"].duration_days == 1
         assert readings["mdy"].sample_name == "Design"
 
     def test_a_self_identifying_file_is_never_ambiguous(self) -> None:
@@ -768,7 +768,7 @@ class TestDateOrderOverride:
         rows = parse_spreadsheet(content, "plan.csv", date_order="mdy").date_preview
         assert rows[0]["raw_start"] == "03/04/2026"
         assert rows[0]["start"] == "2026-03-04"
-        assert rows[0]["duration_days"] == 62
+        assert rows[0]["duration_days"] == 44
         # Row 14 in the design's example: unreadable under the guess, and shown
         # as such rather than omitted.
         assert rows[1]["start"] is None

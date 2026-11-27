@@ -33,6 +33,7 @@ from trueppm_api.apps.csvimport.parser import (
     REVIEW_BRANCH_NAME,
     SUPPORTED_EXTENSIONS,
     CsvImportError,
+    WorkingDayCounter,
     parse_spreadsheet,
 )
 from trueppm_api.apps.csvimport.template import CSV_TEMPLATE, TEMPLATE_FILENAME
@@ -485,6 +486,8 @@ class CsvImportPreviewView(IdempotencyMixin, APIView):
             return validated
         filename, content = validated
 
+        from trueppm_api.apps.projects.models import Project
+
         try:
             parsed = parse_spreadsheet(
                 content,
@@ -493,6 +496,7 @@ class CsvImportPreviewView(IdempotencyMixin, APIView):
                 date_order=date_order,
                 max_rows=settings.CSV_IMPORT_MAX_ROWS,
                 max_uncompressed_bytes=settings.CSV_IMPORT_MAX_UNCOMPRESSED_MB * 1024 * 1024,
+                count_working_days=WorkingDayCounter(Project.objects.filter(pk=project_pk).first()),
             )
         except CsvImportError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
