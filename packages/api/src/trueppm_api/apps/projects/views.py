@@ -21954,6 +21954,18 @@ class ProjectApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
                     source_ip=_client_ip(request),
                     detail={"name": token.name},
                 )
+                # An agent token's revoke also goes in the agent hash chain, in this
+                # transaction, so the chain shows who stopped it (#5109).
+                # layering-ok: the revoke and its chain row must commit together; an
+                # extension-signal receiver would run outside this transaction.
+                from trueppm_api.apps.agents.control import record_token_revoke
+
+                record_token_revoke(
+                    token,
+                    request.user if request.user.is_authenticated else None,
+                    via=f"{self._scope_field} token settings",
+                    request=request,
+                )
                 if token.project_id is not None:
                     project_id = str(token.project_id)
                     token_id = str(token.pk)
@@ -22247,6 +22259,10 @@ class MyApiTokenViewSet(IdempotencyMixin, viewsets.ModelViewSet[Any]):
                     source_ip=_client_ip(request),
                     detail={"name": token.name, "webhooks_deactivated": webhooks_deactivated},
                 )
+                # layering-ok: same transaction as the revoke, as above (#5109).
+                from trueppm_api.apps.agents.control import record_token_revoke
+
+                record_token_revoke(token, caller, via="personal token settings", request=request)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 

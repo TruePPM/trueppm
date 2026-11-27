@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router';
 import { renderWithRouter } from '@/test/utils';
 import type { AgentDetail, AgentRow } from '@/api/types';
 import { AgentsPage } from './AgentsPage';
@@ -262,5 +264,86 @@ describe('AgentsPage', () => {
     });
     renderWithRouter(<AgentsPage />);
     expect(screen.getByText('Agents could not be loaded.')).toBeTruthy();
+  });
+
+  describe('opened from a refused-agent Inbox item (#5110)', () => {
+    function twoAgents() {
+      m.agents.mockReturnValue({
+        data: {
+          agents: [row(), row({ id: 'ag2', name: 'Cursor', token_prefix: 'ff00ee11' })],
+          truncated: false,
+          areas: AREAS,
+          grantable_levels: ['none', 'read', 'propose'],
+          can_verify_log: true,
+        },
+        isLoading: false,
+        isError: false,
+      });
+    }
+
+    it('selects the agent the item names', () => {
+      twoAgents();
+      renderWithRouter(<AgentsPage />, { initialEntries: ['/agents?agent=ag2'] });
+      expect(m.agent).toHaveBeenLastCalledWith('ag2');
+      const list = screen.getByRole('list', { name: 'Agents' });
+      expect(within(list).getByRole('button', { current: true }).textContent).toMatch(/Cursor/);
+      expect(screen.getByTestId('agents-requested-notice').textContent).toBe('');
+    });
+
+    it('lets the person pick another agent afterwards', () => {
+      twoAgents();
+      renderWithRouter(<AgentsPage />, { initialEntries: ['/agents?agent=ag2'] });
+      const list = screen.getByRole('list', { name: 'Agents' });
+      fireEvent.click(within(list).getByText('Claude'));
+      expect(m.agent).toHaveBeenLastCalledWith('ag1');
+    });
+
+    it('says so when the agent is no longer listed, and shows the first one', () => {
+      twoAgents();
+      renderWithRouter(<AgentsPage />, { initialEntries: ['/agents?agent=gone'] });
+      expect(screen.getByTestId('agents-requested-notice').textContent).toMatch(
+        /The agent from your Inbox item is no longer on this list/,
+      );
+      expect(m.agent).toHaveBeenLastCalledWith('ag1');
+    });
+
+    it('says only that the list is partial when the server truncated it', () => {
+      m.agents.mockReturnValue({
+        data: {
+          agents: [row(), row({ id: 'ag2', name: 'Cursor', token_prefix: 'ff00ee11' })],
+          truncated: true,
+          areas: AREAS,
+          grantable_levels: ['none', 'read', 'propose'],
+          can_verify_log: true,
+        },
+        isLoading: false,
+        isError: false,
+      });
+      renderWithRouter(<AgentsPage />, { initialEntries: ['/agents?agent=past-the-cap'] });
+      const notice = screen.getByTestId('agents-requested-notice');
+      expect(notice.textContent).toMatch(/not among the first 2 agents this list shows/);
+      expect(notice.textContent).not.toMatch(/no longer on this list|revoked/);
+    });
+
+    it('mounts the live region empty while loading, then fills it', () => {
+      m.agents.mockReturnValue({ data: undefined, isLoading: true, isError: false });
+      const client = new QueryClient();
+      const tree = () => (
+        <QueryClientProvider client={client}>
+          <MemoryRouter initialEntries={['/agents?agent=gone']}>
+            <AgentsPage />
+          </MemoryRouter>
+        </QueryClientProvider>
+      );
+      const { rerender } = render(tree());
+      const loading = screen.getByTestId('agents-requested-notice');
+      expect(loading.getAttribute('role')).toBe('status');
+      expect(loading.textContent).toBe('');
+      twoAgents();
+      rerender(tree());
+      const loaded = screen.getByTestId('agents-requested-notice');
+      expect(loaded).toBe(loading);
+      expect(loaded.textContent).toMatch(/no longer on this list/);
+    });
   });
 });

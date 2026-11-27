@@ -356,6 +356,19 @@ class Notification(models.Model):
         related_name="+",
     )
 
+    # The agent an ``agent.refused`` row is about (#5110), so opening the row selects
+    # that agent on the Agents page. The subject names the agent by token prefix for
+    # people; this is the id for the client. SET_NULL + related_name="+" like ``task``:
+    # tokens are soft-revoked, never hard-deleted, but a purge must not take the
+    # recipient's inbox history with it. Null on every other event type.
+    agent_token = models.ForeignKey(
+        "projects.ApiToken",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
     # Nullable since ADR-0663: a scheduled digest spans the recipient's whole
     # membership set and has no single owning project, so forcing one would mean
     # picking an arbitrary project and mis-scoping the row. Every event- and
