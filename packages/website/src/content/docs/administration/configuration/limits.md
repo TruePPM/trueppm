@@ -225,8 +225,11 @@ no effect.
 The shipped nginx configs (the Docker Compose templates, the web image's
 `nginx.conf`, and the Helm web tier) carry the same three tiers as per-location
 `client_max_body_size` values, so an oversized body is usually refused at the
-edge first. A test in the API suite parses all four configs and fails if their
-locations drift from the API's table.
+edge first. The Helm chart's Ingress follows the same split from 0.5: `2m` on
+the main Ingress and the upload ceiling on `<release>-large-body` for the upload
+and bulk routes (see [Upload size limits](/administration/helm-values/#upload-size-limits)).
+A test in the API suite parses all four configs and the Ingress path list and
+fails if they drift from the API's table.
 
 ## MS Project import limit
 

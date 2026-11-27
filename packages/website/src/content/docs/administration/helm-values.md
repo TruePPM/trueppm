@@ -8,8 +8,12 @@ documentedFor: "0.5"
 `web.realIpFrom`, the render-time refusal of `web.adminAccess.allowCIDRs` behind an
 Ingress without it, and the per-route web-tier body limits (2M default, 10M bulk,
 `web.maxBodySize` for uploads) ship in 0.5. In 0.4 the web tier has no trusted-proxy
-knob and `web.maxBodySize` is the ceiling for every route. Every other value on
-this page is in 0.4.
+knob and `web.maxBodySize` is the ceiling for every route.
+`web.securityHeaders.permissionsPolicy`, the `Permissions-Policy` header and
+`web.rateLimit` ([edge rate limits](/administration/networking/#edge-rate-limits))
+also ship in 0.5, as does the tight `2m` Ingress body ceiling with
+`ingress.largeBody`. In 0.4 the Ingress `proxy-body-size` is `110m` on every route.
+Every other value on this page is in 0.4.
 :::
 
 This page is the reference for the values the TruePPM Helm chart
@@ -135,6 +139,8 @@ yours carries. See [Image pull failure](/administration/troubleshooting/#image-p
 | `service.web.type` / `service.web.port` | `ClusterIP` / `80` | Web Service, rendered while `web.enabled`. Exposing this one, not the API Service, is the safe way to publish a demo. |
 | `web.containerPort` | `8080` | Port the unprivileged nginx image listens on (satisfies `runAsNonRoot`). The web Service targets it by name. |
 | `web.maxBodySize` | `110M` | nginx `client_max_body_size` for the web tier's **attachment and file-import** locations. Every other route gets 2M and the sync/bulk/seed/logo routes 10M, matching the API's own [request body ceilings](/administration/configuration/limits/#request-body-ceilings). Inert in the default topology — the Ingress sends `/api` and `/ws` straight to the API Service, so uploads never traverse this nginx. It binds when you route everything through the web tier instead. See [Upload size limits](#upload-size-limits). |
+| `web.rateLimit.enabled` | `true` | Edge `limit_req` on the unauthenticated auth endpoints, `/ws/` handshakes and the rest of `/api/`, refusing with `429`. Rendered only when `web.realIpFrom` is set, because without it nginx sees every client as the ingress controller's address; the application's throttles apply either way. Applies only to traffic that crosses the web tier. See [edge rate limits](/administration/networking/#edge-rate-limits). |
+| `web.rateLimit.auth` / `web.rateLimit.websocket` / `web.rateLimit.api` | `20r/s`, burst `100` / `20r/s`, burst `200` / `100r/s`, burst `1000` | Rate and burst per client address for each of the three limits. A rate must be `<n>r/s` or `<n>r/m` with `n` above zero; a burst must be `0` or more. |
 | `web.realIpFrom` | `[]` | CIDRs of the trusted proxies in front of the web tier — normally your ingress controller's pod CIDR. When set, nginx recovers the client address from `X-Forwarded-For` (`set_real_ip_from`, `real_ip_recursive on`), so `web.adminAccess.allowCIDRs`, the admin rate limit, and the `X-Real-IP` / `X-Forwarded-For` sent to the API name the client rather than the controller pod; and it believes `X-Forwarded-Proto` **only** from those addresses, substituting its own scheme for anyone else. Empty keeps the previous behavior: `X-Forwarded-Proto` passes through from any peer. Each entry must be no broader than /8 (IPv4) or /16 (IPv6): the chart refuses to render `0.0.0.0/0` or `::/0`, because trusting every peer lets any client forge `X-Forwarded-For` and `X-Forwarded-Proto`. Leave `env.TRUEPPM_NUM_PROXIES` as it is — the API picks the same client from the chain either way. |
 
 ## Django admin exposure
@@ -179,11 +185,12 @@ one header.
 | `web.securityHeaders.enabled` | `true` | Render the header block at all. Only set `false` when a trusted upstream (an ingress `configuration-snippet`, a WAF, a CDN edge) already sets the same headers — nginx cannot merge or deduplicate a header the upstream also emits. |
 | `web.securityHeaders.frameOptions` | `DENY` | `X-Frame-Options`. The SPA is never legitimately framed, so `DENY` rather than `SAMEORIGIN`. |
 | `web.securityHeaders.contentTypeOptions` | `nosniff` | `X-Content-Type-Options`. Stops a browser re-typing a response as a script. |
+| `web.securityHeaders.permissionsPolicy` | `camera=(), microphone=(), geolocation=(), payment=(), usb=()` | `Permissions-Policy`. Denies browser features TruePPM never uses to the page and to anything it loads. Clipboard and fullscreen are not listed, so they keep the browser default. Set `""` to omit the header. Ships in 0.5. |
 | `web.securityHeaders.referrerPolicy` | `strict-origin-when-cross-origin` | `Referrer-Policy`. Without it, a user navigating from a TruePPM page to any other site hands that site the **full URL** they came from, and the browser default varies by vendor and version. The default keeps the full referrer for same-origin requests and sends only the bare origin cross-origin; tighten to `no-referrer` to disclose nothing at all. Set `""` to omit the header only when an upstream proxy already sets it. |
 | `web.securityHeaders.contentSecurityPolicy` | `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; font-src 'self'; frame-ancestors 'none'` | `Content-Security-Policy`. `connect-src` includes `ws:`/`wss:` for the real-time collaboration socket. Widen it if you host fonts or images off-origin or add an analytics endpoint. Serving the SPA and API from different origins is **not supported** — see [Split-origin deploys](/administration/configuration/storage-and-networking/#split-origin-deploys). |
 | `web.securityHeaders.strictTransportSecurity` | `""` (off) | `Strict-Transport-Security`. Off by default, unlike the Compose TLS template: in the chart's default topology TLS terminates at the Ingress and this nginx speaks plain HTTP, and most ingress controllers emit HSTS themselves. Turn it on — `"max-age=63072000; includeSubDomains"` — only when the web tier *is* your TLS edge, and note that `includeSubDomains` binds every sibling subdomain of the apex you serve from. |
 
-All four render with nginx's `always` flag, so they are present on error
+All of them render with nginx's `always` flag, so they are present on error
 responses too, not just `200`s.
 
 ## Celery worker tuning
@@ -227,7 +234,8 @@ cluster-specific, so a default-on ingress would render a broken object.
 |---|---|---|
 | `ingress.enabled` | `false` | Render a chart-managed Ingress + edge TLS. |
 | `ingress.className` | `""` | IngressClass to bind (`nginx`, `traefik`, …). Empty uses the cluster default. |
-| `ingress.annotations` | `nginx.ingress.kubernetes.io/proxy-body-size: "110m"` | Controller / cert-manager annotations. The shipped default raises the upload ceiling — see [Upload size limits](#upload-size-limits). Helm deep-merges this map, so your own keys are added alongside it. |
+| `ingress.annotations` | `nginx.ingress.kubernetes.io/proxy-body-size: "2m"` | Controller / cert-manager annotations. The shipped default caps every route that does not take a large body — see [Upload size limits](#upload-size-limits). Helm deep-merges this map, so your own keys are added alongside it. |
+| `ingress.largeBody.enabled` / `.size` / `.bulkSize` | `true` / `"110m"` / `"10m"` | Render two more Ingresses that raise the body ceiling for exact routes only: `<release>-large-body` (`size`) for attachments and file imports, `<release>-bulk-body` (`bulkSize`) for logo, seed import, bulk, sync and inbound task push. See [Upload size limits](#upload-size-limits). |
 | `ingress.webhookBodyLimit.enabled` / `.size` | `true` / `"1m"` | Render a second Ingress, `<release>-git-webhook`, that caps the anonymous Git-event receiver (`/api/v1/integrations/projects/<id>/git-webhook/`) at 1 MB. See [Git-webhook body ceiling](#git-webhook-body-ceiling). |
 | `ingress.hosts` | one example host | Virtual hosts; each path routes to `web` or `api`. List `/api` and `/ws` **before** `/` so they win longest-prefix matching. With [`demo.enabled`](#public-read-only-demo-mode) the chart refuses to render unless **every** path uses `service: web`. |
 | `ingress.tls` | `[]` | TLS Secrets per host. Empty renders **HTTP-only** — dev/demo only, never production. |
@@ -240,7 +248,9 @@ application ever sees it.
 
 | Layer | Where | Default |
 |---|---|---|
-| Ingress controller | `ingress.annotations` → `nginx.ingress.kubernetes.io/proxy-body-size` | `110m` |
+| Ingress controller — upload routes | `ingress.largeBody.size` | `110m` |
+| Ingress controller — bulk routes | `ingress.largeBody.bulkSize` | `10m` |
+| Ingress controller — everything else | `ingress.annotations` → `nginx.ingress.kubernetes.io/proxy-body-size` | `2m` |
 | Web-tier nginx — uploads | `web.maxBodySize` | `110M` |
 | Web-tier nginx — sync, bulk, seed, logo / everything else | fixed | `10M` / `2M` |
 | Application — transport tiers | [request body ceilings](/administration/configuration/limits/#request-body-ceilings) | 110 / 10 / 2 MB |
@@ -253,46 +263,53 @@ returns a validation error naming the limit and the format. A transport limit
 returns a bare `413` with no explanation and nothing in the logs pointing at the
 import.
 
+Since 0.5 the Ingress ceiling is split. The main Ingress carries a tight `2m`,
+the application's default [request body ceiling](/administration/configuration/limits/#request-body-ceilings),
+so an anonymous caller cannot push a large body at sign-in, password reset, SSO,
+invite or share routes. Two more Ingresses raise only the routes the application
+accepts more on, each to that route's own application tier.
+`<release>-large-body` carries `ingress.largeBody.size` (`110m`) for task
+attachments and the MS Project, Jira, CSV/Excel and risk-CSV imports.
+`<release>-bulk-body` carries `ingress.largeBody.bulkSize` (`10m`) for program
+import, workspace logo, task bulk, offline sync and inbound task push, which the
+application caps at 10 MiB. Those routes still accept their tier's size at the
+edge before the caller is authenticated. Every path ends in `$`, so only the exact
+route is raised. Both Ingresses set `use-regex`, copy your other
+`ingress.annotations`, work only with ingress-nginx, and are never rendered with
+`demo.enabled`.
+
 The largest cap is the **attachment** one at 100 MB, not the MS Project import at
 50 — which is what both transport limits were sized against before 0.4, so every
-attachment between 50 and 100 MB was rejected at the edge. Both now ship at 110,
+attachment between 50 and 100 MB was rejected at the edge. Both ship at 110,
 the extra 10 covering multipart framing: at exactly 100 a legal 100 MB upload
 still `413`s. If you raise any application cap, raise both transport limits past
 it — otherwise the higher app cap is unreachable.
 
 Which transport limit actually binds depends on your topology. In the default
 routing the Ingress sends `/api` straight to the API Service, so uploads never
-traverse the web tier and **only the ingress annotation applies**;
+traverse the web tier and **only `ingress.largeBody.size` applies**;
 `web.maxBodySize` binds when you route everything through the web tier instead.
 Keep them in step rather than reasoning about which one is live.
 
 :::caution[An explicit annotations map drops the default]
-Helm deep-merges `ingress.annotations`, but only for keys you do not set. The
-`proxy-body-size` default exists precisely because an empty map lets ingress-nginx
-apply its own **1 MB** ceiling, and *every import above 1 MB then fails on an
-otherwise-default install*. If you are carrying a values file that pins
-`ingress.annotations` to your own map, confirm it includes `proxy-body-size` — an
-explicit map that omits it inherits the 1 MB default again.
+Helm deep-merges `ingress.annotations`, but only for keys you do not set. If your
+values file pins `proxy-body-size` (the old default was `110m`), that value still
+applies to every route on the main Ingress: remove it, or set it to `2m`, to get
+the tight ceiling. If you had raised it above `110m` for larger uploads, move that
+number to `ingress.largeBody.size`.
 :::
 
 #### Git-webhook body ceiling
 
-`proxy-body-size` applies to every path of the Ingress that carries it, so the
-`110m` attachment ceiling would also apply to the anonymous inbound Git-event
-receiver. The application's own 1 MB cap there runs only after the body has
-already been received and spooled, so the edge has to enforce it. The chart
-therefore renders a second Ingress, `<release>-git-webhook`, scoped to
+The anonymous inbound Git-event receiver has a tighter cap than other routes. The
+application's own 1 MB cap there runs only after the body has already been
+received and spooled, so the edge has to enforce it. The chart renders another
+Ingress, `<release>-git-webhook`, scoped to
 `/api/v1/integrations/projects/<id>/git-webhook/` with `proxy-body-size: 1m`
 (`ingress.webhookBodyLimit.size`). The web tier's nginx carries the same 1M on that
 path for installs that route everything through it. Both real providers send
-far less than 1 MB.
-
-Only the git-webhook path gets this 1 MiB edge limit, and only in the Helm chart;
-the Compose and bare-metal nginx configs keep the 2 MB default tier for that path.
-Other unauthenticated routes (login, password reset, SSO, invite and share links)
-still inherit the Ingress `proxy-body-size` default. On the default topology the
-application's 2 MiB middleware is the only other limit on them, and it runs after
-the body has been received.
+far less than 1 MB. The Compose and bare-metal nginx configs keep the 2 MB default
+tier for that path.
 
 The path contains a project id, so the second Ingress sets
 `nginx.ingress.kubernetes.io/use-regex: "true"`. ingress-nginx then treats every

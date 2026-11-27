@@ -155,6 +155,57 @@
             }
           }
         },
+        "rateLimit": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "auth": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "rate": {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*r/[sm]$"
+                },
+                "burst": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            },
+            "websocket": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "rate": {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*r/[sm]$"
+                },
+                "burst": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            },
+            "api": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "rate": {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*r/[sm]$"
+                },
+                "burst": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        },
         "securityHeaders": {
           "type": "object",
           "additionalProperties": false,
@@ -166,6 +217,9 @@
               "type": "string"
             },
             "contentTypeOptions": {
+              "type": "string"
+            },
+            "permissionsPolicy": {
               "type": "string"
             },
             "referrerPolicy": {
@@ -190,6 +244,21 @@
         },
         "className": {
           "type": "string"
+        },
+        "largeBody": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "size": {
+              "type": "string"
+            },
+            "bulkSize": {
+              "type": "string"
+            }
+          }
         },
         "webhookBodyLimit": {
           "type": "object",

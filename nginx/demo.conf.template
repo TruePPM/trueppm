@@ -59,6 +59,22 @@ map $http_x_forwarded_proto $forwarded_proto {
     ~.      $http_x_forwarded_proto;
 }
 
+# Access-log redaction for share tokens (#5155). `no-referrer` cannot cover the
+# page and API requests themselves: their paths carry the token. These maps feed
+# the `trueppm_redacted` format each server block logs with. It does not reach
+# error_log lines, or logs written by anything in front of or behind nginx.
+map $request $trueppm_log_request {
+    "~*^(?<trueppm_req_head>[^?]*/share/[a-z-]+/)[^/?# ]+(?<trueppm_req_tail>.*)$" "$trueppm_req_head[redacted]$trueppm_req_tail";
+    default $request;
+}
+map $http_referer $trueppm_log_referer {
+    "~*^(?<trueppm_ref_head>[^?]*/share/[a-z-]+/)[^/?# ]+(?<trueppm_ref_tail>.*)$" "$trueppm_ref_head[redacted]$trueppm_ref_tail";
+    default $http_referer;
+}
+log_format trueppm_redacted '$remote_addr - $remote_user [$time_local] "$trueppm_log_request" '
+                            '$status $body_bytes_sent "$trueppm_log_referer" '
+                            '"$http_user_agent" "$http_x_forwarded_for"';
+
 # Rate-limit zone for the Django admin login, matching the production template's
 # 5r/m + burst 2. The demo's /admin/ is already loopback-only, but the allowlist
 # and the throttle are independent controls and the production sibling carries
@@ -66,14 +82,22 @@ map $http_x_forwarded_proto $forwarded_proto {
 # have had no rate limit at all (#2849).
 limit_req_zone $binary_remote_addr zone=admin_login:1m rate=5r/m;
 
+# No edge rate limit on the share-link API (#3852). The demo runs behind a
+# tunnel or ingress and has no trusted-proxy configuration, so nginx sees one
+# peer for every visitor: a per-address limit would be one shared bucket that a
+# single client could fill for everyone. The share views' own DRF throttles,
+# which see the client through TRUEPPM_NUM_PROXIES, are the limit.
+
 server {
     listen 80;
     server_name ${DOMAIN};
+    access_log /var/log/nginx/access.log trueppm_redacted;
 
     # Keep the public demo out of every search index (acceptance: `noindex`).
     add_header X-Robots-Tag           "noindex, nofollow, noarchive" always;
     add_header X-Frame-Options        "DENY" always;
     add_header X-Content-Type-Options "nosniff" always;
+    add_header Permissions-Policy     "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
     # #3553 — see packages/web/nginx.conf for the rationale.
     add_header Referrer-Policy        "strict-origin-when-cross-origin" always;
     add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
@@ -118,6 +142,7 @@ server {
         add_header X-Robots-Tag           "noindex, nofollow, noarchive" always;
         add_header X-Frame-Options        "DENY" always;
         add_header X-Content-Type-Options "nosniff" always;
+        add_header Permissions-Policy     "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
         add_header Referrer-Policy        "strict-origin-when-cross-origin" always;
         add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
     }
@@ -129,6 +154,7 @@ server {
         add_header X-Robots-Tag           "noindex, nofollow, noarchive" always;
         add_header X-Frame-Options        "DENY" always;
         add_header X-Content-Type-Options "nosniff" always;
+        add_header Permissions-Policy     "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
         add_header Referrer-Policy        "strict-origin-when-cross-origin" always;
         add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
         return 404;
@@ -143,7 +169,26 @@ server {
         add_header X-Robots-Tag           "noindex, nofollow, noarchive" always;
         add_header X-Frame-Options        "DENY" always;
         add_header X-Content-Type-Options "nosniff" always;
+        add_header Permissions-Policy     "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
         add_header Referrer-Policy        "strict-origin-when-cross-origin" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
+    }
+
+    # Public share pages (#5155). The URL path IS the share token, so the document
+    # must be served with `Referrer-Policy: no-referrer`: under the site-wide
+    # policy the browser sends the full URL on same-origin subresource requests, and
+    # the SPA's own `useNoReferrer` applies only after hydration. `try_files` with
+    # index.html as a non-final argument serves the shell from THIS location; a
+    # final-argument fallback would redirect internally to `= /index.html` and take
+    # that location's headers instead.
+    location ^~ /share/ {
+        try_files /index.html =404;
+        add_header Cache-Control "no-cache" always;
+        add_header X-Robots-Tag           "noindex, nofollow, noarchive" always;
+        add_header X-Frame-Options        "DENY" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Permissions-Policy     "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
+        add_header Referrer-Policy        "no-referrer" always;
         add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
     }
 

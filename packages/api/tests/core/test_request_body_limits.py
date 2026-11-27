@@ -309,3 +309,54 @@ def test_helm_web_tier_pins_the_git_webhook_location_at_1m() -> None:
     """
     _default, located = _parse(_nginx_text("packages/helm/templates/web/configmap.yaml"))
     assert _nginx_tier_size(located, _default, _GIT_WEBHOOK_PATH) == "1M"
+
+
+def test_helm_large_body_ingress_matches_the_table() -> None:
+    """Each table route is raised on the Ingress sized to its OWN tier (#5124).
+
+    The main Ingress is capped at the default tier, so a table route missing from
+    the tier Ingresses would be refused at the edge on every default install. A
+    default-tier route on one would let an anonymous caller push a large body
+    again, and a bulk-tier route on ``<release>-large-body`` would accept 110 MB
+    where the app accepts 10 MiB (``task-sync`` reaches that before its token is
+    checked). ingress-nginx renders a use-regex path as ``location ~* "^<path>"``,
+    so every path must end in ``$`` or it would also raise the routes beneath it.
+    """
+    helm = REPO_ROOT / "packages/helm"
+    template = (helm / "templates/ingress.yaml").read_text(encoding="utf-8")
+    values = (helm / "values.yaml").read_text(encoding="utf-8")
+    sizes = re.search(
+        r'^  largeBody:\n    enabled: true\n(?:    #.*\n)*    size: "(\d+)m"\n'
+        r'(?:    #.*\n)*    bulkSize: "(\d+)m"',
+        values,
+        re.MULTILINE,
+    )
+    main = re.search(r'nginx\.ingress\.kubernetes\.io/proxy-body-size: "(\d+)m"', values)
+    assert main and sizes, "ingress.largeBody.size / .bulkSize not found in values.yaml"
+    assert int(main[1]) * _MIB == DEFAULT_TIER.max_body_bytes
+    tier_lists = {UPLOAD_TIER.name: "uploadPaths", BULK_TIER.name: "bulkPaths"}
+    tier_sizes = {UPLOAD_TIER.name: int(sizes[1]) * _MIB, BULK_TIER.name: int(sizes[2]) * _MIB}
+
+    lists: dict[str, list[re.Pattern[str]]] = {}
+    for tier, var in tier_lists.items():
+        block = re.search(r"\{\{- \$" + var + r" := list(.*?)\}\}", template, re.DOTALL)
+        assert block, f"${var} not found in templates/ingress.yaml"
+        raw = re.findall(r'"(/api/\S+)"', block.group(1))
+        for p in raw:
+            assert p.endswith("$"), f"{p} is not anchored: it would raise every route under it"
+        lists[tier] = [re.compile("^" + p) for p in raw]
+
+    for route in LARGE_BODY_ROUTES:
+        owners = [t for t, ps in lists.items() if any(p.match(route.example) for p in ps)]
+        assert owners == [route.tier.name], f"{route.name} is on {owners}, not {route.tier.name}"
+        assert tier_sizes[route.tier.name] >= route.tier.max_body_bytes, f"{route.name} 413s"
+    assert tier_sizes[BULK_TIER.name] == BULK_TIER.max_body_bytes
+    assert tier_sizes[UPLOAD_TIER.name] >= UPLOAD_TIER.max_body_bytes
+    for path in (*DEFAULT_TIER_PATHS, _GIT_WEBHOOK_PATH):
+        for ps in lists.values():
+            assert not any(p.match(path) for p in ps), f"{path} must stay on the main Ingress"
+    for tier, ps in lists.items():
+        for p in ps:
+            assert any(p.match(r.example) and r.tier.name == tier for r in LARGE_BODY_ROUTES), (
+                f"{p.pattern} raises nothing in the {tier} tier"
+            )
