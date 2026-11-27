@@ -185,7 +185,7 @@ async function setup(page: Page, items: unknown[] = BACKLOG_ITEMS, options: Setu
         body: pj({ ...current, ...patch }),
       });
     }
-    return r.fulfill({ status: 200, contentType: 'application/json', body: pj(items) });
+    return r.fulfill({ status: 200, contentType: 'application/json', body: pj({ count: items.length, next: null, previous: null, results: items }) });
   });
   // Pull action (registered last so it wins over the list route for this path).
   await page.route('**/api/v1/programs/*/backlog-items/*/pull/', (r) =>

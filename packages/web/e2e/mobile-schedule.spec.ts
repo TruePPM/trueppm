@@ -190,7 +190,7 @@ async function gotoMobileSchedule(
     r.fulfill(json({ id: 'u1', email: 'e2e@example.com'})),
   );
   await page.route('**/api/v1/workspace/', (r) =>
-    r.fulfill(json({ id: 'w1', name: 'E2E', public_sharing_enabled: false })),
+    r.fulfill(json({ name: 'E2E', })),
   );
   await page.route('**/api/v1/programs/**', (r) => r.fulfill(json(page0)));
   await page.route('**/api/v1/projects/*/members/**', (r) => r.fulfill(json([])));
@@ -199,7 +199,7 @@ async function gotoMobileSchedule(
   await page.route('**/api/v1/projects/*/monte-carlo/latest/**', (r) =>
     r.fulfill({ status: 204, contentType: 'application/json', body: '' }),
   );
-  await page.route('**/api/v1/projects/*/visit/', (r) => r.fulfill(json({ ok: true })));
+  await page.route('**/api/v1/projects/*/visit/', (r) => r.fulfill(json({ recorded: true })));
   await page.route('**/api/v1/me/work/**', (r) =>
     r.fulfill(
       json({

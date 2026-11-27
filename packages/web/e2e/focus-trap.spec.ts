@@ -17,7 +17,7 @@
  * create → one-time-reveal dialog), covering both of #4085's migration shapes.
  */
 import { test, expect } from './fixtures/coverage';
-import { setupAuth, setupApiMocks, setupCatchAll, setupTaskStore } from './fixtures';
+import { setupAuth, setupApiMocks, setupCatchAll, setupTaskStore, toListProject } from './fixtures';
 
 /**
  * Walk the whole trap in one direction and assert focus never leaves it (#3208).
@@ -150,12 +150,10 @@ function depTaskRow(id: string, wbs: string, name: string) {
     is_summary: false,
     parent_id: null,
     status: 'NOT_STARTED',
-    assignees: [],
     total_float: null,
     predecessor_count: 0,
     is_blocked: false,
     linked_risks_count: 0,
-    linked_risks_biggest: null,
     linked_risks_max_severity: null,
   };
 }
@@ -254,7 +252,7 @@ test.describe('aria-modal pairing migration — settings MoveProgramDialog (#408
       r.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: pj({ results: [MOVE_PROGRAM_PROJECT], count: 1, next: null, previous: null }),
+        body: pj({ results: [toListProject(MOVE_PROGRAM_PROJECT)], count: 1, next: null, previous: null }),
       }),
     );
     await page.route(`**/api/v1/projects/${MOVE_PROGRAM_PROJECT_ID}/`, (r) =>

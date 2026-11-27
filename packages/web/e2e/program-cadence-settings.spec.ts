@@ -196,7 +196,7 @@ async function setup(
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: pj(ceremonies),
+        body: pj({ count: ceremonies.length, next: null, previous: null, results: ceremonies }),
       });
     },
   );

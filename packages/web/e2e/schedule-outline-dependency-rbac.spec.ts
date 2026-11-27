@@ -47,7 +47,6 @@ function task(id: string, wbs: string, name: string, canEdit: boolean) {
     is_summary: false,
     parent_id: null,
     status: 'NOT_STARTED',
-    assignees: [],
     assignments: [],
     notes: '',
     can_edit: canEdit,

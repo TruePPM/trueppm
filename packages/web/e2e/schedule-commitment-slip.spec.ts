@@ -7,7 +7,7 @@
  * client must say the edit is waiting on a decision, not show an error.
  */
 import { test, expect } from './fixtures/coverage';
-import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
+import { setupAuth, setupApiMocks, setupCatchAll, readFields } from './fixtures';
 
 const PROJECT_ID = 'e2e-slip00-0000-0000-0000-000000002563';
 const BASE_URL = `/projects/${PROJECT_ID}/schedule`;
@@ -38,7 +38,6 @@ const TASKS = [
     is_summary: false,
     parent_id: null,
     status: 'NOT_STARTED',
-    assignees: [],
     assignments: [],
     total_float: 0,
     predecessor_count: 0,
@@ -121,7 +120,7 @@ test.describe('Commitment slip on reschedule (ADR-1485 D1)', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ ...TASKS[0], ...body }),
+        body: JSON.stringify({ ...TASKS[0], ...readFields(body) }),
       });
     });
 

@@ -20,7 +20,6 @@ const FIXTURE_PROJECT = {
   name: 'Burn Chart E2E Project',
   description: '',
   start_date: '2026-04-01',
-  finish_date: '2026-04-30',
   calendar: 'default',
   estimation_mode: 'open',
   methodology: 'HYBRID',

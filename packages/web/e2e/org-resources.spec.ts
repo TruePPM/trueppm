@@ -153,6 +153,11 @@ async function mockResourceRoutes(
     }
     return route.continue();
   });
+  // Assignments are their own shape; without this the broad resources route above
+  // answers them with resource rows. Tests that need rows register after.
+  await page.route('**/api/v1/resources/*/assignments/**', (route) =>
+    route.fulfill({ json: paginated([]) }),
+  );
   // Stateful resource-skills so an inline add is reflected on the next GET.
   const resourceSkills: object[] = [];
   await page.route('**/api/v1/resource-skills/**', (route) => {

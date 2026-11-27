@@ -155,13 +155,22 @@ async function setupRoutes(page: import('@playwright/test').Page) {
   await page.route(`**/api/v1/projects/${FIXTURE_PROJECT_ID}/my-tasks/`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ tasks: [] }) }),
   );
-  await page.route('**/api/v1/tasks/**', (route) =>
-    route.fulfill({
+  await page.route('**/api/v1/tasks/**', (route) => {
+    // A write answers with the one task, never with the list envelope.
+    if (route.request().method() === 'PATCH') {
+      const id = new URL(route.request().url()).pathname.split('/').filter(Boolean).at(-1);
+      return route.fulfill({
+        status: 200, contentType: 'application/json',
+        body: JSON.stringify(FIXTURE_TASKS.find((t) => t.id === id) ?? FIXTURE_TASKS[0]),
+      });
+    }
+    return route.fulfill({
       status: 200, contentType: 'application/json',
       body: JSON.stringify({
         count: FIXTURE_TASKS.length, next: null, previous: null, results: FIXTURE_TASKS,
       }),
-    }),
+    });
+  },
   );
   await page.route('**/api/v1/dependencies/**', (route) =>
     route.fulfill({

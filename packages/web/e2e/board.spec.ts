@@ -33,7 +33,6 @@ const FIXTURE_TASKS = [
     is_summary: true,
     parent_id: null,
     status: 'IN_PROGRESS',
-    assignees: [],
     total_float: null,
     predecessor_count: 0,
     is_blocked: false,
@@ -57,7 +56,6 @@ const FIXTURE_TASKS = [
     is_summary: false,
     parent_id: 'b1',
     status: 'COMPLETE',
-    assignees: [],
     total_float: null,
     predecessor_count: 0,
     is_blocked: false,
@@ -78,7 +76,6 @@ const FIXTURE_TASKS = [
     is_summary: false,
     parent_id: 'b1',
     status: 'IN_PROGRESS',
-    assignees: [],
     total_float: null,
     // b3 PPM signals: 2 predecessors (one not complete) → blocked + 1 risk severity 18.
     predecessor_count: 2,
@@ -108,7 +105,6 @@ const FIXTURE_TASKS = [
     is_summary: false,
     parent_id: 'b1',
     status: 'NOT_STARTED',
-    assignees: [],
     total_float: null,
     predecessor_count: 0,
     is_blocked: false,
@@ -135,7 +131,6 @@ const FIXTURE_TASKS = [
     is_summary: false,
     parent_id: 'b1',
     status: 'IN_PROGRESS',
-    assignees: [],
     // SPI + band are server-owned now (#990); the card renders them directly.
     spi: 0.62,
     spi_band: 'behind',
@@ -180,7 +175,6 @@ async function setup(page: import('@playwright/test').Page) {
           is_summary: false,
           parent_id: 'b1',
           status: 'NOT_STARTED',
-          assignees: [],
         }),
       });
     }
@@ -842,7 +836,6 @@ const SLOT_BASE = {
   duration: 10,
   is_critical: false,
   is_milestone: false,
-  assignees: [] as string[],
   total_float: null,
   predecessor_count: 0,
   is_blocked: false,

@@ -155,7 +155,9 @@ async function setup(page: Page, opts: SetupOptions = {}): Promise<CalendarState
   const state: CalendarState = { puts: [] };
 
   // Library list (override the fixture's empty default).
-  await page.route('**/api/v1/calendars/', (route: Route) => route.fulfill(json(LIBRARY)));
+  await page.route('**/api/v1/calendars/', (route: Route) => route.fulfill(
+    json({ count: LIBRARY.length, next: null, previous: null, results: LIBRARY }),
+  ));
 
   // Preview — keyed off whether an overlay is applied. Registered before the
   // applied route so the more specific `/preview/` suffix still resolves here.

@@ -101,7 +101,6 @@ function fullTasks(duration: number) {
       is_critical: false,
       is_milestone: false,
       is_summary: false,
-      assignees: [],
       total_float: 4,
       // Deliberately different from `total_float` so the Float cell renders the
       // `free 2d` chip (#3344) — the widest this cell ever gets, and therefore

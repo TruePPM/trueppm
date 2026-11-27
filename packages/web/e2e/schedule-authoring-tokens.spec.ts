@@ -41,7 +41,6 @@ function task(id: string, wbs: string, name: string, isSummary = false) {
     is_summary: isSummary,
     parent_id: null,
     status: 'NOT_STARTED',
-    assignees: [],
     total_float: null,
     predecessor_count: 0,
     is_blocked: false,
@@ -125,7 +124,7 @@ test.describe('Inline authoring tokens', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ updated: 1, warning: null }),
+        body: JSON.stringify({ updated: [], warning: null }),
       });
     });
     await page.route('**/api/v1/dependencies/', async (route) => {

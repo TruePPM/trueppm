@@ -41,13 +41,13 @@ function task(
     is_summary: false,
     parent_id: null,
     status: 'IN_PROGRESS',
-    assignees: [],
     total_float: 5,
     predecessor_count: 0,
     is_blocked: false,
     linked_risks_count: 0,
     linked_risks_max_severity: null,
-    labels,
+    // Task rows embed the TaskLabel shape, which has no server_version.
+    labels: labels.map(({ id, name, color }) => ({ id, name, color })),
   };
 }
 

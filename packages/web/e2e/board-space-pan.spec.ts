@@ -30,21 +30,21 @@ const FIXTURE_TASKS = [
   {
     id: 'b1', wbs_path: '1', name: 'Alpha Phase', early_start: '2026-01-05', early_finish: '2026-02-14',
     duration: 30, percent_complete: 50, is_critical: false, is_milestone: false, is_summary: true,
-    parent_id: null, status: 'IN_PROGRESS', assignees: [], total_float: null, predecessor_count: 0,
+    parent_id: null, status: 'IN_PROGRESS', total_float: null, predecessor_count: 0,
     is_blocked: false, linked_risks_count: 0, linked_risks_max_severity: null,
   },
   {
     id: 'b2', wbs_path: '1.1', name: 'Design the foundation', early_start: '2026-01-05',
     early_finish: '2026-01-16', planned_start: '2026-01-05', duration: 10, percent_complete: 100,
     is_critical: false, is_milestone: false, is_summary: false, parent_id: 'b1', status: 'COMPLETE',
-    assignees: [], total_float: null, predecessor_count: 0, is_blocked: false, linked_risks_count: 0,
+    total_float: null, predecessor_count: 0, is_blocked: false, linked_risks_count: 0,
     linked_risks_max_severity: null,
   },
   {
     id: 'b3', wbs_path: '1.2', name: 'Build the walls', early_start: '2026-01-19',
     early_finish: '2026-01-30', planned_start: '2026-01-19', duration: 10, percent_complete: 40,
     is_critical: false, is_milestone: false, is_summary: false, parent_id: 'b1', status: 'IN_PROGRESS',
-    assignees: [], total_float: null, predecessor_count: 0, is_blocked: false, linked_risks_count: 0,
+    total_float: null, predecessor_count: 0, is_blocked: false, linked_risks_count: 0,
     linked_risks_max_severity: null,
   },
 ];

@@ -55,7 +55,7 @@ async function setup(page: Page) {
   // being masked by a permissive 200-list body (the #1190 flake class).
   await setupCatchAll(page);
   await page.route('**/api/v1/projects/', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: pj([FIXTURE_PROJECT]) }),
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj({ count: 1, next: null, previous: null, results: [FIXTURE_PROJECT] }) }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) => {
     if (r.request().method() === 'PATCH') {
@@ -205,7 +205,12 @@ test.describe('Settings shell — scrollbar-gutter layout shift (#776)', () => {
       r.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: pj([{ ...FIXTURE_PROJECT, program: PARENT }]),
+        body: pj({
+          count: 1,
+          next: null,
+          previous: null,
+          results: [{ ...FIXTURE_PROJECT, program: PARENT }],
+        }),
       }),
     );
     const FIXTURE_PARENT = {

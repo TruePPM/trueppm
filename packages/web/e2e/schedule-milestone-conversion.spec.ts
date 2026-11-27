@@ -47,7 +47,6 @@ const TASKS = [
     is_summary: true,
     parent_id: null,
     status: 'NOT_STARTED',
-    assignees: [],
   },
   {
     id: 'c-work',
@@ -62,7 +61,6 @@ const TASKS = [
     is_summary: false,
     parent_id: 'c-phase',
     status: 'NOT_STARTED',
-    assignees: [],
   },
 ];
 

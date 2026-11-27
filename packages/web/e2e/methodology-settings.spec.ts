@@ -500,7 +500,7 @@ test.describe('Project methodology', () => {
           next: null,
           previous: null,
           results: [
-            { id: 'sp-1', name: 'Sprint 1', state: 'CLOSED' },
+            { id: 'sp-1', name: 'Sprint 1', state: 'COMPLETED' },
             { id: 'sp-2', name: 'Sprint 2', state: 'ACTIVE' },
           ],
         }),

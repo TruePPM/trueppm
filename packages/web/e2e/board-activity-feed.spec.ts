@@ -16,14 +16,14 @@ const TASKS = [
     id: 'f1', wbs_path: '1', name: 'Build', early_start: '2026-01-05',
     early_finish: '2026-01-16', planned_start: '2026-01-05', duration: 10,
     percent_complete: 40, is_critical: false, is_milestone: false, is_summary: false,
-    parent_id: null, status: 'IN_PROGRESS', assignees: [], total_float: null,
+    parent_id: null, status: 'IN_PROGRESS', total_float: null,
     predecessor_count: 0, is_blocked: false, linked_risks_count: 0, linked_risks_max_severity: null,
   },
   {
     id: 'f2', wbs_path: '2', name: 'Refactor', early_start: '2026-01-06',
     early_finish: '2026-01-17', planned_start: '2026-01-06', duration: 10,
     percent_complete: 20, is_critical: false, is_milestone: false, is_summary: false,
-    parent_id: null, status: 'IN_PROGRESS', assignees: [], total_float: null,
+    parent_id: null, status: 'IN_PROGRESS', total_float: null,
     predecessor_count: 0, is_blocked: false, linked_risks_count: 0, linked_risks_max_severity: null,
   },
 ];

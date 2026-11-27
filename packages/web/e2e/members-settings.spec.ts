@@ -63,7 +63,7 @@ const FIXTURE_MEMBERS = [
 ];
 
 const FIXTURE_SEARCH_RESULTS = [
-  { id: 'user-carol', username: 'carol', email: 'carol@example.com', display_name: 'Carol', initials: 'CA' },
+  { id: 'user-carol', username: 'carol', display_name: 'Carol', initials: 'CA' },
 ];
 
 type Page = import('@playwright/test').Page;
@@ -89,7 +89,7 @@ async function setup(page: Page, { ownerCount = 1 }: { ownerCount?: number } = {
   // controls (issue 1572 / #1190 class). Specific routes below override it.
   await setupCatchAll(page);
   await page.route('**/api/v1/projects/', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: pj([FIXTURE_PROJECT]) }),
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj({ count: 1, next: null, previous: null, results: [FIXTURE_PROJECT] }) }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_PROJECT) }),

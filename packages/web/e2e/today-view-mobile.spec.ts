@@ -54,7 +54,7 @@ const OVERVIEW = {
   next_milestone: { id: 'm1', name: 'Cutover complete', date: '2026-11-01', percent_complete: 0 },
 };
 
-const alice = [{ resource_id: 'r-1', resource_name: 'Alice Moreno', units: 1 }];
+const alice = [{ resource_id: 'r-1', resource_name: 'Alice Moreno', units: '1.00' }];
 
 /**
  * Three rows under ONE phase is the review's case: with the name track squeezed to zero
@@ -188,7 +188,7 @@ async function setup(page: Page, opts: { demoReadOnly?: boolean; tasks?: unknown
     route.fulfill(json(paginated([]))),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/visit/`, (route) =>
-    route.fulfill(json({ ok: true })),
+    route.fulfill(json({ recorded: true })),
   );
   await page.route('**/api/v1/me/timer/', (route) => route.fulfill(json({ active: false })));
   await page.route('**/api/v1/programs/', (route) => route.fulfill(json(paginated([]))));

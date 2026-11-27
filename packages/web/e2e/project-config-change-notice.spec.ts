@@ -48,7 +48,7 @@ const LANE_NOTICE = {
   project: PROJECT_ID,
   task_id: null,
   mention: null,
-  snippet: null,
+  snippet: '',
   category: 'project',
   is_read: false,
   is_archived: false,

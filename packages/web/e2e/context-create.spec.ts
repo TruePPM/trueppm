@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/coverage';
+import { toListProject } from './fixtures';
 import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
@@ -45,7 +46,7 @@ async function setup(page: import('@playwright/test').Page) {
   await page.route('**/api/v1/me/notifications/**', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: pj({ count: 0, next: null, previous: null, results: [] }) }));
 
   await page.route('**/api/v1/projects/', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: pj({ count: 1, next: null, previous: null, results: [PROJECT_DETAIL] }) }),
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj({ count: 1, next: null, previous: null, results: [toListProject(PROJECT_DETAIL)] }) }),
   );
   await page.route(`**/api/v1/projects/${PID}/`, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj(PROJECT_DETAIL) }),
@@ -270,7 +271,7 @@ test.describe('#1179 context-aware "+ New" (desktop)', () => {
       return r.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: pj({ count: 1, next: null, previous: null, results: [PROJECT_DETAIL] }),
+        body: pj({ count: 1, next: null, previous: null, results: [toListProject(PROJECT_DETAIL)] }),
       });
     });
 
@@ -318,7 +319,7 @@ test.describe('#1179 context-aware "+ New" (desktop)', () => {
       return r.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: pj({ count: 1, next: null, previous: null, results: [PROJECT_DETAIL] }),
+        body: pj({ count: 1, next: null, previous: null, results: [toListProject(PROJECT_DETAIL)] }),
       });
     });
     await page.route(`**/api/v1/projects/${NEW_PROJECT_ID}/**`, (r) =>
@@ -390,7 +391,7 @@ test.describe('#1179 context-aware "+ New" (desktop)', () => {
       return r.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: pj({ count: 1, next: null, previous: null, results: [PROJECT_DETAIL] }),
+        body: pj({ count: 1, next: null, previous: null, results: [toListProject(PROJECT_DETAIL)] }),
       });
     });
 

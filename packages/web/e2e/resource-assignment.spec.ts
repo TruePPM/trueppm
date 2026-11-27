@@ -335,7 +335,7 @@ test.describe('ResourceAssignmentSection — structure inside drawer', () => {
               task: 't2',
               resource: 'res-1',
               resource_name: 'Alice Nguyen',
-              units: 0.75,
+              units: '0.75',
             },
           ],
         }),
@@ -415,7 +415,7 @@ test.describe('ResourceAssignmentSection — add resource flow', () => {
             task: 't2',
             resource: 'res-1',
             resource_name: 'Alice Nguyen',
-            units: 1.0,
+            units: '1.00',
             warnings: [],
           }),
         });
@@ -435,7 +435,7 @@ test.describe('ResourceAssignmentSection — add resource flow', () => {
                     task: 't2',
                     resource: 'res-1',
                     resource_name: 'Alice Nguyen',
-                    units: 1.0,
+                    units: '1.00',
                   },
                 ]
               : [],
@@ -488,7 +488,7 @@ test.describe('ResourceAssignmentSection — overallocation warning', () => {
             task: 't2',
             resource: 'res-1',
             resource_name: 'Alice Nguyen',
-            units: 1.0,
+            units: '1.00',
             warnings: [
               {
                 code: 'resource_overallocated',
@@ -532,7 +532,7 @@ test.describe('ResourceAssignmentSection — overallocation warning', () => {
             task: 't2',
             resource: 'res-1',
             resource_name: 'Alice Nguyen',
-            units: 1.0,
+            units: '1.00',
             warnings: [
               {
                 code: 'resource_overallocated',
@@ -600,7 +600,7 @@ test.describe('ResourceAssignmentSection — remove resource flow', () => {
                   task: 't2',
                   resource: 'res-1',
                   resource_name: 'Alice Nguyen',
-                  units: 0.75,
+                  units: '0.75',
                 },
               ],
         }),
@@ -647,7 +647,7 @@ test.describe('ResourceAssignmentSection — remove resource flow', () => {
           next: null,
           previous: null,
           results: [
-            { id: 'tr-1', task: 't2', resource: 'res-1', resource_name: 'Alice Nguyen', units: 0.75 },
+            { id: 'tr-1', task: 't2', resource: 'res-1', resource_name: 'Alice Nguyen', units: '0.75' },
           ],
         }),
       });

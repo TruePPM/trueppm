@@ -30,7 +30,7 @@ const FIXTURE_TASKS = [
     parent_id: null,
     actual_start: null,
     actual_finish: null,
-    assignments: [{ resource_id: 'r1', resource_name: 'Ada Lovelace', units: 1 }],
+    assignments: [{ resource_id: 'r1', resource_name: 'Ada Lovelace', units: '1.00' }],
   },
 ];
 

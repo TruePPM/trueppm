@@ -52,7 +52,6 @@ function row(
     is_summary: false,
     parent_id: null,
     status: 'NOT_STARTED',
-    assignees: [],
     total_float: null,
     predecessor_count: 0,
     is_blocked: false,
@@ -102,9 +101,8 @@ const DEPENDENCIES = [
     id: 'dep-1',
     predecessor: 'g2',
     successor: 't31',
-    dependency_type: 'FS',
+    dep_type: 'FS',
     lag: 0,
-    project: PROJECT_ID,
   },
 ];
 

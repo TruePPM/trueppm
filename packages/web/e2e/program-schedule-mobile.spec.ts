@@ -101,7 +101,7 @@ const ROLLUP = {
   aggregation_policy: 'average',
   policy_available: true,
   project_count: 2,
-  program_health: 'GREEN',
+  program_health: 'on_track',
   kpis: {},
   forecast: { available: true, value: '2026-06-12', unit: 'date' },
   projects: [
@@ -109,7 +109,7 @@ const ROLLUP = {
       id: 'proj-a',
       name: 'Helios Platform',
       accessible: true,
-      schedule_health: 'GREEN',
+      schedule_health: 'on_track',
       p50: '2026-05-20',
       p80: '2026-06-05',
       forecast_as_of: null,

@@ -42,13 +42,11 @@ const FIXTURE_TASKS = [
     is_summary: false,
     parent_id: null,
     status: 'NOT_STARTED',
-    assignees: [],
     total_float: null,
     predecessor_count: 0,
     is_blocked: false,
     linked_risks_count: 0,
     linked_risks_max_severity: null,
-    external_link_summary: null,
   },
 ];
 

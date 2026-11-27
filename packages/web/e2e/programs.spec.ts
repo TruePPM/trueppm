@@ -141,7 +141,7 @@ async function setup(page: Page, { existingPrograms = [] as (typeof FIXTURE_PROG
     r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
   );
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/backlog-items/**`, (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: pj([]) }),
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj({ count: 0, next: null, previous: null, results: [] }) }),
   );
   await page.route(`**/api/v1/programs/${PROGRAM_ID}/members/**`, (r) =>
     r.fulfill({

@@ -141,7 +141,7 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'u1', email: 'e2e@example.com'}) }),
   );
   await page.route('**/api/v1/workspace/', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'w1', name: 'E2E', public_sharing_enabled: false }) }),
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ name: 'E2E', }) }),
   );
   await page.route('**/api/v1/programs/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
@@ -159,7 +159,7 @@ async function gotoSchedule(page: import('@playwright/test').Page) {
     route.fulfill({ status: 204, contentType: 'application/json', body: '' }),
   );
   await page.route('**/api/v1/projects/*/visit/', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) }),
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ recorded: true }) }),
   );
   await page.route('**/api/v1/me/work/**', (route) =>
     route.fulfill({

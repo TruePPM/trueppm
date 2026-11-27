@@ -89,7 +89,6 @@ const PROGRAM_PROJECTS = [
   {
     id: 'proj-apollo',
     name: 'Apollo',
-    description: '',
     start_date: '2026-03-02',
     methodology: 'HYBRID',
     program: PROGRAM_ID,
@@ -97,7 +96,6 @@ const PROGRAM_PROJECTS = [
   {
     id: 'proj-beacon',
     name: 'Beacon',
-    description: '',
     start_date: '2026-03-02',
     methodology: 'HYBRID',
     program: PROGRAM_ID,

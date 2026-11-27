@@ -113,7 +113,7 @@ async function setupRoutes(
   await page.route(`**/api/v1/projects/${PROJECT_ID}/sprint-forecast/`, (route) =>
     route.fulfill(
       json({
-        status: 'no_velocity',
+        status: 'warming_up',
         remaining_points: 0,
         remaining_count: null,
         sample_count: 0,

@@ -34,7 +34,7 @@ const PHASE_TASK = {
   planned_start: '2026-04-05',
   duration: 20, percent_complete: 50, is_critical: false,
   is_milestone: false, is_summary: true, parent_id: null,
-  status: 'IN_PROGRESS', assignees: [], total_float: null,
+  status: 'IN_PROGRESS', total_float: null,
   predecessor_count: 0, is_blocked: false,
   linked_risks_count: 0, linked_risks_max_severity: null,
 };
@@ -46,7 +46,6 @@ const LEAF_TASK = {
   duration: 7, percent_complete: 30, is_critical: false,
   is_milestone: false, is_summary: false, parent_id: 'p1',
   status: 'IN_PROGRESS',
-  assignees: [{ resource_id: 'r1', name: 'Alice Smith', units: 100 }],
   total_float: 5,
   predecessor_count: 0, is_blocked: false,
   linked_risks_count: 0, linked_risks_max_severity: null,

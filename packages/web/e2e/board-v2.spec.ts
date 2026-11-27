@@ -29,7 +29,6 @@ const shape = {
   is_critical: false,
   is_milestone: false,
   is_summary: false,
-  assignees: [],
   total_float: null,
   predecessor_count: 0,
   is_blocked: false,
@@ -177,7 +176,7 @@ test.describe('shell v2 board', () => {
       await open(page, [
         PHASE,
         card(1, 'Write brief', 'NOT_STARTED', {
-          assignments: [{ resource_id: 'r1', resource_name: 'Ana Ruiz', units: 100 }],
+          assignments: [{ resource_id: 'r1', resource_name: 'Ana Ruiz', units: '1.00' }],
         }),
         card(2, 'Interview users', 'IN_PROGRESS'),
       ]);

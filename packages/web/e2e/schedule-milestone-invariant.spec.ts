@@ -42,7 +42,6 @@ const FIXTURE_TASKS = [
     is_summary: false,
     parent_id: null,
     status: 'NOT_STARTED',
-    assignees: [],
   },
   {
     id: 'm-task-mile',
@@ -58,7 +57,6 @@ const FIXTURE_TASKS = [
     is_summary: false,
     parent_id: null,
     status: 'NOT_STARTED',
-    assignees: [],
   },
 ];
 

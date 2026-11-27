@@ -124,7 +124,6 @@ function task(
     is_summary: false,
     parent_id: null,
     status: 'NOT_STARTED',
-    assignees: [],
     assignments: [],
     total_float: 0,
     predecessor_count: 0,
@@ -137,7 +136,7 @@ function task(
 }
 
 function dependency(id: string, predecessor: string, successor: string) {
-  return { id, predecessor, successor, dep_type: 'FS', lag: 0, is_critical: false };
+  return { id, predecessor, successor, dep_type: 'FS', lag: 0, };
 }
 
 // ---------------------------------------------------------------------------

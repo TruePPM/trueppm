@@ -44,7 +44,6 @@ function task(id: string, wbs: string, name: string, start: string, finish: stri
     is_summary: false,
     parent_id: null,
     status: 'NOT_STARTED',
-    assignees: [],
     assignments: [],
     notes: '',
   };
@@ -62,7 +61,6 @@ const FIXTURE_DEPENDENCY = {
   successor: 'task-b',
   dep_type: 'FS',
   lag: 0,
-  is_critical: false,
 };
 
 async function gotoScheduleAs(page: import('@playwright/test').Page, role: number) {

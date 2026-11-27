@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/coverage';
+import { toListProject } from './fixtures';
 import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
@@ -118,7 +119,7 @@ async function setup(
     r.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: pj({ results: [project], count: 1, next: null, previous: null }),
+      body: pj({ results: [toListProject(project)], count: 1, next: null, previous: null }),
     }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/`, async (route: Route) => {
@@ -127,7 +128,8 @@ async function setup(
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: pj({ ...project, ...captures.patch }),
+        // The write answers with ProjectSerializer, which has no detail-only fields.
+        body: pj(toListProject({ ...project, ...captures.patch })),
       });
       return;
     }
