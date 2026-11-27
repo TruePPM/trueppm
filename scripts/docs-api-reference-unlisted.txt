@@ -203,7 +203,6 @@ GET /api/v1/projects/{project_pk}/risks/
 POST /api/v1/projects/{project_pk}/risks/
 POST /api/v1/projects/{project_pk}/risks/import/
 DELETE /api/v1/projects/{project_pk}/risks/{id}/
-GET /api/v1/projects/{project_pk}/risks/{id}/
 PATCH /api/v1/projects/{project_pk}/risks/{id}/
 PUT /api/v1/projects/{project_pk}/risks/{id}/
 GET /api/v1/projects/{project_pk}/risks/{risk_pk}/comments/
