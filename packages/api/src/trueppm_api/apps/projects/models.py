@@ -1804,6 +1804,14 @@ class Project(VersionedModel):
     show_time_tracking = models.BooleanField(null=True, blank=True)
     show_baselines = models.BooleanField(null=True, blank=True)
     show_monte_carlo = models.BooleanField(null=True, blank=True)
+    # Forecast-calibration capture consent (ADR-1511, #4747). Off by default and
+    # deliberately NOT inherited from a program or workspace, and not copied by a
+    # settings template: it is the project team's own opt-in (ADR-0104 §3 — a
+    # project that changed nothing shares nothing). Turning it off stops capture
+    # and removes the project's rows from every export; it does not delete them.
+    # Not in ``_HISTORY_EXCLUDED_BASE``, so every consent flip is audited.
+    # ``db_default`` keeps a previous-image pod's INSERT valid mid-rollout.
+    forecast_calibration_capture = models.BooleanField(default=False, db_default=False)
     # Optional grouping into a Program (ADR-0070). NULL = standalone project.
     # SET_NULL on program delete so projects survive the cascade as standalone.
     # Program membership is independent of project membership: a project member
@@ -9805,6 +9813,110 @@ class ForecastSnapshot(models.Model):
 
     def __str__(self) -> str:
         return f"ForecastSnapshot({self.milestone_id} @ {self.taken_at:%Y-%m-%d} {self.basis})"
+
+
+class ForecastCalibrationKind(models.TextChoices):
+    """Which plan event produced a forecast-calibration capture (ADR-1511)."""
+
+    # A first or manual baseline: the commit moment, or a named comparison capture.
+    BASELINE = "baseline", "Baseline"
+    # A taken baseline decision (v(n+1), ADR-1477): the plan was deliberately re-set.
+    REPLAN = "replan", "Replan"
+
+
+class ForecastCalibrationScope(models.TextChoices):
+    """Grain of one forecast-calibration row (ADR-1511)."""
+
+    TASK = "task", "Task"
+    PROJECT = "project", "Project"
+
+
+class ForecastCalibrationRecord(models.Model):
+    """One forecast made at a baseline or replan, kept for calibration (ADR-1511, #4747).
+
+    Captured only for a project whose ``forecast_calibration_capture`` is on, at
+    every baseline snapshot. Holds what was forecast and when, never the actual:
+    actual start and finish are joined at export from ``Task``, the system
+    of record, so a corrected actual is never contradicted by a stale copy and no
+    completion path needs a hook.
+
+    A separate table rather than more columns on ``ForecastSnapshot``: that model
+    is milestone-grain, read latest-per-milestone, and subject to the #952 90-day
+    purge, while a calibration row must outlive the months between a forecast and
+    its actual. The Monte Carlo percentiles are *copied* from the project's latest
+    ``MonteCarloRun`` (not referenced) because those runs are capped and purged.
+
+    Aggregate only (ADR-0104): no user, assignee, name or free text is stored —
+    task identity is a plain UUID, so the row survives task deletion.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name="forecast_calibration_records"
+    )
+    # SET_NULL: a deleted baseline does not unmake the forecast it carried.
+    baseline = models.ForeignKey(
+        Baseline,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="forecast_calibration_records",
+    )
+    # Groups the rows written by one capture (one project row + N task rows).
+    capture_id = models.UUIDField()
+    captured_at = models.DateTimeField()
+    kind = models.CharField(max_length=10, choices=ForecastCalibrationKind.choices)
+    scope = models.CharField(max_length=10, choices=ForecastCalibrationScope.choices)
+    # Plain UUID, not an FK: the forecast survives task soft- or hard-delete.
+    # Null on the project-scope row.
+    task_id = models.UUIDField(null=True, blank=True)
+    is_milestone = models.BooleanField(default=False)
+    # Whether the work already had an actual finish when this row was written. Such
+    # a row is a record of history, not a forecast, and an analysis must be able to
+    # drop it or it inflates the hit rate. Project scope: every committed task had one.
+    finished_at_capture = models.BooleanField(default=False)
+    # The estimate as it stood at capture, task scope only (null on the project
+    # row). Frozen here because the live task's values are re-estimated later and
+    # #2299's actual-vs-estimated duration cannot be backfilled.
+    duration = models.IntegerField(null=True, blank=True)
+    optimistic_duration = models.IntegerField(null=True, blank=True)
+    most_likely_duration = models.IntegerField(null=True, blank=True)
+    pessimistic_duration = models.IntegerField(null=True, blank=True)
+    estimate_status = models.CharField(  # noqa: DJ001 — mirrors Task: null is "unset"
+        max_length=12, null=True, blank=True
+    )
+    # The CPM finish at capture time (the task's early_finish, or the project's
+    # latest committed finish) and which edge of that day it sits on (#4178).
+    deterministic_finish = models.DateField(null=True, blank=True)
+    deterministic_finish_at_day_start = models.BooleanField(null=True, blank=True)
+    # Probabilistic finish percentiles. Project scope: copied from the latest
+    # MonteCarloRun (null when Monte Carlo never ran). Task scope: null until the
+    # API requests per-task targets from the engine (#4135).
+    p50 = models.DateField(null=True, blank=True)
+    p80 = models.DateField(null=True, blank=True)
+    p95 = models.DateField(null=True, blank=True)
+    # Which edge of its day each copied percentile sits on (#4178), as on MonteCarloRun.
+    p50_at_day_start = models.BooleanField(null=True, blank=True)
+    p80_at_day_start = models.BooleanField(null=True, blank=True)
+    p95_at_day_start = models.BooleanField(null=True, blank=True)
+    # When the copied distribution was computed — it can predate captured_at.
+    distribution_computed_at = models.DateTimeField(null=True, blank=True)
+    # The CPM finish that run was computed against (and its day edge). When it
+    # differs from deterministic_finish the plan moved after the run, so an
+    # analysis can drop a stale distribution.
+    distribution_cpm_finish = models.DateField(null=True, blank=True)
+    distribution_cpm_finish_at_day_start = models.BooleanField(null=True, blank=True)
+    mc_iterations = models.PositiveIntegerField(null=True, blank=True)
+
+    class Meta:
+        db_table = "projects_forecast_calibration_record"
+        ordering = ["captured_at", "scope", "task_id"]
+        indexes = [
+            models.Index(fields=["project", "captured_at"], name="fcal_project_captured_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"ForecastCalibrationRecord({self.project_id} {self.scope} @ {self.captured_at})"
 
 
 class ExportJobStatus(models.TextChoices):

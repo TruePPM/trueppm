@@ -1107,6 +1107,10 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             "show_monte_carlo",
             "effective_surface_visibility",
             "inherited_surface_visibility",
+            # Forecast-calibration capture consent (ADR-1511, #4747). Admin+-gated
+            # write by the allowlist default (not in _SCHEDULER_WRITABLE_FIELDS): the
+            # opt-in is the team's decision, so a Scheduler cannot flip it.
+            "forecast_calibration_capture",
             "program",
             "member_count",
             "percent_complete",

@@ -406,6 +406,7 @@ export default defineConfig({
             { slug: "administration/troubleshooting" },
             { slug: "administration/observability" },
             { slug: "administration/retention" },
+            { slug: "administration/forecast-calibration" },
             { slug: "administration/email" },
             { slug: "administration/msproject-configuration" },
             { slug: "administration/workspace-settings" },
