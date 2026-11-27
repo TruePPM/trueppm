@@ -4463,21 +4463,6 @@ class PendingCommitmentSlipSerializer(serializers.Serializer[dict[str, Any]]):
     reason = serializers.CharField(read_only=True, help_text="The requester's reason, or empty.")
 
 
-class _ActiveUserOrUnchangedField(serializers.PrimaryKeyRelatedField[Any]):
-    """Active-user FK that also accepts the instance's current value unchanged.
-
-    The queryset narrows to active accounts, which would otherwise reject an echoed,
-    unchanged id once that principal is deactivated.
-    """
-
-    def to_internal_value(self, data: Any) -> Any:
-        inst = getattr(self.parent, "instance", None)
-        current = getattr(inst, "on_behalf_of_id", None)
-        if inst is not None and current is not None and str(data) == str(current):
-            return inst.on_behalf_of
-        return super().to_internal_value(data)
-
-
 class _TaskAssigneeField(serializers.PrimaryKeyRelatedField[Any]):
     """The ``Task.assignee`` write FK, resolvable only among assignable users (#5003).
 
@@ -4495,6 +4480,26 @@ class _TaskAssigneeField(serializers.PrimaryKeyRelatedField[Any]):
 
     def get_queryset(self) -> Any:
         return cast("TaskSerializer", self.parent).assignable_users()
+
+
+class _TaskOnBehalfOfField(_TaskAssigneeField):
+    """The ``Task.on_behalf_of`` write FK, under ``_TaskAssigneeField``'s rule (#5003).
+
+    Also accepts the instance's current value unchanged: a full-row echo (sync
+    upload, PUT) must not be refused once that principal is deactivated or has left
+    the project. The echoed id is one the task read already shows.
+    """
+
+    default_error_messages = {
+        "does_not_exist": "on_behalf_of must be a member of this project.",
+    }
+
+    def to_internal_value(self, data: Any) -> Any:
+        inst = getattr(self.parent, "instance", None)
+        current = getattr(inst, "on_behalf_of_id", None)
+        if inst is not None and current is not None and str(data) == str(current):
+            return inst.on_behalf_of
+        return super().to_internal_value(data)
 
 
 class TaskSerializer(serializers.ModelSerializer[Task]):
@@ -4934,10 +4939,10 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
     # than re-deriving the rule from sprint state, so presentation and enforcement
     # call one predicate (ADR-0133's "one rule; it is called twice").
     dates_locked_by_sprint = serializers.SerializerMethodField()
-    # Narrowed to active accounts (pii-exposure gate); project membership is enforced in
-    # _validate_agent_task_fields, so a non-member id is refused without confirming the account.
-    on_behalf_of = _ActiveUserOrUnchangedField(
-        queryset=User.objects.filter(is_active=True), required=False, allow_null=True
+    # The queryset is the membership rule (see the field class); who may change it to whom
+    # is role-gated in _validate_on_behalf_of_change.
+    on_behalf_of = _TaskOnBehalfOfField(
+        queryset=get_user_model()._default_manager.all(), required=False, allow_null=True
     )
 
     class Meta:
@@ -5901,7 +5906,7 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                 )
 
     def assignable_users(self) -> Any:
-        """Users this write may name as ``assignee`` (#684, #4596, #5003).
+        """Users this write may name as ``assignee`` or ``on_behalf_of`` (#684, #4596, #5003).
 
         Active accounts holding a live ``ProjectMembership`` on the task's project:
         the stored project on an update (a task cannot move), the body's ``project``
@@ -5953,7 +5958,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
 
         - ``executor_kind`` is a planning decision: Project Manager (``Role.ADMIN``) or
           above only. Switching back to ``human`` clears the agent-only fields.
-        - ``on_behalf_of`` must be an active project member; below ``Role.ADMIN`` the only
+        - ``on_behalf_of`` must be an active project member (enforced by the field's
+          queryset, ``_TaskOnBehalfOfField``); below ``Role.ADMIN`` the only
           allowed changes are null -> self and self -> null (no takeover, no clearing
           someone else's attribution). An unchanged value is never re-checked.
         - ``agent_state`` / ``agent_refusal_reason`` need an agent task and keep the
@@ -6031,12 +6037,16 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                 }
             )
 
-        self._validate_on_behalf_of_change(attrs, project, request, is_admin)
+        self._validate_on_behalf_of_change(attrs, request, is_admin)
 
     def _validate_on_behalf_of_change(
-        self, attrs: dict[str, Any], project: Any, request: Any, is_admin: bool
+        self, attrs: dict[str, Any], request: Any, is_admin: bool
     ) -> None:
-        """Gate a CHANGE to ``on_behalf_of``; an unchanged value is never re-checked."""
+        """Role-gate a CHANGE to ``on_behalf_of``; an unchanged value is never re-checked.
+
+        Membership of the target is not checked here: the field only resolves members,
+        so a non-member and an unused pk are refused before this runs (#5003).
+        """
         from rest_framework.exceptions import PermissionDenied
 
         inst = self.instance
@@ -6046,32 +6056,17 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         target = attrs.get("on_behalf_of")
         current_id = inst.on_behalf_of_id if inst is not None else None
         target_id = target.pk if target is not None else None
-        if "on_behalf_of" in attrs and target_id != current_id:
-            if request is not None and not is_admin:
-                # ADR-0112 §149: on_behalf_of is the delegating human approvals key off,
-                # so below Admin the only moves are null -> self and self -> null.
-                me = request.user.pk
-                if not (
-                    (current_id is None and target_id == me)
-                    or (target_id is None and current_id == me)
-                ):
-                    raise PermissionDenied(
-                        "Below Admin you may only attribute agent work to yourself, or "
-                        "clear your own attribution."
-                    )
-            if (
-                target is not None
-                and project is not None
-                and not ProjectMembership.objects.filter(
-                    project=project,
-                    project__is_deleted=False,
-                    user=target,
-                    user__is_active=True,
-                    is_deleted=False,
-                ).exists()
+        changed = "on_behalf_of" in attrs and target_id != current_id
+        if changed and request is not None and not is_admin:
+            # ADR-0112 §149: on_behalf_of is the delegating human approvals key off,
+            # so below Admin the only moves are null -> self and self -> null.
+            me = request.user.pk
+            if not (
+                (current_id is None and target_id == me) or (target_id is None and current_id == me)
             ):
-                raise serializers.ValidationError(
-                    {"on_behalf_of": "on_behalf_of must be a member of this project."}
+                raise PermissionDenied(
+                    "Below Admin you may only attribute agent work to yourself, or "
+                    "clear your own attribution."
                 )
 
     def _reject_pending_sprint_relink(self, attrs: dict[str, Any]) -> None:

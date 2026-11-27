@@ -1,6 +1,7 @@
 """User FK writes must not reveal which account ids exist (#5003).
 
-``Task.assignee``, ``Project.lead`` and ``Program.lead`` accept a user pk. A pk that
+``Task.assignee``, ``Task.on_behalf_of``, ``Project.lead`` and ``Program.lead`` accept
+a user pk. A pk that
 names no account and a pk that names an existing non-member must produce the same
 response body, or the write enumerates accounts.
 """
@@ -106,6 +107,48 @@ def test_task_create_answers_a_non_member_and_an_unused_pk_identically(
 
     assert _post(stranger.pk).status_code == 400
     assert _body(_post(stranger.pk)) == _body(_post(_UNUSED_PK))
+    assert not Task.objects.filter(name="N").exists()
+
+
+@pytest.mark.parametrize("role", [Role.MEMBER, Role.ADMIN])
+def test_on_behalf_of_patch_is_not_an_account_oracle(
+    role: int, stranger: Any, project: Project
+) -> None:
+    """A Member used to get 403 for an existing non-member and 400 for an unused pk."""
+    writer = User.objects.create_user(username="oracle_writer", password="pw")
+    ProjectMembership.objects.create(project=project, user=writer, role=role)
+    task = Task.objects.create(
+        project=project, name="A", duration=1, executor_kind="agent", assignee=writer
+    )
+    url = f"/api/v1/tasks/{task.pk}/"
+
+    existing = _client(writer).patch(url, {"on_behalf_of": stranger.pk}, format="json")
+    unused = _client(writer).patch(url, {"on_behalf_of": _UNUSED_PK}, format="json")
+
+    assert existing.status_code == 400, existing.data
+    assert _body(existing) == _body(unused)
+    own = _client(writer).patch(url, {"on_behalf_of": writer.pk}, format="json")
+    assert own.status_code == 200, own.data
+    assert own.data["on_behalf_of"] == writer.pk
+
+
+def test_on_behalf_of_create_is_not_an_account_oracle_for_an_outsider(
+    owner: Any, stranger: Any, project: Project
+) -> None:
+    def _post(pk: int) -> Any:
+        return _client(stranger).post(
+            "/api/v1/tasks/",
+            {
+                "project": str(project.pk),
+                "name": "N",
+                "duration": 1,
+                "executor_kind": "agent",
+                "on_behalf_of": pk,
+            },
+            format="json",
+        )
+
+    assert _body(_post(owner.pk)) == _body(_post(_UNUSED_PK))
     assert not Task.objects.filter(name="N").exists()
 
 
