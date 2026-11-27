@@ -463,7 +463,7 @@ export function renderKpi(key: string, entry: RollupKpiEntry): RenderedKpi {
   if (entry.unit === 'date') {
     // An ISO calendar date, formatted UTC-pinned (web-rule 189). Projects with no
     // forecast are left out of the date by the server, and stale forecasts stay in it
-    // (#2408), so the card says both. With neither, it says what the date is: the
+    // (#2408), so the card says both. It always ends by saying what the date is: the
     // latest project P80, which is not a joint program forecast.
     const date = typeof entry.value === 'string' ? fmtUtcLong(entry.value) : null;
     const skipped = entry.projects_without_forecast ?? 0;
@@ -488,9 +488,7 @@ export function renderKpi(key: string, entry: RollupKpiEntry): RenderedKpi {
       sub:
         date === null
           ? noValueReason(entry.reason)
-          : [range?.range, ...(notes.length > 0 ? notes : [caveat])]
-              .filter((n): n is string => Boolean(n))
-              .join(' · '),
+          : [range?.range, ...notes, caveat].filter((n): n is string => Boolean(n)).join(' · '),
       variant: 'neutral',
       muted: false,
     };

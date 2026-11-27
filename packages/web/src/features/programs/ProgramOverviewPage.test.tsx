@@ -270,7 +270,11 @@ describe('ProgramOverviewPage (#713)', () => {
     // A formatted calendar date, not the raw ISO string.
     expect(screen.queryByText('2027-05-01')).not.toBeInTheDocument();
     expect(screen.getByText(/2027/)).toBeInTheDocument();
-    expect(screen.getByText('excludes 2 projects without a forecast')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'excludes 2 projects without a forecast · latest project P80, not a joint forecast',
+      ),
+    ).toBeInTheDocument();
   });
 
   it('says a p80_completion rests on stale forecasts it still counts (#2408)', async () => {
@@ -290,7 +294,9 @@ describe('ProgramOverviewPage (#713)', () => {
     );
     renderPage();
     expect(
-      await screen.findByText('excludes 1 project without a forecast · 2 forecasts out of date'),
+      await screen.findByText(
+        'excludes 1 project without a forecast · 2 forecasts out of date · latest project P80, not a joint forecast',
+      ),
     ).toBeInTheDocument();
   });
 
@@ -560,7 +566,7 @@ describe('the program P50 · P95 range on the v1 P80 card (#2408)', () => {
       percentiles: pct('2027-03-20', null, [1, 1, 2]),
     });
     expect(k.sub).toMatch(
-      / · excludes 1 project without a forecast · P95 leaves out 1 more project$/,
+      / · excludes 1 project without a forecast · P95 leaves out 1 more project · latest project percentiles, not a joint forecast$/,
     );
   });
 

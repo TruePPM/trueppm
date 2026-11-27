@@ -408,8 +408,10 @@ Other changes you will notice with the flag on:
     **Blocked** card (both cover only the project driving the program's P80
     date, not a maximum across the whole program), the decisions waiting on an answer, and a table of the
     program's projects with the server's health word and at-risk and overdue
-    task counts. It opens on the first program the server lists for you; when you
-    see more than one, a **Program** switcher changes what is shown.
+    task counts. If a forecast behind the program P80 is out of date, the
+    forecast card says so; the date still counts it. It opens on the first
+    program the server lists for you; when you see more than one, a **Program**
+    switcher changes what is shown.
   - **Executive home**: the same forecast, decisions and projects for **one
     program at a time**. It opens on the program the server chose, and the
     **Program** switcher lists the programs you can see and changes only the

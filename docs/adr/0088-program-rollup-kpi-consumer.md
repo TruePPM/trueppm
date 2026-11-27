@@ -246,8 +246,8 @@ distribution of the latest finish lies at or after every marginal, so its P80 is
 this date or later. The server definition (`rollup.p80_completion`) says so, the
 shell v2 overview renders that definition (and `rollup.p50_completion` /
 `rollup.p95_completion` beside the P50 and P95), the v1 card's range line ends
-"latest project percentiles, not a joint forecast" when it has no exclusion or
-staleness note to show, and the docs say it. A joint program
+"latest project percentiles, not a joint forecast", after any exclusion or
+staleness note, and the docs say it. A joint program
 simulation would be new engine work (one Monte Carlo run over the union of the
 projects' networks). It is not wiring, so it is out of scope.
 

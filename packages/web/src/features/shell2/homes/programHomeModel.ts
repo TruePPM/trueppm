@@ -1,5 +1,6 @@
 import type { Program } from '@/api/types';
 import type { Project, MonteCarloResult } from '@/types';
+import { staleForecastLine } from '@/features/programs/ProgramOverview2';
 import type { ProgramRollup } from '@/features/programs/ProgramOverviewPage';
 import { noValueReason } from '@/features/programs/ProgramOverviewPage';
 import type { ProjectHealthRow } from '@/hooks/useProjectsHealthSummary';
@@ -27,6 +28,10 @@ export type ForecastHeroState =
       /** The project whose forecast sets the program's P80; the S-curve is its run. */
       driverProjectId: string | null;
       projectsWithoutForecast: number;
+      /** Forecasts the P80 still counts that no longer describe their project's plan. */
+      projectsWithStaleForecast: number;
+      /** The program overview's sentence naming them; null when none is stale. */
+      staleLine: string | null;
     };
 
 export interface RollupQuery {
@@ -53,6 +58,8 @@ export function forecastHeroState(q: RollupQuery): ForecastHeroState {
     definition: q.data.definitions?.p80_completion,
     driverProjectId: kpi.driver_project_id ?? null,
     projectsWithoutForecast: kpi.projects_without_forecast ?? 0,
+    projectsWithStaleForecast: kpi.projects_with_stale_forecast_ids?.length ?? 0,
+    staleLine: staleForecastLine({ forecast: kpi, projects: q.data.projects }),
   };
 }
 

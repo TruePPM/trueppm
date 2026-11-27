@@ -65,6 +65,12 @@ export function ProgramForecastHero({
                 yet
               </span>
             )}
+            {hero.projectsWithStaleForecast > 0 && (
+              <span className="text-xs text-p1-risk-text">
+                <span aria-hidden="true">◆ </span>
+                {hero.staleLine}
+              </span>
+            )}
             {driver && (
               <Link
                 to={projectPath(driver, 'forecast')}

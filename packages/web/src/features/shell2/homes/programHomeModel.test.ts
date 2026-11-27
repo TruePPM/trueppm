@@ -45,6 +45,23 @@ describe('forecastHeroState', () => {
       definition: 'The server sentence.',
       driverProjectId: 'p-1',
       projectsWithoutForecast: 1,
+      projectsWithStaleForecast: 0,
+      staleLine: null,
+    });
+  });
+  it('carries the stale forecasts the P80 still counts, by name (#2408)', () => {
+    const s = forecastHeroState({
+      data: rollup(
+        { available: true, value: '2026-12-07', projects_with_stale_forecast_ids: ['p-1'] },
+        { projects: [{ id: 'p-1', name: 'Atlas' }] as ProgramRollup['projects'] },
+      ),
+      isLoading: false,
+      error: null,
+    });
+    expect(s).toMatchObject({
+      projectsWithStaleForecast: 1,
+      staleLine:
+        '1 forecast is out of date (Atlas); the program P80 still counts it until it is rerun.',
     });
   });
   it('reads `forecast` when the p80_completion KPI is disabled', () => {

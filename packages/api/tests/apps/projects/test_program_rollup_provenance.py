@@ -51,6 +51,7 @@ from trueppm_api.apps.projects.program_rollup import (
     compute_program_rollup,
     top_contributing_project,
 )
+from trueppm_api.apps.scheduling.forecast_staleness import MC_ENGINE_EPOCH
 from trueppm_api.apps.scheduling.models import MonteCarloRun
 from trueppm_api.apps.scheduling.views import mc_latest_cache_key
 
@@ -454,6 +455,30 @@ def test_p80_completion_reads_staleness_inputs_from_the_cache_entry(
         },
         timeout=60,
     )
+    _configure(program, [RollupKpi.P80_COMPLETION.value])
+    entry = _get(member, program)["kpis"]["p80_completion"]
+    assert entry["projects_with_stale_forecast_ids"] == [str(a.pk)]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("source", ["persisted", "cache"])
+def test_p80_completion_counts_a_superseded_engine_run_as_stale(
+    member: Any, program: Program, calendar: Calendar, source: str
+) -> None:
+    """#5064: the plan has not moved, but the run predates a forecast correctness fix."""
+    a = _project(program, calendar, "A")
+    a.refresh_from_db()
+    inputs = {"plan_version": a.last_sync_version, "engine_epoch": MC_ENGINE_EPOCH - 1}
+    if source == "persisted":
+        MonteCarloRun.objects.create(
+            project=a, n_simulations=100, p80=datetime.date(2027, 3, 1), **inputs
+        )
+    else:
+        cache.set(
+            mc_latest_cache_key(a.pk),
+            {"p80": "2027-03-01", "last_run_at": timezone.now().isoformat(), **inputs},
+            timeout=60,
+        )
     _configure(program, [RollupKpi.P80_COMPLETION.value])
     entry = _get(member, program)["kpis"]["p80_completion"]
     assert entry["projects_with_stale_forecast_ids"] == [str(a.pk)]
