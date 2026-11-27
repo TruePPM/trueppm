@@ -444,6 +444,12 @@ services:
       - "443:443"
     environment:
       DOMAIN: ${DOMAIN:?DOMAIN must be set in .env}
+      # TLS_MODE=none only (nginx/app-http.conf.template): the load balancer's
+      # address or CIDR, which turns on the edge rate limit keyed on the client
+      # it reports in X-Forwarded-For (#3852). The default matches no peer, so
+      # the limit stays off: behind a load balancer nginx would otherwise see
+      # every user as one address. The DRF throttles apply either way.
+      NGINX_TRUSTED_PROXY_CIDR: ${NGINX_TRUSTED_PROXY_CIDR:-192.0.2.1/32}
     # init-prod.sh copies the correct template to nginx/active.conf.template.
     # envsubst renders it at container startup.
     #
@@ -469,7 +475,8 @@ services:
       - /bin/sh
       - -c
       - >-
-        envsubst '$${DOMAIN}' < /etc/nginx/templates/default.conf.template >
+        envsubst '$${DOMAIN} $${NGINX_TRUSTED_PROXY_CIDR}' <
+        /etc/nginx/templates/default.conf.template >
         /etc/nginx/conf.d/default.conf && { while :; do sleep 6h; nginx -s
         reload || true; done & } && exec nginx -g 'worker_shutdown_timeout 20s;
         daemon off;'

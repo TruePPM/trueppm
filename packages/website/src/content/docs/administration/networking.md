@@ -489,7 +489,8 @@ ingress:
     # would otherwise silently keep them (deep-merge), which is correct, but
     # worth restating explicitly since this file overrides the whole
     # `ingress.annotations` key by example elsewhere on this page.
-    nginx.ingress.kubernetes.io/proxy-body-size: "110m"
+    # Tight ceiling for every route; uploads use ingress.largeBody.size (110m).
+    nginx.ingress.kubernetes.io/proxy-body-size: "2m"
     # WebSocket lifetime — see the timeout table below.
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
@@ -588,6 +589,75 @@ repeat steps 2 and 3 only.
 
 The nginx container already reloads itself every 6 hours, so replacing the files
 and waiting is also valid — the explicit reload just makes it immediate.
+
+## Edge rate limits
+
+:::note[Ships in 0.5]
+This section describes limits that ship in 0.5. In the current release the only
+`limit_req` in the shipped nginx configs is on `/admin/`, and the application's
+own throttles are the single rate limit on every other route.
+:::
+
+The application throttles its sign-in and token endpoints itself, and those
+[per-IP and per-account limits](/administration/security/#login-rate-limiting-and-per-account-lockout)
+are the real control. The shipped nginx configs add a coarse flood backstop in
+front of them, which still holds if the cache that stores throttle state is down:
+
+| What | Sustained rate per source address | Burst | Refusal |
+|---|---|---|---|
+| `/api/v1/auth/token/` (and `refresh/`), `/api/v1/auth/logout/`, `/api/v1/auth/password/reset/` (and `confirm/`), `/api/v1/auth/oidc/...`, `/api/v1/workspace/invites/accept/` | 20 requests/second | 100 | `429` |
+| `/ws/` handshakes (an open socket is not counted) | 20 requests/second | 200 | `429` |
+| Everything else under `/api/`, including share links and the inbound Git-event receiver | 100 requests/second | 1000 | `429` |
+
+A request counts against one row only: the sign-in routes use their own,
+stricter limit and not the general `/api/` one. The general limit is a flood stop
+rather than a quota. A page load sends dozens of requests at once and a large
+schedule is fetched four pages at a time, but an open tab then averages well under
+one request a second.
+
+These values are far above normal use on purpose: everyone behind one NAT shares
+the key.
+
+**The limits apply only where nginx can see the real client address.** A
+per-address limit keyed on a load balancer, ingress controller or tunnel would put
+every user in one bucket, and a single client could then lock everyone out of
+sign-in. So each config keys on the client, or renders no edge limit at all. Where
+there is none, the application's own throttles still apply, because they see the
+client through `TRUEPPM_NUM_PROXIES`.
+
+| Deployment | Edge limits |
+|---|---|
+| Docker Compose, TLS (`nginx/app.conf.template`) | On. This nginx terminates the client's own connection on ports 80/443. If you put a load balancer, CDN or tunnel in front of it, switch to the HTTP template below or remove the limits. |
+| Docker Compose, HTTP behind a load balancer (`TLS_MODE=none`, `nginx/app-http.conf.template`) | Off until you set `NGINX_TRUSTED_PROXY_CIDR` in `.env` to your load balancer's address or CIDR (one value). Then requests from that peer are keyed on the **last** `X-Forwarded-For` entry, which is the one your load balancer appends. Requests from any other peer are not counted. Your load balancer must append the client to `X-Forwarded-For`. |
+| Helm, `web.realIpFrom` set | On, for traffic that crosses the web tier. nginx recovers the client from `X-Forwarded-For`. |
+| Helm, `web.realIpFrom` empty (the default), with or without an Ingress | Off. Every request reaches nginx from the ingress controller, a load balancer or a node address. |
+| Helm demo modes (share-link and interactive) | Off, unless you set `web.realIpFrom`. |
+| Compose demo (`nginx/demo.conf.template`) and the published `web` image | Off. Neither can tell clients apart. |
+
+In Helm, set [`web.realIpFrom`](/administration/helm-values/) to your ingress
+controller's pod CIDR to turn the limits on, and tune or disable them with
+`web.rateLimit`:
+
+```yaml
+web:
+  realIpFrom: ["10.42.0.0/16"]
+  rateLimit:
+    enabled: true
+    auth: { rate: 20r/s, burst: 100 }
+    websocket: { rate: 20r/s, burst: 200 }
+```
+
+The chart rejects a rate that is not `<n>r/s` or `<n>r/m` with `n` above zero,
+and a negative burst. For Docker Compose, edit the `limit_req_zone` and
+`limit_req` lines in the template.
+
+Even with `web.realIpFrom` set, Helm applies the limits **only to traffic that
+crosses the web tier.** The default `ingress.hosts` send `/api` and `/ws` straight
+to the API Service, so these limits do not apply there. Route those paths with
+`service: web`, or rate limit at your ingress controller. In interactive demo mode
+the limits cover sign-in, refresh and sign-out, plus the general `/api/` limit.
+The share-link demo serves no sign-in route and no WebSocket, so only the general
+limit applies, to `/api/v1/share/`.
 
 ## WebSockets behind a proxy
 
