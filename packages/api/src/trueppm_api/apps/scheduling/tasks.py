@@ -141,6 +141,10 @@ def recalculate_schedule(
         from trueppm_api.apps.scheduling.headline_forecast import note_headline_forecast_kind
 
         note_headline_forecast_kind(project_id)
+
+        from trueppm_api.apps.projects.commitment_risk import detect_commitment_at_risk
+
+        detect_commitment_at_risk(project_id)
     except TaskRunProjectGone:
         # The project was deleted while this message was queued (or held in the
         # lock-retry loop). Return normally: raising would dead-letter a task

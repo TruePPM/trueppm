@@ -662,6 +662,11 @@ urlpatterns = [
     # GET list (audit + delta, #543/#550) is registered before the /accept|/reject
     # POSTs; all three share the scope-changes/ prefix but resolve distinctly.
     path(
+        "sprints/<pk>/commitment-status/",
+        SprintViewSet.as_view({"get": "commitment_status"}),
+        name="sprints-commitment-status",
+    ),
+    path(
         "sprints/<pk>/scope-changes/",
         SprintViewSet.as_view({"get": "scope_changes"}),
         name="sprints-scope-changes",

@@ -345,6 +345,7 @@
 -++++++  GET api/v1/sprints/<pk>/burndown/::burndown
 -++++++  GET api/v1/sprints/<pk>/capacity/::capacity
 -++++++  GET api/v1/sprints/<pk>/close-request/::close_request
+-++++++  GET api/v1/sprints/<pk>/commitment-status/::commitment_status
 -++++++  GET api/v1/sprints/<pk>/daily-delta/::daily_delta
 -++++++  GET api/v1/sprints/<pk>/duration-events/::duration_events
 -++++++  GET api/v1/sprints/<pk>/incoming_carryover/::incoming_carryover

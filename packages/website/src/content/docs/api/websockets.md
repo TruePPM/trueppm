@@ -586,6 +586,7 @@ configured webhook endpoints:
 | `sprint.closed` | No WS broadcast. Completion snapshot (velocity) is privacy-gated in its payload per ADR-0104. |
 | `sprint.scope_changed` | Same fact as the WS `sprint_scope_changed` event (one vocabulary, #4406). Fires when a mid-sprint injection is accepted (ADR-0102). From 0.5 it will fire on every decision, a reject included, and when the system closes a pending slip (ADR-1485 D6). |
 | `sprint.scope_change_requested` | No WS broadcast. A scope change is awaiting a decision (ADR-1485 D6). Ships in 0.5. |
+| `sprint.commitment_at_risk` | No WS broadcast. Committed tasks are forecast past the sprint end after a recalculation (ADR-1485 D6). Ships in 0.5. |
 | `schedule.change_undone` | No WS broadcast. A structural act was undone (ADR-1485 D6). Ships in 0.5. |
 | `changeset.opened` | No WS broadcast under this name (a counts-only `changeset_updated` WS event exists). Ships in 0.5. |
 | `changeset.entry_added` | No WS broadcast under this name (a counts-only `changeset_updated` WS event exists). Each later changeset entry (ADR-1477). Ships in 0.5. |
@@ -606,7 +607,7 @@ The OSS webhook event set is capped at 19 events: `task.created`,
 agile trio (`sprint.*`) was added in ADR-0147, raising the cap from 11 to 14; the
 risk/baseline/comment domain events were added in ADR-0206, raising it from 14 to
 19. In 0.5, ADR-1485 will add `schedule.finish_changed`, `schedule.change_undone` and
-`sprint.scope_change_requested`, and ADR-1477 `changeset.opened`, `changeset.entry_added`,
-`changeset.entry_reasoned` and `baseline.kept`, raising it to 26. Adding
-a 27th event requires its own ADR — the cap is the gate against per-customer
+`sprint.scope_change_requested` and `sprint.commitment_at_risk`, and ADR-1477 `changeset.opened`, `changeset.entry_added`,
+`changeset.entry_reasoned` and `baseline.kept`, raising it to 26, and `sprint.commitment_at_risk` makes 27. Adding
+a 28th event requires its own ADR — the cap is the gate against per-customer
 event proliferation.

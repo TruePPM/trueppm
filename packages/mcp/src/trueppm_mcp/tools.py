@@ -829,6 +829,16 @@ async def _get_baseline_variance(
     return result
 
 
+async def _get_sprint_commitment_status(client: TruePPMClient, sprint_id: str) -> dict[str, Any]:
+    """The sprint's at-risk committed tasks and open scope changes (ADR-1485 D3).
+
+    Returned as the server sends it, so a null ``cause`` or ``derivation_ref``
+    stays visible rather than being filled in.
+    """
+    payload = await client.get(f"sprints/{sprint_id}/commitment-status/")
+    return dict(payload) if isinstance(payload, Mapping) else {}
+
+
 async def _get_changeset(client: TruePPMClient, project_id: str) -> dict[str, Any]:
     """What changed since the active baseline, and why (ADR-1477).
 
@@ -1399,6 +1409,26 @@ def register_tools(server: FastMCP[TruePPMClient], client: TruePPMClient) -> Non
         _require_uuid("project_id", project_id)
         _require_uuid("baseline_id", baseline_id)
         return await _get_baseline_variance(client, project_id, baseline_id, min_days, page)
+
+    @server.tool()
+    async def get_sprint_commitment_status(sprint_id: str) -> dict[str, Any]:
+        """Committed tasks at risk of missing the sprint end, and open scope changes. Experimental.
+
+        ``at_risk`` lists committed tasks the last recalculation places after the
+        sprint's end, each with its ``finish``, ``working_days_after_sprint_end``,
+        the server's one-line ``cause`` and ``derivation_ref`` (the ``task_id`` and
+        ``quantity`` to pass to ``get_schedule_derivation``). Quote ``cause`` as sent;
+        null means the server has none. ``open_scope_changes`` lists the requests
+        still awaiting accept or reject, of kind ``injection`` or ``slip``, with
+        ``batch_id``, requester, ``age_seconds`` and proposed dates. A token can read
+        this and can never accept or reject. Only an ACTIVE sprint has a commitment,
+        so any other state reads an empty ``at_risk``. Read-only.
+
+        Args:
+            sprint_id: The sprint's UUID.
+        """
+        _require_uuid("sprint_id", sprint_id)
+        return await _get_sprint_commitment_status(client, sprint_id)
 
     @server.tool()
     async def get_changeset(project_id: str) -> dict[str, Any]:

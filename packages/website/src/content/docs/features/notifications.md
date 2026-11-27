@@ -229,6 +229,32 @@ Turning on either digest reveals a **Digest schedule** card — a day and hour
 picker, evaluated in your own timezone, that governs both digests together
 (there is one schedule per user, not one per digest).
 
+## Commitment notices
+
+:::note[Ships in 0.5]
+The two notices below ship with 0.5. The current release sends neither.
+:::
+
+Two events tell the people who can accept a change to a sprint's commitment that
+one needs them, so a commitment change cannot pass silently:
+
+- **A change to a sprint commitment awaits a decision** (`sprint.scope_change_requested`):
+  a task was added to an active sprint, or a date change would move committed work
+  past the sprint's end and was held for acceptance. One drag or one bulk placement
+  makes **one** notice per person, worded "3 tasks · accept all / review", and the
+  notice is rewritten if more of the same batch lands.
+- **Committed tasks are now expected to finish after the sprint ends**
+  (`sprint.commitment_at_risk`): after a recalculation, a task that has just become
+  at risk. A task is announced once, and again only if it recovers and slips again.
+
+Both reach everyone who holds the scope accept authority (Admin and up, plus the
+Scrum Master and Product Owner facet holders), except the person who made the
+request. **The in-app row cannot be muted**: the matrix cell stays on, the settings
+refuse to turn it off, and the inbox does not offer *Mute notifications like this*
+for them. **Email and other channels follow your preferences** and are off by
+default; Do Not Disturb still holds back email. Everyone else follows their own
+preferences.
+
 ## Config-change notices
 
 Removing a board lane, hiding a board column, hiding one of the Reporting,

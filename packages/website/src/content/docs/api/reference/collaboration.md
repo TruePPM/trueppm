@@ -27,7 +27,7 @@ replaying a dead letter, on a closed program's webhook and on an archived projec
 (the webhook may keep failing after close, and those failures stay recoverable).
 
 TruePPM emits **19 event types** across tasks, dependencies, schedule, projects,
-sprints, risks, baselines, and comments (0.5 will add seven more, for 26: `schedule.finish_changed`, `schedule.change_undone`, `sprint.scope_change_requested`, `changeset.opened`, `changeset.entry_added`, `changeset.entry_reasoned` and `baseline.kept`). The full catalog — every event name, what
+sprints, risks, baselines, and comments (0.5 will add eight more, for 27: `schedule.finish_changed`, `schedule.change_undone`, `sprint.scope_change_requested`, `sprint.commitment_at_risk`, `changeset.opened`, `changeset.entry_added`, `changeset.entry_reasoned` and `baseline.kept`). The full catalog — every event name, what
 triggers it, the payload shape, HMAC signature verification, request headers,
 delivery ordering and gap detection, and the retry schedule — is documented in
 [Webhooks](/features/webhooks/). Start there before subscribing:

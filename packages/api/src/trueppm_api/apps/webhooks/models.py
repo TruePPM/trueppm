@@ -55,8 +55,7 @@ class WebhookEventType(models.TextChoices):
     # ledger ``event_id``), and a sprint scope change is awaiting a decision. The
     # decided counterpart reuses ``sprint.scope_changed`` (one vocabulary with the
     # WS ``sprint_scope_changed`` fact, #4406). ``sprint.commitment_at_risk`` is
-    # deliberately NOT registered here: #5127 owns its detection and its emit, and a
-    # catalog entry with no emitter is an advertised event that is never sent.
+    # registered below (#5127): it is emitted by the post-recalculation detector.
     SCHEDULE_CHANGE_UNDONE = "schedule.change_undone", "Schedule Change Undone"
     SPRINT_SCOPE_CHANGE_REQUESTED = (
         "sprint.scope_change_requested",
@@ -67,6 +66,10 @@ class WebhookEventType(models.TextChoices):
     # (once per entry, never per absorbed act), changeset.entry_reasoned when an
     # unreasoned entry is answered; baseline.kept is the "Keep v1, let variance
     # stand" exit (Take v2 stays baseline.captured, which gains the reason fields).
+    SPRINT_COMMITMENT_AT_RISK = (
+        "sprint.commitment_at_risk",
+        "Sprint Commitment At Risk",
+    )
     CHANGESET_OPENED = "changeset.opened", "Changeset Opened"
     CHANGESET_ENTRY_ADDED = "changeset.entry_added", "Changeset Entry Added"
     CHANGESET_ENTRY_REASONED = "changeset.entry_reasoned", "Changeset Entry Reasoned"
@@ -80,12 +83,13 @@ ALL_WEBHOOK_EVENTS = [e.value for e in WebhookEventType]
 # domain events), then 19→20 by ADR-1485 for schedule.finish_changed, then 20→26 by
 # ADR-1485 D6 (schedule.change_undone, sprint.scope_change_requested) and ADR-1477 /
 # #5121 (changeset.opened, changeset.entry_added, changeset.entry_reasoned,
-# baseline.kept). Adding a 27th event requires its own ADR — this is the gate
+# baseline.kept), then 26→27 by sprint.commitment_at_risk (ADR-1485 D6, #5127).
+# Adding a 28th event requires its own ADR — this is the gate
 # against the per-customer event proliferation that is the explicit Enterprise
 # upsell. These are all first-party domain events, not custom/user-defined events,
 # so the upsell line is unaffected. ``test_event_type_cap`` fails loudly if
 # WebhookEventType drifts from this number.
-OSS_WEBHOOK_EVENT_CAP = 26
+OSS_WEBHOOK_EVENT_CAP = 27
 
 # Reserved, non-domain event type used by the "Send test" action (#2884). It is
 # deliberately NOT a WebhookEventType member: no subscription can select it and

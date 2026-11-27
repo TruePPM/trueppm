@@ -113,6 +113,10 @@ from trueppm_api.apps.profiles.serializers import RecentProjectSerializer
 from trueppm_api.apps.profiles.services import annotate_is_pinned
 from trueppm_api.apps.projects import amend
 from trueppm_api.apps.projects.agent_scope import ALL_AREAS
+from trueppm_api.apps.projects.baseline_variance_views import EXPERIMENTAL_EXTENSIONS
+from trueppm_api.apps.projects.commitment_status_serializers import (
+    SprintCommitmentStatusSerializer,
+)
 from trueppm_api.apps.projects.metric_provenance import (
     BURN_COMBINED_DEFINED,
     BURN_DEFINED,
@@ -17222,6 +17226,8 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
 
     # ADR-0678 (#2482): Sprint.project FK.
     mcp_scope = McpScope.QUERYSET
+    # One CPM pass derives each at-risk row's cause (finish_causes).
+    mcp_compute_heavy_actions = frozenset({"commitment_status"})
 
     queryset = Sprint.objects.select_related(
         "project", "created_by", "target_milestone", "milestone_bound_by"
@@ -17276,6 +17282,9 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             "outcome",
             "daily_delta",
             "scope_changes",
+            # ADR-1485 D3: the commitment read is a team-readable Viewer+ read like
+            # scope_changes; accept/reject keep their own Admin+ gate.
+            "commitment_status",
             # ADR-0151 (issue 1254): the per-sprint duration-change audit is a
             # team-readable Viewer+ read, exactly mirroring scope_changes above.
             "duration_events",
@@ -18349,6 +18358,44 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         sprint = self._sprint_or_404(pk)
         self.check_object_permissions(request, sprint)
         return Response(sprint_scope_change_payload(sprint), status=status.HTTP_200_OK)
+
+    @extend_schema(
+        operation_id="sprint_commitment_status",
+        summary="Committed tasks at risk of missing the sprint end, and open scope changes",
+        responses={
+            200: SprintCommitmentStatusSerializer,
+            404: OpenApiResponse(description="Unknown sprint, or not a member of its project."),
+        },
+        extensions=EXPERIMENTAL_EXTENSIONS,
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="commitment-status",
+        # One CPM pass derives each at-risk row's cause, so it shares the
+        # derivation read's human-caller budget (the MCP bucket is stacked on top
+        # through mcp_compute_heavy_actions).
+        throttle_classes=[ScopedRateThrottle],
+        throttle_scope="cpm_on_read",
+    )
+    def commitment_status(self, request: Request, pk: str | None = None) -> Response:
+        """Read a sprint's commitment status (ADR-1485 D3, D10).
+
+        Read-only; any project member (Viewer+), the same audience as the
+        scope-changes audit. ``at_risk`` lists committed tasks whose last-recalculated
+        finish is after the sprint's end, each with the server's one-line ``cause``
+        and a ``derivation_ref``; ``open_scope_changes`` lists the PENDING rows of
+        both kinds with batch, requester, age and proposed dates. Accepting or
+        rejecting stays on the Admin+ routes and is refused to API tokens.
+        """
+        from trueppm_api.apps.projects.commitment_risk import commitment_status_payload
+
+        sprint = self._sprint_or_404(pk)
+        self.check_object_permissions(request, sprint)
+        return Response(
+            SprintCommitmentStatusSerializer(commitment_status_payload(sprint)).data,
+            status=status.HTTP_200_OK,
+        )
 
     @extend_schema(
         summary="Duration-change audit events captured during a sprint (ADR-0151, #1254)",

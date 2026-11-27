@@ -18,10 +18,12 @@ from .delivery_limits import EMAIL_MAX_BATCH_SIZE
 from .models import (
     PROJECT_NOTIFICATION_DELIVERY_REPORTED_CHANNELS,
     PROJECT_NOTIFICATION_DELIVERY_REPORTED_EVENTS,
+    UNMUTABLE_IN_APP_EVENTS,
     EmailSecurity,
     EmailTransportMode,
     Mention,
     Notification,
+    NotificationChannel,
     NotificationPreference,
     ProjectNotificationChannel,
     ProjectNotificationEventType,
@@ -536,6 +538,26 @@ class NotificationPreferenceSerializer(serializers.ModelSerializer[NotificationP
         model = NotificationPreference
         fields = ["id", "event_type", "channel", "enabled", "updated_at"]
         read_only_fields = ["id", "event_type", "channel", "updated_at"]
+
+    def validate_enabled(self, value: bool) -> bool:
+        """Refuse a mute the server would ignore (ADR-1485 D8).
+
+        The in-app row of :data:`UNMUTABLE_IN_APP_EVENTS` is written whatever this
+        cell says, so storing ``False`` would show the user a switch that does
+        nothing. Email and the other channels of those events stay editable.
+        """
+        instance = self.instance
+        if (
+            value is False
+            and instance is not None
+            and instance.event_type in UNMUTABLE_IN_APP_EVENTS
+            and instance.channel == NotificationChannel.IN_APP.value
+        ):
+            raise serializers.ValidationError(
+                "This notice cannot be turned off: a change to a sprint commitment "
+                "must always reach the people who can decide it."
+            )
+        return value
 
 
 # ---------------------------------------------------------------------------

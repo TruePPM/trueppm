@@ -127,6 +127,20 @@ class NotificationEventType(models.TextChoices):
         "sprint.membership_changed",
         "A task entered or left an active sprint",
     )
+    # ADR-1485 D8 (#5133). Both reach every member holding the scope accept
+    # authority (:func:`projects.services._sprint_lead_recipient_ids`) and their
+    # in-app row cannot be muted (:data:`UNMUTABLE_IN_APP_EVENTS`): a change to what
+    # the team committed to must not pass silently. Email follows preferences, off by
+    # default, and is NOT in DND_BYPASS_EVENTS (D8: "email and other channels follow
+    # each member's preferences").
+    SPRINT_SCOPE_CHANGE_REQUESTED = (
+        "sprint.scope_change_requested",
+        "A change to a sprint commitment awaits a decision",
+    )
+    SPRINT_COMMITMENT_AT_RISK = (
+        "sprint.commitment_at_risk",
+        "Committed tasks are now expected to finish after the sprint ends",
+    )
     # Project-finish shift (#1911, third #82 schedule-notification rule — companion
     # to #1668's dependency-slip / became-critical pair). Fires when a
     # ProjectForecastSnapshot's cpm_finish moves by more than the project's
@@ -342,6 +356,11 @@ class Notification(models.Model):
     event_type = models.CharField(max_length=64, blank=True, default="")
     subject = models.CharField(max_length=255, blank=True, default="")
     body = models.TextField(blank=True, default="")
+    # Coalescing key (ADR-1485 D8). Blank for almost every row. A fan-out that
+    # produces several changes in one request (a multi-select drag, a bulk
+    # placement) writes ONE notice per recipient and rewrites it as each further
+    # change lands, keyed on (recipient, event_type, group_key).
+    group_key = models.CharField(max_length=80, blank=True, default="")
 
     # Optional deep-link target (#497/#861). Mention rows resolve their task via
     # the comment; event rows have no such path, so this FK lets the inbox row
@@ -510,6 +529,13 @@ DEFAULT_PREFERENCES: list[tuple[str, str, bool]] = [
     # (Priya's un-opted-email hard-NO), matching every other contributor signal.
     (NotificationEventType.SPRINT_MEMBERSHIP_CHANGED, NotificationChannel.IN_APP, True),
     (NotificationEventType.SPRINT_MEMBERSHIP_CHANGED, NotificationChannel.EMAIL, False),
+    # ADR-1485 D8 (#5133) — a commitment change awaiting a decision, and committed
+    # tasks forecast past the sprint end. In-app is ON and cannot be turned off
+    # (UNMUTABLE_IN_APP_EVENTS); email opt-in OFF like every other contributor signal.
+    (NotificationEventType.SPRINT_SCOPE_CHANGE_REQUESTED, NotificationChannel.IN_APP, True),
+    (NotificationEventType.SPRINT_SCOPE_CHANGE_REQUESTED, NotificationChannel.EMAIL, False),
+    (NotificationEventType.SPRINT_COMMITMENT_AT_RISK, NotificationChannel.IN_APP, True),
+    (NotificationEventType.SPRINT_COMMITMENT_AT_RISK, NotificationChannel.EMAIL, False),
     # #2964 — an amend to committed work. In-app ON so the people whose plan
     # changed see it; email opt-in OFF, matching every other contributor signal.
     (NotificationEventType.PLAN_AMENDED, NotificationChannel.IN_APP, True),
@@ -599,6 +625,20 @@ DND_BYPASS_EVENTS: frozenset[str] = frozenset(
         NotificationEventType.SIGNAL_CEILING_PROPOSAL_OPENED,
         NotificationEventType.SIGNAL_CEILING_PROPOSAL_RESOLVED,
         NotificationEventType.MILESTONE_FORECAST_SHIFTED,
+    }
+)
+
+# Event types whose IN-APP row is written whatever the recipient's preference says
+# (ADR-1485 D8, #5133). A per-event mute does exist (a NotificationPreference row
+# with in_app disabled makes every fan-out in notifications.services skip the
+# recipient), and DND_BYPASS_EVENTS does not reach it: DND only gates email. So this
+# is a separate set, honored by every fan-out, and the preference write refuses to
+# store ``enabled=False`` for these cells so the settings UI cannot show a mute that
+# does nothing. Email and other channels still follow preferences.
+UNMUTABLE_IN_APP_EVENTS: frozenset[str] = frozenset(
+    {
+        NotificationEventType.SPRINT_SCOPE_CHANGE_REQUESTED,
+        NotificationEventType.SPRINT_COMMITMENT_AT_RISK,
     }
 )
 
