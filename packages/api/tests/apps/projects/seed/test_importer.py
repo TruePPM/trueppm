@@ -533,3 +533,49 @@ def test_created_import_binds_minted_user_to_resource(owner: Any) -> None:
     minted = User.objects.get(username="seed-alex")
     res = Resource.objects.get(name="Alex Rivera")
     assert res.user_id == minted.pk
+
+
+# ---------------------------------------------------------------------------
+# #4939: the generic path bounds what it adds to the global Resource library
+# ---------------------------------------------------------------------------
+
+
+def _seed_with_resources(count: int) -> dict[str, Any]:
+    """The base seed with ``count`` extra resources, the last one assigned to a task."""
+    seed = _seed()
+    seed["resources"] += [{"slug": f"extra-{i}", "name": f"Extra {i}"} for i in range(count)]
+    task = seed["projects"][0]["tasks"][0]
+    task["assignments"] = [
+        {"resource": "alex", "units": 1.0},
+        {"resource": f"extra-{count - 1}", "units": 0.5},
+    ]
+    return seed
+
+
+def test_generic_import_caps_resources_and_skips_refused_assignments(
+    owner: Any, settings: Any
+) -> None:
+    settings.IMPORT_MAX_RESOURCES_CREATED = 2
+    before = Resource.objects.count()
+    report: dict[str, Any] = {}
+
+    import_seed(_seed_with_resources(4), owner=owner, report=report)
+
+    assert Resource.objects.count() - before == 2
+    assert report["resources_created"] == 2
+    assert report["resources_created_names"] == ["Alex Rivera", "Extra 0"]
+    assert report["resources_refused_names"] == ["Extra 1", "Extra 2", "Extra 3"]
+    assert "Resource 'Extra 0': a new resource was created for it" in report["warnings"]
+    assert "IMPORT_MAX_RESOURCES_CREATED=2" in report["warnings"][-1]
+    assert not TaskResource.objects.filter(resource__name="Extra 3").exists()
+    assert TaskResource.objects.filter(resource__name="Alex Rivera").exists()
+
+
+def test_sample_import_is_not_capped(owner: Any, settings: Any) -> None:
+    settings.IMPORT_MAX_RESOURCES_CREATED = 0
+    report: dict[str, Any] = {}
+
+    import_seed(_seed_with_resources(2), owner=owner, is_sample=True, report=report)
+
+    assert Resource.objects.filter(name="Extra 1").exists()
+    assert report["resources_refused_names"] == []

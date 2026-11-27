@@ -368,6 +368,23 @@ def test_job_transitions_to_success_and_the_entities_land(seed_owner: Any) -> No
     assert Task.objects.filter(project__program=program, is_deleted=False).count() == 3
 
 
+def test_job_result_summary_reports_what_the_resource_cap_refused(
+    seed_owner: Any, settings: Any
+) -> None:
+    """#4939: the async job is the REST path, so the refusal must reach its poll."""
+    settings.IMPORT_MAX_RESOURCES_CREATED = 0
+    seed = _seed()
+    assert seed["resources"], "the fixture must carry a resource for this to mean anything"
+    resp = _client(seed_owner).post(IMPORT_URL, data=seed, format="json")
+    _run_job(resp.data["import_request_id"])
+
+    job = ProgramImportJob.objects.get(pk=resp.data["import_request_id"])
+    assert job.status == ImportJobStatus.SUCCESS, job.error_detail
+    assert job.result_summary["resources_created"] == 0
+    assert job.result_summary["resources_refused_names"] == [r["name"] for r in seed["resources"]]
+    assert "IMPORT_MAX_RESOURCES_CREATED=0" in job.result_summary["warnings"][-1]
+
+
 def test_job_status_endpoint_reports_progress_and_is_program_scoped(
     seed_owner: Any, stranger: Any
 ) -> None:
