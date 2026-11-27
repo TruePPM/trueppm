@@ -107,7 +107,8 @@ async function savedCopies(page: Page): Promise<number> {
 
 async function goOffline(page: Page): Promise<void> {
   await page.context().setOffline(true);
-  await page.route('**/api/v1/**', (route) => route.abort('internetdisconnected'));
+  // Registered last, so it beats every API mock: nothing under /api/ answers.
+  await page.route('**/api/**', (route) => route.abort('internetdisconnected'));
   // With a worker controlling the page, Chromium under Playwright still reports
   // `navigator.onLine === true` after setOffline, so pin it for the next loads.
   await page.evaluate(() => sessionStorage.setItem('e2e-offline', '1'));

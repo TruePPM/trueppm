@@ -14,8 +14,7 @@
  * - the kill-switch header unregisters the worker.
  *
  * The worker handles no `/api/` request, so `page.route` mocks still see every API
- * call; the offline-boot test also routes at the context level for the worker's
- * own install-time fetches.
+ * call.
  */
 import { test, expect } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
@@ -70,9 +69,6 @@ test.describe('PWA shell (ADR-1523)', () => {
     context,
   }) => {
     await setupCatchAll(page);
-    await context.route('**/api/v1/**', (route) =>
-      route.fulfill({ status: 404, contentType: 'application/json', body: '{"detail":"mock"}' }),
-    );
     await page.goto('/login');
     await waitForControllingWorker(page);
 
@@ -87,7 +83,6 @@ test.describe('PWA shell (ADR-1523)', () => {
     });
     expect(cachedApiUrls).toEqual([]);
 
-    await context.unroute('**/api/v1/**');
     await context.setOffline(true);
     await page.reload();
     await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
@@ -108,13 +103,23 @@ test.describe('PWA shell (ADR-1523)', () => {
     await page.goto('/');
     await waitForControllingWorker(page);
 
-    // Registered after setupCatchAll, so it takes precedence for every API read.
-    await page.route('**/api/v1/**', (route) =>
+    // The shell reads /auth/me/ through the app's API client on every load; this
+    // override (registered last, so it wins) carries the kill-switch header back.
+    await page.route('**/api/v1/auth/me/', (route) =>
       route.fulfill({
-        status: 404,
+        status: 200,
         contentType: 'application/json',
         headers: { 'X-TruePPM-Service-Worker': 'disable' },
-        body: '{"detail":"mock"}',
+        body: JSON.stringify({
+          id: 'e2e-user',
+          username: 'dana',
+          display_name: 'Dana',
+          initials: 'D',
+          email: 'dana@example.com',
+          max_project_role: 100,
+          workspace_role: null,
+          can_access_admin_settings: false,
+        }),
       }),
     );
     // The shell's own API reads carry the header back after this reload.
