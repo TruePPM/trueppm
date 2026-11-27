@@ -299,6 +299,7 @@ def evaluate(
         "error"}, "violations": [names]}``. ``violations`` lists failed checks and,
         as ``selfcheck_error``, any check that raised.
     """
+    from celery.exceptions import SoftTimeLimitExceeded
     from trueppm_scheduler import SimulationCapExceeded
 
     checks: dict[str, str] = {}
@@ -321,6 +322,11 @@ def evaluate(
             checks[name] = "pass" if fn() else "fail"
         except SimulationCapExceeded:
             checks[name] = "skipped"
+        except SoftTimeLimitExceeded:
+            # SoftTimeLimitExceeded subclasses Exception; recording it as a failed
+            # check would run the remaining checks past the task's time limit. The
+            # caller's catch-all turns this into a skipped verdict.
+            raise
         except Exception:
             # Telemetry must never destabilize the recompute it observes.
             logger.warning("scheduler self-check %s raised", name, exc_info=True)
