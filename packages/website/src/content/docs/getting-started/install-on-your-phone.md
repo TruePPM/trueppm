@@ -52,6 +52,13 @@ The installed app starts with no connection. What works offline is deliberately 
 - **Every other page** says **This view isn't cached**, with a way back to My Work and a
   **Retry connection** button. The full schedule needs a connection.
 
+"Without a connection" here means your phone reports itself offline, as in airplane
+mode. On a connection too weak to reach your server that the phone still reports as
+online (one bar of signal, or a hotel or airport Wi-Fi that wants you to sign in first),
+the app cannot tell the difference from a signed-out session: it asks you to sign in
+again, and does not show the saved My Work copy. Switching on airplane mode lets it open
+offline as described above.
+
 A banner says when you are offline. When you reconnect with changes still waiting to be
 sent, it shows **Back online — syncing** with their count until they are sent.
 
@@ -65,8 +72,9 @@ status changes so they survive closing the app is planned (see
 The installed app stores the application itself (its code, fonts and icons) so it can
 start without a connection, and the saved copy of your My Work list. It does **not** store
 responses from your TruePPM server in the browser's cache, and it never stores your
-sign-in token. Signing out deletes the saved My Work copy, and a copy older than seven
-days is not shown.
+sign-in token. Signing out deletes the saved My Work copy. A copy older than seven days
+is never shown, and is deleted the next time the app opens My Work; until then, or until
+you sign out, it stays on the device.
 
 ## For operators
 
@@ -79,12 +87,32 @@ page load and checks for one hourly. It never reloads a page on its own, so an u
 cannot interrupt someone mid-edit.
 
 **Emergency off switch.** If a service-worker problem ever needs to be cleared from every
-browser, add this response header to your API responses, at your ingress or in the web
-container's nginx `location /api/` block:
+browser, make your API responses carry the header `X-TruePPM-Service-Worker: disable`.
+Where you add it depends on what serves `/api/` in your install:
 
-```nginx
-add_header X-TruePPM-Service-Worker "disable" always;
-```
+- **Helm chart.** The chart's default ingress sends `/api` straight to the API Service,
+  past the web pod, so a header set in the web container's nginx never reaches those
+  responses. Add the header at your ingress controller or the reverse proxy in front of
+  it, using its own way of adding a response header.
+- **Web container's nginx** (Docker Compose, or an ingress that sends every path to the
+  web pod). Add it to the `location /api/` block of the web image's `nginx.conf`, and
+  copy the four security `add_header` lines from that file's `server` block into the
+  same block. nginx's `add_header` replaces the headers a block inherits instead of
+  adding to them, so the kill-switch line on its own would strip `X-Frame-Options`,
+  `X-Content-Type-Options`, `Referrer-Policy` and `Content-Security-Policy` from every
+  API response:
+
+  ```nginx
+  location /api/ {
+      add_header X-TruePPM-Service-Worker "disable" always;
+      # Repeat the server block's security headers, copied exactly:
+      add_header X-Frame-Options        "DENY" always;
+      add_header X-Content-Type-Options "nosniff" always;
+      add_header Referrer-Policy        "strict-origin-when-cross-origin" always;
+      add_header Content-Security-Policy "<the server block's value>" always;
+      # ...the block's existing proxy settings, unchanged
+  }
+  ```
 
 The next time a signed-in browser reaches the API, it unregisters the worker and deletes
 its caches. Browsers that still serve the header register no worker. Remove the header to

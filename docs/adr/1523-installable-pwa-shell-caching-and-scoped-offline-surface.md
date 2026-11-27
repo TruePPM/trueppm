@@ -111,9 +111,17 @@ that is never closed still updates.
 
 **Kill switch.** Any API response carrying `X-TruePPM-Service-Worker: disable` makes the
 page unregister every worker on the origin and delete its caches (the API client's
-response interceptor calls `disableServiceWorker()`). It needs no API code: an operator
-adds the header at their ingress or in the chart's web nginx `location /api/` block. It
-is the escape hatch for a worker bug that pins clients, which a redeploy alone cannot
+response interceptor calls `disableServiceWorker()`). It needs no API code: the operator
+adds the header wherever `/api/` responses leave their stack. Under the Helm chart's
+default ingress that is the ingress controller or a reverse proxy in front of it, because
+the ingress routes `/api` straight to the API Service, past the web pod, so a header set
+in the web image's nginx never reaches those responses. Where the web image's nginx does
+proxy `/api/` (Docker Compose, or an ingress that sends everything to the web pod), the
+header goes in its `location /api/` block **together with the four security headers the
+`server` block sets** (`X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`,
+`Content-Security-Policy`): nginx's `add_header` replaces the inherited set rather than
+merging with it (#2849), so a lone kill-switch line would strip those headers from every
+API response. It is the escape hatch for a worker bug that pins clients, which a redeploy alone cannot
 fix for a client that never fetches the new `sw.js`. ADR-1463 and ADR-1465 referred to
 "the server kill-switch header"; this is its name and contract.
 
@@ -146,17 +154,30 @@ fix for a client that never fetches the new `sw.js`. ADR-1463 and ADR-1465 refer
 - When the query fails with a **network error** (no HTTP response) the page renders the
   snapshot under the offline banner, with the time it was saved. A 4xx/5xx response is a
   real answer and is never replaced by the snapshot.
-- **Bound to the user.** The snapshot is purged on logout, on user switch (the
-  `/auth/me/` id differs from the snapshot's `userId`), and after **7 days**. A cold
-  offline launch shows it only when the persisted `isAuthenticated` hint is true — the
-  same trust the shell already places in that hint — because no identity can be
-  confirmed without a network.
+- **Bound to the user.** The snapshot is purged on logout (the user-menu sign-out and
+  the session bridge's cache clear, which covers a sign-out in another tab and leaving
+  read-only viewing), and on user switch (the `/auth/me/` id differs from the snapshot's
+  `userId`). It has a **7-day TTL**: a snapshot older than that is never shown, and is
+  deleted from IndexedDB when a read finds it expired. An expired snapshot that is never
+  read again (My Work is not opened) stays on disk until that read, the next logout, or
+  the next successful save overwrites it. A cold offline launch shows it only when the
+  persisted `isAuthenticated` hint is true — the same trust the shell already places in
+  that hint — because no identity can be confirmed without a network.
+- **Limitation: "offline" means `navigator.onLine === false`.** The cold-launch fix in
+  `bootstrapAccessToken` leaves the session alone only when the token refresh got no
+  HTTP response **and** the browser reports no network. On a connection that is too weak
+  to answer but still reports online (one bar of signal, a captive portal), the refresh
+  fails with no response while `navigator.onLine` is true, so the session is expired as
+  before: the sign-in modal appears and the snapshot is not shown. Airplane mode, or any
+  state the browser reports as offline, gets the offline shell. Probing reachability
+  instead (a timed request to a known endpoint) would close this gap at the cost of a
+  slower cold launch; it is not built.
 - Not cached: everything else. The board keeps its own ADR-0220 snapshot.
 
 ### 5. "This view isn't cached"
 
-`OfflineMiss` ("This view isn't cached — The full schedule needs a connection. Your tasks
-and time tracking still work offline." · **Back to My Work** · **Retry connection**)
+`OfflineMiss` ("This view isn't cached — This page needs a connection. My Work shows the
+last copy saved on this device." · **Back to My Work** · **Retry connection**)
 replaces the page body only when **both** hold: the app booted with no network (a cold
 offline launch, so no page has in-memory data to lose), and the route is not one of the
 offline-capable routes (`/me/work`, and the board routes ADR-0220 serves). A warm session
@@ -221,16 +242,22 @@ with the two kinds the PWA needs; ADR-1465 adds the schedule kinds to the same s
 
 ## Consequences
 
-- Easier: the app installs on iPhone and Android, boots with no signal, and the outbox
-  ADR-1465 needs exists, with the user binding and purge rules it requires.
+- Easier: the app installs on iPhone and Android and boots with no signal. Decision 6
+  specifies the outbox ADR-1465 needs, with its user binding and purge rules, but does
+  not build it: until it is built, ADR-1465 still has no store to extend, and offline
+  writes are held only in memory and lost when the app closes.
 - Harder: a worker is a new version-skew surface; it is mitigated by never reloading,
   the ADR-1249 window, and the kill-switch header.
 - Risks:
-  - **Shared devices.** The snapshot and outbox belong to the last signed-in user until
-    logout. Same exposure ADR-1465 accepted; the purge rules are what bound it.
+  - **Shared devices.** The snapshot (and the outbox, once built) belongs to the last
+    signed-in user until logout. Same exposure ADR-1465 accepted; the purge rules are
+    what bound it.
   - **iOS storage eviction.** Safari may evict a non-installed site's storage after seven
-    days without use. The outbox shows its count in the banner so loss is not silent;
-    installing to the Home Screen exempts the app from that eviction.
+    days without use; installing to the Home Screen exempts the app from that eviction.
+    Evicting the snapshot loses only a copy the server still holds. Once Decision 6's
+    outbox is built, its count in the banner is what keeps a lost queued write from
+    being silent; today the banner counts only the in-memory paused writes of the open
+    session, which eviction cannot reach and closing the app discards.
   - **Precache size.** Every chunk is precached on first visit; the build fails if a
     single file exceeds Workbox's size limit rather than silently skipping it.
 
@@ -267,4 +294,7 @@ with the two kinds the PWA needs; ADR-1465 adds the schedule kinds to the same s
       reads") carry the option Decision 2 rejects; #1426 and #1427 match. **2** bodies to
       correct with a dated note. Not done on this branch (the implementing session had no
       tracker write access).
+- [ ] **Still to post:** the dated correction notes on the bodies of #1424 and #1425,
+      saying that Decision 2 rejects the stale-while-revalidate option they describe.
+      Neither note has been posted.
 - [ ] Mark ADR-1463 and ADR-1465 as extending this worker and outbox store.
