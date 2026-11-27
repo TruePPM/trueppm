@@ -2500,7 +2500,9 @@ helm:template:
         || { echo "PROD REGRESSION: web nginx lost its once-only git-webhook 1M location (#2932)"; exit 1; }
       grep -A2 -F 'git-webhook/$ {' /tmp/rendered.yaml | grep -q 'client_max_body_size 1M;' \
         || { echo "PROD REGRESSION: git-webhook web-tier location no longer caps the body at 1M (#2932)"; exit 1; }
-      awk '/name: .*-git-webhook$/{f=1} f' /tmp/rendered-ingress.yaml | grep -q 'proxy-body-size: "1m"' \
+      # grep -c, not -q: -q exits at the first match and awk can still be writing, so
+      # pipefail intermittently sees awk's SIGPIPE (141) and reports a false regression.
+      [ "$(awk '/name: .*-git-webhook$/{f=1} f' /tmp/rendered-ingress.yaml | grep -c 'proxy-body-size: "1m"')" -ge 1 ] \
         || { echo "PROD REGRESSION: no dedicated git-webhook Ingress with a 1m body limit (#2932)"; exit 1; }
     - |
       if helm template trueppm packages/helm --set image.tag=latest --set ingress.enabled=true \
