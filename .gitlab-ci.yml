@@ -2449,10 +2449,24 @@ helm:template:
         || { echo "PROD REGRESSION: ingress no longer clears the 100 MB attachment cap — a default install 413s every attachment >2 MB (#2604, #3189, #5124)"; exit 1; }
       grep -q 'nginx.ingress.kubernetes.io/proxy-body-size: 2m$' /tmp/rendered-large.yaml \
         || { echo "PROD REGRESSION: the main Ingress no longer bounds anonymous routes at 2m (#5124)"; exit 1; }
+    # A host whose /api/v1/ goes to the web tier must send the large-body paths
+    # there too, or uploads bypass the web nginx it was routed through (#5124).
+    - |
+      helm template trueppm packages/helm --set image.tag=latest --set ingress.enabled=true \
+        --set 'ingress.hosts[0].host=web.example.com' \
+        --set 'ingress.hosts[0].paths[0].path=/' \
+        --set 'ingress.hosts[0].paths[0].pathType=Prefix' \
+        --set 'ingress.hosts[0].paths[0].service=web' > /tmp/rendered-large-web.yaml
+      backends="$(yq ea 'select(.kind == "Ingress" and (.metadata.name | test("-large-body$"))) | .spec.rules[].http.paths[].backend.service.name' /tmp/rendered-large-web.yaml | grep -vE '^(---)?$' || true)"
+      [ -n "$backends" ] || { echo "PROD REGRESSION: a web-tier host renders no large-body Ingress (#5124)"; exit 1; }
+      if echo "$backends" | grep -qv -- '-web$'; then
+        echo "PROD REGRESSION: a large-body backend for a service: web host is not the web Service: $backends (#5124)"; exit 1
+      fi
     # The anonymous Git-event receiver gets a 1 MB ceiling at BOTH edges (#2932):
-    # a dedicated Ingress (the 110m annotation on the main one covers every path
-    # of that object) and a nested web-tier nginx location. Without the Ingress
-    # an anonymous caller can push 110 MB at an unconfigured project UUID.
+    # a dedicated Ingress (the main one's 2m annotation covers every path of that
+    # object) and a nested web-tier nginx location. Without the Ingress an
+    # anonymous caller gets the main Ingress's looser 2m at an unconfigured
+    # project UUID.
     - |
       helm template trueppm packages/helm --set image.tag=latest --set ingress.enabled=true > /tmp/rendered-ingress.yaml
       [ "$(grep -c 'location ~ ^/api/v1/integrations/projects/\[^/\]+/git-webhook/\$ {' /tmp/rendered.yaml)" = 1 ] \
@@ -2517,6 +2531,11 @@ helm:template:
       [ -n "$backends" ] || { echo "DEMO REGRESSION: an all-web demo Ingress no longer renders (#3908)"; exit 1; }
       echo "$backends" | grep -qv -- '-web$' \
         && { echo "DEMO REGRESSION: a demo Ingress backend is not the web Service: $backends (#3908)"; exit 1; } || true
+      # The same host would earn a large-body Ingress outside the demo; the demo is
+      # read-only and must not get one (#5124).
+      if grep -qE 'name: .*-large-body$' /tmp/rendered-demo-ingress.yaml; then
+        echo "DEMO REGRESSION: demo.enabled renders the large-body Ingress (#5124)"; exit 1
+      fi
     # ── Interactive demo mode (ADR-1197, #3925) ───────────────────────────────
     # The SHARE-LINK demo's render must be unchanged by the interactive mode. It is
     # a separate switch precisely so that publishing two anonymous projections can
@@ -2860,6 +2879,25 @@ api:static:
     - bash scripts/ci/step.sh api:migration-check pip install -e "packages/api[dev]" --quiet
     - bash scripts/ci/step.sh api:migration-check sh -c 'cd packages/api && python manage.py makemigrations --check --dry-run'
     - bash scripts/ci/step.sh --finish
+
+api:nginx-parity:
+  # The two pytest files that read nginx and Helm text (#3852, #4383, #5124,
+  # #5155). api:test runs them on api/scheduler changes only (.rules-api), so an
+  # nginx- or chart-only change would never reach them. Scoped to exactly those
+  # inputs instead of widening the whole api suite.
+  extends: .api
+  stage: analyze
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - nginx/**/*
+        - packages/web/nginx.conf
+        - packages/helm/templates/**/*
+        - packages/helm/values*.yaml
+        - .gitlab-ci.yml
+  script:
+    - cd packages/api
+    - pytest tests/core/test_nginx_edge_hardening.py tests/core/test_request_body_limits.py -q
 
 api:analyze:
   # api:type-check and api:openapi-check share one trigger (rules-api), one image
