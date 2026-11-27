@@ -374,16 +374,23 @@ def test_restoring_a_project_already_stranded_on_a_deleted_program_detaches_it(
 
 
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("path", ["cascade", "reap"])
 def test_project_restore_waits_for_an_uncommitted_program_delete(
-    program: Program, owner: Any
+    program: Program, owner: Any, path: str
 ) -> None:
     """#4835: a restore overlapping a program delete must not re-attach the project.
 
     The delete holds the program row but has not committed. A lock query that also
     filtered on ``is_deleted`` would match nothing, not wait, and then save the
     stale ``program_id`` over the delete's detach.
+
+    The reap case pauses after the projects are detached and before the program
+    is tombstoned, so a reap that did not lock the program first would deadlock
+    with the restore.
     """
     from trueppm_api.apps.access.services import delete_program_cascade
+    from trueppm_api.apps.projects.models import ProgramImportJob
+    from trueppm_api.apps.projects.tasks import _reap_empty_import_shell
 
     racer = _project(program, owner, "Racer", "RAC")
     _trash_project(owner, racer)
@@ -391,12 +398,25 @@ def test_project_restore_waits_for_an_uncommitted_program_delete(
     deleted_uncommitted = threading.Event()
     errors: list[BaseException] = []
 
+    def hold_locks() -> None:
+        deleted_uncommitted.set()
+        time.sleep(0.5)  # hold the locks while the restore starts
+
+    soft_delete = Program.soft_delete
+
+    def paused_soft_delete(self: Program) -> None:
+        hold_locks()
+        soft_delete(self)
+
     def delete() -> None:
         try:
             with transaction.atomic():
-                delete_program_cascade(program_id=program.pk, actor=owner)
-                deleted_uncommitted.set()
-                time.sleep(0.5)  # hold the locks while the restore starts
+                if path == "cascade":
+                    delete_program_cascade(program_id=program.pk, actor=owner)
+                    hold_locks()
+                else:
+                    with patch.object(Program, "soft_delete", paused_soft_delete):
+                        assert _reap_empty_import_shell(ProgramImportJob(program=program))
         except BaseException as exc:  # surfaced by the assert below
             errors.append(exc)
         finally:

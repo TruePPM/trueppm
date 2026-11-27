@@ -2030,7 +2030,13 @@ def _reap_empty_import_shell(job: Any) -> bool:
         Project,
     )
 
-    program = Program.objects.filter(pk=job.program_id, is_deleted=False).first()
+    # Lock the program before any project row: ``Project.restore`` takes them in
+    # that order, and the reverse order here deadlocks the two (#4835). Holding it
+    # also keeps the live-project guard below true until commit. The caller owns
+    # the transaction.
+    program = (
+        Program.objects.select_for_update().filter(pk=job.program_id, is_deleted=False).first()
+    )
     if program is None:  # already gone, or already tombstoned by a replace
         return False
     if Project.objects.filter(program_id=program.pk, is_deleted=False).exists():
