@@ -299,3 +299,76 @@ def test_concurrent_restore_losing_the_lock_is_404(program: Program, owner: Any)
     with patch.object(services, "restore_program", lose_the_race):
         resp = _client(owner).post(f"/api/v1/programs/{program.pk}/restore/")
     assert resp.status_code == 404, resp.content
+
+
+def _trash_project(owner: Any, project: Project) -> None:
+    resp = _client(owner).delete(f"/api/v1/projects/{project.pk}/")
+    assert resp.status_code == 204, resp.content
+
+
+def _restore_project(owner: Any, project: Project) -> None:
+    resp = _client(owner).post(f"/api/v1/projects/{project.pk}/restore/")
+    assert resp.status_code == 200, resp.content
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("path", ["cascade", "subtree", "reap"])
+def test_project_trashed_before_program_delete_restores_standalone(
+    program: Program, owner: Any, path: str
+) -> None:
+    """#4835: no program-delete path may leave a trashed project on the deleted program."""
+    from django.db import transaction
+
+    from trueppm_api.apps.projects.models import ProgramImportJob
+    from trueppm_api.apps.projects.services import soft_delete_program_subtree
+    from trueppm_api.apps.projects.tasks import _reap_empty_import_shell
+
+    early = _project(program, owner, "Early", "EAR")
+    _trash_project(owner, early)
+    early.refresh_from_db()
+    trashed_at = early.deleted_at
+
+    if path == "cascade":
+        _delete(owner, program)
+    else:
+        with transaction.atomic():
+            if path == "subtree":
+                assert soft_delete_program_subtree(program, actor=owner) == []
+            else:
+                assert _reap_empty_import_shell(ProgramImportJob(program=program)) is True
+
+    program.refresh_from_db()
+    early.refresh_from_db()
+    assert program.is_deleted is True
+    assert program.detached_project_ids == [early.pk]
+    assert early.program_id is None
+    # Detaching must not re-trash it: the retention clock is the original one.
+    assert early.deleted_at == trashed_at
+
+    _restore_project(owner, early)
+    early.refresh_from_db()
+    assert early.is_deleted is False
+    assert early.program_id is None
+
+
+@pytest.mark.django_db
+def test_restoring_a_project_already_stranded_on_a_deleted_program_detaches_it(
+    program: Program, owner: Any
+) -> None:
+    """Rows stored before #4835 still point at the tombstone; restore repairs them."""
+    stranded = _project(program, owner, "Stranded", "STR")
+    _trash_project(owner, stranded)
+    # The pre-fix stored state: program tombstoned, trashed child still attached.
+    program.soft_delete()
+
+    _restore_project(owner, stranded)
+    stranded.refresh_from_db()
+    assert stranded.program_id is None
+    program.refresh_from_db()
+    assert program.detached_project_ids == [stranded.pk]
+
+    # And a program restore still brings it home.
+    resp = _client(owner).post(f"/api/v1/programs/{program.pk}/restore/")
+    assert resp.status_code == 200, resp.content
+    stranded.refresh_from_db()
+    assert stranded.program_id == program.pk

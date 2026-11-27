@@ -2068,7 +2068,31 @@ class Project(VersionedModel):
         """
         self.deleted_at = None
         self.deleted_by = None
-        super().restore()
+        with transaction.atomic():
+            self._detach_from_deleted_program()
+            super().restore()
+
+    def _detach_from_deleted_program(self) -> None:
+        """Come back standalone if the parent program was deleted meanwhile (#4835).
+
+        Every program-delete path now detaches trashed projects too, but rows a
+        delete left attached before that fix are still stored. The id is appended
+        to the program's ``detached_project_ids`` so restoring the program still
+        re-attaches the project. The program row is locked so a concurrent program
+        restore cannot clear that list underneath the append; ``.update()`` is used
+        because the list is server-only bookkeeping no sync client reads.
+        """
+        if self.program_id is None:
+            return
+        program = (
+            Program.objects.select_for_update().filter(pk=self.program_id, is_deleted=True).first()
+        )
+        if program is None:
+            return
+        detached = list(program.detached_project_ids or [])
+        if self.pk not in detached:
+            Program.objects.filter(pk=program.pk).update(detached_project_ids=[*detached, self.pk])
+        self.program = None
 
 
 class ObjectKeyKind(models.TextChoices):
