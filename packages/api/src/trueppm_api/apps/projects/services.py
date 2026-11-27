@@ -5451,7 +5451,7 @@ def _unmodeled_predecessors(milestone: Any) -> list[str]:
     milestone_project_id = milestone.project_id
     unmodeled: list[str] = []
     for dep in (
-        Dependency.objects.filter(successor_id=milestone.pk, predecessor__is_deleted=False)
+        Dependency.live.filter(successor_id=milestone.pk, predecessor__is_deleted=False)
         .select_related("predecessor")
         .only(
             "pending_acceptance",
@@ -8144,19 +8144,19 @@ def soft_delete_program_subtree(
        the rows costs nothing here; role lookups ignore memberships on a
        soft-deleted program.
     2. **Projects are detached (``program = NULL``) before being tombstoned.**
-       ``ProjectViewSet.restore`` has no notion of a soft-deleted parent, so a
-       restored project still pointing at a tombstoned program would be exactly
-       the dangling reference ``delete_program_cascade`` exists to prevent. A
-       project trashed here comes back standalone when restored. A project that
-       was already in Trash before the program was deleted keeps its original
-       ``program`` and is not detached by this function.
+       A restored project still pointing at a tombstoned program would be exactly
+       the dangling reference ``delete_program_cascade`` exists to prevent, so a
+       restored project comes back standalone. That includes a project that was
+       already in Trash before the program was deleted: it is detached too, and
+       left tombstoned (#4835).
     3. **The program row itself is only tombstoned**, never removed, so its
        ``server_version`` bump reaches sync consumers. It lands in program Trash
        with the detached project ids recorded, so ``POST /programs/{id}/restore/``
        can re-attach them (#2587).
 
     Returns:
-        The ids of the projects that were tombstoned, in deletion order.
+        The ids of the projects that were tombstoned, in deletion order. Projects
+        that were already trashed are detached but not listed.
     """
     from trueppm_api.apps.projects.models import Program, Project
     from trueppm_api.apps.sync.broadcast import broadcast_board_event
@@ -8169,9 +8169,15 @@ def soft_delete_program_subtree(
         return []
 
     deleted_ids: list[str] = []
-    for project in Project.objects.select_for_update().filter(
-        program_id=locked.pk, is_deleted=False
-    ):
+    detached: list[uuid.UUID] = []
+    for project in Project.objects.select_for_update().filter(program_id=locked.pk):
+        detached.append(project.pk)
+        if project.is_deleted:
+            # Already in Trash: detach only. Re-running soft_delete_project would
+            # restart its retention clock and overwrite who deleted it.
+            project.program = None
+            project.save(update_fields=["program"])
+            continue
         # Detach in memory only. ``VersionedModel.soft_delete`` saves without an
         # explicit ``update_fields``, so ``save()`` writes every concrete column —
         # the detach rides along in the same UPDATE and the same history row
@@ -8183,7 +8189,7 @@ def soft_delete_program_subtree(
     # Recorded so a restore of this program can re-attach the projects (#2587).
     # They are in project Trash, so they come back under the program once each is
     # restored — the program restore itself never revives a project.
-    locked.detached_project_ids = [uuid.UUID(pid) for pid in deleted_ids]
+    locked.detached_project_ids = detached
     locked.deleted_by = actor if getattr(actor, "is_authenticated", False) else None
     locked.soft_delete()
     program_id = str(locked.pk)

@@ -1501,6 +1501,7 @@ def _risk_score_total(project_ids: list[Any]) -> int:
         return 0
     agg = Risk.objects.filter(
         project_id__in=project_ids,
+        is_deleted=False,
         status__in=[RiskStatus.OPEN, RiskStatus.MITIGATING],
     ).aggregate(score=Sum(F("probability") * F("impact")))
     return int(agg["score"] or 0)

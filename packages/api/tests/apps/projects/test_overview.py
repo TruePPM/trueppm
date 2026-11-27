@@ -132,6 +132,18 @@ class TestProjectOverview:
         assert data["open_risk_count"] == 0
         assert data["high_risk_count"] == 0
 
+    def test_soft_deleted_risks_are_not_counted(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        from trueppm_api.apps.projects.models import Risk
+
+        Risk.objects.create(project=project, title="kept", probability=1, impact=1)
+        Risk.objects.create(project=project, title="gone", probability=5, impact=5).soft_delete()
+
+        data = client.get(self.url(project.pk)).json()
+        assert data["open_risk_count"] == 1
+        assert data["high_risk_count"] == 0
+
     def test_owner_name_returned_when_owner_member_exists(
         self, client: APIClient, project: Project, user: object, membership: object
     ) -> None:

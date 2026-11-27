@@ -39,7 +39,14 @@ const application = {
 
 const project = {
   id: 'proj-1',
-  effective_calendar: { id: 'cal-1', name: 'Standard 5-day', working_days: 31, hours_per_day: 8, timezone: 'UTC', holiday_count: 0 },
+  effective_calendar: {
+    id: 'cal-1',
+    name: 'Standard 5-day',
+    working_days: 31,
+    hours_per_day: 8,
+    timezone: 'UTC',
+    holiday_count: 0,
+  },
 };
 
 function mockGets() {
@@ -114,7 +121,9 @@ describe('SeedBanner (#2731, ADR-0799 §1)', () => {
       />,
       { wrapper },
     );
-    expect(await screen.findByRole('button', { name: 'Delete untouched rows (2)' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('button', { name: 'Delete untouched rows (2)' }),
+    ).toBeInTheDocument();
   });
 
   it('hides "Delete untouched rows" when nothing is untouched', async () => {
@@ -152,7 +161,9 @@ describe('SeedBanner (#2731, ADR-0799 §1)', () => {
     expect(await screen.findByRole('button', { name: 'Confirm delete (2)?' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Confirm delete (2)?' }));
     await waitFor(() =>
-      expect(postMock).toHaveBeenCalledWith('/tasks/delete-untouched-seeded/', { project: 'proj-1' }),
+      expect(postMock).toHaveBeenCalledWith('/tasks/delete-untouched-seeded/', {
+        project: 'proj-1',
+      }),
     );
     await waitFor(() => expect(toastMock.success).toHaveBeenCalled());
   });
@@ -176,6 +187,27 @@ describe('SeedBanner (#2731, ADR-0799 §1)', () => {
       expect(postMock).toHaveBeenCalledWith('/template-applications/app-1/undo/', {}),
     );
     await waitFor(() => expect(onDismiss).toHaveBeenCalled());
+  });
+
+  it('Undo apply reports kept rows with the shared delete-undo copy (#4897)', async () => {
+    mockGets();
+    postMock.mockResolvedValue({ data: { ...application, undo: { deleted: 4, kept: 1 } } });
+    render(
+      <SeedBanner
+        projectId="proj-1"
+        applicationId="app-1"
+        tasks={[]}
+        currentRole={ROLE_ADMIN}
+        onDismiss={vi.fn()}
+      />,
+      { wrapper },
+    );
+    fireEvent.click(await screen.findByRole('button', { name: /Undo apply/ }));
+    await waitFor(() =>
+      expect(toastMock.success).toHaveBeenCalledWith(
+        'Undone — removed 4 rows, kept 1 row (changed since, or above a row that stays).',
+      ),
+    );
   });
 
   it('below Admin, the banner shows but management controls are hidden', async () => {

@@ -108,7 +108,7 @@ def import_csv(
         file_content = base64.b64decode(file_content_b64)
         tracker.update(5, f"Parsing {filename}...")
         parsed = _parse_spreadsheet_or_mark_dead(
-            file_content, filename, column_map, date_order, import_request_id
+            file_content, filename, column_map, date_order, import_request_id, project_id
         )
 
         tracker.update(20, "Validating dependency graph...")
@@ -140,10 +140,16 @@ def _parse_spreadsheet_or_mark_dead(
     column_map: dict[str, str] | None,
     date_order: str,
     import_request_id: str | None,
+    project_id: str,
 ) -> Any:
     from django.conf import settings
 
-    from trueppm_api.apps.csvimport.parser import CsvImportError, parse_spreadsheet
+    from trueppm_api.apps.csvimport.parser import (
+        CsvImportError,
+        WorkingDayCounter,
+        parse_spreadsheet,
+    )
+    from trueppm_api.apps.projects.models import Project
 
     try:
         return parse_spreadsheet(
@@ -153,6 +159,7 @@ def _parse_spreadsheet_or_mark_dead(
             date_order=date_order or "auto",
             max_rows=settings.CSV_IMPORT_MAX_ROWS,
             max_uncompressed_bytes=settings.CSV_IMPORT_MAX_UNCOMPRESSED_MB * 1024 * 1024,
+            count_working_days=WorkingDayCounter(Project.objects.filter(pk=project_id).first()),
         )
     except CsvImportError as exc:
         # Unparseable input is deterministic: retrying the same bytes always

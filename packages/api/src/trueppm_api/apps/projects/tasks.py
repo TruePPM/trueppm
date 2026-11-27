@@ -2030,7 +2030,13 @@ def _reap_empty_import_shell(job: Any) -> bool:
         Project,
     )
 
-    program = Program.objects.filter(pk=job.program_id, is_deleted=False).first()
+    # Lock the program before any project row: ``Project.restore`` takes them in
+    # that order, and the reverse order here deadlocks the two (#4835). Holding it
+    # also keeps the live-project guard below true until commit. The caller owns
+    # the transaction.
+    program = (
+        Program.objects.select_for_update().filter(pk=job.program_id, is_deleted=False).first()
+    )
     if program is None:  # already gone, or already tombstoned by a replace
         return False
     if Project.objects.filter(program_id=program.pk, is_deleted=False).exists():
@@ -2044,6 +2050,15 @@ def _reap_empty_import_shell(job: Any) -> bool:
         .exists()
     ):
         return False
+    # Projects trashed under the shell still point at it. Detach them (and record
+    # them for a program restore) so restoring one cannot bring it back live under
+    # a deleted program (#4835). The guard above left no live project here.
+    detached = []
+    for project in Project.objects.select_for_update().filter(program_id=program.pk):
+        project.program = None
+        project.save(update_fields=["program"])
+        detached.append(project.pk)
+    program.detached_project_ids = detached
     # The ``server_version`` bump ``soft_delete`` writes is the delivery
     # mechanism: an offline client learns the shell is gone from its next sync
     # delta, which is the same path that carries every other program tombstone.

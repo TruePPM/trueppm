@@ -328,6 +328,14 @@ def test_top_three_risks_by_probability_times_impact(
 
 
 @pytest.mark.django_db
+def test_snapshot_omits_soft_deleted_risks(project: Project, pm_client: APIClient) -> None:
+    Risk.objects.create(project=project, title="kept", probability=1, impact=1)
+    Risk.objects.create(project=project, title="gone", probability=5, impact=5).soft_delete()
+    snap = _post(pm_client, project).json()["snapshot"]
+    assert [r["title"] for r in snap["risks"]] == ["kept"]
+
+
+@pytest.mark.django_db
 def test_snapshot_is_frozen_and_live_diff_reports_the_move(
     project: Project, pm_client: APIClient
 ) -> None:

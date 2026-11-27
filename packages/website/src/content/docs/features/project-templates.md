@@ -121,7 +121,8 @@ gives you the fastest way to disagree with it:
   template wrote that nobody has looked at since. It only ever touches rows a
   machine wrote and a person hasn't edited; the moment you rename, reschedule, or
   otherwise touch a row, it drops out of the count and is safe from the sweep.
-  Requires Project Manager or above, and asks you to confirm before it runs.
+  A row with something under it that is staying is kept too, even if the count
+  includes it. Requires Project Manager or above, and asks you to confirm before it runs.
 - **Undo apply (⌘Z)** — reverses the whole application in one step, same as
   described below.
 
@@ -189,8 +190,10 @@ An application can be undone as a single step. It removes exactly the rows that
 application wrote — nothing that was already in the project, and nothing another
 application added.
 
-It deliberately **keeps any row somebody has since edited**, and tells you how
-many it kept. Undoing a template five minutes after a teammate started filling in
+It deliberately **keeps any row somebody has since edited**, along with the rows
+above it in the outline (removing a parent would remove what is under it), and
+tells you how many it kept. A row you added yourself under a template row keeps
+that row too. Undoing a template five minutes after a teammate started filling in
 one of its rows must not take their work with it: leaving a row behind is
 disappointing, deleting a sentence somebody wrote is not recoverable.
 

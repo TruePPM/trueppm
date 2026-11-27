@@ -9344,9 +9344,39 @@ class DependencySerializer(serializers.ModelSerializer[Dependency]):
 
         if predecessor and successor:
             self._check_no_cycle(predecessor, successor, attrs)
+            self._check_no_live_duplicate(predecessor, successor, attrs)
             if not cross_project:
                 self._validate_span_with_lag(attrs, predecessor)
         return attrs
+
+    def _check_no_live_duplicate(
+        self, predecessor: Task, successor: Task, attrs: dict[str, Any]
+    ) -> None:
+        """Refuse a second live edge on the same (predecessor, successor, dep_type).
+
+        DRF cannot do this: ``unique_dependency`` is conditional on
+        ``is_deleted=False`` so that a deleted edge can be re-added (#4901), and DRF
+        skips a conditional constraint whose condition field is not a serializer
+        field. Without this check the duplicate reaches the database as a 500.
+
+        Runs after :meth:`_check_no_cycle`, which row-locks both endpoints, so two
+        concurrent creates of one edge serialize and the second sees the first.
+        """
+        dep_type = attrs.get("dep_type") or (self.instance.dep_type if self.instance else "FS")
+        twins = Dependency.live.filter(
+            predecessor_id=predecessor.pk, successor_id=successor.pk, dep_type=dep_type
+        )
+        if self.instance is not None:
+            twins = twins.exclude(pk=self.instance.pk)
+        if twins.exists():
+            raise serializers.ValidationError(
+                {
+                    "non_field_errors": [
+                        f"A {dep_type} dependency already links these two tasks. "
+                        "Edit that dependency instead."
+                    ]
+                }
+            )
 
     def _resolve_cross_project_consent(
         self, request: Any, predecessor: Task, successor: Task
@@ -10728,7 +10758,7 @@ class SprintSerializer(serializers.ModelSerializer[Sprint]):
         else:
             predecessor_ids = [
                 str(pid)
-                for pid in Dependency.objects.filter(
+                for pid in Dependency.live.filter(
                     successor_id=milestone.pk, predecessor__is_deleted=False
                 ).values_list("predecessor_id", flat=True)
             ]

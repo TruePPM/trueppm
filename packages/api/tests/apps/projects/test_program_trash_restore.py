@@ -11,12 +11,15 @@ Covers:
 
 from __future__ import annotations
 
+import threading
+import time
 from datetime import date
 from typing import Any
 from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connection, transaction
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
@@ -201,8 +204,6 @@ def test_restore_rekeys_a_keyless_shell(program: Program, owner: Any) -> None:
 @pytest.mark.django_db
 def test_subtree_soft_delete_is_restorable(program: Program, owner: Any) -> None:
     """The ADR-0726 seed-replace path lands in Trash too; trashed children re-attach."""
-    from django.db import transaction
-
     from trueppm_api.apps.projects.services import soft_delete_program_subtree
 
     a = _project(program, owner, "Alpha", "ALP")
@@ -299,3 +300,138 @@ def test_concurrent_restore_losing_the_lock_is_404(program: Program, owner: Any)
     with patch.object(services, "restore_program", lose_the_race):
         resp = _client(owner).post(f"/api/v1/programs/{program.pk}/restore/")
     assert resp.status_code == 404, resp.content
+
+
+def _trash_project(owner: Any, project: Project) -> None:
+    resp = _client(owner).delete(f"/api/v1/projects/{project.pk}/")
+    assert resp.status_code == 204, resp.content
+
+
+def _restore_project(owner: Any, project: Project) -> None:
+    resp = _client(owner).post(f"/api/v1/projects/{project.pk}/restore/")
+    assert resp.status_code == 200, resp.content
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("path", ["cascade", "subtree", "reap"])
+def test_project_trashed_before_program_delete_restores_standalone(
+    program: Program, owner: Any, path: str
+) -> None:
+    """#4835: no program-delete path may leave a trashed project on the deleted program."""
+    from trueppm_api.apps.projects.models import ProgramImportJob
+    from trueppm_api.apps.projects.services import soft_delete_program_subtree
+    from trueppm_api.apps.projects.tasks import _reap_empty_import_shell
+
+    early = _project(program, owner, "Early", "EAR")
+    _trash_project(owner, early)
+    early.refresh_from_db()
+    trashed_at = early.deleted_at
+
+    if path == "cascade":
+        _delete(owner, program)
+    else:
+        with transaction.atomic():
+            if path == "subtree":
+                assert soft_delete_program_subtree(program, actor=owner) == []
+            else:
+                assert _reap_empty_import_shell(ProgramImportJob(program=program)) is True
+
+    program.refresh_from_db()
+    early.refresh_from_db()
+    assert program.is_deleted is True
+    assert program.detached_project_ids == [early.pk]
+    assert early.program_id is None
+    # Detaching must not re-trash it: the retention clock is the original one.
+    assert early.deleted_at == trashed_at
+
+    _restore_project(owner, early)
+    early.refresh_from_db()
+    assert early.is_deleted is False
+    assert early.program_id is None
+
+
+@pytest.mark.django_db
+def test_restoring_a_project_already_stranded_on_a_deleted_program_detaches_it(
+    program: Program, owner: Any
+) -> None:
+    """Rows stored before #4835 still point at the tombstone; restore repairs them."""
+    stranded = _project(program, owner, "Stranded", "STR")
+    _trash_project(owner, stranded)
+    # The pre-fix stored state: program tombstoned, trashed child still attached.
+    program.soft_delete()
+
+    _restore_project(owner, stranded)
+    stranded.refresh_from_db()
+    assert stranded.program_id is None
+    program.refresh_from_db()
+    assert program.detached_project_ids == [stranded.pk]
+
+    # And a program restore still brings it home.
+    resp = _client(owner).post(f"/api/v1/programs/{program.pk}/restore/")
+    assert resp.status_code == 200, resp.content
+    stranded.refresh_from_db()
+    assert stranded.program_id == program.pk
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("path", ["cascade", "reap"])
+def test_project_restore_waits_for_an_uncommitted_program_delete(
+    program: Program, owner: Any, path: str
+) -> None:
+    """#4835: a restore overlapping a program delete must not re-attach the project.
+
+    The delete holds the program row but has not committed. A lock query that also
+    filtered on ``is_deleted`` would match nothing, not wait, and then save the
+    stale ``program_id`` over the delete's detach.
+
+    The reap case pauses after the projects are detached and before the program
+    is tombstoned, so a reap that did not lock the program first would deadlock
+    with the restore.
+    """
+    from trueppm_api.apps.access.services import delete_program_cascade
+    from trueppm_api.apps.projects.models import ProgramImportJob
+    from trueppm_api.apps.projects.tasks import _reap_empty_import_shell
+
+    racer = _project(program, owner, "Racer", "RAC")
+    _trash_project(owner, racer)
+    stale = Project.objects.get(pk=racer.pk)  # still points at the live program
+    deleted_uncommitted = threading.Event()
+    errors: list[BaseException] = []
+
+    def hold_locks() -> None:
+        deleted_uncommitted.set()
+        time.sleep(0.5)  # hold the locks while the restore starts
+
+    soft_delete = Program.soft_delete
+
+    def paused_soft_delete(self: Program) -> None:
+        hold_locks()
+        soft_delete(self)
+
+    def delete() -> None:
+        try:
+            with transaction.atomic():
+                if path == "cascade":
+                    delete_program_cascade(program_id=program.pk, actor=owner)
+                    hold_locks()
+                else:
+                    with patch.object(Program, "soft_delete", paused_soft_delete):
+                        assert _reap_empty_import_shell(ProgramImportJob(program=program))
+        except BaseException as exc:  # surfaced by the assert below
+            errors.append(exc)
+        finally:
+            connection.close()
+
+    deleter = threading.Thread(target=delete)
+    deleter.start()
+    assert deleted_uncommitted.wait(10), errors
+    stale.restore()
+    deleter.join(30)
+
+    assert errors == []
+    racer.refresh_from_db()
+    program.refresh_from_db()
+    assert program.is_deleted is True
+    assert racer.is_deleted is False
+    assert racer.program_id is None
+    assert program.detached_project_ids == [racer.pk]

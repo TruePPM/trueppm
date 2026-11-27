@@ -17,7 +17,8 @@ from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.csvimport.models import CsvImportRequest, CsvImportStatus
-from trueppm_api.apps.csvimport.parser import parse_spreadsheet
+from trueppm_api.apps.csvimport.parser import WorkingDayCounter, parse_spreadsheet
+from trueppm_api.apps.csvimport.tasks import _parse_spreadsheet_or_mark_dead
 from trueppm_api.apps.csvimport.views import _parse_date_order, _require_project_scheduler
 from trueppm_api.apps.msproject.importer import import_project
 from trueppm_api.apps.projects.models import (
@@ -1134,8 +1135,9 @@ class TestDateOrderEndpoint:
         assert r.data["date_order_resolved"] == "mdy"
         assert r.data["date_order_evidence"] is None
         durations = {x["order"]: x["duration_days"] for x in r.data["date_order_readings"]}
-        # The 59-day difference the operator is being asked to rule on.
-        assert durations == {"mdy": 62, "dmy": 3}
+        # The difference the operator is being asked to rule on, in working days
+        # (#4897): 3 April 2026 to 5 April is a Friday plus a weekend.
+        assert durations == {"mdy": 44, "dmy": 1}
 
     def test_preview_under_an_override_reads_the_dates_the_operator_meant(
         self, project: Project
@@ -1146,7 +1148,7 @@ class TestDateOrderEndpoint:
         # Still names what auto would have done, so the change is legible.
         assert r.data["date_order_auto"] == "mdy"
         assert r.data["date_preview"][0]["start"] == "2026-04-03"
-        assert r.data["date_preview"][0]["duration_days"] == 3
+        assert r.data["date_preview"][0]["duration_days"] == 1
 
     def test_preview_states_the_evidence_when_the_file_identifies_itself(
         self, project: Project
@@ -1193,7 +1195,7 @@ class TestDateOrderEndpoint:
     def test_omitting_the_field_keeps_the_shipped_behavior(self, project: Project) -> None:
         r = self._preview(self._client(project, "d6"), project)
         assert r.data["date_order"] == "auto"
-        assert r.data["date_preview"][0]["duration_days"] == 62
+        assert r.data["date_preview"][0]["duration_days"] == 44
 
     def test_commit_persists_the_order_so_a_redispatch_replays_it(self, project: Project) -> None:
         """A drain re-dispatch must not re-infer — it would import different dates
@@ -1252,3 +1254,67 @@ class TestDateOrderEndpoint:
         status_resp = client.get(f"/api/v1/projects/{project.pk}/import/csv/{req_id}/")
         assert status_resp.data["date_order"] == "dmy"
         assert status_resp.data["date_order_confirmed"] is True
+
+
+# ---------------------------------------------------------------------------
+# #4897: a start/finish pair imports as working days on the project calendar
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_imported_span_counts_working_days_and_cpm_finishes_on_the_file_date(
+    project: Project,
+) -> None:
+    from trueppm_api.apps.projects.models import CalendarException
+
+    assert project.calendar is not None
+    # Pin the data date before the rows, or CPM re-lays them from today.
+    project.status_date = date(2026, 3, 2)
+    project.save(update_fields=["status_date"])
+    CalendarException.objects.create(
+        calendar=project.calendar, exc_start=date(2026, 3, 4), exc_end=date(2026, 3, 4)
+    )
+    # Mon 2 March to Fri 13 March: 12 calendar days, 10 weekdays, 9 working days.
+    content = b"Name,Start,Finish\nDesign,2026-03-02,2026-03-13\n"
+    parsed = parse_spreadsheet(content, "plan.csv", count_working_days=WorkingDayCounter(project))
+    assert parsed.project_data.tasks[0].duration_days == 9
+    assert parsed.date_preview[0]["duration_days"] == 9
+
+    import_project(str(project.pk), parsed.project_data)
+    _run_schedule(str(project.pk))
+
+    task = Task.objects.get(project=project, name="Design")
+    assert task.duration == 9
+    assert task.early_finish == date(2026, 3, 13)
+
+
+@pytest.mark.django_db
+def test_import_task_derives_the_duration_on_the_project_calendar(project: Project) -> None:
+    """The commit path passes the project's calendar, not just the preview."""
+    assert project.calendar is not None
+    project.calendar.working_days = 0b000_0111  # Monday to Wednesday
+    project.calendar.save()
+
+    parsed = _parse_spreadsheet_or_mark_dead(
+        b"Name,Start,Finish\nDesign,2026-03-02,2026-03-13\n",
+        "plan.csv",
+        None,
+        "auto",
+        None,
+        str(project.pk),
+    )
+
+    assert parsed.project_data.tasks[0].duration_days == 6
+
+
+def test_weekend_only_span_is_one_day_and_not_a_milestone() -> None:
+    parsed = parse_spreadsheet(b"Name,Start,Finish\nCutover,2026-03-07,2026-03-08\n", "plan.csv")
+    task = parsed.project_data.tasks[0]
+    assert task.duration_days == 1
+    assert task.is_milestone is False
+
+
+def test_a_span_past_the_counting_budget_keeps_calendar_days_and_says_so() -> None:
+    parsed = parse_spreadsheet(b"Name,Start,Finish\nForever,0001-01-01,9999-12-31\n", "plan.csv")
+    assert parsed.project_data.tasks[0].duration_days == (date.max - date.min).days + 1
+    assert [e.code for e in parsed.row_errors] == ["span_too_long"]

@@ -239,6 +239,7 @@ def test_counts_and_risk_sum_across_projects(
     _risk(a, 2, 2)
     _risk(b, 5, 5)
     _risk(b, 9, 9, status=RiskStatus.RESOLVED)  # excluded
+    _risk(b, 5, 4).soft_delete()  # excluded (#5149)
 
     _configure(
         program,

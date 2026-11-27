@@ -2068,7 +2068,35 @@ class Project(VersionedModel):
         """
         self.deleted_at = None
         self.deleted_by = None
-        super().restore()
+        with transaction.atomic():
+            self._detach_from_deleted_program()
+            super().restore()
+
+    def _detach_from_deleted_program(self) -> None:
+        """Come back standalone if the parent program was deleted meanwhile (#4835).
+
+        Every program-delete path now detaches trashed projects too, but rows a
+        delete left attached before that fix are still stored. The id is appended
+        to the program's ``detached_project_ids`` so restoring the program still
+        re-attaches the project. The program row is locked so a concurrent program
+        restore cannot clear that list underneath the append; ``.update()`` is used
+        because the list is server-only bookkeeping no sync client reads.
+
+        The lock is by primary key alone and ``is_deleted`` is read afterwards: a
+        predicate on it would match nothing while a delete is still uncommitted, so
+        it would not wait, and the restore would write the stale ``program_id`` back
+        over the delete's detach. Program before project is the order both delete
+        paths take.
+        """
+        if self.program_id is None:
+            return
+        program = Program.objects.select_for_update().filter(pk=self.program_id).first()
+        if program is None or not program.is_deleted:
+            return
+        detached = list(program.detached_project_ids or [])
+        if self.pk not in detached:
+            Program.objects.filter(pk=program.pk).update(detached_project_ids=[*detached, self.pk])
+        self.program = None
 
 
 class ObjectKeyKind(models.TextChoices):
@@ -2468,6 +2496,46 @@ def bulk_soft_delete_tasks(tasks: Iterable[Task]) -> int:
     return len(victim_ids)
 
 
+def revive_dependency_tombstones(candidates: QuerySet[Dependency], seq: int) -> None:
+    """Un-tombstone the edges in ``candidates``, at most one per edge key.
+
+    ``unique_dependency`` covers live rows only, so one (predecessor, successor,
+    dep_type) key can have a live row and any number of tombstones (delete, re-add,
+    delete again). Reviving two of them in one UPDATE would violate the constraint
+    and abort the whole restore. A live row is authoritative; otherwise the most
+    recently deleted tombstone wins, because it is the last state the user saw.
+
+    Bypasses ``save()``, so the caller supplies the sync cursor ``seq``.
+    """
+    live_twin = Dependency.objects.filter(
+        is_deleted=False,
+        predecessor=OuterRef("predecessor"),
+        successor=OuterRef("successor"),
+        dep_type=OuterRef("dep_type"),
+    )
+    winners = (
+        candidates.filter(is_deleted=True)
+        .exclude(Exists(live_twin))
+        .order_by(
+            "predecessor_id",
+            "successor_id",
+            "dep_type",
+            F("deleted_at").desc(nulls_last=True),
+            "-server_version",
+            "pk",
+        )
+        .distinct("predecessor_id", "successor_id", "dep_type")
+        .values("pk")
+    )
+    Dependency.objects.filter(pk__in=winners).update(
+        is_deleted=False,
+        server_version=F("server_version") + 1,
+        sync_seq=seq,
+        deleted_version=None,
+        deleted_at=None,
+    )
+
+
 def cascade_project_children_restore(project: Project | uuid.UUID | str) -> None:
     """Un-tombstone every child of a soft-deleted project (#1113, ADR-0202).
 
@@ -2496,10 +2564,10 @@ def cascade_project_children_restore(project: Project | uuid.UUID | str) -> None
       project's own tasks are restored (``predecessor__is_deleted=False`` AND
       ``successor__is_deleted=False``). A cross-project edge whose other endpoint is still
       in another trashed project stays tombstoned and resurrects naturally when that
-      project is later restored. Tombstoned edges that would collide with an already-live
-      duplicate on the non-partial ``unique_dependency (predecessor, successor, dep_type)``
-      constraint are excluded to avoid an ``IntegrityError`` — the live row is
-      authoritative. Tasks are therefore restored BEFORE edges.
+      project is later restored. ``unique_dependency`` allows one live row per
+      (predecessor, successor, dep_type), so :func:`revive_dependency_tombstones` skips a
+      key that is already live and revives only the newest tombstone of a key that has
+      several. Tasks are therefore restored BEFORE edges.
     * **risks** — restored per-row via ``Risk.restore`` so ``Risk.save`` re-fires
       ``risk_changed(action="saved")`` (the OSS extension point for the Enterprise
       portfolio risk rollup). A bulk update would silently skip the signal, exactly the
@@ -2524,25 +2592,14 @@ def cascade_project_children_restore(project: Project | uuid.UUID | str) -> None
         deleted_version=None,
         deleted_at=None,
     )
-    # Dependency edges: both endpoints live, and no already-live duplicate on the
-    # non-partial (predecessor, successor, dep_type) unique constraint.
-    live_duplicate = Dependency.objects.filter(
-        is_deleted=False,
-        predecessor=OuterRef("predecessor"),
-        successor=OuterRef("successor"),
-        dep_type=OuterRef("dep_type"),
-    )
-    Dependency.objects.filter(
-        Q(predecessor__project_id=project_id) | Q(successor__project_id=project_id),
-        is_deleted=True,
-        predecessor__is_deleted=False,
-        successor__is_deleted=False,
-    ).exclude(Exists(live_duplicate)).update(
-        is_deleted=False,
-        server_version=F("server_version") + 1,
-        sync_seq=seq,
-        deleted_version=None,
-        deleted_at=None,
+    # Dependency edges: both endpoints live, one revival per edge key.
+    revive_dependency_tombstones(
+        Dependency.objects.filter(
+            Q(predecessor__project_id=project_id) | Q(successor__project_id=project_id),
+            predecessor__is_deleted=False,
+            successor__is_deleted=False,
+        ),
+        seq,
     )
     # ADR-0370 (#4830): a revived link — typically a cross-project one — whose
     # predecessor became a summary while this project sat in the trash would fail
@@ -2647,6 +2704,38 @@ def task_subtrees(tasks: Iterable[Task]) -> QuerySet[Task]:
     return Task.objects.filter(cond)
 
 
+def rows_whose_delete_spares_all_others(task_ids: Iterable[Any]) -> set[Any]:
+    """The subset of ``task_ids`` that can be deleted without taking any other row.
+
+    A task delete cascades over its whole WBS subtree, so an undo or sweep that
+    skips edited rows must also skip every row *above* one: deleting an untouched
+    summary would tombstone the edited child it had just reported as kept
+    (ADR-0789 §5, #4941). The same holds for any other live descendant outside the
+    set, such as a row somebody added under a seeded summary. Keeping the ancestor,
+    rather than deleting it and sparing the child, avoids stranding the child under a
+    deleted parent.
+
+    One pass is enough: a row outside the set that survives under a kept row is
+    also under every ancestor of that row.
+    """
+    ids = set(task_ids)
+    candidates = list(
+        Task.objects.filter(pk__in=ids, is_deleted=False).values_list(
+            "pk", "project_id", "wbs_path"
+        )
+    )
+    held: set[tuple[Any, str]] = set()
+    survivors = Task.objects.filter(
+        project_id__in={project_id for _, project_id, _ in candidates}, is_deleted=False
+    ).exclude(pk__in=ids)
+    for project_id, path in survivors.values_list("project_id", "wbs_path"):
+        labels = str(path or "").split(".")
+        held.update((project_id, ".".join(labels[:depth])) for depth in range(1, len(labels)))
+    return {
+        pk for pk, project_id, path in candidates if not path or (project_id, str(path)) not in held
+    }
+
+
 def cross_project_edge_rows(
     *, project_id: Any = None, tasks: QuerySet[Task] | None = None
 ) -> list[dict[str, Any]]:
@@ -2689,9 +2778,9 @@ def cascade_task_children_restore(task: Task) -> None:
     1. **Descendants** — ``is_deleted=True`` tasks under
        ``wbs_path__descendant=task.wbs_path``.
     2. **Dependency edges** — tombstoned edges touching the restored subtree, restored
-       only when BOTH endpoints are now live and no already-live duplicate exists on the
-       non-partial ``unique_dependency (predecessor, successor, dep_type)`` constraint
-       (``.exclude(Exists(...))``), avoiding an ``IntegrityError``.
+       only when BOTH endpoints are now live, at most one per
+       (predecessor, successor, dep_type) and none where that key is already live
+       (:func:`revive_dependency_tombstones`).
     3. **Assignments** need no action — the delete never tombstones them, so they return
        for free with the row.
 
@@ -2730,30 +2819,20 @@ def cascade_task_children_restore(task: Task) -> None:
         )
 
     # Edges touching the restored subtree (the task itself or any wbs descendant), gated
-    # on both endpoints live + no live duplicate — mirrors the project cascade's edge pass.
+    # on both endpoints live, one revival per key — mirrors the project cascade's edge pass.
     # Same scoping bug, same fix: an unscoped prefix pulls other projects' rows into the
     # subtree and restores dependency edges that belong to them (#3010).
     subtree = Task.objects.filter(
         Q(pk=task.pk) | Q(wbs_path__descendant=str(task.wbs_path)),
         project_id=task.project_id,
     )
-    live_duplicate = Dependency.objects.filter(
-        is_deleted=False,
-        predecessor=OuterRef("predecessor"),
-        successor=OuterRef("successor"),
-        dep_type=OuterRef("dep_type"),
-    )
-    Dependency.objects.filter(
-        Q(predecessor__in=subtree) | Q(successor__in=subtree),
-        is_deleted=True,
-        predecessor__is_deleted=False,
-        successor__is_deleted=False,
-    ).exclude(Exists(live_duplicate)).update(
-        is_deleted=False,
-        server_version=F("server_version") + 1,
-        sync_seq=seq,
-        deleted_version=None,
-        deleted_at=None,
+    revive_dependency_tombstones(
+        Dependency.objects.filter(
+            Q(predecessor__in=subtree) | Q(successor__in=subtree),
+            predecessor__is_deleted=False,
+            successor__is_deleted=False,
+        ),
+        seq,
     )
     # ADR-0370 (#4830): a revived SS/SF link whose predecessor became a summary while
     # this subtree sat in the trash would fail every recalculation. Retire it again.
@@ -5149,8 +5228,16 @@ class Dependency(VersionedModel):
     class Meta:
         db_table = "projects_dependency"
         constraints = [
+            # Conditional on liveness: perform_destroy soft-deletes, so an
+            # unconditional constraint let a tombstone own the edge's slot forever and
+            # a deleted dependency could never be re-added (#4901, the #3437 class).
+            # Several tombstones may therefore share one key, so every revival path
+            # must bring back at most one of them (revive_dependency_tombstones).
+            # DRF derives no validator from a constraint whose condition field the
+            # serializer does not expose; DependencySerializer refuses live duplicates.
             models.UniqueConstraint(
                 fields=["predecessor", "successor", "dep_type"],
+                condition=Q(is_deleted=False),
                 name="unique_dependency",
             )
         ]

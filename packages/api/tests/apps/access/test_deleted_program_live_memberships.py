@@ -17,7 +17,6 @@ from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership,
 from trueppm_api.apps.profiles.services import _has_any_membership
 from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
 from trueppm_api.apps.projects.models import ApiToken, Program, Project
-from trueppm_api.apps.projects.services import soft_delete_program_subtree
 from trueppm_api.apps.webhooks.dispatch import (
     _drop_program_webhooks_without_live_program_admin_owner,
 )
@@ -108,34 +107,35 @@ def _bearer(raw: str) -> APIClient:
     return client
 
 
-def _trash_delete_program_then_restore(user: object, program: Program, project: Project) -> None:
-    project.soft_delete()
-    soft_delete_program_subtree(program, actor=user)
-    restorer = APIClient()
-    restorer.force_authenticate(user=user)
-    assert restorer.post(f"/api/v1/projects/{project.pk}/restore/").status_code in (200, 204)
+def _strand_under_deleted_program(program: Program, project: Project) -> None:
+    """Leave a live project pointing at a deleted program.
+
+    The API no longer produces this (#4835), but rows restored before that fix
+    are still stored this way, so the readers must keep refusing it.
+    """
+    program.soft_delete()
     project.refresh_from_db()
     assert project.is_deleted is False
     assert project.program_id == program.pk  # the precondition this class of bug needs
 
 
 def test_program_token_resolve_is_empty_once_its_program_is_deleted() -> None:
-    user, program, project, raw = _program_token_world()
+    _user, program, project, raw = _program_token_world()
     params = {"kind": "project", "ref": "INSIDE"}
     assert _bearer(raw).get("/api/v1/resolve/", params).status_code == 200  # control
 
-    _trash_delete_program_then_restore(user, program, project)
+    _strand_under_deleted_program(program, project)
 
     assert _bearer(raw).get("/api/v1/resolve/", params).status_code == 404
 
 
 def test_program_token_write_is_refused_once_its_program_is_deleted() -> None:
-    user, program, project, raw = _program_token_world()
+    _user, program, project, raw = _program_token_world()
     body = {"source": "jira", "external_id": "P-1", "name": "w"}
     url = f"/api/v1/projects/{project.pk}/task-sync/"
     assert _bearer(raw).post(url, body, format="json").status_code == 201  # control
 
-    _trash_delete_program_then_restore(user, program, project)
+    _strand_under_deleted_program(program, project)
 
     assert _bearer(raw).post(url, {**body, "external_id": "P-2"}, format="json").status_code == 401
 

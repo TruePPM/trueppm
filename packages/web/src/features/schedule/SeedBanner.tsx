@@ -3,6 +3,7 @@ import { formatChord } from '@/lib/platform';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/Button';
 import { toast } from '@/components/Toast/toast';
+import { describeUndo } from '@/hooks/useBatchOperations';
 import { useProject } from '@/hooks/useProject';
 import {
   useDeleteUntouchedSeededTasks,
@@ -60,11 +61,7 @@ export function SeedBanner({
   const handleUndo = useCallback(() => {
     undoMutation.mutate(applicationId, {
       onSuccess: (data) => {
-        toast.success(
-          data.undo.kept > 0
-            ? `Undone — removed ${data.undo.deleted}, kept ${data.undo.kept} you'd already touched.`
-            : `Undone — removed ${data.undo.deleted} row${data.undo.deleted === 1 ? '' : 's'}.`,
-        );
+        toast.success(describeUndo(data.undo));
         void queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
         void queryClient.invalidateQueries({ queryKey: ['dependencies', projectId] });
         onDismiss();
@@ -109,7 +106,9 @@ export function SeedBanner({
     deleteMutation.mutate(projectId, {
       onSuccess: (data) => {
         toast.success(
-          data.deleted === 1 ? 'Deleted 1 untouched row.' : `Deleted ${data.deleted} untouched rows.`,
+          data.deleted === 1
+            ? 'Deleted 1 untouched row.'
+            : `Deleted ${data.deleted} untouched rows.`,
         );
         void queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
         void queryClient.invalidateQueries({ queryKey: ['dependencies', projectId] });

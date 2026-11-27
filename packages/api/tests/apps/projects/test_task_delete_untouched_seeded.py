@@ -263,3 +263,20 @@ def test_ignores_untouched_seeded_rows_outside_the_named_project(
     assert resp.json() == {"deleted": 1}
     other_seeded[0].refresh_from_db()
     assert other_seeded[0].is_deleted is False
+
+
+@pytest.mark.django_db
+def test_sweep_keeps_the_summary_above_an_edited_row(project: Project, owner: Any) -> None:
+    """#4941: the sweep's per-row delete cascades, so the parent has to stay."""
+    summary, edited, leaf = _seed_rows(project, 3)
+    for task, path in ((summary, "1"), (edited, "1.1"), (leaf, "1.2")):
+        Task.objects.filter(pk=task.pk).update(wbs_path=path)
+    edited.refresh_from_db()
+    edited.name = "Renamed by a person"
+    edited.save()
+
+    resp = _client_as(owner).post(DELETE_URL, {"project": str(project.pk)}, format="json")
+
+    assert resp.json() == {"deleted": 1}
+    live = Task.objects.filter(project=project, is_deleted=False)
+    assert set(live.values_list("pk", flat=True)) == {summary.pk, edited.pk}

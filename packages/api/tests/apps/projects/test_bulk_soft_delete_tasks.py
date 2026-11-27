@@ -170,13 +170,14 @@ def _summary_with_child(project: Project, tag: str) -> tuple[Task, Task]:
     return root, child
 
 
-def _undo_of(project: Project, root: Task) -> TemplateApplication:
+def _undo_of(project: Project, root: Task, child: Task) -> TemplateApplication:
     template = ProjectTemplate.objects.create(name="T", structure={})
     return TemplateApplication.objects.create(
         template=template,
         project=project,
         status=TemplateApplicationStatus.SUCCESS,
-        created_task_ids=[root.pk],  # the child is swept as a WBS descendant
+        # Both rows are the application's: a row outside the set keeps its parent (#4941).
+        created_task_ids=[root.pk, child.pk],
     )
 
 
@@ -192,7 +193,7 @@ def test_undo_resets_a_backlog_item_pulled_into_a_swept_child(project: Project) 
         pulled_task=child,
     )
 
-    undo_template_application(_undo_of(project, root))
+    undo_template_application(_undo_of(project, root, child))
 
     assert Task.objects.get(pk=child.pk).is_deleted is True
     item.refresh_from_db()
@@ -214,7 +215,7 @@ def test_undo_clears_the_promoted_task_of_a_retro_action_item(project: Project) 
     retro = SprintRetro.objects.create(sprint=sprint)
     action = RetroActionItem.objects.create(retro=retro, text="x", promoted_task_id=child.pk)
 
-    undo_template_application(_undo_of(project, root))
+    undo_template_application(_undo_of(project, root, child))
 
     action.refresh_from_db()
     assert action.promoted_task_id is None

@@ -151,7 +151,12 @@ def undo_paste_many_operation(operation: PasteManyOperation) -> dict[str, int]:
     undo is a mutation collaborators are watching for, same as the paste it reverses.
     """
     from trueppm_api.apps.access.permissions import assert_project_not_archived
-    from trueppm_api.apps.projects.models import PasteManyOperation, SyncBatchOperationStatus, Task
+    from trueppm_api.apps.projects.models import (
+        PasteManyOperation,
+        SyncBatchOperationStatus,
+        Task,
+        rows_whose_delete_spares_all_others,
+    )
 
     # Archived is *lifecycle state, not authority*, so it is a property of the plan
     # rather than of the caller and does not belong to the view layer alone (#3354).
@@ -169,6 +174,10 @@ def undo_paste_many_operation(operation: PasteManyOperation) -> dict[str, int]:
         untouched, touched = _partition_touched(
             operation.created_task_versions or {}, operation.project_id
         )
+        # A row above a kept one is kept too: its delete cascades (#4941).
+        safe = rows_whose_delete_spares_all_others(untouched)
+        kept = len(touched) + len(untouched) - len(safe)
+        untouched = [pk for pk in untouched if pk in safe]
         if untouched:
             for row in Task.objects.filter(pk__in=untouched, is_deleted=False):
                 row.soft_delete()
@@ -178,7 +187,7 @@ def undo_paste_many_operation(operation: PasteManyOperation) -> dict[str, int]:
 
             amend.retract(operation.project_id, list(untouched), kind="add")
 
-        result = {"deleted": len(untouched), "kept": len(touched)}
+        result = {"deleted": len(untouched), "kept": kept}
         operation.status = SyncBatchOperationStatus.UNDONE
         operation.undone_at = timezone.now()
         operation.result_summary = {**(operation.result_summary or {}), "undo": result}
@@ -343,7 +352,7 @@ def undo_import_fix_operation(csv_import_request: CsvImportRequest) -> dict[str,
     """
     from trueppm_api.apps.access.permissions import assert_project_not_archived
     from trueppm_api.apps.csvimport.models import CsvImportRequest, CsvImportStatus
-    from trueppm_api.apps.projects.models import Task
+    from trueppm_api.apps.projects.models import Task, rows_whose_delete_spares_all_others
 
     # Same lifecycle floor as the two undos above (#3354). `CsvImportUndoView` has
     # always carried `IsProjectNotArchived`, so this closes no open hole — it is here
@@ -361,6 +370,10 @@ def undo_import_fix_operation(csv_import_request: CsvImportRequest) -> dict[str,
         untouched, touched = _partition_touched(
             csv_import_request.created_task_versions or {}, csv_import_request.project_id
         )
+        # A row above a kept one is kept too: its delete cascades (#4941).
+        safe = rows_whose_delete_spares_all_others(untouched)
+        kept = len(touched) + len(untouched) - len(safe)
+        untouched = [pk for pk in untouched if pk in safe]
         if untouched:
             for row in Task.objects.filter(pk__in=untouched, is_deleted=False):
                 row.soft_delete()
@@ -372,7 +385,7 @@ def undo_import_fix_operation(csv_import_request: CsvImportRequest) -> dict[str,
 
             amend.retract(csv_import_request.project_id, list(untouched), kind="add")
 
-        result = {"deleted": len(untouched), "kept": len(touched)}
+        result = {"deleted": len(untouched), "kept": kept}
         csv_import_request.status = CsvImportStatus.UNDONE
         csv_import_request.undone_at = timezone.now()
         csv_import_request.result_summary = {
