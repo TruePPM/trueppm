@@ -713,6 +713,20 @@ def _assign_key_on_update(serializer: Any, instance: Any, validated_data: dict[s
     validated_data["code"] = instance.code
 
 
+# One refusal per ``lead`` write, whether the pk names a non-member or no account
+# at all (#5003).
+_PROJECT_LEAD_REFUSAL = (
+    "The selected user must be a member of this project before they can be assigned as lead."
+)
+_PROGRAM_LEAD_REFUSAL = (
+    "The selected user must be a member of this program before they can be assigned as lead."
+)
+_PROGRAM_LEAD_CREATE_REFUSAL = (
+    f"{_PROGRAM_LEAD_REFUSAL} A new program can only start with its creator as lead; "
+    "add other members first, then assign the lead."
+)
+
+
 class ProjectSerializer(serializers.ModelSerializer[Project]):
     """Read/write serializer for projects.
 
@@ -1252,6 +1266,12 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         source all fail identically as ``does_not_exist`` (400), leaking nothing.
         """
         super().__init__(*args, **kwargs)
+        # #5003: a pk naming no account must read exactly like a non-member's, or
+        # the lead write is an account-existence oracle. Both are field-level
+        # errors on ``lead``, so sharing ``validate_lead``'s message is enough.
+        lead = self.fields.get("lead")
+        if isinstance(lead, serializers.PrimaryKeyRelatedField):
+            lead.error_messages["does_not_exist"] = _PROJECT_LEAD_REFUSAL
         field = self.fields.get("copy_settings_from")
         request = self.context.get("request")
         if not isinstance(field, serializers.PrimaryKeyRelatedField) or request is None:
@@ -1688,18 +1708,22 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
         """Lead must hold an active ProjectMembership on this project (#966).
 
         Mirrors ``ProgramSerializer.validate_lead``. Unsetting (lead=None) is
-        always permitted. On create the instance does not yet exist, so the
-        membership check is skipped — the current ``ProjectViewSet.create``
-        path does not forward ``lead`` anyway (lead is set from the General
-        page via partial_update, where the instance — and its membership rows —
-        already exist). Admin-only enforcement is handled in ``validate`` (lead
-        is not in ``_SCHEDULER_WRITABLE_FIELDS``), not here.
+        always permitted. On create no membership rows exist yet and the only
+        member the create will produce is the requester (inserted as OWNER), so
+        they are the only accepted lead; ``serializer.save()`` does store a
+        submitted ``lead``, so skipping the check there would both assign an
+        arbitrary account and reveal which ids exist (#5003). Admin-only
+        enforcement is handled in ``validate`` (lead is not in
+        ``_SCHEDULER_WRITABLE_FIELDS``), not here.
         """
         if value is None:
             return value
         instance = getattr(self, "instance", None)
         if instance is None:
-            return value
+            request = self.context.get("request")
+            if value == getattr(request, "user", None):
+                return value
+            raise serializers.ValidationError(_PROJECT_LEAD_REFUSAL)
         # Lazy import avoids a circular dep — access imports from projects.
         from trueppm_api.apps.access.models import ProjectMembership
 
@@ -1715,10 +1739,7 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             is_deleted=False,
         ).exists()
         if not has_membership:
-            raise serializers.ValidationError(
-                "The selected user must be a member of this project before they "
-                "can be assigned as lead."
-            )
+            raise serializers.ValidationError(_PROJECT_LEAD_REFUSAL)
         return value
 
     def validate_program(self, value: Program | None) -> Program | None:
@@ -3335,6 +3356,21 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             ),
         )
 
+    def get_fields(self) -> dict[str, Any]:
+        """Give a ``lead`` pk naming no account ``validate_lead``'s own refusal (#5003).
+
+        Without this a nonexistent pk answers ``object does not exist`` while a real
+        non-member answers "must be a member", which tells the caller the account
+        exists. The wording differs between create and update, as the refusal does.
+        """
+        fields = super().get_fields()
+        lead = fields.get("lead")
+        if isinstance(lead, serializers.PrimaryKeyRelatedField):
+            lead.error_messages["does_not_exist"] = (
+                _PROGRAM_LEAD_CREATE_REFUSAL if self.instance is None else _PROGRAM_LEAD_REFUSAL
+            )
+        return fields
+
     def validate_lead(self, value: Any) -> Any:
         """Lead must hold an active ProgramMembership on this program.
 
@@ -3358,11 +3394,7 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             creator = getattr(request, "user", None)
             if creator is not None and value == creator:
                 return value
-            raise serializers.ValidationError(
-                "The selected user must be a member of this program before they "
-                "can be assigned as lead. A new program can only start with its "
-                "creator as lead; add other members first, then assign the lead."
-            )
+            raise serializers.ValidationError(_PROGRAM_LEAD_CREATE_REFUSAL)
         # Lazy import avoids a circular dep — access imports from projects.
         from trueppm_api.apps.access.models import ProgramMembership
 
@@ -3377,10 +3409,7 @@ class ProgramSerializer(serializers.ModelSerializer[Program]):
             is_deleted=False,
         ).exists()
         if not has_membership:
-            raise serializers.ValidationError(
-                "The selected user must be a member of this program before they "
-                "can be assigned as lead."
-            )
+            raise serializers.ValidationError(_PROGRAM_LEAD_REFUSAL)
         return value
 
     def validate_color(self, value: str | None) -> str | None:
@@ -4449,7 +4478,30 @@ class _ActiveUserOrUnchangedField(serializers.PrimaryKeyRelatedField[Any]):
         return super().to_internal_value(data)
 
 
+class _TaskAssigneeField(serializers.PrimaryKeyRelatedField[Any]):
+    """The ``Task.assignee`` write FK, resolvable only among assignable users (#5003).
+
+    The queryset is the authorization rule (#684, #4596), not a pre-filter for a
+    later check. A pk that names no account and a pk that names an ineligible one
+    both miss it and raise the same ``does_not_exist`` error at the same
+    validation stage, so a write cannot be used to learn which account ids exist.
+    A check in ``validate()`` could not give that: ``validate()`` is skipped when
+    any field fails, so the two cases would diverge on a multi-error body.
+    """
+
+    default_error_messages = {
+        "does_not_exist": "The assignee must be a member of this project.",
+    }
+
+    def get_queryset(self) -> Any:
+        return cast("TaskSerializer", self.parent).assignable_users()
+
+
 class TaskSerializer(serializers.ModelSerializer[Task]):
+    assignee = _TaskAssigneeField(
+        queryset=get_user_model()._default_manager.all(), required=False, allow_null=True
+    )
+
     # The three PERT estimate fields, shared by the phase-rollup lock and the
     # three-point ordering guard in ``validate()``. A frozenset so ``& set(attrs)``
     # gives a cheap "did the write touch any estimate?" test.
@@ -5299,7 +5351,6 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         self._resolve_planned_finish_duration(attrs, is_milestone=is_milestone)
         self._validate_sprint_project_ownership(attrs)
         self._validate_blocking_task(attrs)
-        self._validate_assignee_membership(attrs)
         self._validate_agent_task_fields(attrs)
         self._reject_pending_sprint_relink(attrs)
         self._reject_status_change_on_closed_sprint(attrs)
@@ -5849,36 +5900,46 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                     {"blocking_task": "The blocking task must belong to the same project."}
                 )
 
-    def _validate_assignee_membership(self, attrs: dict[str, Any]) -> None:
-        """#684 (security): the assignee must be a live member of the task's project.
+    def assignable_users(self) -> Any:
+        """Users this write may name as ``assignee`` (#684, #4596, #5003).
 
-        ``assignee`` is a nullable FK — DRF resolves it to a User (or None) — and
-        leaving a task unassigned is always valid, so only validate when an assignee
-        is actually being set. This closes the gap where any writer could point a
-        task at ANY existing user id, including one with no ProjectMembership on the
-        project: the REST PATCH/POST path and the mobile sync upload (which reuses
-        this serializer via ``apply_task_changes``) both route through here.
-        Soft-deleted memberships are excluded (``is_deleted=False``), matching
-        ``validate_lead``, and so are deactivated accounts (``user.is_active``): a
-        departed user keeps their membership row but must not take new work
-        (#4596). The error names only "this project", never another
-        project's membership, so it leaks nothing about foreign projects.
+        Active accounts holding a live ``ProjectMembership`` on the task's project:
+        the stored project on an update (a task cannot move), the body's ``project``
+        on a create. Soft-deleted memberships, trashed projects and deactivated
+        accounts are excluded, matching ``validate_lead``.
+
+        Empty (so every pk is refused identically) when the project cannot be
+        determined, and when the requester is not a member of it: ``POST /tasks/``
+        validates the body before ``perform_create`` checks the requester's role,
+        so without that an outsider could read a foreign project's membership off
+        the difference between a 400 and a 403.
+
+        The REST create/PATCH, bulk and sync upload paths all route through here.
         """
-        assignee = attrs.get("assignee")
-        if "assignee" in attrs and assignee is not None:
-            project = self.instance.project if self.instance is not None else attrs.get("project")
-            if project is not None:
-                is_member = ProjectMembership.objects.filter(
-                    project=project,
-                    project__is_deleted=False,
-                    user=assignee,
-                    user__is_active=True,
-                    is_deleted=False,
-                ).exists()
-                if not is_member:
-                    raise serializers.ValidationError(
-                        {"assignee": "The assignee must be a member of this project."}
-                    )
+        users = get_user_model()._default_manager
+        project_id: Any = getattr(self.instance, "project_id", None)
+        if self.instance is None:
+            raw = getattr(self, "initial_data", {}).get("project")
+            try:
+                project_id = Project._meta.pk.to_python(raw)
+            except (DjangoValidationError, ValueError, TypeError, AttributeError):
+                project_id = None
+        if project_id is None:
+            return users.none()
+        request = self.context.get("request")
+        if request is not None and getattr(request.user, "is_authenticated", False):
+            from trueppm_api.apps.access.permissions import _membership_role
+
+            if _membership_role(request, str(project_id)) is None:
+                return users.none()
+        return users.filter(
+            is_active=True,
+            pk__in=ProjectMembership.objects.filter(
+                project_id=project_id,
+                project__is_deleted=False,
+                is_deleted=False,
+            ).values("user_id"),
+        )
 
     _AGENT_TASK_FIELDS = frozenset(
         {"executor_kind", "agent_state", "agent_refusal_reason", "on_behalf_of"}

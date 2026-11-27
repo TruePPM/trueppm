@@ -7,9 +7,8 @@
 # ProjectSerializer-style fields are narrowed in __init__/get_fields, which the static
 # scan cannot see. Fix by declaring an explicit queryset= or read_only, then delete the line.
 trueppm_api/apps/agents/serializers.py::AgentActionSerializer.principal  # grandfathered, unreviewed (#3640)
-trueppm_api/apps/projects/serializers.py::ProjectSerializer.lead  # grandfathered, unreviewed (#3640)
-trueppm_api/apps/projects/serializers.py::ProgramSerializer.lead  # grandfathered, unreviewed (#3640)
-trueppm_api/apps/projects/serializers.py::TaskSerializer.assignee  # grandfathered, unreviewed (#3640)
+trueppm_api/apps/projects/serializers.py::ProjectSerializer.lead  # reviewed #5003: validate_lead + does_not_exist share one refusal
+trueppm_api/apps/projects/serializers.py::ProgramSerializer.lead  # reviewed #5003: validate_lead + does_not_exist share one refusal
 trueppm_api/apps/projects/serializers.py::TaskDurationChangeEventSerializer.actor  # grandfathered, unreviewed (#3640)
 trueppm_api/apps/projects/serializers.py::CrossProjectSlipConflictSerializer.acknowledged_by  # grandfathered, unreviewed (#3640)
 trueppm_api/apps/projects/serializers.py::RiskSerializer.owner  # grandfathered, unreviewed (#3640)
@@ -28,4 +27,4 @@ trueppm_api/apps/sync/serializers.py::SyncTaskSuggestedAssigneeSerializer.sugges
 trueppm_api/apps/sync/serializers.py::SyncRiskSerializer.owner  # grandfathered, unreviewed (#3640)
 trueppm_api/apps/sync/serializers.py::SyncTimeEntrySerializer.user  # grandfathered, unreviewed (#3640)
 trueppm_api/apps/teams/serializers.py::TeamMembershipReadSerializer.user  # grandfathered, unreviewed (#3640)
-trueppm_api/apps/workspace/serializers.py::GroupWriteSerializer.lead  # grandfathered, unreviewed (#3640)
+trueppm_api/apps/workspace/serializers.py::GroupWriteSerializer.lead  # reviewed #5003: writes need workspace admin, who can list every account

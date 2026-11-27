@@ -468,7 +468,7 @@ def test_blocked_does_not_notify_an_assignee_whose_membership_was_revoked(
     """A revoked member still named as the assignee gets no impediment notice (#3334).
 
     The third arm, and the one whose staleness has nothing to do with the ADR-0078
-    mirror. ``TaskSerializer._validate_assignee_membership`` (#684) refuses to *set*
+    mirror. ``TaskSerializer.assignable_users`` (#684) refuses to *set*
     an assignee who is not a live project member, so the invariant exists — but
     revoking a membership does not clear ``Task.assignee``, and nothing re-checks it,
     so the field simply goes stale and the notice kept naming the task to someone who

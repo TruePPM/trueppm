@@ -157,7 +157,7 @@ def resolve_impediment_recipients(task: Task) -> set[Any]:
     impediment-clearer and ADR-0124 does not route to them.
 
     The assignee arm needed the floor too, for a reason worth stating because it is
-    not the facet story. ``TaskSerializer._validate_assignee_membership`` (#684)
+    not the facet story. ``TaskSerializer.assignable_users`` (#684)
     already refuses to *set* an assignee who is not a live project member, so "the
     assignee is a member" is an invariant the write path enforces. Nothing re-checks
     it afterwards, and revoking a membership does not clear ``Task.assignee`` — so
