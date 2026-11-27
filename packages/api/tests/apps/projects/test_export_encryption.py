@@ -109,6 +109,61 @@ def test_header_work_factor_is_capped_on_read() -> None:
         _decrypt(crafted)
 
 
+def _with_line(blob: bytes, prefix: bytes, replacement: bytes) -> bytes:
+    lines = blob.split(b"\n")
+    at = next(i for i, line in enumerate(lines) if line.startswith(prefix))
+    lines[at] = replacement
+    return b"\n".join(lines)
+
+
+def _crafted_headers() -> dict[str, bytes]:
+    """Hostile headers an import upload can carry; see the fuzz test below."""
+    blob = _encrypt(b"x" * 1000, passphrase_encryption(PASSPHRASE))
+    lines = blob.split(b"\n")
+    scrypt = next(line for line in lines if line.startswith(b"-> trueppm-scrypt"))
+    salt = scrypt.split(b" ")[2]
+    cases = {
+        # 32 zero bytes: a low-order X25519 point, so exchange() raises ValueError.
+        "low_order_share": _with_line(
+            blob, b"-> X25519", b"-> X25519 " + export_crypto._b64(b"\0" * 32).encode()
+        ),
+        # int() refuses a 5,000-digit string with ValueError before any range check.
+        "huge_work_factor": _with_line(
+            blob, b"-> trueppm-scrypt", b"-> trueppm-scrypt " + salt + b" " + b"1" * 5000
+        ),
+        "zero_work_factor": _with_line(
+            blob, b"-> trueppm-scrypt", b"-> trueppm-scrypt " + salt + b" 0"
+        ),
+        "empty_salt": _with_line(blob, b"-> trueppm-scrypt", b"-> trueppm-scrypt  10"),
+        "bad_base64_share": _with_line(blob, b"-> X25519", b"-> X25519 !!!!"),
+        "non_ascii_share": _with_line(blob, b"-> X25519", b"-> X25519 \xff\xfe"),
+        "empty_stanza": _with_line(blob, b"-> X25519", b"-> "),
+        "short_wrapped_key": blob.replace(lines[2], b"AAAA", 1),
+        "empty_mac": blob.split(b"\n--- ")[0] + b"\n--- \n",
+        "header_only": blob[: blob.index(b"\n", blob.index(b"\n--- ") + 1) + 1],
+        "magic_only": export_crypto.AGE_MAGIC,
+        "empty": b"",
+    }
+    # Deterministic byte flips across the whole file, header and payload alike.
+    for n in range(60):
+        flipped = bytearray(blob)
+        at = (n * 7919) % len(flipped)
+        flipped[at] ^= 1 << (n % 8)
+        cases[f"flip_{n}"] = bytes(flipped)
+    return cases
+
+
+_CRAFTED = _crafted_headers()
+
+
+@pytest.mark.parametrize("name", sorted(_CRAFTED))
+def test_only_export_crypto_error_escapes_a_crafted_file(name: str) -> None:
+    # The import endpoint maps ExportCryptoError to a 400; anything else is a 500
+    # any authenticated account could trigger with a crafted upload.
+    with pytest.raises(ExportCryptoError):
+        _decrypt(_CRAFTED[name])
+
+
 # Exactly three full chunks, so a cut between chunks lands on a chunk boundary.
 _THREE_CHUNKS = b"A" * (64 * 1024 * 3)
 _SEALED_CHUNK = 64 * 1024 + 16
@@ -363,8 +418,33 @@ def _import(user: Any, payload: bytes, passphrase: str | None) -> Any:
 
 @pytest.mark.django_db
 def test_import_decrypts_with_the_passphrase(owner: Any) -> None:
+    from trueppm_api.apps.projects.models import Program
+    from trueppm_api.apps.projects.tasks import run_program_import
+
     resp = _import(owner, _encrypted_bundle(), PASSPHRASE)
     assert resp.status_code == 202, resp.content
+    # The 202 only says a job was queued: run it, as the worker would, and check
+    # that the decrypted seed is what landed.
+    run_program_import.apply(args=[str(resp.data["import_request_id"])])
+    program = Program.objects.get(code="atlas", is_deleted=False)
+    assert program.name == _seed()["program"]["name"]
+    assert program.projects.count() == len(_seed()["projects"])
+    from trueppm_api.apps.projects.models import Risk
+
+    assert Risk.objects.filter(project__program=program, title="Vendor lock-in").exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("url", ["/api/v1/programs/import/", "/api/v1/programs/import/validate/"])
+def test_crafted_low_order_share_is_a_400_not_a_500(owner: Any, url: str) -> None:
+    payload = _with_line(
+        _encrypted_bundle(), b"-> X25519", b"-> X25519 " + export_crypto._b64(b"\0" * 32).encode()
+    )
+    upload = SimpleUploadedFile("bundle.tar.gz.age", payload, "application/octet-stream")
+    resp = _client(owner).post(url, {"file": upload, "passphrase": PASSPHRASE}, format="multipart")
+    assert resp.status_code == 400, resp.content
+    # The same message a wrong passphrase gets, so the response is not an oracle.
+    assert "Wrong passphrase" in json.dumps(resp.json())
 
 
 @pytest.mark.django_db

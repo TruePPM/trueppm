@@ -372,7 +372,13 @@ def _unwrap(stanzas: list[_Stanza], passphrase: str) -> bytes:
             ".tar.gz."
         )
     salt_text, log_n_text = scrypt[0].args
-    if not log_n_text.isdigit() or not 1 <= int(log_n_text) <= MAX_SCRYPT_LOG_N:
+    # The length check runs first: int() on a 5,000-digit field raises ValueError
+    # (Python's integer-string limit) rather than returning a number to range-check.
+    if (
+        not log_n_text.isdigit()
+        or len(log_n_text) > 2
+        or not 1 <= int(log_n_text) <= MAX_SCRYPT_LOG_N
+    ):
         raise ExportCryptoError("The encrypted file's header is damaged.")
     identity = _derive_private_key(passphrase, _unb64(salt_text), int(log_n_text))
     ours = identity.public_key().public_bytes_raw()
@@ -382,7 +388,12 @@ def _unwrap(stanzas: list[_Stanza], passphrase: str) -> bytes:
         share = _unb64(stanza.args[0])
         if len(share) != 32:
             continue
-        shared = identity.exchange(X25519PublicKey.from_public_bytes(share))
+        try:
+            # A low-order share (e.g. 32 zero bytes) makes exchange() raise ValueError.
+            # It is reported like a wrong passphrase so the error is not an oracle.
+            shared = identity.exchange(X25519PublicKey.from_public_bytes(share))
+        except ValueError:
+            continue
         try:
             return ChaCha20Poly1305(_hkdf(shared, share + ours, _X25519_INFO)).decrypt(
                 b"\x00" * 12, stanza.body, None
@@ -398,7 +409,24 @@ def decrypt_stream(src: IO[bytes], dst: IO[bytes], passphrase: str) -> None:
     Authenticates the header (HMAC) before any payload is written and every chunk
     as it is read; a truncated file fails on the missing final-chunk flag. A
     failure leaves ``dst`` partially written, so the caller discards it.
+
+    Raises:
+        ExportCryptoError: for every way the input can be wrong. The file is
+            untrusted upload content, so any parse or primitive error a crafted
+            file reaches (``ValueError`` and its ``binascii``/Unicode subclasses,
+            ``TypeError``, ``IndexError``, ``KeyError``, ``OverflowError``) is
+            mapped to the same generic error a wrong passphrase gets: the
+            caller answers 400, never 500, and the message is not an oracle.
     """
+    try:
+        _decrypt_stream(src, dst, passphrase)
+    except ExportCryptoError:
+        raise
+    except (ValueError, TypeError, IndexError, KeyError, OverflowError) as exc:
+        raise ExportCryptoError("Wrong passphrase, or the file is damaged.") from exc
+
+
+def _decrypt_stream(src: IO[bytes], dst: IO[bytes], passphrase: str) -> None:
     stanzas, text, mac = _read_header(src)
     file_key = _unwrap(stanzas, passphrase)
     expected = hmac.new(_hkdf(file_key, b"", b"header"), text, sha256).digest()
