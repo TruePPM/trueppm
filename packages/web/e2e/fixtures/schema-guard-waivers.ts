@@ -24,16 +24,12 @@
  *   Array indices collapse to `[]`, so one line covers every row of a list. The
  *   guard prints the exact line to add when it fails, so an entry is never
  *   guesswork.
- * · `'*'` waives the whole operation. Every entry seeded by #3440 uses it, and
- *   that is a deliberate trade, not laziness: the property-level form is
- *   strictly tighter, but it is only as complete as the run that measured it.
- *   Several of these responses are reached on a race-dependent path and appeared
- *   in one of the two full suite passes and not the other, so a property-level
- *   ledger built from either would red a spec nobody touched, nondeterministically,
- *   on a loaded runner — the exact failure shape this tree spends the most time
- *   chasing. `'*'` costs enforcement on the other properties of these 89
- *   operations and buys a ledger that does not flake. Use the property-level
- *   form for anything added from here, where you know the one line you mean.
+ * · `'*'` waives the whole operation. It is allowed but unused: every entry
+ *   here names its pairs. It exists for a response reached only on a
+ *   race-dependent path, where a measured list of pairs could be incomplete and
+ *   red a spec nobody touched. It costs enforcement on every other property of
+ *   the operation, so prefer the property-level form, where you know the line
+ *   you mean.
  * · Every reason names the issue that removes it. A waiver with no issue is a
  *   bug waiting to be re-found, and `scripts/check-e2e-schema-guard.sh` rejects
  *   one. That script also ratchets the entry count: it may shrink — and when it
@@ -48,7 +44,7 @@
  * **(a) SCHEMA WRONG** — the server sends the field or body shape and the
  * published response does not declare it. "Fixing" the mock would make it wrong.
  *
- * **(e) #2633 — user ids are integers.** `created_by`, `lead`, `user` and
+ * **(e) #5161 — user ids are integers.** `created_by`, `lead`, `user` and
  * friends are `AutoField` integer PKs; many fixtures still send strings.
  *
  * **(g) TEST AHEAD OF SERVER** — a field the client reads that this one endpoint
@@ -75,7 +71,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   // ---------------------------------------------------------------------------
   'GET /api/v1/resources/': {
     reason:
-      'PRODUCT (found by #3654): useResources maps `is_deleted` to the Deactivated UI, but ' +
+      'PRODUCT (#5158): useResources maps `is_deleted` to the Deactivated UI, but ' +
       'ResourceSerializer never sends it. The fixture keeps it until that is decided.',
     allow: [
       'results[].is_deleted:unknown-property',
@@ -83,7 +79,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'GET /api/v1/tasks/': {
     reason:
-      'PRODUCT (found by #3654): ConversionNotice keys on `auto_container`, but ' +
+      'PRODUCT (#5159): ConversionNotice keys on `auto_container`, but ' +
       'TaskSerializer never sends it. The fixture keeps it until that is decided.',
     allow: [
       'results[].auto_container:unknown-property',
@@ -91,7 +87,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'POST /api/v1/resources/': {
     reason:
-      'PRODUCT (found by #3654): useResources maps `is_deleted` to the Deactivated UI, but ' +
+      'PRODUCT (#5158): useResources maps `is_deleted` to the Deactivated UI, but ' +
       'ResourceSerializer never sends it. The fixture keeps it until that is decided.',
     allow: [
       'is_deleted:unknown-property',
@@ -99,7 +95,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'POST /api/v1/resources/{id}/restore/': {
     reason:
-      'PRODUCT (found by #3654): useResources maps `is_deleted` to the Deactivated UI, but ' +
+      'PRODUCT (#5158): useResources maps `is_deleted` to the Deactivated UI, but ' +
       'ResourceSerializer never sends it. The fixture keeps it until that is decided.',
     allow: [
       'is_deleted:unknown-property',
@@ -110,7 +106,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   // ---------------------------------------------------------------------------
   'GET /api/v1/programs/{program_pk}/label-tasks/': {
     reason:
-      'SCHEMA-WRONG (found by #3654): the view adds `withheld_project_count` to the ' +
+      'SCHEMA-WRONG (#5160): the view adds `withheld_project_count` to the ' +
       'paginated envelope after serialization. The mock matches the server; fix the schema.',
     allow: [
       'withheld_project_count:unknown-property',
@@ -118,7 +114,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'PATCH /api/v1/projects/{id}/tasks/classification/': {
     reason:
-      'SCHEMA-WRONG (found by #3654): the view sends `capabilities_denied`. The mock ' +
+      'SCHEMA-WRONG (#5160): the view sends `capabilities_denied`. The mock ' +
       'matches the server; fix the schema.',
     allow: [
       'capabilities_denied:unknown-property',
@@ -126,7 +122,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'PATCH /api/v1/tasks/{id}/': {
     reason:
-      'SCHEMA-WRONG (found by #3654): the lost-update 409 body ' +
+      'SCHEMA-WRONG (#5160): the lost-update 409 body ' +
       '(conflict_fields/server_value/client_value/server_version) is sent, but only ' +
       'StructureRoleConflict is declared for 409. The mock matches the server; fix the ' +
       'schema.',
@@ -139,7 +135,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'PATCH /api/v1/teams/{team_pk}/members/{id}/': {
     reason:
-      'SCHEMA-WRONG (found by #3654): partial_update answers with ' +
+      'SCHEMA-WRONG (#5160): partial_update answers with ' +
       'TeamMembershipReadSerializer; the write serializer is declared. The mock matches the ' +
       'server; fix the schema.',
     allow: [
@@ -151,7 +147,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'POST /api/v1/me/api-tokens/': {
     reason:
-      'SCHEMA-WRONG (found by #3654): the create view adds the one-time raw `token` to the ' +
+      'SCHEMA-WRONG (#5160): the create view adds the one-time raw `token` to the ' +
       'response. The mock matches the server; fix the schema.',
     allow: [
       'token:unknown-property',
@@ -159,7 +155,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'POST /api/v1/programs/{program_pk}/api-tokens/': {
     reason:
-      'SCHEMA-WRONG (found by #3654): the create view adds the one-time raw `token` to the ' +
+      'SCHEMA-WRONG (#5160): the create view adds the one-time raw `token` to the ' +
       'response. The mock matches the server; fix the schema.',
     allow: [
       'token:unknown-property',
@@ -167,7 +163,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'POST /api/v1/programs/{program_pk}/mention-groups/': {
     reason:
-      'SCHEMA-WRONG (found by #3654): create answers with the read serializer; the write ' +
+      'SCHEMA-WRONG (#5160): create answers with the read serializer; the write ' +
       'serializer is declared. The mock matches the server; fix the schema.',
     allow: [
       'id:unknown-property',
@@ -180,7 +176,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'POST /api/v1/projects/{project_pk}/api-tokens/': {
     reason:
-      'SCHEMA-WRONG (found by #3654): the create view adds the one-time raw `token` to the ' +
+      'SCHEMA-WRONG (#5160): the create view adds the one-time raw `token` to the ' +
       'response. The mock matches the server; fix the schema.',
     allow: [
       'token:unknown-property',
@@ -188,7 +184,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'POST /api/v1/projects/{project_pk}/mention-groups/': {
     reason:
-      'SCHEMA-WRONG (found by #3654): create answers with the read serializer; the write ' +
+      'SCHEMA-WRONG (#5160): create answers with the read serializer; the write ' +
       'serializer is declared. The mock matches the server; fix the schema.',
     allow: [
       'id:unknown-property',
@@ -201,7 +197,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'POST /api/v1/sprints/{id}/activate/': {
     reason:
-      'SCHEMA-WRONG (found by #3654): the view adds `warnings` after serialization. The ' +
+      'SCHEMA-WRONG (#5160): the view adds `warnings` after serialization. The ' +
       'mock matches the server; fix the schema.',
     allow: [
       'warnings:unknown-property',
@@ -209,18 +205,18 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'POST /api/v1/task-resources/': {
     reason:
-      'SCHEMA-WRONG (found by #3654): the view adds `warnings` after serialization. The ' +
+      'SCHEMA-WRONG (#5160): the view adds `warnings` after serialization. The ' +
       'mock matches the server; fix the schema.',
     allow: [
       'warnings:unknown-property',
     ],
   },
   // ---------------------------------------------------------------------------
-  // (e) #2633 - user ids are integers server-side, strings in types.ts - 30 operations
+  // (e) #5161 - user ids are integers server-side, strings in fixtures - 30 operations
   // ---------------------------------------------------------------------------
   'GET /api/v1/agent-actions/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       'results[].principal:type',
@@ -228,7 +224,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'GET /api/v1/me/notifications/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       'results[].recipient:type',
@@ -236,7 +232,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'GET /api/v1/programs/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       'results[].created_by:type',
@@ -246,7 +242,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'GET /api/v1/programs/{id}/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       'created_by:type',
@@ -256,7 +252,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'GET /api/v1/programs/{program_pk}/backlog-items/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       'results[].created_by:type',
@@ -264,7 +260,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'GET /api/v1/programs/{program_pk}/ceremonies/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       'results[].created_by:type',
@@ -272,7 +268,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'GET /api/v1/programs/{program_pk}/members/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       '[].user:type',
@@ -281,7 +277,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'GET /api/v1/projects/{id}/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       'lead:type',
@@ -290,7 +286,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'GET /api/v1/projects/{project_pk}/members/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       '[].user:type',
@@ -299,7 +295,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'GET /api/v1/projects/{project_pk}/mention-groups/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       '[].members[].id:type',
@@ -307,7 +303,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'GET /api/v1/projects/{project_pk}/risks/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       'results[].owner:type',
@@ -315,7 +311,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'GET /api/v1/teams/{team_pk}/members/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       'results[].user:type',
@@ -324,7 +320,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'PATCH /api/v1/me/notifications/{id}/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       'recipient:type',
@@ -332,7 +328,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'PATCH /api/v1/programs/{id}/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       'created_by:type',
@@ -341,7 +337,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'PATCH /api/v1/programs/{program_pk}/backlog-items/{id}/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       'created_by:type',
@@ -349,7 +345,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'PATCH /api/v1/programs/{program_pk}/ceremonies/{id}/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       'created_by:type',
@@ -357,7 +353,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'PATCH /api/v1/projects/{id}/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       'lead:type',
@@ -366,7 +362,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'PATCH /api/v1/projects/{project_pk}/members/{id}/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       'user:type',
@@ -375,7 +371,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'POST /api/v1/me/notifications/{id}/snooze/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       'recipient:type',
@@ -383,7 +379,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'POST /api/v1/programs/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       'created_by:type',
@@ -391,7 +387,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'POST /api/v1/programs/load-sample/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       'program.created_by:type',
@@ -399,7 +395,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'POST /api/v1/programs/{id}/close/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       'closed_by:type',
@@ -408,7 +404,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'POST /api/v1/programs/{id}/transfer-sponsorship/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       'created_by:type',
@@ -416,7 +412,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'POST /api/v1/programs/{program_pk}/backlog-items/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       'created_by:type',
@@ -424,7 +420,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'POST /api/v1/programs/{program_pk}/ceremonies/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       'created_by:type',
@@ -432,7 +428,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'POST /api/v1/programs/{program_pk}/members/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       'user:type',
@@ -441,7 +437,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'POST /api/v1/projects/{id}/archive/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       'archived_by:type',
@@ -449,7 +445,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'POST /api/v1/projects/{project_pk}/members/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       'user:type',
@@ -458,7 +454,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'POST /api/v1/velocity-suggestions/{id}/accept/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       'accepted_by:type',
@@ -466,7 +462,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   },
   'POST /api/v1/velocity-suggestions/{id}/dismiss/': {
     reason:
-      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      '#5161: user ids are integer AutoField PKs server-side; these fixtures still send ' +
       'strings.',
     allow: [
       'dismissed_by:type',
@@ -477,7 +473,7 @@ export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> =
   // ---------------------------------------------------------------------------
   'GET /api/v1/me/work/': {
     reason:
-      'TEST-AHEAD-OF-SERVER (#1753): the client reads `is_phase` on My Work rows and ' +
+      'TEST-AHEAD-OF-SERVER (#5162): the client reads `is_phase` on My Work rows and ' +
       'schedule-add-phase.spec.ts seeds it, but MeWorkTaskSerializer does not emit it.',
     allow: [
       'results[].is_phase:unknown-property',
