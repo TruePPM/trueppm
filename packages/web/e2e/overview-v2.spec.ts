@@ -251,6 +251,21 @@ test.describe('shell v2 project overview', () => {
       );
       expect(overflow).toBeLessThanOrEqual(0);
       await expectNoA11yViolationsBothThemes(page, testInfo);
+      // Each peer date holds one line, down to a 360px phone, without sideways scroll.
+      for (const width of [390, 360]) {
+        await page.setViewportSize({ width, height: 844 });
+        const lines = await page
+          .getByTestId('overview2-peer-date')
+          .evaluateAll((els) =>
+            els.map((el) => el.clientHeight / Number.parseFloat(getComputedStyle(el).lineHeight)),
+          );
+        expect(lines, `peer date lines at ${width}px`).toEqual([1, 1, 1]);
+        expect(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          ),
+        ).toBeLessThanOrEqual(0);
+      }
     });
   });
 });
