@@ -239,8 +239,8 @@ def _detect_for_sprint(sprint: Any) -> int:
         # in it, so a second detection waits here and then reads the first one's
         # rows: it cannot see a task as new that the first already announced.
         Sprint.objects.select_for_update().filter(pk=sprint.pk).first()
-        # Re-read the sprint under the lock: an edit to its end date or state that
-        # committed while this run waited decides what is at risk now.
+        # Re-read the sprint under the lock: a close or cancel that committed while
+        # this run waited means there is no commitment left to be at risk against.
         sprint = (
             Sprint.objects.select_related("project")
             .filter(pk=sprint.pk, state=SprintState.ACTIVE, is_deleted=False)
