@@ -51,6 +51,10 @@ interface AvailableKpi {
   projects_without_forecast?: number;
   /** Which projects `projects_without_forecast` counts (#4799). */
   projects_without_forecast_ids?: string[];
+  /** Forecasts the P80 read that no longer describe their plan; they stay in it (#2408). */
+  projects_with_stale_forecast?: number;
+  /** Which projects `projects_with_stale_forecast` counts (#2408). */
+  projects_with_stale_forecast_ids?: string[];
 }
 
 /**
@@ -412,9 +416,18 @@ export function renderKpi(key: string, entry: RollupKpiEntry): RenderedKpi {
 
   if (entry.unit === 'date') {
     // An ISO calendar date, formatted UTC-pinned (web-rule 189). Projects with no
-    // forecast are left out of the date by the server, so the card says so.
+    // forecast are left out of the date by the server, and stale forecasts stay in it
+    // (#2408), so the card says both. With neither, it says what the date is: the
+    // latest project P80, which is not a joint program forecast.
     const date = typeof entry.value === 'string' ? fmtUtcLong(entry.value) : null;
     const skipped = entry.projects_without_forecast ?? 0;
+    const stale = entry.projects_with_stale_forecast ?? 0;
+    const notes = [
+      skipped > 0
+        ? `excludes ${skipped} ${skipped === 1 ? 'project' : 'projects'} without a forecast`
+        : null,
+      stale > 0 ? `${stale} ${stale === 1 ? 'forecast' : 'forecasts'} out of date` : null,
+    ].filter((n): n is string => n !== null);
     return {
       key,
       label,
@@ -422,9 +435,9 @@ export function renderKpi(key: string, entry: RollupKpiEntry): RenderedKpi {
       sub:
         date === null
           ? noValueReason(entry.reason)
-          : skipped > 0
-            ? `excludes ${skipped} ${skipped === 1 ? 'project' : 'projects'} without a forecast`
-            : undefined,
+          : notes.length > 0
+            ? notes.join(' · ')
+            : 'latest project P80, not a joint forecast',
       variant: 'neutral',
       muted: false,
     };

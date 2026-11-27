@@ -25,6 +25,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.db import connection
+from django.db.models import F
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -393,6 +394,78 @@ def test_p80_completion_reads_the_cache_first_like_monte_carlo_latest(
     entry = _get(member, program)["kpis"]["p80_completion"]
     assert entry["value"] == "2027-02-15"
     assert datetime.datetime.fromisoformat(str(entry["as_of"])) == run_at
+
+
+@pytest.mark.django_db
+def test_p80_completion_counts_stale_forecasts_and_keeps_them_in_the_value(
+    member: Any, program: Program, calendar: Calendar
+) -> None:
+    """#2408: a figure mixing today's run with a six-week-old one says so (#3140 rule)."""
+    fresh = _project(program, calendar, "Fresh")
+    aged = _project(program, calendar, "Aged")
+    changed = _project(program, calendar, "Changed")
+    unplaced = _project(program, calendar, "Version-less")
+    now = timezone.now()
+    for project, p80, taken_at in (
+        (fresh, datetime.date(2027, 3, 1), now),
+        (aged, datetime.date(2027, 9, 1), now - datetime.timedelta(days=42)),
+        (changed, datetime.date(2027, 4, 1), now),
+    ):
+        project.refresh_from_db()
+        run = MonteCarloRun.objects.create(
+            project=project,
+            n_simulations=100,
+            p80=p80,
+            plan_version=project.last_sync_version,
+        )
+        MonteCarloRun.objects.filter(pk=run.pk).update(taken_at=taken_at)
+    # The plan moved after Changed's run was taken.
+    Project.objects.filter(pk=changed.pk).update(last_sync_version=F("last_sync_version") + 1)
+    # A run recorded before plan versions existed, and recent: unplaceable, not stale.
+    _run(unplaced, datetime.date(2027, 2, 1), now)
+    _configure(program, [RollupKpi.P80_COMPLETION.value])
+
+    entry = _get(member, program)["kpis"]["p80_completion"]
+    # The aged forecast still sets the date: dropping it would move the figure silently.
+    assert entry["value"] == "2027-09-01"
+    assert entry["driver_project_id"] == str(aged.pk)
+    assert entry["projects_with_stale_forecast"] == 2
+    assert entry["projects_with_stale_forecast_ids"] == sorted([str(aged.pk), str(changed.pk)])
+    assert entry["projects_without_forecast"] == 0
+
+
+@pytest.mark.django_db
+def test_p80_completion_reads_staleness_inputs_from_the_cache_entry(
+    member: Any, program: Program, calendar: Calendar
+) -> None:
+    """A Member-triggered run exists only in the cache (#1502); its plan version does too."""
+    a = _project(program, calendar, "A")
+    a.refresh_from_db()
+    cache.set(
+        mc_latest_cache_key(a.pk),
+        {
+            "p80": "2027-02-15",
+            "last_run_at": timezone.now().isoformat(),
+            "plan_version": a.last_sync_version - 1,
+        },
+        timeout=60,
+    )
+    _configure(program, [RollupKpi.P80_COMPLETION.value])
+    entry = _get(member, program)["kpis"]["p80_completion"]
+    assert entry["projects_with_stale_forecast_ids"] == [str(a.pk)]
+
+
+@pytest.mark.django_db
+def test_p80_completion_with_no_forecast_counts_no_stale_ones(
+    member: Any, program: Program, calendar: Calendar
+) -> None:
+    _project(program, calendar, "A")
+    _configure(program, [RollupKpi.P80_COMPLETION.value])
+    entry = _get(member, program)["kpis"]["p80_completion"]
+    assert (entry["projects_with_stale_forecast"], entry["projects_with_stale_forecast_ids"]) == (
+        0,
+        [],
+    )
 
 
 @pytest.mark.django_db

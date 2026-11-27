@@ -247,7 +247,10 @@ cost ("Identity Consolidation has no budget baseline").
 The rows come from `GET /programs/{id}/rollup/`, which now carries `projects`
 (one row per project), `forecast` (the program P80, served whether or not the
 P80 KPI is enabled), and `summary` (the three tile counts), and names the
-projects without a forecast in `projects_without_forecast_ids` and, for a caller
+projects without a forecast in `projects_without_forecast_ids`, the projects whose
+forecast is out of date against its plan in `projects_with_stale_forecast_ids`
+(the overview names them: "1 forecast is out of date (Data Migration); the
+program P80 still counts it until it is rerun."), and, for a caller
 who may see cost, the projects without a budget in
 `kpis.budget_utilization.projects_without_budget_ids`.
 

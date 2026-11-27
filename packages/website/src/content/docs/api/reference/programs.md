@@ -77,7 +77,8 @@ schedule performance band. In 0.4 the response carries `aggregation_policy`,
     "p80_completion": {
       "available": true, "unit": "date", "value": "2027-05-01",
       "as_of": "2026-11-04T09:12:00+00:00",
-      "driver_project_id": "8c1e…", "projects_without_forecast": 1
+      "driver_project_id": "8c1e…", "projects_without_forecast": 1,
+      "projects_with_stale_forecast": 1, "projects_with_stale_forecast_ids": ["4f2a…"]
     }
   },
   "as_of": "2026-11-07T14:03:11+00:00",
@@ -102,7 +103,13 @@ schedule performance band. In 0.4 the response carries `aggregation_policy`,
   `reason`: `no_projects`, `no_planned_work`, `no_milestones`, `no_baseline`,
   `no_completed_work`, or `no_forecast`.
 - `p80_completion` carries its own `as_of` (the oldest forecast it read),
-  `driver_project_id`, and `projects_without_forecast`.
+  `driver_project_id`, `projects_without_forecast`, and
+  `projects_with_stale_forecast` with its `projects_with_stale_forecast_ids`: the
+  forecasts it read whose `forecast_staleness` on
+  `GET /projects/{id}/monte-carlo/latest/` is `aged`, `project_changed` or
+  `engine_superseded`. Those forecasts stay in the value. The value is the latest
+  of the per-project P80s, not a joint simulation of the program, whose P80 would
+  be that date or later.
 
 The sentences in `definitions` are listed on the
 [metric vocabulary](/features/metric-vocabulary/#program-rollup) page.

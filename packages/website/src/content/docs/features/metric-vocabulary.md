@@ -127,6 +127,11 @@ does, and an average of finish dates is not a date. The entry also carries:
 - `projects_without_forecast`: how many projects have no forecast with a P80.
   They are left out, so the value is the latest P80 of the projects that have
   one.
+- `projects_with_stale_forecast`: how many of the forecasts it read no longer
+  describe their project's plan. The rule is the one the project forecast uses
+  (`forecast_staleness` is `aged`, `project_changed` or `engine_superseded`). They
+  stay in the value, because dropping one would move the date without saying so;
+  `projects_with_stale_forecast_ids` names them so you know which to rerun.
 
 ## Commitment
 

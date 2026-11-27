@@ -5,6 +5,7 @@ import {
   budgetBurnMissing,
   overAllocatedFigure,
   partialRollupLine,
+  staleForecastLine,
 } from './ProgramOverview2';
 import { buildAxis } from './programAxis';
 import type { ProgramRollupRow } from './ProgramOverviewPage';
@@ -54,6 +55,46 @@ describe('partialRollupLine', () => {
         forecast: { available: true, value: null, projects_without_forecast_ids: ['b', 'zz'] },
       }),
     ).toContain('(2 projects)');
+  });
+});
+
+describe('staleForecastLine (#2408)', () => {
+  const projects = [row('a', 'Alpha'), row('b', 'Beta')];
+
+  it('names the stale forecast the program P80 still counts', () => {
+    expect(
+      staleForecastLine({
+        projects,
+        forecast: { available: true, value: '2027-01-01', projects_with_stale_forecast_ids: ['b'] },
+      }),
+    ).toBe('1 forecast is out of date (Beta); the program P80 still counts it until it is rerun.');
+  });
+
+  it('pluralizes and falls back to a count when an id has no row', () => {
+    expect(
+      staleForecastLine({
+        projects,
+        forecast: {
+          available: true,
+          value: '2027-01-01',
+          projects_with_stale_forecast_ids: ['a', 'zz'],
+        },
+      }),
+    ).toBe(
+      '2 forecasts are out of date (2 projects); the program P80 still counts them until they are rerun.',
+    );
+  });
+
+  it('is null when no forecast is stale, or from a server that does not send the field', () => {
+    expect(
+      staleForecastLine({
+        projects,
+        forecast: { available: true, value: '2027-01-01', projects_with_stale_forecast_ids: [] },
+      }),
+    ).toBeNull();
+    expect(
+      staleForecastLine({ projects, forecast: { available: true, value: '2027-01-01' } }),
+    ).toBeNull();
   });
 });
 

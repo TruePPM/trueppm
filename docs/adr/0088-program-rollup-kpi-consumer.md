@@ -9,6 +9,14 @@ Monte Carlo runs plus the cache (it is no longer unavailable with
 rule-119 `reason`s. `program_health` is unchanged. The text below records the
 original decision and is not rewritten.
 
+Amended 2026-11-27 (#2408, #753): adds the **Date** row the per-KPI reducer table
+never had, and the partial-coverage and staleness policy for `p80_completion`. See
+[Amendment 2026-11-27](#amendment-2026-11-27-the-date-reducer-and-forecast-staleness)
+below. The Context table's "cache-only, no DB store" row for `p80_completion`
+(and the #753 follow-up's "today it is a 24h cache entry") are superseded in part:
+the persisted `MonteCarloRun` store (ADR-0175) landed on 2026-06-06, and
+`status_summary` has returned the latest result's P80 since #4760.
+
 ## Context
 #527 (ADR-0169) shipped the **config** for program-overview KPI rollups — two
 columns on `Program` (`rollup_enabled_kpis`, `rollup_aggregation_policy`) and the
@@ -193,3 +201,62 @@ display. (Persisting the dot is out of scope — computed on read.)
 8. Dead-letter / failure handling: **N/A** — no task. A project contributing no data
    (e.g. no baseline for `baseline_variance`) is excluded from that KPI's reduce, not
    an error.
+
+## Amendment 2026-11-27: the Date reducer and forecast staleness
+
+Status: Accepted. Issues #2408 and #753. This records, in the ADR that owns the
+reducer table, the decisions ADR-1314 implemented for `p80_completion`, and adds
+the staleness policy that was still missing.
+
+**The Date row.**
+
+| Value type | KPIs | `worst` | `average` | `task_weighted` / `weighted_by_budget` |
+|---|---|---|---|---|
+| **Date** (a calendar finish date) | `p80_completion` | **latest P80 among the contributing projects** | same | same |
+
+The policy does not apply, as with Count and Score. A program finishes when its
+last project does, so the latest P80 is the only date anyone can act on. A mean
+of finish dates is not the finish of anything, and a task-weighted mean is not
+either. #753 proposed `average` = mean date; that is rejected for this reason.
+
+**It is not a joint P80.** Each input is one project's marginal P80. The latest of
+those marginals is a lower bound on the program's joint P80: the joint
+distribution of the latest finish lies at or after every marginal, so its P80 is
+this date or later. The server definition (`rollup.p80_completion`) says so, the
+shell v2 overview renders that definition beside the figure, the v1 card says
+"latest project P80, not a joint forecast" when it has no exclusion or staleness
+note to show, and the docs say it. A joint program
+simulation would be new engine work (one Monte Carlo run over the union of the
+projects' networks). It is not wiring, so it is out of scope.
+
+**Source.** Each project's P80 is the latest result `monte-carlo/latest/` serves:
+the cache entry first, then the newest persisted `MonteCarloRun`. It is read in
+one batched pass (one cache `get_many` and one `DISTINCT ON` query), and the
+staleness inputs come from one more project-row query. That is a fixed number of
+queries whatever the project count, inside the 200 ms budget.
+
+**Partial coverage.** A project with no forecast is left out of the date and named
+(`projects_without_forecast` / `_ids`). It is not dropped silently, and the
+figure is not blanked (Option D stays rejected). With no forecast at all the
+value is null with `reason: no_forecast`.
+
+**Staleness.** A forecast is stale when its `forecast_staleness` (#3140, the
+classification `monte-carlo/latest/` ships) is `aged` (older than
+`risk_premium.STALE_AFTER_DAYS`), `project_changed` (the plan or its CPM output
+moved after the run), or `engine_superseded`. `unknown` (a run that cannot be
+placed against its plan) does not count: it is not evidence of staleness. Stale
+forecasts **stay in** the date, and `projects_with_stale_forecast` / `_ids` name
+them. Excluding them was rejected: it would move the date without saying why,
+and the remedy is the same either way (rerun the forecast). `as_of` stays the
+oldest input's run time, so the figure is dated by its stalest input.
+`project_changed` over-approximates, because any synced write moves the plan
+version. That is the direction the project forecast already accepts. A false
+"out of date" costs a rerun nobody needed. A false "current" would hide a stale
+date.
+
+**Known coverage gap, not closed here.** A forecast run by a Member or Viewer
+refreshes only the 24-hour cache entry and persists no row (#1502, by design:
+the run is not attributed). The rollup reads the cache, so the run counts while
+the entry lives. After that, the project reads as "without a forecast". It is
+named, not hidden. Persisting non-Scheduler runs is a permission design question
+for #1502, not part of this amendment.

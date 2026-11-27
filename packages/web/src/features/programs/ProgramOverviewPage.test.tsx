@@ -267,6 +267,45 @@ describe('ProgramOverviewPage (#713)', () => {
     expect(screen.getByText('excludes 2 projects without a forecast')).toBeInTheDocument();
   });
 
+  it('says a p80_completion rests on stale forecasts it still counts (#2408)', async () => {
+    mockApi(
+      rollup({
+        kpis: {
+          p80_completion: {
+            available: true,
+            unit: 'date',
+            value: '2027-05-01',
+            projects_without_forecast: 1,
+            projects_with_stale_forecast: 2,
+            projects_with_stale_forecast_ids: ['proj-1', 'proj-2'],
+          },
+        },
+      }),
+    );
+    renderPage();
+    expect(
+      await screen.findByText('excludes 1 project without a forecast · 2 forecasts out of date'),
+    ).toBeInTheDocument();
+  });
+
+  it('says a complete p80_completion is the latest project P80, not a joint forecast (#2408)', async () => {
+    mockApi(
+      rollup({
+        kpis: {
+          p80_completion: {
+            available: true,
+            unit: 'date',
+            value: '2027-05-01',
+            projects_without_forecast: 0,
+            projects_with_stale_forecast: 0,
+          },
+        },
+      }),
+    );
+    renderPage();
+    expect(await screen.findByText('latest project P80, not a joint forecast')).toBeInTheDocument();
+  });
+
   it('says why a p80_completion with no forecast has no date (#4779)', async () => {
     mockApi(
       rollup({

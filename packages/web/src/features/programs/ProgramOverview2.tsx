@@ -49,6 +49,25 @@ export function partialRollupLine(
 }
 
 /**
+ * The stale-forecast line (#2408): which forecasts the program P80 read no longer
+ * describe their project's plan, by name. They stay in the figure (dropping one would
+ * move the date silently), so the line says the P80 rests on them. The ids and the
+ * staleness rule are the server's (`forecast.projects_with_stale_forecast_ids`, the
+ * same classification `monte-carlo/latest/` ships). Null when none is stale.
+ */
+export function staleForecastLine(
+  rollup: Pick<ProgramRollup, 'forecast' | 'projects'>,
+): string | null {
+  const ids = rollup.forecast?.projects_with_stale_forecast_ids ?? [];
+  if (ids.length === 0) return null;
+  const rows = rollup.projects ?? [];
+  const names = ids.map((id) => rows.find((r) => r.id === id)?.name).filter(Boolean) as string[];
+  const subject = names.length === ids.length ? names.join(', ') : `${ids.length} projects`;
+  const one = ids.length === 1;
+  return `${one ? '1 forecast is' : `${ids.length} forecasts are`} out of date (${subject}); the program P80 still counts ${one ? 'it' : 'them'} until ${one ? 'it is' : 'they are'} rerun.`;
+}
+
+/**
  * Why the program's budget burn has no value, as the clause the NotComputable line
  * completes (#4799). Null when the KPI is not configured, has a value, or is hidden
  * from this caller (`cost_restricted` discloses nothing, ADR-1324 §4). Names come
@@ -326,6 +345,7 @@ export function ProgramOverview2({ programId }: { programId: string }) {
   const p80 = typeof forecast?.value === 'string' ? forecast.value : null;
   const driver = rows.find((r) => r.id === forecast?.driver_project_id);
   const partial = rollup ? partialRollupLine(rollup) : null;
+  const staleForecasts = rollup ? staleForecastLine(rollup) : null;
   const budgetMissing = rollup ? budgetBurnMissing(rollup) : null;
   // Nothing while the load query is in flight: a not-computable line that flashes and
   // then becomes a tile reads as the figure changing its mind.
@@ -412,6 +432,15 @@ export function ProgramOverview2({ programId }: { programId: string }) {
                 >
                   <span aria-hidden="true">◆ </span>
                   {partial}
+                </p>
+              )}
+              {p80 && staleForecasts && (
+                <p
+                  className="mt-2 text-xs text-p1-risk-text"
+                  data-testid="program-overview2-stale-forecasts"
+                >
+                  <span aria-hidden="true">◆ </span>
+                  {staleForecasts}
                 </p>
               )}
             </section>

@@ -420,8 +420,13 @@ def latest_forecast_by_project(project_ids: Iterable[Any]) -> dict[str, dict[str
     owner does. A newest run with no P80 means the owner has no P80 to show, so the
     project is left out; an older run's date is not substituted for it.
 
+    ``plan_version`` and ``engine_epoch`` are the run-time observations
+    :func:`~trueppm_api.apps.scheduling.forecast_staleness.forecast_staleness_facts`
+    needs to say whether a forecast still describes its plan (#3140). Both ride the
+    cache entry and the persisted row; ``None`` for a run recorded before they existed.
+
     Returns ``{str(project_id): {"p50": date|None, "p80": date, "last_run_at": iso,
-    "p80_at_day_start": bool|None}}``
+    "p80_at_day_start": bool|None, "plan_version": int|None, "engine_epoch": int|None}}``
     for the projects that have a P80.
     """
     from django.core.cache import cache
@@ -453,21 +458,33 @@ def latest_forecast_by_project(project_ids: Iterable[Any]) -> dict[str, dict[str
                 "p80": _day(p80),
                 "last_run_at": entry["last_run_at"],
                 "p80_at_day_start": entry.get("p80_at_day_start"),
+                "plan_version": entry.get("plan_version"),
+                "engine_epoch": entry.get("engine_epoch"),
             }
     if uncached:
         newest = (
             MonteCarloRun.objects.filter(project_id__in=uncached)
             .order_by("project_id", "-taken_at")
             .distinct("project_id")
-            .values_list("project_id", "p50", "p80", "taken_at", "p80_at_day_start")
+            .values(
+                "project_id",
+                "p50",
+                "p80",
+                "taken_at",
+                "p80_at_day_start",
+                "plan_version",
+                "engine_epoch",
+            )
         )
-        for run_project_id, run_p50, run_p80, taken_at, run_at_day_start in newest:
-            if run_p80 is not None:
-                out[str(run_project_id)] = {
-                    "p50": run_p50,
-                    "p80": run_p80,
-                    "last_run_at": taken_at.isoformat(),
-                    "p80_at_day_start": run_at_day_start,
+        for run in newest:
+            if run["p80"] is not None:
+                out[str(run["project_id"])] = {
+                    "p50": run["p50"],
+                    "p80": run["p80"],
+                    "last_run_at": run["taken_at"].isoformat(),
+                    "p80_at_day_start": run["p80_at_day_start"],
+                    "plan_version": run["plan_version"],
+                    "engine_epoch": run["engine_epoch"],
                 }
     return out
 

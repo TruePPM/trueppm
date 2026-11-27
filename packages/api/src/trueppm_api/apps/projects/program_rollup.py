@@ -23,7 +23,9 @@ Design (ADR-0088, amended by ADR-1314 for #4779):
 - **``p80_completion``** is the latest P80 among the contributing projects' own
   forecasts, read from the same latest result ``monte-carlo/latest/`` serves (the
   cache entry, else the newest persisted run). Policy-independent: a program
-  finishes when its last project does, and a mean of finish dates is no date.
+  finishes when its last project does, and a mean of finish dates is no date. It
+  counts the projects it leaves out (no forecast) and the forecasts it read that are
+  stale against their plan (ADR-0088 amendment 2026-11-27, #2408).
 - **Cost KPIs (ADR-1324, #754).** ``cost_variance`` / ``budget_utilization`` come from
   :func:`~trueppm_api.apps.projects.cost.project_cost_facts` as program totals (Σ CV,
   ΣAC / ΣBAC). They are unavailable with an actionable reason (``no_budget`` /
@@ -101,6 +103,10 @@ REASON_NO_MILESTONES = "no_milestones"  # no project has a milestone task
 REASON_NO_BASELINE = "no_baseline"  # no project has an active baseline with dates
 REASON_NO_COMPLETED_WORK = "no_completed_work"  # baselines exist, nothing baselined is done
 REASON_NO_FORECAST = "no_forecast"  # no project has a Monte Carlo forecast with a P80
+
+#: The ``forecast_staleness`` values that mean "this forecast no longer describes its
+#: plan" (#3140). ``unknown`` (a run that cannot be placed) and ``current`` are not.
+_STALE_FORECAST_STATES = frozenset({"aged", "project_changed", "engine_superseded"})
 
 #: Each rollup KPI's key in METRIC_DEFINITIONS. Namespaced because two of the KPI
 #: names (``schedule_health``) are also project-level figures with their own sentence.
@@ -351,12 +357,24 @@ def p80_completion_entry(project_ids: list[Any]) -> dict[str, Any]:
     rather than blanking the figure, and the count is what lets a client say so.
     Null with ``reason: no_forecast`` when no project has one (rule 119).
 
-    The per-project read is :func:`metric_provenance.latest_forecast_p80_by_project`,
+    ``projects_with_stale_forecast`` counts (and ``..._ids`` names) the forecasts the
+    figure read that no longer describe their project's plan: the run predates a plan
+    change or a recalc, is older than ``risk_premium.STALE_AFTER_DAYS``, or came from a
+    superseded engine. The classification is the one every project forecast surface
+    ships (:func:`~trueppm_api.apps.scheduling.forecast_staleness.forecast_staleness_facts`,
+    #3140), so the program cannot call a forecast stale that the project page calls
+    current, or the reverse. A stale forecast stays IN the figure: dropping it would
+    silently move the date, and the PM's remedy (rerun it) is the same either way. A run
+    that cannot be placed against its plan (``unknown``) is not counted — that is not
+    evidence it is stale.
+
+    The per-project read is :func:`metric_provenance.latest_forecast_by_project`,
     the batched reader My Work's ship date also uses, so the rollup cannot read the
-    owner's order differently from it. Fixed cost: one ``get_many`` cache read and at
-    most one ``DISTINCT ON`` query.
+    owner's order differently from it. Fixed cost: one ``get_many`` cache read, at
+    most one ``DISTINCT ON`` query, and one project-row read for the staleness inputs.
     """
-    from trueppm_api.apps.projects.metric_provenance import latest_forecast_p80_by_project
+    from trueppm_api.apps.projects.metric_provenance import latest_forecast_by_project
+    from trueppm_api.apps.scheduling.forecast_staleness import forecast_staleness_facts
 
     entry: dict[str, Any] = {
         "available": True,
@@ -366,19 +384,45 @@ def p80_completion_entry(project_ids: list[Any]) -> dict[str, Any]:
         "driver_project_id": None,
         "projects_without_forecast": len(project_ids),
         "projects_without_forecast_ids": sorted(str(pid) for pid in project_ids),
+        "projects_with_stale_forecast": 0,
+        "projects_with_stale_forecast_ids": [],
     }
     if not project_ids:
         entry["reason"] = REASON_NO_PROJECTS
         return entry
 
-    latest = latest_forecast_p80_by_project(project_ids)
+    latest = latest_forecast_by_project(project_ids)
     # Every entry the helper returns has a P80 and a last_run_at: the only cache
     # writer, ``scheduling.views.run_monte_carlo``, always sets it, and a persisted
     # run has ``taken_at``. Parsed, because the cache and the row serialize the
     # timestamp differently and the oldest must be found by time, not by string.
     dated = [
-        (p80, datetime.datetime.fromisoformat(run_at), pid) for pid, (p80, run_at) in latest.items()
+        (row["p80"], datetime.datetime.fromisoformat(row["last_run_at"]), pid)
+        for pid, row in latest.items()
     ]
+    if latest:
+        plans = {
+            str(pk): (version, recalculated_at)
+            for pk, version, recalculated_at in Project.objects.filter(
+                pk__in=list(latest)
+            ).values_list("pk", "last_sync_version", "recalculated_at")
+        }
+        today = timezone.localdate()
+        stale_ids = []
+        for (_, taken_at, pid), row in zip(dated, latest.values(), strict=True):
+            version_now, recalculated_at = plans.get(pid, (None, None))
+            state = forecast_staleness_facts(
+                plan_version=row.get("plan_version"),
+                plan_version_current=version_now,
+                taken_at=taken_at,
+                recalculated_at=recalculated_at,
+                today=today,
+                engine_epoch=row.get("engine_epoch"),
+            )["forecast_staleness"]
+            if state in _STALE_FORECAST_STATES:
+                stale_ids.append(pid)
+        entry["projects_with_stale_forecast"] = len(stale_ids)
+        entry["projects_with_stale_forecast_ids"] = sorted(stale_ids)
     entry["projects_without_forecast"] = len(project_ids) - len(dated)
     # #4799: the ids, not just the count, so the partial-rollup line can name the
     # project the program P80 leaves out. Sorted for a stable payload.

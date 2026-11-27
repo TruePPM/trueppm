@@ -183,6 +183,7 @@ test.describe('shell v2 program overview', () => {
     await expect(rows.nth(2)).toContainText('No status update posted yet.');
     await expect(page.getByTestId('program-row-band')).toHaveCount(2);
     await expect(page.getByTestId('program-overview2-partial')).toHaveCount(0);
+    await expect(page.getByTestId('program-overview2-stale-forecasts')).toHaveCount(0);
     await expect(page.getByText(/Enterprise/)).toHaveCount(0);
     await expectNoA11yViolationsBothThemes(page, testInfo);
   });
@@ -280,5 +281,21 @@ test.describe('shell v2 program overview', () => {
     await expect(page.getByTestId('program-overview2-partial')).toHaveText(
       /1 of 3 projects didn’t report \(Identity Consolidation\); the program P80 excludes it until it reports\./,
     );
+  });
+
+  test('names the out-of-date forecast the program P80 still counts (#2408)', async ({
+    page,
+  }, testInfo) => {
+    const body = rollup(ROWS, []);
+    Object.assign(body.forecast, {
+      projects_with_stale_forecast: 1,
+      projects_with_stale_forecast_ids: [A],
+    });
+    await open(page, body);
+    await expect(page.getByTestId('program-overview2-p80')).toContainText('2027');
+    await expect(page.getByTestId('program-overview2-stale-forecasts')).toHaveText(
+      /1 forecast is out of date \(Data Migration\); the program P80 still counts it until it is rerun\./,
+    );
+    await expectNoA11yViolationsBothThemes(page, testInfo);
   });
 });

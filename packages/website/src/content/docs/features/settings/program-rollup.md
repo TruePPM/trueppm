@@ -72,6 +72,10 @@ When 0.5 lands, every KPI will have a source and none will be locked. **P80
 completion date** will compute from each project's latest Monte Carlo forecast:
 the latest of those P80 dates, naming the project that sets it, dated by the
 oldest forecast it read. Projects without a forecast will be left out and counted.
+Forecasts that are out of date against their project's plan will stay in the
+date and be counted, so the card can say the date rests on them. The date is the
+latest of the projects' own P80s, not a joint forecast of the program, whose P80
+would be that date or later.
 In the current release it is locked with the reason `no_montecarlo_store`
 ("needs stored Monte Carlo runs").
 :::

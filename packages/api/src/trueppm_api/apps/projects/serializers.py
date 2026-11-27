@@ -3644,6 +3644,25 @@ class ProgramRollupKpiEntrySerializer(serializers.Serializer[dict[str, Any]]):
             "counts, so a client can name the project the program P80 leaves out (#4799)."
         ),
     )
+    projects_with_stale_forecast = serializers.IntegerField(
+        read_only=True,
+        required=False,
+        help_text=(
+            "p80_completion only: contributing forecasts the value read that no longer "
+            "describe their project's plan (forecast_staleness aged, project_changed or "
+            "engine_superseded, the classification monte-carlo/latest/ ships). They stay "
+            "in the value; the count lets a client say it rests on out-of-date forecasts."
+        ),
+    )
+    projects_with_stale_forecast_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        read_only=True,
+        required=False,
+        help_text=(
+            "p80_completion only: which projects projects_with_stale_forecast counts, so a "
+            "client can name the forecasts to rerun."
+        ),
+    )
 
 
 class ProgramRollupLatestUpdateSerializer(serializers.Serializer[dict[str, Any]]):

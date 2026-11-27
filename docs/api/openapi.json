@@ -79628,6 +79628,20 @@
                         },
                         "readOnly": true,
                         "description": "p80_completion only: which contributing projects projects_without_forecast counts, so a client can name the project the program P80 leaves out (#4799)."
+                    },
+                    "projects_with_stale_forecast": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "description": "p80_completion only: contributing forecasts the value read that no longer describe their project's plan (forecast_staleness aged, project_changed or engine_superseded, the classification monte-carlo/latest/ ships). They stay in the value; the count lets a client say it rests on out-of-date forecasts."
+                    },
+                    "projects_with_stale_forecast_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "readOnly": true,
+                        "description": "p80_completion only: which projects projects_with_stale_forecast counts, so a client can name the forecasts to rerun."
                     }
                 },
                 "required": [
@@ -79635,6 +79649,8 @@
                     "available",
                     "driver_project_id",
                     "missing_rate_count",
+                    "projects_with_stale_forecast",
+                    "projects_with_stale_forecast_ids",
                     "projects_without_budget",
                     "projects_without_budget_ids",
                     "projects_without_forecast",
