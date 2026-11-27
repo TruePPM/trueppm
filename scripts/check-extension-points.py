@@ -25,6 +25,13 @@ local alias of it, or a loop variable over it fails unless a ``FAIL-CLOSED``
 comment sits within 12 lines above. Use ``invoke_extension_provider()``. A slot
 handed to another function and called there is not followed.
 
+Blind spot: registries that are not a rebound or appended module name are not
+seen at all, so OSS invokes their callables bare and this gate stays green. That
+covers ``ProviderRegistry`` instances (``TASK_LINK_PROVIDERS``,
+``OUTGOING_CHANNEL_PROVIDERS``, ``NOTIFICATION_CHANNELS``,
+``EXTERNAL_TASK_SOURCES``) and dict-keyed ones
+(``schema_migrations._MIGRATIONS``). Containing those is tracked in #5157.
+
 What this cannot do: it does not query the Enterprise tracker (a gate that needs
 a second repository over the network fails on weather), so a reference to a
 closed or wrong issue passes, and so does any ADR number. A module docstring
