@@ -178,9 +178,11 @@ test.describe('Project export bundle card', () => {
 
     await page.getByRole('button', { name: 'Export bundle…' }).click();
 
-    const alert = page.getByRole('alert');
+    // Scoped by text: other settings cards render their own role="alert" when
+    // their (unmocked) reads fail, so a bare getByRole('alert') is a strict-mode
+    // violation whenever one of them resolves first.
+    const alert = page.getByRole('alert').filter({ hasText: 'Export failed' });
     await expect(alert).toBeVisible();
-    await expect(alert).toContainText('Export failed');
   });
 
   test('encrypted bundle — passphrase is sent once and the download is named .age', async ({
@@ -221,6 +223,8 @@ test.describe('Project export bundle card', () => {
     await page.getByRole('checkbox', { name: /lost passphrase can’t be recovered/ }).check();
     await page.getByRole('button', { name: 'Export bundle…' }).click();
 
-    await expect(page.getByRole('alert')).toBeVisible();
+    await expect(
+      page.getByRole('alert').filter({ hasText: 'Request failed with status code 400' }),
+    ).toBeVisible();
   });
 });
