@@ -211,7 +211,7 @@ if [ "$MODE" = diff ]; then
       stale=$((stale + 1))
     fi
   done
-  added=$(git -C "$ROOT" diff --no-color -U0 "$base" -- . 2>/dev/null | grep -E '^[+]' | grep -vE '^[+]{3} ' |
+  added=$(tracker_gate_git "$ROOT" diff --no-color -U0 "$base" -- . 2>/dev/null | grep -E '^[+]' | grep -vE '^[+]{3} ' |
     grep -oE 'SUPPRESSED-UNTIL\(#[0-9]+\)' | grep -oE '[0-9]+' | sort -un || true)
   issues=$(for iid in $(tracker_gate_minus "$added" "$closing"); do
     tracker_gate_has "$iid" "$issues" && printf '%s\n' "$iid"

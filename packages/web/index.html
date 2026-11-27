@@ -3,7 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="apple-touch-icon" href="/app-icon.svg" />
+    <!-- Installable PWA (ADR-1523 §3). iOS ignores an SVG apple-touch-icon, so this is a
+         180x180 opaque PNG (scripts/generate-pwa-icons.mjs). The manifest link is
+         injected by vite-plugin-pwa at build time. Status bar `default`: a translucent
+         bar would draw the page under it and need safe-area padding in the chrome. -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="TruePPM" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="TruePPM — Project, Program, and Portfolio Management" />
     <meta name="theme-color" content="#1B2A4A" />

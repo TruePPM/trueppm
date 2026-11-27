@@ -8,7 +8,7 @@
  * the disabled Write column is a description of that rule, not the rule.
  */
 import { useId, useState } from 'react';
-import { Link } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import type { AgentDetail, AgentRow, AgentScope, AgentScopeLevel } from '@/api/types';
 import { EmptyState } from '@/components/EmptyState';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
@@ -411,7 +411,28 @@ export function AgentsPage() {
   const [selected, setSelected] = useState<string | null>(null);
   const agents = data?.agents ?? [];
   const areas = data?.areas ?? [];
-  const current = selected ?? agents[0]?.id ?? null;
+  // `?agent=<id>` is how a refused-agent Inbox item opens this page on its agent
+  // (#5110). A row the person picks wins over it. An id not on the list (the agent
+  // was revoked since, or is no longer visible to this person) shows a notice and
+  // falls back to the first agent, rather than silently opening a different one.
+  // A truncated list cannot tell "gone" from "past the cap", so it says only that
+  // the list is partial.
+  const [searchParams] = useSearchParams();
+  const requested = searchParams.get('agent');
+  const requestedListed = requested !== null && agents.some((row) => row.id === requested);
+  const current = selected ?? (requestedListed ? requested : null) ?? agents[0]?.id ?? null;
+  const requestedMissing =
+    requested !== null &&
+    !requestedListed &&
+    selected === null &&
+    !isLoading &&
+    !isError &&
+    agents.length > 0;
+  const requestedNotice = !requestedMissing
+    ? ''
+    : data?.truncated
+      ? `The agent from your Inbox item is not among the first ${agents.length} agents this list shows. The list is partial.`
+      : 'The agent from your Inbox item is no longer on this list. Its token may have been revoked.';
 
   return (
     <PageFrame
@@ -423,6 +444,15 @@ export function AgentsPage() {
         </div>
       }
     >
+      {/* Mounted empty before the list loads and filled afterwards: a live region
+          that mounts already holding its text is not reliably announced. */}
+      <p
+        role="status"
+        data-testid="agents-requested-notice"
+        className={requestedNotice ? 'mb-2 text-sm text-neutral-text-secondary' : undefined}
+      >
+        {requestedNotice}
+      </p>
       {isLoading ? (
         <LoadingSkeleton label="Loading agents" variant="rows" />
       ) : isError ? (

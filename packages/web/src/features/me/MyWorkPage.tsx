@@ -30,13 +30,10 @@
  * with header ``X-Source: my_work`` (see ``useMyWorkStatusUpdate``).
  */
 import { useMemo, useState } from 'react';
-import {
-  useMyWork,
-  type MyWorkGroup,
-  type MyWorkTask,
-  type MyWorkExternalItem,
-} from '@/hooks/useMyWork';
+import { type MyWorkGroup, type MyWorkTask, type MyWorkExternalItem } from '@/hooks/useMyWork';
 import { useTimeRollup } from '@/hooks/useTimeEntry';
+import { useMyWorkWithOfflineSnapshot } from '@/features/pwa/useMyWorkWithOfflineSnapshot';
+import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 import { formatMinutesAsHm } from '@/lib/parseHours';
 import { localTodayIso } from '@/lib/localDate';
 import { countBlocked, selectVisibleTasks } from './myWorkBlocked';
@@ -123,8 +120,19 @@ export function groupByBucket(
 }
 
 export function MyWorkPage() {
-  const { data, isLoading, error, fetchNextPage, hasNextPage, isFetchingNextPage, refetch } =
-    useMyWork();
+  // Offline, this serves the copy saved on this device (ADR-1523 §4).
+  const {
+    data,
+    isLoading,
+    error,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    refetch,
+    snapshotSavedAt,
+    offlineWithoutSnapshot,
+  } = useMyWorkWithOfflineSnapshot();
+  const { formatInstantTime } = useUserDateFormat();
   // Used to differentiate empty-state flavor A (no projects) vs B (no assignments).
   // Counts program projects as well as membership projects (#3469): the member rows
   // of `GET /projects/` are membership-scoped (it also lists WORKSPACE-visible
@@ -289,6 +297,27 @@ export function MyWorkPage() {
           fire?" above the fold. Self-hides with <2 projects, so it sits above the
           task-state branch — a PM with no assigned tasks still gets the signal. */}
       <MyProjectsHealthSummary />
+
+      {snapshotSavedAt !== null && (
+        <p
+          className="mx-4 mb-3 rounded-card border border-semantic-at-risk/40 bg-semantic-at-risk-bg px-3 py-2 text-sm text-semantic-at-risk md:mx-6"
+          data-testid="my-work-offline-copy"
+        >
+          Showing your work as saved on this device at{' '}
+          {formatInstantTime(new Date(snapshotSavedAt).toISOString())}. It updates when you
+          reconnect.
+        </p>
+      )}
+
+      {offlineWithoutSnapshot && (
+        <p
+          className="mx-4 mb-3 rounded-card border border-semantic-at-risk/40 bg-semantic-at-risk-bg px-3 py-2 text-sm text-semantic-at-risk md:mx-6"
+          data-testid="my-work-offline-empty"
+        >
+          You&rsquo;re offline, and this device has no saved copy of your work yet. Open My Work
+          once while connected and it will be here next time.
+        </p>
+      )}
 
       {error && (
         <div

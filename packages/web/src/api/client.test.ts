@@ -4,6 +4,13 @@ import { useAuthStore } from '@/stores/authStore';
 import { useToastStore } from '@/components/Toast/toastStore';
 import { queryClient } from '@/lib/queryClient';
 import * as authBroadcast from '@/lib/authBroadcast';
+import { resetServiceWorkerStateForTests } from '@/lib/pwa/registerServiceWorker';
+import { purgePwaUserData } from '@/lib/pwa/pwaStore';
+
+vi.mock('@/lib/pwa/pwaStore', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/pwa/pwaStore')>()),
+  purgePwaUserData: vi.fn(() => Promise.resolve()),
+}));
 
 // Re-import every time so each test gets the module-level interceptors registered
 // by client.ts. Module caching means the same apiClient instance is reused within
@@ -218,6 +225,39 @@ describe('apiClient', () => {
       );
       expect(useAuthStore.getState().accessToken).toBe('boot-access');
       expect(useAuthStore.getState().isAuthenticated).toBe(true);
+    });
+
+    // ADR-1523 §4: the installed app opened with no signal. The session was not
+    // refused, it is unreachable, so the sign-in modal must not cover the offline shell.
+    it('leaves the session alone when the refresh fails because the device is offline', async () => {
+      const bootstrapAccessToken = await getBootstrap();
+      Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+      try {
+        vi.spyOn(axios, 'post').mockRejectedValue(new AxiosError('Network Error', 'ERR_NETWORK'));
+        await expect(bootstrapAccessToken()).resolves.toBe(false);
+        expect(useAuthStore.getState().sessionExpired).toBe(false);
+      } finally {
+        Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
+      }
+    });
+
+    // Negative control for the offline guard above: it keys on "no HTTP response",
+    // not on `navigator.onLine` alone. A server that answered 401 refused the
+    // session, whatever the browser thinks of its connection.
+    it('still expires the session on a 401 while navigator.onLine is false', async () => {
+      const bootstrapAccessToken = await getBootstrap();
+      Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+      try {
+        const refused = new AxiosError('Unauthorized', 'ERR_BAD_REQUEST', undefined, undefined, {
+          status: 401,
+          data: {},
+        } as AxiosResponse);
+        vi.spyOn(axios, 'post').mockRejectedValue(refused);
+        await expect(bootstrapAccessToken()).resolves.toBe(false);
+        expect(useAuthStore.getState().sessionExpired).toBe(true);
+      } finally {
+        Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
+      }
     });
 
     // #4296: only the server's own refusal speaks for the shared cookie.
@@ -472,6 +512,7 @@ describe('apiClient', () => {
             accessToken: null,
             sessionExpired: true,
           });
+          vi.mocked(purgePwaUserData).mockClear();
           sibling.postMessage({ type: 'restored' });
           await vi.waitFor(() => expect(useAuthStore.getState().accessToken).toBe('minted-here'));
           return get;
@@ -484,11 +525,14 @@ describe('apiClient', () => {
             expect.objectContaining({ headers: { Authorization: 'Bearer minted-here' } }),
           );
           expect(queryClient.getQueryData(['projects'])).toBeUndefined();
+          // The offline My Work copy is the previous user's too (ADR-1523 §4).
+          expect(purgePwaUserData).toHaveBeenCalledOnce();
         });
 
         it('keeps the cache when the same user signed back in', async () => {
           await restoreWith(() => Promise.resolve({ data: { id: '7' } }));
           expect(queryClient.getQueryData(['projects'])).toEqual([{ id: 'p1' }]);
+          expect(purgePwaUserData).not.toHaveBeenCalled();
         });
 
         it('clears the cache when there is no cached identity to compare against', async () => {
@@ -650,5 +694,54 @@ describe('apiClient — read-only demo refusal (ADR-1197 D3, #3926)', () => {
     err.response = { status: 403, data: { detail: 'Not permitted.' } } as AxiosResponse;
     await expect(rejected(err)).rejects.toBeDefined();
     expect(useToastStore.getState().transient).toBeNull();
+  });
+});
+
+describe('apiClient — service-worker kill switch (ADR-1523 §2)', () => {
+  function lastResponseInterceptor(client: Awaited<ReturnType<typeof getApiClient>>) {
+    const all = (client.interceptors.response as unknown as { handlers: unknown[] }).handlers;
+    return getResponseInterceptors(client, all.length - 1);
+  }
+
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, 'serviceWorker');
+    // The kill switch latches after it fires once per page load; each case starts unfired.
+    resetServiceWorkerStateForTests();
+  });
+
+  it('unregisters workers when a response carries the disable header, and passes it through', async () => {
+    const unregister = vi.fn().mockResolvedValue(true);
+    Object.defineProperty(navigator, 'serviceWorker', {
+      value: { getRegistrations: vi.fn().mockResolvedValue([{ unregister }]) },
+      configurable: true,
+    });
+    const client = await getApiClient();
+    const response = { data: {}, headers: { 'x-trueppm-service-worker': 'disable' } };
+    expect(lastResponseInterceptor(client).fulfilled(response)).toBe(response);
+    await vi.waitFor(() => expect(unregister).toHaveBeenCalled());
+  });
+
+  it('rejects an error response unchanged', async () => {
+    const client = await getApiClient();
+    const err = new AxiosError('boom', '500', undefined, undefined, {
+      status: 500,
+      headers: {},
+    } as AxiosResponse);
+    await expect(lastResponseInterceptor(client).rejected(err)).rejects.toBe(err);
+  });
+
+  it('unregisters workers when an error response carries the disable header', async () => {
+    const unregister = vi.fn().mockResolvedValue(true);
+    Object.defineProperty(navigator, 'serviceWorker', {
+      value: { getRegistrations: vi.fn().mockResolvedValue([{ unregister }]) },
+      configurable: true,
+    });
+    const client = await getApiClient();
+    const err = new AxiosError('boom', '503', undefined, undefined, {
+      status: 503,
+      headers: { 'x-trueppm-service-worker': 'disable' },
+    } as unknown as AxiosResponse);
+    await expect(lastResponseInterceptor(client).rejected(err)).rejects.toBe(err);
+    await vi.waitFor(() => expect(unregister).toHaveBeenCalled());
   });
 });

@@ -322,6 +322,7 @@ These rules are enforced at review time. Violations block merge.
 470. **A phone surface that withholds a desktop capability renders a named `role="note"` saying what is desktop-only and what the phone can still do, with a 44px Copy link and an Email it to me addressed to the signed-in user only.** → [rule](../../docs/design/invariants/470-a-phone-surface-that-withholds-a-desktop-capability-says-so-and-hands-off.md)
 472. **A share-token page (`/share/<kind>/:token`) renders with no app chrome and no link into the workspace, shows "Read-only", fetches only its anonymous endpoint with bare axios, mounts `useNoReferrer`, and has one "not available" state for a uniform-404 link.** → [rule](../../docs/design/invariants/472-a-public-share-page-is-chromeless-linkless-and-has-one-unavailable-state.md)
 473. **A chart in a phone card is drawn at the card's own width (shorter height) through its `width`/`height` props, never left at the desktop 640 viewBox and scaled down.** → [rule](../../docs/design/invariants/473-a-phone-chart-is-drawn-at-the-cards-width-not-scaled-down.md)
+478. **A `fixed` bottom-anchored overlay offsets by `env(safe-area-inset-bottom)` so it clears the iOS home indicator in the installed app, and mounts as an overlay, never as a new row in the shell chrome.** → [rule](../../docs/design/invariants/478-a-fixed-bottom-overlay-clears-the-ios-home-indicator.md)
 
 ---
 

@@ -2,6 +2,11 @@
  * E2E for the shell v2 Project Overview (#4798) behind `?ff=shell_v2`: one lead
  * figure, supporting tiles, the inline cost-variance line, and the empty and error
  * states of the forecast. Both endpoints are mocked in their real shapes.
+ *
+ * Screenshot baselines (#5148) are Linux/Chromium; they are skipped on other
+ * platforms because font rasterization differs by OS. Regenerate inside the CI
+ * Playwright image (`PLAYWRIGHT_BASE_TAG` in `.gitlab-ci.yml`) with
+ * `--update-snapshots`, never on the host OS.
  */
 import { test, expect, type Page } from './fixtures/coverage';
 import { setupAuth, setupApiMocks, setupCatchAll } from './fixtures';
@@ -16,7 +21,14 @@ const OVERVIEW = {
   critical_task_count: 3,
   total_tasks: 20,
   complete_tasks: 8,
-  next_milestone: { id: 'm1', name: 'Beta release', date: '2026-12-01', percent_complete: 40 },
+  next_milestone: {
+    id: 'm1',
+    name: 'Beta release',
+    date: '2026-12-01',
+    percent_complete: 40,
+    baseline_date: '2026-11-27',
+    total_float: 0,
+  },
   team_utilization_pct: 70,
   team_utilization_reason: null,
   owner_name: 'Pat',
@@ -136,6 +148,43 @@ async function open(page: Page, forecast: Forecast) {
   await page.route(`**/api/v1/projects/${PID}/status-updates/**`, (r) =>
     r.fulfill(json({ count: 0, next: null, previous: null, results: [] })),
   );
+  await page.route(`**/api/v1/projects/${PID}/status-summary/`, (r) =>
+    r.fulfill(
+      json({
+        task_count: 20,
+        health_band: 'on_track',
+        health_band_source: 'derived',
+        monte_carlo_p80: '2026-12-07',
+        at_risk_count: 0,
+        critical_count: 0,
+        at_risk_tasks: [],
+        critical_tasks: [],
+        blocked_count: 0,
+        last_saved: null,
+        recalculated_at: null,
+        as_of: '2026-11-20T09:12:00Z',
+        definitions: {},
+      }),
+    ),
+  );
+  // Shell reads and the visit beacon around the page: real shapes, not the catch-all 404.
+  await page.route(`**/api/v1/projects/${PID}/views/`, (r) =>
+    r.fulfill(
+      json({
+        views: [],
+        lens: 'pm',
+        seeded_lens: null,
+        seed_line: null,
+        lens_offer: null,
+        landing: null,
+        last_layouts: {},
+      }),
+    ),
+  );
+  await page.route(`**/api/v1/projects/${PID}/visit/`, (r) => r.fulfill(json({ recorded: true })));
+  await page.route('**/api/v1/workspace/', (r) =>
+    r.fulfill(json({ name: 'E2E', subdomain: 'e2e', public_sharing: false })),
+  );
   await page.goto(`/projects/${PID}/overview?ff=shell_v2`);
   await expect(page.getByTestId('overview2')).toBeVisible({ timeout: 10_000 });
 }
@@ -193,7 +242,6 @@ test.describe('shell v2 project overview', () => {
       await expect(svg).toBeVisible();
       // The S-curve is drawn at the phone size, not the 640-wide desktop viewBox scaled down.
       await expect(svg).toHaveAttribute('viewBox', /^0 0 340 220$/);
-      // TODO(#5148): screenshot baselines (CI image, both themes) go here.
       await expect(page.getByTestId('overview2-tile')).toHaveCount(3);
       await expect(page.getByTestId('not-computable')).toContainText('Cost variance');
       const why = await page.getByRole('link', { name: /Why this date\?/ }).boundingBox();
@@ -203,6 +251,72 @@ test.describe('shell v2 project overview', () => {
       );
       expect(overflow).toBeLessThanOrEqual(0);
       await expectNoA11yViolationsBothThemes(page, testInfo);
+      // Each peer date holds one line, down to a 360px phone, without sideways scroll.
+      for (const width of [390, 360]) {
+        await page.setViewportSize({ width, height: 844 });
+        const lines = await page
+          .getByTestId('overview2-peer-date')
+          .evaluateAll((els) =>
+            els.map((el) => el.clientHeight / Number.parseFloat(getComputedStyle(el).lineHeight)),
+          );
+        expect(lines, `peer date lines at ${width}px`).toEqual([1, 1, 1]);
+        expect(
+          await page.evaluate(
+            () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          ),
+        ).toBeLessThanOrEqual(0);
+      }
     });
   });
+});
+
+// The clock, zone and locale are pinned so "as of" and date text never drift.
+test.describe('shell v2 project overview screenshots (#5148)', () => {
+  test.skip(process.platform !== 'linux', 'baselines are Linux/Chromium (CI image)');
+  test.use({ timezoneId: 'UTC', locale: 'en-US' });
+
+  async function openForShot(page: Page, theme: 'light' | 'dark') {
+    await page.clock.setFixedTime(new Date('2026-11-20T12:00:00Z'));
+    await page.addInitScript((t) => localStorage.setItem('trueppm.theme', t), theme);
+    await page.emulateMedia({ colorScheme: theme });
+    await open(page, 'stale');
+    // Every read that paints into the shot has landed, including the idle-deferred history.
+    await expect(page.getByTestId('overview2-lead-figure')).toBeVisible();
+    await expect(page.getByTestId('overview2-driver')).toContainText('Pour foundation');
+    await expect(page.getByTestId('overview2-moved')).toBeVisible();
+    await expect(page.getByTestId('overview2-tile')).toHaveCount(3);
+    await expect(page.getByTestId('overview2-milestone-facts')).toContainText('Float');
+    await expect(page.getByTestId('status-updates-empty')).toBeVisible();
+    await expect(page.locator('html')).toHaveClass(theme === 'dark' ? /dark/ : /^(?!.*dark)/);
+    await page.evaluate(() => document.fonts.ready);
+  }
+
+  for (const theme of ['light', 'dark'] as const) {
+    test.describe(`${theme} theme`, () => {
+      test.describe('desktop', () => {
+        // Tall enough that the page content never needs to scroll inside the shell.
+        test.use({ viewport: { width: 1440, height: 1500 } });
+        test('overview content', async ({ page }) => {
+          await openForShot(page, theme);
+          await expect(page.getByTestId('overview2')).toHaveScreenshot(
+            `overview2-1440-${theme}.png`,
+            { animations: 'disabled' },
+          );
+        });
+      });
+
+      test.describe('phone', () => {
+        // Phone width; extra height keeps the fixed bottom bar off the card.
+        test.use({ viewport: { width: 390, height: 1100 } });
+        test('lead card', async ({ page }) => {
+          await openForShot(page, theme);
+          const lead = page.getByTestId('overview2-lead');
+          await expect(lead).toHaveAttribute('data-layout', 'phone');
+          await expect(lead).toHaveScreenshot(`overview2-lead-390-${theme}.png`, {
+            animations: 'disabled',
+          });
+        });
+      });
+    });
+  }
 });

@@ -95,17 +95,23 @@ export function Peer({
   label,
   date,
   definition,
+  phone,
 }: {
   label: string;
   date: string | null | undefined;
   definition?: string;
+  phone: boolean;
 }) {
   return (
     <div className="min-w-0 sm:min-w-[88px]">
       <div className="text-xs text-p1-text-2">
         <DefinitionTip term={label} definition={definition} />
       </div>
-      <div className={`${TYPE.section} font-mono tabular-nums text-p1-text-1`}>
+      {/* Phone: a third of a 360px card holds a 12-character date only at the 12px step. */}
+      <div
+        className={`${phone ? `${TYPE.mono} font-semibold` : `${TYPE.section} font-mono tabular-nums`} text-p1-text-1`}
+        data-testid="overview2-peer-date"
+      >
         {date ? fmtUtcMedium(date) : 'Not computed'}
       </div>
     </div>
@@ -200,9 +206,14 @@ function LeadCard({ projectId, mc }: { projectId: string; mc: MonteCarloResult }
         className={phone ? 'mt-3 grid grid-cols-3 gap-x-2' : 'mt-3 flex flex-wrap gap-x-6 gap-y-2'}
         data-testid="overview2-peers"
       >
-        <Peer label="P50" date={mc.p50} definition={mc.definitions?.p50} />
-        <Peer label="Commitment" date={mc.commitmentDate} definition={mc.definitions?.commitment} />
-        <Peer label="CPM" date={mc.cpmFinish} />
+        <Peer label="P50" date={mc.p50} definition={mc.definitions?.p50} phone={phone} />
+        <Peer
+          label="Commitment"
+          date={mc.commitmentDate}
+          definition={mc.definitions?.commitment}
+          phone={phone}
+        />
+        <Peer label="CPM" date={mc.cpmFinish} phone={phone} />
       </div>
       <div className="mt-4">
         <SCurveChart
@@ -229,8 +240,11 @@ function LeadCard({ projectId, mc }: { projectId: string; mc: MonteCarloResult }
           }
           to={`/projects/${projectId}/schedule`}
         >
-          Why this date?
-          {driver && <span data-testid="overview2-driver"> Biggest driver: {driver}</span>}
+          {/* One child, so the phone link's flex box cannot swallow the space before the driver. */}
+          <span>
+            Why this date?
+            {driver && <span data-testid="overview2-driver"> Biggest driver: {driver}</span>}
+          </span>
         </Link>
       </p>
     </section>

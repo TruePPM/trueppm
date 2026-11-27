@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react';
 import { WarningIcon } from '@/components/Icons';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { usePendingWriteCount } from '@/hooks/useSyncStatus';
 
 /**
  * Global connectivity indicator (WCAG 4.1.3 status messages).
@@ -14,9 +16,21 @@ import { useOnlineStatus } from '@/hooks/useOnlineStatus';
  * injects text into an already-present node — a region mounted at the same instant
  * as its content is not reliably announced (#2203). When online it collapses to
  * `sr-only` (no children, no layout footprint) rather than unmounting.
+ *
+ * Three states (ADR-1523, #1427): `offline` → `syncing` (back online while writes
+ * queued offline are still draining, with their count) → cleared. Coming back
+ * online with nothing queued clears it at once. `pendingWrites` comes from
+ * {@link ConnectedOfflineBanner}; the default keeps this component provider-free.
  */
-export function OfflineBanner() {
+export function OfflineBanner({ pendingWrites = 0 }: { pendingWrites?: number }) {
   const offline = !useOnlineStatus();
+  // Latched when the connection drops; released once the queue has drained online.
+  const [reconnecting, setReconnecting] = useState(false);
+  useEffect(() => {
+    if (offline) setReconnecting(true);
+    else if (pendingWrites === 0) setReconnecting(false);
+  }, [offline, pendingWrites]);
+  const syncing = !offline && reconnecting && pendingWrites > 0;
 
   return (
     <div
@@ -25,9 +39,17 @@ export function OfflineBanner() {
       className={
         offline
           ? 'flex items-center justify-center gap-2 border-b border-semantic-at-risk bg-semantic-at-risk-bg px-4 py-1.5 text-xs font-medium text-semantic-at-risk'
-          : 'sr-only'
+          : syncing
+            ? 'flex items-center justify-center gap-2 border-b border-brand-primary/40 bg-brand-primary/5 px-4 py-1.5 text-xs font-medium text-neutral-text-primary'
+            : 'sr-only'
       }
     >
+      {syncing && (
+        <>
+          Back online — syncing {pendingWrites} {pendingWrites === 1 ? 'change' : 'changes'} made
+          offline…
+        </>
+      )}
       {offline && (
         <>
           <WarningIcon className="inline-block h-3 w-3 align-[-0.125em]" aria-hidden="true" />
@@ -40,4 +62,9 @@ export function OfflineBanner() {
       )}
     </div>
   );
+}
+
+/** The shell's banner, fed the live count of queued writes. Needs a QueryClient. */
+export function ConnectedOfflineBanner() {
+  return <OfflineBanner pendingWrites={usePendingWriteCount()} />;
 }

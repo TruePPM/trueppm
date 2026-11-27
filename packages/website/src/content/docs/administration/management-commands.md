@@ -523,6 +523,11 @@ minutes). `--user` will do this even for an account that has nothing else left t
 revoke, such as one with no personal token whose refresh token was already
 revoked by signing out. The closing message will say so. `--all` does not sweep
 any account's sessions, so it will keep pointing at `JWT_SIGNING_KEY` rotation.
+
+Each revoked agent token (any token without full API access) will also get a row in
+the agent action chain that `audit_verify` checks, naming a server operator as the
+actor and `operator_bulk_revoke` as the reason, so the chain shows the agent being
+stopped and not only falling silent.
 :::
 
 - **`seed_integration_fixtures`** — seeds stable fixtures for the integration-test CI

@@ -29,7 +29,8 @@ const mockBootstrap = vi.fn<() => Promise<boolean>>();
 vi.mock('@/api/client', () => ({
   bootstrapAccessToken: () => mockBootstrap(),
 }));
-vi.mock('@/lib/queryClient', () => ({ queryClient: { clear: vi.fn() } }));
+const mockClearUserData = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/queryClient', () => ({ clearUserData: mockClearUserData }));
 
 describe('SsoCompletePage', () => {
   beforeEach(() => {
@@ -45,6 +46,14 @@ describe('SsoCompletePage', () => {
 
     expect(screen.getByText('Identity verified')).toBeInTheDocument();
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/', { replace: true }));
+  });
+
+  it("drops the previous user's reads and offline copy on SSO sign-in (ADR-1523 §4)", async () => {
+    mockClearUserData.mockClear();
+    mockBootstrap.mockResolvedValue(true);
+    renderPage();
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalled());
+    expect(mockClearUserData).toHaveBeenCalledOnce();
   });
 
   it('lands on the deep link parked at the SSO click (#3563)', async () => {
@@ -160,9 +169,7 @@ describe('SsoCompletePage', () => {
   it('shows an error when the session bootstrap fails on the success path', async () => {
     mockBootstrap.mockResolvedValue(false);
     renderPage();
-    await waitFor(() =>
-      expect(screen.getByText(/couldn't complete sign-in/i)).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText(/couldn't complete sign-in/i)).toBeInTheDocument());
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 });

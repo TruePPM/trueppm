@@ -345,6 +345,11 @@ user by construction (the queryset filters on `recipient=request.user`) —
 there is no cross-user access and no admin surface to edit another member's
 routing; each person owns their own notification contract.
 
+From 0.5, each row will also carry `agent_id`: the id of the agent a "Refused:
+agent …" row is about, which is how opening that row selects the agent on the
+Agents page. It is `null` on every other row. A refused-agent row has no project,
+so the redaction below never applies to it.
+
 ### What an inbox row shows once you are not a member (shipped in 0.4)
 
 A delivered notification is a record that a message was sent, not a live view

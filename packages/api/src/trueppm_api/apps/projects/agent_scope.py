@@ -189,7 +189,8 @@ def principal_ceiling(user: Any) -> dict[str, str]:
     is enough to cap an edit. It is not enough to authorize a dry run: when plan mode
     (#1813) starts consuming ``propose``, it must intersect the grant with the
     principal's role on the *project the dry run targets*, so an Admin on project A
-    cannot preview Admin-only changes on project B where they are a Member.
+    cannot preview Admin-only changes on project B where they are a Member (ADR-1522,
+    Decision 5).
     """
     if user is None or not getattr(user, "is_active", False):
         return dict.fromkeys(AGENT_AREAS, LEVEL_NONE)
