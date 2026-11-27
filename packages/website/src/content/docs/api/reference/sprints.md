@@ -159,12 +159,14 @@ Admin-and-up routes above. The operation is published `x-experimental`: see
   task is outside the scheduled network). Quote `cause` as sent.
 - `open_scope_changes` lists `injection` and `slip` rows in the order they were asked,
   oldest first. Rows from one drag or bulk placement share a `batch_id`.
-- Detection also runs after every recalculation: a task that has just become at risk
+- Detection also runs after every recalculation and when a sprint is activated: a task that has just become at risk
   sends the `sprint.commitment_at_risk` webhook once (see
   [Webhooks](/features/webhooks/)) and notifies the people who can accept the change.
-  A task that recovers and slips again is announced again. Delivery is at least once:
-  a run interrupted between the notice and the webhook is announced again by the next
-  recalculation.
+  A task that recovers and slips again is announced again. The notice, the record that
+  the task was announced and the webhook's delivery are written in one transaction
+  under the sprint's row lock, so two detections running together announce a task
+  once, and a run interrupted before that commit is announced again by the next one.
+  The webhook itself is delivered at least once, like every webhook.
 
 ## Sprint and task duration changes
 

@@ -632,9 +632,15 @@ DND_BYPASS_EVENTS: frozenset[str] = frozenset(
 # (ADR-1485 D8, #5133). A per-event mute does exist (a NotificationPreference row
 # with in_app disabled makes every fan-out in notifications.services skip the
 # recipient), and DND_BYPASS_EVENTS does not reach it: DND only gates email. So this
-# is a separate set, honored by every fan-out, and the preference write refuses to
-# store ``enabled=False`` for these cells so the settings UI cannot show a mute that
-# does nothing. Email and other channels still follow preferences.
+# is a separate set, and the preference write refuses to store ``enabled=False`` for
+# these cells so the settings UI cannot show a mute that does nothing. Email and other
+# channels still follow preferences. It is honored ONLY by
+# ``create_event_notifications``, ``create_event_notifications_multi_project`` and
+# ``upsert_grouped_event_notification`` (which delegates to the latter), the paths
+# these events are sent through. ``create_event_notifications_batch`` and
+# ``event_in_app_enabled`` do NOT honor it; sending one of these events through either
+# would let a stored in-app mute (one written before the preference write refused it)
+# silence the notice.
 UNMUTABLE_IN_APP_EVENTS: frozenset[str] = frozenset(
     {
         NotificationEventType.SPRINT_SCOPE_CHANGE_REQUESTED,

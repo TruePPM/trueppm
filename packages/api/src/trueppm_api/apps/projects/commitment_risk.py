@@ -22,7 +22,6 @@ derivation sentence from :func:`~trueppm_api.apps.scheduling.derivation_summary.
 from __future__ import annotations
 
 import logging
-from functools import partial
 from typing import Any
 
 from celery.exceptions import SoftTimeLimitExceeded
@@ -151,17 +150,17 @@ def _notice_names(names: list[str]) -> str:
 def detect_commitment_at_risk(project_id: Any) -> int:
     """Announce committed tasks that a recalculation has just pushed past a sprint's end.
 
-    Called once after every successful recalculation, single-project or program. For
-    each ACTIVE sprint it diffs the current at-risk set with
-    :class:`SprintCommitmentRisk` (the ones already announced): tasks newly at risk
-    are announced once, tasks no longer at risk are forgotten so a later relapse is
-    announced again. The in-app notices commit with the diff. The dedupe rows for
-    the newly flagged tasks are written in the ``on_commit`` callback, in one
-    transaction with the webhook's delivery rows (ADR-1485 D6, ids and working-day
-    deltas only), so the two land together or not at all: a crash after the notices
-    commit and before the callback leaves no dedupe row, and the next recalculation
-    announces again. Delivery is therefore at least once; the cost of that window is
-    a repeated notice, never a lost one.
+    Called once after every successful recalculation, single-project or program,
+    and after a sprint is activated, which changes the at-risk set without a
+    recalculation. (An active sprint's dates cannot be edited, ADR-0073, so no other
+    sprint write needs it.) For each ACTIVE sprint it diffs the current
+    at-risk set with :class:`SprintCommitmentRisk` (the ones already announced):
+    tasks newly at risk are announced once, tasks no longer at risk are forgotten so
+    a later relapse is announced again. Per sprint, the diff, the in-app notices, the
+    dedupe rows and the webhook's delivery rows are one transaction under the
+    sprint's row lock, so two detections of one sprint cannot both announce a task,
+    and a crash leaves nothing marked announced for the next run to skip. The
+    delivery jobs are queued after that commit.
 
     Never raises, and each sprint is isolated from the others: the caller is a
     recalculation that has already persisted, and neither a notice nor a webhook is
@@ -206,13 +205,26 @@ def detect_commitment_at_risk(project_id: Any) -> int:
 def _detect_for_sprint(sprint: Any) -> int:
     from trueppm_api.apps.notifications.models import NotificationEventType
     from trueppm_api.apps.notifications.services import create_event_notifications
-    from trueppm_api.apps.projects.models import Sprint, SprintCommitmentRisk
+    from trueppm_api.apps.projects.models import Sprint, SprintCommitmentRisk, SprintState
     from trueppm_api.apps.projects.services import _sprint_lead_recipient_ids
+    from trueppm_api.apps.projects.views import _dispatch_webhooks
 
     with transaction.atomic():
-        # Serialize concurrent detections of one sprint on its row, so two runs
-        # cannot both see a task as new and announce it twice.
+        # Serialize concurrent detections of one sprint on its row (a project run and
+        # its program run finishing back to back). The lock is held until this
+        # transaction commits, and every write below, including the dedupe rows, is
+        # in it, so a second detection waits here and then reads the first one's
+        # rows: it cannot see a task as new that the first already announced.
         Sprint.objects.select_for_update().filter(pk=sprint.pk).first()
+        # Re-read the sprint under the lock: an edit to its end date or state that
+        # committed while this run waited decides what is at risk now.
+        sprint = (
+            Sprint.objects.select_related("project")
+            .filter(pk=sprint.pk, state=SprintState.ACTIVE, is_deleted=False)
+            .first()
+        )
+        if sprint is None:
+            return 0
         tasks = list(_at_risk_queryset(sprint))
         flagged = {r.task_id: r for r in SprintCommitmentRisk.objects.filter(sprint_id=sprint.pk)}
         current_ids = {t.pk for t in tasks}
@@ -262,34 +274,19 @@ def _detect_for_sprint(sprint: Any) -> int:
             ),
             task_id=new[0].pk if count == 1 else None,
         )
-        flags = [(t.pk, t.early_finish) for t in new]
-        transaction.on_commit(partial(_record_and_dispatch, sprint.pk, pid, flags, payload))
-    return len(new)
-
-
-def _record_and_dispatch(
-    sprint_id: Any, project_id: str, flags: list[tuple[Any, Any]], payload: dict[str, Any]
-) -> None:
-    """Write the dedupe rows and the webhook's delivery rows in one transaction.
-
-    Runs on commit of the detection. The rows are what stop the next recalculation
-    from announcing these tasks again, so they must not exist unless the delivery
-    rows do. ``ignore_conflicts`` covers a concurrent detection that recorded the
-    same task first; the webhook then still goes out from both, which is the same
-    at-least-once delivery a retry gives.
-    """
-    from trueppm_api.apps.projects.models import SprintCommitmentRisk
-    from trueppm_api.apps.projects.views import _dispatch_webhooks
-
-    with transaction.atomic():
+        # The dedupe rows, the notices and the webhook's delivery rows (ADR-1485 D6,
+        # ids and working-day deltas only) commit together or not at all: a crash
+        # before the commit leaves nothing marked announced, and the next detection
+        # announces again. The delivery jobs are queued only after the commit, so a
+        # worker never looks for a row that is not there yet.
         SprintCommitmentRisk.objects.bulk_create(
             [
-                SprintCommitmentRisk(sprint_id=sprint_id, task_id=task_id, finish=finish)
-                for task_id, finish in flags
-            ],
-            ignore_conflicts=True,
+                SprintCommitmentRisk(sprint_id=sprint.pk, task_id=t.pk, finish=t.early_finish)
+                for t in new
+            ]
         )
-        _dispatch_webhooks(project_id, "sprint.commitment_at_risk", payload)
+        _dispatch_webhooks(pid, "sprint.commitment_at_risk", payload, enqueue_on_commit=True)
+    return len(new)
 
 
 def notify_scope_change_requested(row: Any) -> None:

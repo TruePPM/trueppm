@@ -38,6 +38,7 @@ from trueppm_api.apps.projects.models import (
     Task,
     TaskStatus,
 )
+from trueppm_api.apps.projects.views import _dispatch_webhooks as _real_dispatch_webhooks
 
 User = get_user_model()
 pytestmark = pytest.mark.django_db
@@ -448,16 +449,24 @@ def test_one_sprint_failing_does_not_skip_the_others(project: Project, admin: An
 def test_no_dedupe_row_survives_a_lost_dispatch(
     project: Project, sprint: Sprint, admin: Any, _no_broker: Any
 ) -> None:
-    """A crash between the notice commit and the webhook leaves nothing marked announced."""
+    """A crash before the commit leaves nothing marked announced, and no notice either."""
     _task(project, sprint, "Late", LATE)
-    # The on_commit callback never runs: the process died after the commit.
-    with patch("django.db.transaction.on_commit"):
-        assert detect_commitment_at_risk(project.pk) == 1
+    _no_broker.side_effect = RuntimeError("process died before the commit")
+    assert detect_commitment_at_risk(project.pk) == 0
     assert not SprintCommitmentRisk.objects.exists()
-    with patch("django.db.transaction.on_commit", side_effect=lambda f: f()):
-        assert detect_commitment_at_risk(project.pk) == 1
-    assert len(_risk_webhooks(_no_broker)) == 1
+    assert not Notification.objects.filter(
+        event_type=NotificationEventType.SPRINT_COMMITMENT_AT_RISK
+    ).exists()
+    _no_broker.side_effect = None
+    assert detect_commitment_at_risk(project.pk) == 1
+    assert len(_risk_webhooks(_no_broker)) == 2
     assert SprintCommitmentRisk.objects.count() == 1
+    assert (
+        Notification.objects.filter(
+            recipient=admin, event_type=NotificationEventType.SPRINT_COMMITMENT_AT_RISK
+        ).count()
+        == 1
+    )
 
 
 def test_detection_never_raises(project: Project, sprint: Sprint) -> None:
@@ -620,3 +629,110 @@ def test_a_bulk_slip_makes_one_batched_notice_through_the_write_path(
     )
     assert note.group_key == f"batch:{batch_id}"
     assert "2 tasks" in note.body
+
+
+# ----------------------------------------------------------------------------
+# Delivery ordering, concurrent detections, and the sprint writes that detect
+# ----------------------------------------------------------------------------
+
+
+@pytest.mark.django_db(transaction=True)
+def test_every_delivery_job_is_queued_after_its_rows_commit(
+    project: Project, sprint: Sprint, admin: Any
+) -> None:
+    """The real dispatch: each job finds its delivery row and the dedupe row committed."""
+    from django.db import connection
+
+    from trueppm_api.apps.webhooks.models import Webhook, WebhookDelivery
+
+    for n in range(2):
+        Webhook.objects.create(
+            project=project,
+            url=f"https://example.com/hook-{n}",
+            secret="test-secret-123",
+            events=["sprint.commitment_at_risk"],
+            created_by=admin,
+        )
+    _task(project, sprint, "Late", LATE)
+    seen: list[tuple[bool, bool, bool]] = []
+
+    def _delay(pk: str) -> None:
+        seen.append(
+            (
+                connection.in_atomic_block,
+                WebhookDelivery.objects.filter(pk=pk).exists(),
+                SprintCommitmentRisk.objects.filter(sprint=sprint).exists(),
+            )
+        )
+
+    with (
+        patch("trueppm_api.apps.projects.views._dispatch_webhooks", new=_real_dispatch_webhooks),
+        patch("trueppm_api.apps.webhooks.tasks.deliver_webhook.delay", side_effect=_delay),
+    ):
+        assert detect_commitment_at_risk(project.pk) == 1
+    # Outside any transaction, so what the job reads is committed.
+    assert seen == [(False, True, True), (False, True, True)]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_interleaved_detections_announce_once(project: Project, sprint: Sprint, admin: Any) -> None:
+    """A second detection that starts while the first holds the lock sees its rows."""
+    import threading
+
+    from django.db import connection
+
+    _task(project, sprint, "Late", LATE)
+    first_inside = threading.Event()
+    release = threading.Event()
+    results: list[int] = []
+    calls: list[str] = []
+
+    def _hook(pid: str, event: str, payload: Any, **_: Any) -> None:
+        calls.append(event)
+        if len(calls) == 1:
+            first_inside.set()
+            release.wait(10)
+
+    def _run() -> None:
+        try:
+            results.append(detect_commitment_at_risk(project.pk))
+        finally:
+            connection.close()
+
+    with patch("trueppm_api.apps.projects.views._dispatch_webhooks", side_effect=_hook):
+        first = threading.Thread(target=_run)
+        first.start()
+        assert first_inside.wait(10)
+        second = threading.Thread(target=_run)
+        second.start()
+        second.join(1)  # blocked on the sprint lock the first still holds
+        release.set()
+        first.join(10)
+        second.join(10)
+    assert sorted(results) == [0, 1]
+    assert calls == ["sprint.commitment_at_risk"]
+    assert SprintCommitmentRisk.objects.count() == 1
+    assert (
+        Notification.objects.filter(
+            recipient=admin, event_type=NotificationEventType.SPRINT_COMMITMENT_AT_RISK
+        ).count()
+        == 1
+    )
+
+
+def test_activating_a_sprint_with_tasks_already_late_announces(
+    project: Project, admin: Any, _no_broker: Any
+) -> None:
+    planned = Sprint.objects.create(
+        project=project,
+        name="Sprint 5",
+        start_date=SPRINT_START,
+        finish_date=SPRINT_END,
+        state=SprintState.PLANNED,
+    )
+    task = _task(project, planned, "Late", LATE)
+    resp = _client(admin).post(f"/api/v1/sprints/{planned.pk}/activate/")
+    assert resp.status_code == 200, resp.data
+    (payload,) = _risk_webhooks(_no_broker)
+    assert [t["task"] for t in payload["tasks"]] == [str(task.pk)]
+    assert SprintCommitmentRisk.objects.filter(sprint=planned, task=task).exists()

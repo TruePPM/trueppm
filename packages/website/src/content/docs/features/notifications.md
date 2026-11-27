@@ -244,10 +244,11 @@ one needs them, so a commitment change cannot pass silently:
   makes **one** notice per person, worded "3 tasks · accept all / review", and the
   notice is rewritten if more of the same batch lands.
 - **Committed tasks are now expected to finish after the sprint ends**
-  (`sprint.commitment_at_risk`): after a recalculation, a task that has just become
-  at risk. A task is announced once, and again only if it recovers and slips again.
-  If the server stops after saving the notice and before queuing the webhook, the
-  next recalculation announces the task again: a repeat is possible, a lost notice is not.
+  (`sprint.commitment_at_risk`): a task that has just become at risk, checked after
+  every recalculation and when a sprint starts. A task is announced once, and again only if it recovers and slips again.
+  The notice and the webhook are saved together, so two checks finishing at the same
+  time announce a task once, and if the server stops before saving them, the next
+  check announces the task.
 
 Both reach everyone who holds the scope accept authority (Admin and up, plus the
 Scrum Master and Product Owner facet holders), except the person who made the

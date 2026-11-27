@@ -13194,11 +13194,17 @@ class ProjectPresenceView(APIView):
 # ---------------------------------------------------------------------------
 
 
-def _dispatch_webhooks(project_id: str, event_type: str, payload: dict) -> None:  # type: ignore[type-arg]
+def _dispatch_webhooks(
+    project_id: str,
+    event_type: str,
+    payload: dict[str, Any],
+    *,
+    enqueue_on_commit: bool = False,
+) -> None:
     """Enqueue webhook deliveries for matching subscriptions."""
     from trueppm_api.apps.webhooks.dispatch import dispatch_webhooks
 
-    dispatch_webhooks(project_id, event_type, payload)
+    dispatch_webhooks(project_id, event_type, payload, enqueue_on_commit=enqueue_on_commit)
 
 
 def _record_project_audit_event(
@@ -17790,6 +17796,13 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             # sprint has no target milestone.
             if sprint.target_milestone_id is not None:
                 recompute_milestone_rollup(sprint.target_milestone_id)
+
+        # A sprint started with committed tasks already scheduled past its end is at
+        # risk from the first moment, with no recalculation to notice it (ADR-1485 D8).
+        # Never raises.
+        from trueppm_api.apps.projects.commitment_risk import detect_commitment_at_risk
+
+        detect_commitment_at_risk(sprint.project_id)
 
         # ADR-0104 ``capacity`` signal: the over-capacity warnings name members and carry
         # their committed/available hours — the same per-person data the /capacity/
