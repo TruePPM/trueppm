@@ -5451,7 +5451,7 @@ def _unmodeled_predecessors(milestone: Any) -> list[str]:
     milestone_project_id = milestone.project_id
     unmodeled: list[str] = []
     for dep in (
-        Dependency.objects.filter(successor_id=milestone.pk, predecessor__is_deleted=False)
+        Dependency.live.filter(successor_id=milestone.pk, predecessor__is_deleted=False)
         .select_related("predecessor")
         .only(
             "pending_acceptance",

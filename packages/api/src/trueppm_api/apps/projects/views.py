@@ -17349,7 +17349,7 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         qs = qs.prefetch_related(
             db_models.Prefetch(
                 "target_milestone__predecessors",
-                queryset=Dependency.objects.filter(predecessor__is_deleted=False).only(
+                queryset=Dependency.live.filter(predecessor__is_deleted=False).only(
                     "predecessor_id", "dep_type", "successor_id"
                 ),
                 to_attr="_prefetched_predecessor_deps",

@@ -64,13 +64,6 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("projects.SprintRetro", "field:sprint"): _ONE_TO_ONE,
     ("projects.TaskRecurrenceRule", "field:task"): _ONE_TO_ONE,
     ("resources.Skill", "field:normalized_name"): _UNREVIEWED,
-    ("projects.Dependency", "constraint:unique_dependency"): (
-        "UNREVIEWED: delete-then-re-add returns 400 'must make a unique set' (not a 500) because "
-        "DRF's UniqueTogetherValidator ignores soft-deleted state, so a deleted edge cannot be "
-        "re-created. The restore code (cascade_project_children_restore, "
-        "cascade_task_children_restore) relies on this constraint being non-partial, "
-        "so making it conditional needs those paths revisited"
-    ),
     ("projects.Program", "constraint:program_code_upper_uniq"): (
         "deliberate never-reuse rule: is_key_taken counts tombstones, so a deleted program's "
         "code is refused with a 400 rather than reaching the index"

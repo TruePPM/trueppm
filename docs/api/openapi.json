@@ -67422,12 +67422,7 @@
                         "format": "uuid"
                     },
                     "dep_type": {
-                        "allOf": [
-                            {
-                                "$ref": "#/components/schemas/DepTypeEnum"
-                            }
-                        ],
-                        "default": "FS"
+                        "$ref": "#/components/schemas/DepTypeEnum"
                     },
                     "lag": {
                         "type": "integer",
@@ -67498,12 +67493,7 @@
                         "format": "uuid"
                     },
                     "dep_type": {
-                        "allOf": [
-                            {
-                                "$ref": "#/components/schemas/DepTypeEnum"
-                            }
-                        ],
-                        "default": "FS"
+                        "$ref": "#/components/schemas/DepTypeEnum"
                     },
                     "lag": {
                         "type": "integer",
@@ -74949,12 +74939,7 @@
                         "format": "uuid"
                     },
                     "dep_type": {
-                        "allOf": [
-                            {
-                                "$ref": "#/components/schemas/DepTypeEnum"
-                            }
-                        ],
-                        "default": "FS"
+                        "$ref": "#/components/schemas/DepTypeEnum"
                     },
                     "lag": {
                         "type": "integer",
