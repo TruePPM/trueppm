@@ -32,11 +32,17 @@ class FieldDiffSerializer(serializers.Serializer[Any]):
     new = serializers.JSONField(allow_null=True)
     old_display = serializers.CharField(
         required=False,
-        help_text="Human label of ``old`` for a choice field; absent for other fields.",
+        help_text=(
+            'Human label of ``old`` for a choice field, or "Hidden" when a relation '
+            "value is withheld from a reader below Admin; absent otherwise."
+        ),
     )
     new_display = serializers.CharField(
         required=False,
-        help_text="Human label of ``new`` for a choice field; absent for other fields.",
+        help_text=(
+            'Human label of ``new`` for a choice field, or "Hidden" when a relation '
+            "value is withheld from a reader below Admin; absent otherwise."
+        ),
     )
 
 

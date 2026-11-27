@@ -953,3 +953,53 @@ class TestObjectKind:
             Task.objects.create(project=project, name=f"More {i}", duration=1)
         with django_assert_num_queries(len(before.captured_queries)):
             owner_client.get(_url(project), params)
+
+
+# ---------------------------------------------------------------------------
+# #5083: relation values are withheld below Admin
+# ---------------------------------------------------------------------------
+
+
+def _relation_changes(client: APIClient, url: str) -> dict[str, list[dict[str, Any]]]:
+    """Field name -> every change entry for it across the response's rows."""
+    resp = client.get(url)
+    assert resp.status_code == 200, resp.data
+    out: dict[str, list[dict[str, Any]]] = {}
+    for row in resp.data["results"]:
+        # The changelog names the list ``changes``; the history route ``diff``.
+        for change in row["changes" if "changes" in row else "diff"]:
+            out.setdefault(change["field"], []).append(dict(change))
+    return out
+
+
+@pytest.mark.parametrize("route", ["changelog", "history"])
+def test_relation_values_are_hidden_from_a_viewer_and_kept_for_the_owner(
+    route: str,
+    owner: Any,
+    owner_client: APIClient,
+    viewer_client: APIClient,
+    project: Project,
+    owner_membership: ProjectMembership,
+    viewer_membership: ProjectMembership,
+) -> None:
+    project.archived_by = owner
+    project.lead = owner
+    project.save()
+    url = f"/api/v1/projects/{project.pk}/{route}/"
+    if route == "changelog":
+        url += "?object_type=project"
+
+    seen = _relation_changes(viewer_client, url)
+    assert {"archived_by", "lead"} <= set(seen)
+    relations = {f.name for f in Project._meta.fields if f.is_relation}
+    for field in relations & set(seen):
+        for change in seen[field]:
+            assert change["old"] is None and change["new"] is None, change
+    assigned = [c for c in seen["archived_by"] if "new_display" in c]
+    assert assigned and assigned[0]["new_display"] == "Hidden"
+    # An unset side stays a bare null, so "was empty" is not reported as hidden.
+    assert "old_display" not in assigned[0]
+
+    admin_seen = _relation_changes(owner_client, url)
+    assert owner.pk in [c["new"] for c in admin_seen["archived_by"]]
+    assert all("new_display" not in c for c in admin_seen["archived_by"])
