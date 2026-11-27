@@ -14535,6 +14535,7 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
         risk_agg = (
             Risk.objects.filter(
                 project=project,
+                is_deleted=False,
                 status__in=[RiskStatus.OPEN, RiskStatus.MITIGATING],
             )
             .annotate(
