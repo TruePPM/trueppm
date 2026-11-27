@@ -97,6 +97,7 @@ These rules are enforced at review time. Violations block merge.
 145. **Semantic amber/red: brand hue is a FILL, on-light text keeps the AA-dark variant.** → [rule](../../docs/design/invariants/145-semantic-amber-red-brand-hue-is-a-fill-on-light-text-keeps.md)
 147. **Body ink and dark surfaces are navy.** `--neutral-text-primary` = navy `#1B2A4A` (light) / reversed `#E9EDF3` (dark). → [rule](../../docs/design/invariants/147-body-ink-and-dark-surfaces-are-navy.md)
 144. **Primary actions use the shared `Button` component** (`src/components/Button.tsx`), not ad-hoc `bg-brand-primary` fills. → [rule](../../docs/design/invariants/144-primary-actions-use-the-shared-button-component.md)
+476. **Phase and status colors come from the one `PHASE_SWATCHES` set in `src/lib/identityColors.ts`; its values are persisted, so append only — never change or remove one.** → [rule](../../docs/design/invariants/476-phase-and-status-swatches-are-one-append-only-set.md)
 148. **Three type families (brand §06):** `font-display` (Space Grotesk) for display/wordmark/big numbers; `font-sans` (Inter) for UI/body; `.tppm-mono` (JetBrains Mono, rule 8c) for data. → [rule](../../docs/design/invariants/148-three-type-families-brand-06.md)
 441. **A destructive zone keeps the existing danger (red) treatment — `Button variant="danger"` and the existing danger tokens; Pass 2 does not neutralize it (maintainer ruling 2026-11-07, #4795).** → [rule](../../docs/design/invariants/441-a-destructive-zone-keeps-the-danger-red-treatment.md)
 

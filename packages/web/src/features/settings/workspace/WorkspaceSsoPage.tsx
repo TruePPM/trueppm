@@ -16,6 +16,7 @@
  * for every *enabled* provider. The status card is a derived summary of that.
  */
 
+import { Button } from '@/components/Button';
 import { useState } from 'react';
 import {
   useSsoProviders,
@@ -211,13 +212,12 @@ export function WorkspaceSsoPage() {
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-[13px] font-semibold text-neutral-text-primary">Sign-in providers</h3>
           {providers.length > 0 && !panel && (
-            <button
+            <Button
               type="button"
               onClick={() => setPanel({ mode: 'add' })}
-              className="h-8 px-3 text-[13px] font-semibold rounded-control bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               Add provider
-            </button>
+            </Button>
           )}
         </div>
 
@@ -236,13 +236,13 @@ export function WorkspaceSsoPage() {
                 open-source core — no Enterprise license required.
               </p>
               <div className="mt-1 flex items-center gap-3">
-                <button
+                <Button
                   type="button"
                   onClick={() => setPanel({ mode: 'add' })}
-                  className="h-9 px-4 text-[13px] font-semibold rounded-control bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                  size="lg"
                 >
                   Add provider
-                </button>
+                </Button>
                 <a
                   href={docsUrl('administration/single-sign-on')}
                   target="_blank"

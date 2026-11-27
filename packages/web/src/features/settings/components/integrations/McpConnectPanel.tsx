@@ -19,6 +19,7 @@
  * `features/mcp-connect.md` and the package README tell people to run.
  */
 
+import { Button } from '@/components/Button';
 import { useState } from 'react';
 import { MCP_EXAMPLE_PROMPTS } from '@/lib/mcpExamplePrompts';
 import { CheckIcon } from '@/components/Icons';
@@ -236,11 +237,11 @@ export function CopyButton({
   }
 
   return (
-    <button
+    <Button
       type="button"
       onClick={() => void copy()}
       aria-label={accessibleName}
-      className="h-8 px-3 shrink-0 rounded bg-brand-primary text-neutral-text-inverse text-[12px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+      className="shrink-0"
     >
       {copied ? (
         <>
@@ -250,7 +251,7 @@ export function CopyButton({
       ) : (
         label
       )}
-    </button>
+    </Button>
   );
 }
 

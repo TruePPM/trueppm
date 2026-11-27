@@ -294,7 +294,10 @@ SHELL_SRC="$WEB_SRC/features/shell"
 #                constants deliveryScrum already uses, which is what makes the
 #                band and the scrum bars inside it the same violet by
 #                construction rather than by review.
-BASELINE_HEX=122
+#    122 →  101  (#1783) one phase/status palette: the board rail's own 8 hex and
+#                the settings picker's second set (plus its names map) collapsed
+#                into identityColors.ts PHASE_SWATCHES.
+BASELINE_HEX=101
 BASELINE_ARBITRARY=4
 BASELINE_SHADOW=0
 # Inline `rgba(0,0,0,α)` color VALUES in component/style source. These bypass the

@@ -1,3 +1,4 @@
+import { Button } from '@/components/Button';
 import { useId, useMemo, useState, type FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { AuthShell } from '@/features/auth/passwordReset/AuthShell';
@@ -234,20 +235,13 @@ export function InviteAcceptPage() {
           </p>
         )}
 
-        <button
+        <Button
           type="submit"
           disabled={!canSubmit}
-          className="
-            h-11 w-full rounded bg-brand-primary text-neutral-text-inverse
-            text-sm font-semibold
-            hover:bg-brand-primary-dark
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
-            disabled:opacity-50 disabled:cursor-not-allowed
-            transition-colors
-          "
+          size="lg" className="min-h-11 w-full"
         >
           {isSubmitting ? 'Creating your account…' : 'Create account & join'}
-        </button>
+        </Button>
       </form>
 
       {/* Secondary affordance: an already-registered user links their existing

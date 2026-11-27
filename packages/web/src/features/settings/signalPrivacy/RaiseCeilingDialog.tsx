@@ -7,6 +7,7 @@
  * separate, immediate path (more private is always safe).
  */
 
+import { Button } from '@/components/Button';
 import { WarningIcon } from '@/components/Icons';
 import { useState } from 'react';
 import {
@@ -87,13 +88,13 @@ export function RaiseCeilingDialog({
         >
           Cancel
         </button>
-        <button
+        <Button
           type="button"
           onClick={() => onConfirm(target)}
-          className="h-7 rounded bg-brand-primary px-3 text-[12px] font-medium text-neutral-text-inverse focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          size="sm"
         >
           Raise ceiling
-        </button>
+        </Button>
       </div>
     </div>
   );

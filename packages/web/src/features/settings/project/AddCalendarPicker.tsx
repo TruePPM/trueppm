@@ -1,3 +1,4 @@
+import { Button } from '@/components/Button';
 import { useMemo, useState } from 'react';
 import type { Calendar } from '@/hooks/useProjectCalendars';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
@@ -174,14 +175,14 @@ export function AddCalendarPicker({
       >
         Cancel
       </button>
-      <button
+      <Button
         type="button"
         onClick={() => onAdd([...selected])}
         disabled={count === 0 || submitting}
-        className="inline-flex min-h-[44px] items-center rounded-control border border-brand-primary-dark bg-brand-primary px-3.5 text-[13px] font-medium text-neutral-text-inverse disabled:cursor-not-allowed disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 md:min-h-[32px]"
+        className="min-h-[44px] md:min-h-[32px]"
       >
         {submitting ? 'Adding…' : `Add ${count} calendar${count === 1 ? '' : 's'}`}
-      </button>
+      </Button>
     </div>
   );
 

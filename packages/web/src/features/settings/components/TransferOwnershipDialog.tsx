@@ -14,6 +14,7 @@
  * stays a deliberate, recoverable-only-by-re-transfer hand-off.
  */
 
+import { Button } from '@/components/Button';
 import { useState } from 'react';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { MemberPicker } from './MemberPicker';
@@ -144,7 +145,7 @@ export function TransferOwnershipDialog({
           >
             Cancel
           </button>
-          <button
+          <Button
             type="button"
             disabled={!canConfirm}
             onClick={() => {
@@ -154,15 +155,9 @@ export function TransferOwnershipDialog({
                 newLeadId: leadPickerLabel && newLeadId ? newLeadId : undefined,
               });
             }}
-            className={[
-              'h-8 rounded border-none px-3 text-[13px] font-medium text-white transition-opacity',
-              'bg-brand-primary hover:bg-brand-primary-dark',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary',
-              'disabled:cursor-not-allowed disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary',
-            ].join(' ')}
           >
             {busy ? 'Transferring…' : 'Confirm transfer'}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

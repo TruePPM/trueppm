@@ -22,6 +22,7 @@
  * is never autofocused.
  */
 
+import { Button } from '@/components/Button';
 import { useMemo, useState } from 'react';
 import { usePrograms } from '@/hooks/usePrograms';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
@@ -186,22 +187,16 @@ export function MoveProgramDialog({
           >
             Cancel
           </button>
-          <button
+          <Button
             type="button"
             disabled={!canConfirm}
             onClick={() => {
               if (selected === null) return;
               onConfirm(target);
             }}
-            className={[
-              'h-8 rounded border-none px-3 text-[13px] font-medium text-white transition-opacity',
-              'bg-brand-primary hover:bg-brand-primary-dark',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-brand-primary',
-              'disabled:cursor-not-allowed disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary',
-            ].join(' ')}
           >
             {busy ? 'Moving…' : 'Move project'}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

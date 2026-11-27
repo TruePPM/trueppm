@@ -11,6 +11,7 @@
  * Member never sees — nor fires the 403-guarded GET for — admin-only config.
  */
 
+import { Button } from '@/components/Button';
 import { useState } from 'react';
 import { useUserDateFormat } from '@/hooks/useUserDateFormat';
 import { isAxiosError } from 'axios';
@@ -202,13 +203,13 @@ function SecretRow({ config, onRotate }: { config: GitAutomationConfig; onRotate
             : 'No secret yet. Generate one to paste into your provider.'}
         </span>
       </div>
-      <button
+      <Button
         type="button"
         onClick={onRotate}
-        className="h-7 px-3 text-[12px] font-medium rounded bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary-dark shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+        size="sm" className="shrink-0"
       >
         {config.secret_set ? 'Rotate secret' : 'Generate secret'}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -529,10 +530,9 @@ function RotateSecretModal({
                 aria-label="New webhook secret"
                 className="tppm-mono flex-1 h-8 px-2 text-[12px] border border-neutral-border rounded bg-neutral-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               />
-              <button
+              <Button
                 type="button"
                 onClick={() => void copy()}
-                className="h-8 px-3 rounded bg-brand-primary text-neutral-text-inverse text-[12px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
                 {copied ? (
                   <>
@@ -545,7 +545,7 @@ function RotateSecretModal({
                 ) : (
                   'Copy'
                 )}
-              </button>
+              </Button>
             </div>
             <div className="flex justify-end">
               <button
@@ -581,14 +581,13 @@ function RotateSecretModal({
               >
                 Cancel
               </button>
-              <button
+              <Button
                 type="button"
                 onClick={handleRotate}
                 disabled={rotate.isPending}
-                className="h-8 px-3 rounded bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark disabled:cursor-not-allowed disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
                 {rotate.isPending ? 'Working…' : hasSecret ? 'Rotate secret' : 'Generate secret'}
-              </button>
+              </Button>
             </div>
           </>
         )}

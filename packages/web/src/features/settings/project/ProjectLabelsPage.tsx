@@ -1,3 +1,4 @@
+import { Button } from '@/components/Button';
 import { useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
@@ -371,7 +372,7 @@ function CreateLabelRow({
               className="h-8 min-w-0 flex-1 sm:max-w-xs rounded-control border border-neutral-border bg-neutral-surface px-2 text-sm
                 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
             />
-            <button
+            <Button
               type="button"
               onClick={submit}
               disabled={!name.trim() || pending}
@@ -380,11 +381,10 @@ function CreateLabelRow({
               // Add button (strict-mode) and reads ambiguously to a screen reader.
               aria-label="Add label"
               data-testid="label-create-add"
-              className="h-8 shrink-0 rounded-control bg-brand-primary px-3 text-sm font-medium text-neutral-text-inverse
-                hover:bg-brand-primary-dark disabled:opacity-60"
+              className="shrink-0"
             >
               Add
-            </button>
+            </Button>
           </div>
         </div>
       )}

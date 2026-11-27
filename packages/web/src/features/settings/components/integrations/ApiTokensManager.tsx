@@ -19,6 +19,7 @@
  * which mints the credential the read surface actually accepts.
  */
 
+import { Button } from '@/components/Button';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { isAxiosError } from 'axios';
@@ -74,13 +75,13 @@ export function ApiTokensManager({ scope }: ApiTokensManagerProps) {
             </span>
           )}
         </div>
-        <button
+        <Button
           type="button"
           onClick={() => setCreating(true)}
-          className="h-7 px-3 text-[12px] font-medium rounded bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          size="sm"
         >
           Create token
-        </button>
+        </Button>
       </div>
 
       <p className="px-4 pt-3 text-[12px] text-neutral-text-secondary">
@@ -290,14 +291,13 @@ function CreateTokenModal({ scope, onClose }: { scope: IntegrationScope; onClose
               >
                 Cancel
               </button>
-              <button
+              <Button
                 type="button"
                 onClick={handleCreate}
                 disabled={create.isPending}
-                className="h-8 px-3 rounded bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
                 {create.isPending ? 'Creating…' : 'Create token'}
-              </button>
+              </Button>
             </div>
           </>
         )}

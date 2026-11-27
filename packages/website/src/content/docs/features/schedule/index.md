@@ -186,6 +186,23 @@ A project will open on a fixed 448-pixel item list showing ID, task, owner, fini
 
 The amber "no committed start" chip will no longer repeat on every row. The item list's footer will say how many tasks there are and how many are blocked, and one **N no committed start** button will filter the list to those tasks (select it again to show everything). An empty project will offer **Import plan** and **Add phase** next to **Add item**.
 
+### Removed from the redesigned Schedule page on purpose
+
+The redesigned page drops these view toggles. This is a decision, not a gap
+waiting to be filled: they will be revisited only if users ask for them. The
+current Schedule page still has them.
+
+- **Focus mode** (**Focus chain** in the current toolbar).
+- The critical-path-only view (**CP only**), which collapses the task list to the
+  critical path. The redesigned **Critical only** control is the current toolbar's
+  **Critical path** bar filter, and is kept.
+- The choice of where task names sit on the bar (**name placement**).
+- **Progress pills**.
+- **Sprint bands**.
+
+The Schedule actions that the redesigned toolbar does keep outside the bar are
+collected in one overflow menu, **More**.
+
 ### Not in the redesigned Schedule page yet
 
 The redesigned page is a first pass, and so far it covers the toolbar, the legend and the critical-path outlines. These are not part of it yet, and no release is promised for any of them. Until they are, turn the preview flag off to use them:
@@ -195,8 +212,6 @@ The redesigned page is a first pass, and so far it covers the toolbar, the legen
 - **Undo** for structural changes, and **Bulk edit**.
 - The **Read** / **Author** mode toggle.
 - **Add milestone**, **Add phase** and **Ungroup**.
-- **Focus mode** and the critical-path-only view (**CP only**).
-- Display options: where task names sit on the bar, **progress pills** and **sprint bands**.
 - Filters other than **Milestones only**. The **Filter** menu holds that one filter for now.
 - Grouping recurring tasks under one row. Each occurrence is stored per task already; the plan is to group them for display in the browser from what the server sends, but nothing is built.
 - A phone layout for the toolbar. Below 768 pixels wide the redesigned toolbar is not shown at all; the phone's schedule list has no toolbar controls, as in the current release.

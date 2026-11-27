@@ -12,6 +12,7 @@
  * is server-derived and copy-only; scopes are fixed in the OSS core.
  */
 
+import { Button } from '@/components/Button';
 import { useCallback, useId, useMemo, useState } from 'react';
 import {
   useCreateSsoProvider,
@@ -966,14 +967,13 @@ export function SsoProviderPanel({
         >
           Cancel
         </button>
-        <button
+        <Button
           type="button"
           disabled={pending}
           onClick={() => void onSave()}
-          className="h-8 px-4 text-[13px] font-semibold rounded-control bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:opacity-60 disabled:cursor-not-allowed"
         >
           {pending ? 'Saving…' : mode === 'add' ? 'Add provider' : 'Save changes'}
-        </button>
+        </Button>
       </div>
     </div>
   );

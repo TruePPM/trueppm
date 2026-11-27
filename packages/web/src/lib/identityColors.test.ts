@@ -5,6 +5,7 @@ import {
   IDENTITY_VIOLET,
   IDENTITY_SWATCHES,
   tintedChipStyle,
+  PHASE_SWATCHES,
 } from './identityColors';
 
 describe('identityColors', () => {
@@ -35,5 +36,22 @@ describe('identityColors', () => {
     for (const hex of IDENTITY_SWATCHES) {
       expect(hex).toMatch(/^#[0-9A-Fa-f]{6}$/);
     }
+  });
+});
+
+describe('PHASE_SWATCHES', () => {
+  // Persisted on phases and board columns: changing or dropping a value would
+  // leave a saved color with no matching swatch (#1783).
+  it('keeps every previously offered phase color', () => {
+    expect(PHASE_SWATCHES.map((s) => s.value)).toEqual([
+      '#3E8C6D',
+      '#C17A10',
+      '#7C3AED',
+      '#0EA5E9',
+      '#DC2626',
+      '#16A34A',
+      '#6B6965',
+      '#94A3B8',
+    ]);
   });
 });

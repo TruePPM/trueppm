@@ -16,6 +16,9 @@
 import type { ReactElement } from 'react';
 import { PinIcon, ScaleIcon } from '@/components/Icons';
 import { useState } from 'react';
+import { useNavigate } from 'react-router';
+import { toast } from '@/components/Toast';
+import { useTaskDrawerStore } from '@/stores/taskDrawerStore';
 import type { DrawerSectionProps } from '@/lib/widget-registry';
 import { canEditTask, ROLE_ADMIN } from '@/lib/roles';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
@@ -93,10 +96,33 @@ function NoteRow({
 }: NoteRowProps) {
   const pin = usePinNote();
   const decision = useToggleDecision();
+  const navigate = useNavigate();
   const del = useDeleteNote();
   const update = useUpdateNote();
   const [isEditing, setIsEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // Confirm a flag (not an unflag) and offer the way to the log it landed in
+  // (#1783). The global drawer is closed first so it does not cover Reports.
+  const toggleDecision = () =>
+    decision.mutate(
+      { projectId, taskId, noteId: note.id },
+      {
+        onSuccess: (updated) => {
+          if (!updated.decision) return;
+          toast.action(
+            'Flagged as a decision',
+            {
+              label: 'View Decisions',
+              onClick: () => {
+                useTaskDrawerStore.getState().close();
+                void navigate(`/projects/${projectId}/reports?tab=decisions`);
+              },
+            },
+            { variant: 'success' },
+          );
+        },
+      },
+    );
   const [draft, setDraft] = useState(note.body);
 
   const author = note.author?.display_name ?? 'Unknown';
@@ -228,7 +254,7 @@ function NoteRow({
           </button>
           <button
             type="button"
-            onClick={() => decision.mutate({ projectId, taskId, noteId: note.id })}
+            onClick={toggleDecision}
             disabled={decision.isPending}
             aria-pressed={note.decision}
             aria-label={note.decision ? 'Unmark as decision' : 'Mark as decision'}

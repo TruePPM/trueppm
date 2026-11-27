@@ -1,3 +1,4 @@
+import { Button } from '@/components/Button';
 import { type FormEvent, useId, useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
 import { useWorkspaceGroups, type WorkspaceGroup } from '../hooks/useWorkspaceGroups';
@@ -306,13 +307,12 @@ export function WorkspaceGroupsPage() {
               </button>
               <EnterpriseBadge />
             </span>
-            <button
+            <Button
               type="button"
               onClick={() => setShowCreateForm((v) => !v)}
-              className="px-3 py-1.5 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               + Create group
-            </button>
+            </Button>
           </div>
         }
       />
@@ -376,13 +376,12 @@ export function WorkspaceGroupsPage() {
                 className="h-8 px-2.5 rounded-control border border-neutral-border bg-neutral-surface-raised text-[13px] text-neutral-text-primary w-[280px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:border-brand-primary placeholder:text-neutral-text-secondary"
               />
             </div>
-            <button
+            <Button
               type="submit"
               disabled={!newGroupName.trim() || createGroup.isPending}
-              className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed disabled:cursor-not-allowed"
             >
               {createGroup.isPending ? 'Creating…' : 'Create'}
-            </button>
+            </Button>
             <button
               type="button"
               onClick={() => {

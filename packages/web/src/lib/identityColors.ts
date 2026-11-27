@@ -33,6 +33,24 @@ export const IDENTITY_SWATCHES = [
 ] as const;
 
 /**
+ * The phase / status color set (#1783): the swatches the project workflow
+ * settings offer and the board's hash-derived phase rail draws from. These hex
+ * values are persisted (a phase's `color`, a board column's `color`), so a value
+ * may be added but never changed or removed — a saved color must keep matching a
+ * swatch. Names are what the swatch buttons announce (WCAG 1.4.1 / 4.1.2).
+ */
+export const PHASE_SWATCHES = [
+  { value: IDENTITY_SAGE, name: 'Sage' },
+  { value: IDENTITY_AMBER, name: 'Amber' },
+  { value: IDENTITY_VIOLET, name: 'Violet' },
+  { value: '#0EA5E9', name: 'Sky blue' },
+  { value: '#DC2626', name: 'Red' },
+  { value: '#16A34A', name: 'Green' },
+  { value: '#6B6965', name: 'Slate gray' },
+  { value: '#94A3B8', name: 'Cool gray' },
+] as const;
+
+/**
  * Inline style for a tinted identity chip: a 10% wash of the accent behind
  * solid accent text. Matches the prior `bg-[hex]/10 text-[hex]` treatment that
  * the role chips used before they were single-sourced here.

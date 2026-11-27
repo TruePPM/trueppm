@@ -1,3 +1,4 @@
+import { Button } from '@/components/Button';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router';
 import { SettingsPageTitle } from '../SettingsShell';
@@ -342,13 +343,12 @@ export function ProgramProjectsPage() {
               >
                 Import
               </button>
-              <button
+              <Button
                 type="button"
                 onClick={() => setShowAddModal(true)}
-                className="px-3 py-1.5 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
                 + Add project
-              </button>
+              </Button>
             </div>
           ) : undefined
         }

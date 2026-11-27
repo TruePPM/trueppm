@@ -1,3 +1,4 @@
+import { Button } from '@/components/Button';
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { SettingsPageTitle } from '../SettingsShell';
@@ -655,14 +656,14 @@ export function ProgramRollupPage() {
                     >
                       Discard
                     </button>
-                    <button
+                    <Button
                       type="button"
                       onClick={onSavePolicy}
                       disabled={savePolicy.isPending}
-                      className="h-7 px-3 rounded-control bg-brand-primary text-xs font-semibold text-neutral-text-inverse hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed"
+                      size="sm"
                     >
                       {savePolicy.isPending ? 'Saving…' : 'Save'}
-                    </button>
+                    </Button>
                   </span>
                 </div>
               )}

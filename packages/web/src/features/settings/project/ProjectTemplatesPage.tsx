@@ -14,6 +14,7 @@
  * I about to hand other teams"; both are answered by numbers, before any field is
  * filled in.
  */
+import { Button } from '@/components/Button';
 import { useState } from 'react';
 import { useProject } from '@/hooks/useProject';
 import { useProjectId } from '@/hooks/useProjectId';
@@ -108,16 +109,14 @@ export function ProjectTemplatesPage() {
                 Counting this project&rsquo;s shape…
               </p>
             )}
-            <button
+            <Button
               type="button"
               onClick={() => setSheetOpen(true)}
               disabled={!preview}
-              className="mt-4 h-11 rounded-control bg-brand-primary px-3 text-sm font-medium text-neutral-text-inverse
-                         hover:bg-brand-primary-dark disabled:cursor-not-allowed disabled:opacity-60
-                         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+              size="lg" className="mt-4 min-h-11"
             >
               Publish as template…
-            </button>
+            </Button>
             <p className="mt-2 text-xs text-neutral-text-secondary">
               Nothing is written until you confirm on the next screen.
             </p>

@@ -441,6 +441,12 @@ describe('useCommandItems — tier assembly', () => {
     expect(byId(plain.result.current).has('current:groom:p1')).toBe(false);
   });
 
+  it('offers "Go to Decisions" for the current project (#1783)', () => {
+    const { result } = renderHook(() => useCommandItems(true));
+    byId(result.current).get('current:decisions:p1')?.run();
+    expect(navigate).toHaveBeenCalledWith('/projects/p1/reports?tab=decisions');
+  });
+
   // ADR-0139 — hidden views stay reachable via ⌘K
   it('emits a "Go to {label}" jump for each personally-hidden, methodology-visible view', () => {
     hiddenViews = ['schedule', 'reports'];

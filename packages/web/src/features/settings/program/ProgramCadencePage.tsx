@@ -1,3 +1,4 @@
+import { Button } from '@/components/Button';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
@@ -315,13 +316,12 @@ export function ProgramCadencePage() {
         subtitle="Recurring meeting templates. TruePPM stores them — it does not create the meetings or link them to milestones."
         action={
           canEdit ? (
-            <button
+            <Button
               type="button"
               onClick={() => setAddOpen(true)}
-              className="px-3 py-1.5 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
             >
               + Add ceremony
-            </button>
+            </Button>
           ) : closedToAdmin ? (
             <span
               className="inline-flex items-center px-2 py-0.5 rounded-chip text-xs font-medium bg-neutral-surface-sunken text-neutral-text-secondary"
@@ -367,13 +367,13 @@ export function ProgramCadencePage() {
                 keep cadence visible to the team.
               </p>
               {canEdit ? (
-                <button
+                <Button
                   type="button"
                   onClick={() => setAddOpen(true)}
-                  className="mt-4 px-3 py-1.5 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                  className="mt-4"
                 >
                   + Add your first ceremony
-                </button>
+                </Button>
               ) : (
                 <p className="mt-4 text-[12px] text-neutral-text-secondary italic">
                   {closedToAdmin

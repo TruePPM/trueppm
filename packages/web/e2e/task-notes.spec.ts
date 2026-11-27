@@ -173,6 +173,16 @@ async function setup(
       });
     }
 
+    if (request.method() === 'POST' && trailing[1] === 'decision') {
+      const target = notes.find((n) => n.id === trailing[0]);
+      if (target) target.decision = !target.decision;
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(target ?? {}),
+      });
+    }
+
     // GET list — pinned-first, then newest.
     const ordered = [...notes]
       .filter((n) => !n.is_deleted)
@@ -244,6 +254,30 @@ test.describe('Task notes — detail page section (#740)', () => {
     ).toBeVisible({ timeout: 5_000 });
     await expect(composer).toHaveValue('');
     await expect(page.getByText('Morgan Lee').first()).toBeVisible();
+  });
+
+  test('flagging a decision confirms it and links to the Decisions log (#1783)', async ({
+    page,
+  }) => {
+    await setup(page, { role: 300, seedNotes: [makeNote('Use Postgres for the index.')] });
+    await page.route('**/api/v1/projects/*/decisions-policy/', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ oversight_visible: false, can_edit: true }),
+      }),
+    );
+    await openNotesSection(page);
+
+    await page.getByRole('button', { name: 'Mark as decision' }).click();
+    await expect(page.getByText('Flagged as a decision')).toBeVisible();
+    await page.getByRole('button', { name: 'View Decisions' }).click();
+
+    await expect(page).toHaveURL(/\/reports\?tab=decisions$/);
+    await expect(page.getByRole('tab', { name: 'Decisions' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
   });
 
   test('deleting a note asks for confirmation first; Cancel keeps it (#4620)', async ({ page }) => {

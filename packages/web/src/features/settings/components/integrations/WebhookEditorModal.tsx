@@ -24,6 +24,7 @@
  *    discarded. Generate is now the default and the returned value is shown once.
  */
 
+import { Button } from '@/components/Button';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { isAxiosError } from 'axios';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
@@ -441,14 +442,13 @@ export function WebhookEditorModal({ scope, webhook, onClose, onSaved }: Webhook
               >
                 Cancel
               </button>
-              <button
+              <Button
                 type="button"
                 onClick={handleSubmit}
                 disabled={saving}
-                className="h-8 px-3 rounded bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
               >
                 {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Create webhook'}
-              </button>
+              </Button>
             </div>
           </>
         )}

@@ -7,6 +7,7 @@
  * prop. Replaces the read-only "Manage via API" card.
  */
 
+import { Button } from '@/components/Button';
 import { useState, type ReactNode } from 'react';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { SettingsCard } from '../../SettingsShell';
@@ -70,13 +71,13 @@ export function WebhooksManager({ scope }: WebhooksManagerProps) {
             </span>
           )}
         </div>
-        <button
+        <Button
           type="button"
           onClick={() => setCreating(true)}
-          className="h-7 px-3 text-[12px] font-medium rounded bg-brand-primary text-neutral-text-inverse hover:bg-brand-primary-dark focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+          size="sm"
         >
           New webhook
-        </button>
+        </Button>
       </div>
 
       <p className="px-4 pt-3 text-[12px] text-neutral-text-secondary">

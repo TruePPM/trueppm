@@ -5,21 +5,14 @@
  * the contract that matters downstream is determinism (the same phase keeps its
  * color across renders and reloads) and that the result is always a real
  * palette entry — a hash bug that returned undefined would paint a transparent
- * rail. The palette is pinned here so a silent reorder/trim is caught.
+ * rail. The palette is the shared set the settings picker
+ * offers (#1783); its values are pinned in identityColors.test.ts.
  */
 import { describe, expect, it } from 'vitest';
+import { PHASE_SWATCHES } from '@/lib/identityColors';
 import { phaseColor } from './phaseColors';
 
-const PALETTE = [
-  '#3E8C6D',
-  '#E8A020',
-  '#3B82F6',
-  '#8B5CF6',
-  '#EC4899',
-  '#14B8A6',
-  '#F97316',
-  '#64748B',
-];
+const PALETTE: string[] = PHASE_SWATCHES.map((swatch) => swatch.value);
 
 describe('phaseColor', () => {
   it('is deterministic for a given id', () => {

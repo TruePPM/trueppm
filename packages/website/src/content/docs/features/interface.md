@@ -480,7 +480,13 @@ Other changes you will notice with the flag on:
   Queued entries are held in the open browser tab only, so closing the tab before
   you reconnect loses them.
 
-Apart from `/home` and the forecast view above, shell v2 changes chrome only:
-every other page, URL, keyboard shortcut and dialog is the same under both
-shells.
+Shell v2 also redesigns the content of some pages, and some of them drop view
+options on purpose. They will be revisited only if users ask for them:
+
+- Schedule: Focus mode, CP only, task-name placement, progress pills and sprint
+  bands. See
+  [Removed from the redesigned Schedule page](/features/schedule/#removed-from-the-redesigned-schedule-page-on-purpose).
+- Board: saved views, grouping, density, the standup and activity panels, and the
+  card popover. See
+  [Removed from the redesigned board](/features/board/#removed-from-the-redesigned-board-on-purpose).
 

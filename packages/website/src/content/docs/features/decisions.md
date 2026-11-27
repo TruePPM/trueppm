@@ -1,6 +1,7 @@
 ---
 title: Decisions
 description: A durable, low-friction decision log built on task notes — project- and sprint-scoped, with team-owned visibility.
+documentedFor: "0.5"
 ---
 
 :::note[Added in 0.3]
@@ -31,6 +32,19 @@ Flagged decisions roll up into the **Decisions** view under **Reports → Decisi
 
 Each row shows the decision text, who recorded it, when, and a link back to the task.
 A decision toggled by a teammate appears in an open Decisions view in real time.
+
+## Getting to the log
+
+:::note[Ships in 0.5]
+The shortcuts below ship in 0.5. In 0.4, open **Reports** and select the
+**Decisions** tab; flagging a note shows no confirmation.
+:::
+
+In 0.5 flagging a note will show a **Flagged as a decision** confirmation with a
+**View Decisions** button. The command palette (<kbd>⌘K</kbd> / <kbd>Ctrl K</kbd>)
+will offer **Go to Decisions** for the project you are in, and the log will have
+its own address, `/projects/:projectId/reports?tab=decisions`, that you can
+bookmark or share.
 
 ## Who can see decisions
 

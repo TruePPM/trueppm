@@ -14,6 +14,7 @@
  * inside it is gated by the API.
  */
 
+import { Button } from '@/components/Button';
 import { useState } from 'react';
 import { useRateLimitCooldown } from '@/hooks/useRateLimitCooldown';
 import { waitPhrase } from '@/lib/rateLimit';
@@ -38,14 +39,6 @@ const ACTION_CLASS = [
   'border border-neutral-border bg-neutral-surface-raised',
   'text-[12px] font-semibold text-neutral-text-primary',
   'hover:bg-neutral-surface-sunken focus:outline-none focus:ring-2',
-  'focus:ring-brand-primary focus:ring-offset-1',
-  'disabled:opacity-50 disabled:pointer-events-none',
-].join(' ');
-
-const PRIMARY_ACTION_CLASS = [
-  'inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-control',
-  'border border-brand-primary bg-brand-primary text-[12px] font-semibold text-neutral-text-inverse',
-  'hover:bg-brand-primary-dark focus:outline-none focus:ring-2',
   'focus:ring-brand-primary focus:ring-offset-1',
   'disabled:opacity-50 disabled:pointer-events-none',
 ].join(' ');
@@ -255,14 +248,12 @@ export function SampleRow({
               and is announced as plain text, so a screen-reader user would never
               learn the action exists — let alone that it is unavailable. */}
           <DownloadAction sample={sample} />
-          <button
-            type="button"
+          <Button
             onClick={onLoad}
             disabled={!sample.available || loading || cooldown}
-            className={PRIMARY_ACTION_CLASS}
           >
             {loading ? 'Loading…' : 'Load'}
-          </button>
+          </Button>
         </div>
       </div>
     </SettingsCard>

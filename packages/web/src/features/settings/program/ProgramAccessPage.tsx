@@ -1,3 +1,4 @@
+import { Button } from '@/components/Button';
 import { useState } from 'react';
 import { AvatarInitials } from '@/components/AvatarInitials';
 import { SettingsPageTitle } from '../SettingsShell';
@@ -217,14 +218,13 @@ export function ProgramAccessPage() {
         subtitle="Who can see and manage this program. Program roles are separate from project roles."
         action={
           canManage ? (
-            <button
+            <Button
               type="button"
               onClick={() => setShowInvite((v) => !v)}
               aria-expanded={showInvite}
-              className="px-3 py-1.5 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1"
             >
               {showInvite ? 'Cancel' : '+ Add member'}
-            </button>
+            </Button>
           ) : closedToOwner ? (
             <span
               className="inline-flex items-center px-2 py-0.5 rounded-chip text-xs font-medium bg-neutral-surface-sunken text-neutral-text-secondary"

@@ -1,3 +1,4 @@
+import { Button } from '@/components/Button';
 import { type CSSProperties, type FormEvent, useId, useMemo, useRef, useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
 import { useWorkspaceMembers, type WorkspaceMember } from '../hooks/useWorkspaceMembers';
@@ -255,13 +256,12 @@ function AvailabilityEditor({ m, onSave, onClose }: AvailabilityEditorProps) {
         />
       </div>
       <div className="flex items-center gap-2">
-        <button
+        <Button
           type="submit"
           disabled={saving}
-          className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed"
         >
           {saving ? 'Saving…' : 'Save'}
-        </button>
+        </Button>
         <button
           type="button"
           onClick={onClose}
@@ -737,13 +737,12 @@ export function WorkspaceMembersPage() {
             ))}
           </select>
         </div>
-        <button
+        <Button
           type="submit"
           disabled={!inviteEmail.trim() || createInvite.isPending}
-          className="h-8 px-3 rounded-control bg-brand-primary text-neutral-text-inverse text-[13px] font-medium hover:bg-brand-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed disabled:cursor-not-allowed"
         >
           {createInvite.isPending ? 'Sending…' : '+ Invite members'}
-        </button>
+        </Button>
         {inviteError && (
           <span role="alert" className="text-semantic-critical text-[11px] w-full">
             Could not send the invite. Check the address and try again.

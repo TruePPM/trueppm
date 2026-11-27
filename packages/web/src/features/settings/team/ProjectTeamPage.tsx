@@ -8,6 +8,7 @@
  * else sees the roster read-only.
  */
 
+import { Button } from '@/components/Button';
 import { useMemo, useState } from 'react';
 import { SettingsPageTitle } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
@@ -130,13 +131,13 @@ export function ProjectTeamPage() {
               {pending.member.user_detail.username} the {FACET_LABEL[pending.facet]} instead?
             </p>
             <div className="flex shrink-0 gap-2">
-              <button
+              <Button
                 type="button"
                 onClick={confirmReassign}
-                className="h-7 rounded bg-brand-primary px-3 text-[12px] font-medium text-neutral-text-inverse focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                size="sm"
               >
                 Reassign
-              </button>
+              </Button>
               <button
                 type="button"
                 onClick={() => setPending(null)}

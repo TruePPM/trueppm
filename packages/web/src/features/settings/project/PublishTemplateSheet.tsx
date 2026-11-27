@@ -14,6 +14,7 @@
  * "nothing happens", because that is the fear which stops people publishing at
  * all.
  */
+import { Button } from '@/components/Button';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { queryClient } from '@/lib/queryClient';
@@ -282,16 +283,14 @@ export function PublishTemplateSheet({
               >
                 Cancel
               </button>
-              <button
+              <Button
                 type="button"
                 disabled={!name.trim()}
                 onClick={() => setStep('confirm')}
-                className="h-11 rounded-control bg-brand-primary px-3 text-sm font-medium text-neutral-text-inverse
-                           hover:bg-brand-primary-dark disabled:cursor-not-allowed disabled:opacity-60
-                           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                size="lg" className="min-h-11"
               >
                 Review and publish
-              </button>
+              </Button>
             </footer>
           </>
         )}
@@ -351,16 +350,14 @@ export function PublishTemplateSheet({
               >
                 Back
               </button>
-              <button
+              <Button
                 type="button"
                 disabled={publish.isPending}
                 onClick={() => submit(false)}
-                className="h-11 rounded-control bg-brand-primary px-3 text-sm font-medium text-neutral-text-inverse
-                           hover:bg-brand-primary-dark disabled:cursor-not-allowed disabled:opacity-60
-                           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                size="lg" className="min-h-11"
               >
                 {publish.isPending ? 'Publishing…' : `Publish v${preview.next_version}`}
-              </button>
+              </Button>
             </footer>
           </>
         )}
@@ -381,18 +378,16 @@ export function PublishTemplateSheet({
                 the only real verification that publish did what the inventory
                 claimed. */}
             <div className="mt-4 flex flex-col gap-2">
-              <button
+              <Button
                 type="button"
                 onClick={() => {
                   onClose();
                   void navigate('/projects/new');
                 }}
-                className="h-11 rounded-control bg-brand-primary px-3 text-sm font-medium text-neutral-text-inverse
-                           hover:bg-brand-primary-dark
-                           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1"
+                size="lg" className="min-h-11"
               >
                 Start a project from it
-              </button>
+              </Button>
               <button
                 type="button"
                 onClick={onClose}

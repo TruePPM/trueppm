@@ -1,3 +1,4 @@
+import { Button } from '@/components/Button';
 import { useMemo, useState, type ReactNode } from 'react';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useProject } from '@/hooks/useProject';
@@ -285,14 +286,14 @@ export function ProjectCalendarsPage() {
                   Work is currently scheduled straight through public holidays. Add a holidays
                   calendar so the schedule respects them.
                 </p>
-                <button
+                <Button
                   type="button"
                   onClick={() => setPickerOpen(true)}
-                  className="inline-flex min-h-[44px] items-center gap-1.5 rounded-control border border-brand-primary-dark bg-brand-primary px-4 text-[13px] font-medium text-neutral-text-inverse focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 md:min-h-[38px]"
+                  className="min-h-[44px] md:min-h-[38px]"
                 >
                   <PlusIcon aria-hidden="true" />
                   Add a holidays calendar
-                </button>
+                </Button>
               </div>
             )}
           </section>

@@ -92,3 +92,17 @@ describe('ReportsView project burn chart gate', () => {
     expect(screen.getAllByTestId('burn-chart').length).toBeGreaterThan(0);
   });
 });
+
+describe('ReportsView ?tab= deep link (#1783)', () => {
+  it('opens the Decisions log from ?tab=decisions', () => {
+    render(<ReportsView />, { initialEntries: ['/projects/p1/reports?tab=decisions'] });
+    expect(screen.getByTestId('decisions-panel')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Decisions' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('switches back to Metrics', () => {
+    render(<ReportsView />, { initialEntries: ['/projects/p1/reports?tab=decisions'] });
+    fireEvent.click(screen.getByRole('tab', { name: 'Metrics' }));
+    expect(screen.queryByTestId('decisions-panel')).not.toBeInTheDocument();
+  });
+});

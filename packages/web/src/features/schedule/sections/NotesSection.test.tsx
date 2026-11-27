@@ -1,8 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render as rtlRender, screen, fireEvent, within } from '@testing-library/react';
+import type { ReactElement } from 'react';
+import { MemoryRouter } from 'react-router';
+import { useToastStore } from '@/components/Toast';
 import { ROLE_ADMIN, ROLE_MEMBER, ROLE_VIEWER } from '@/lib/roles';
 import type { TaskNote } from '@/types';
 import { NotesSection } from './NotesSection';
+
+const navigateMock = vi.hoisted(() => vi.fn());
+vi.mock('react-router', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('react-router')>()),
+  useNavigate: () => navigateMock,
+}));
+
+const render = (ui: ReactElement) => rtlRender(ui, { wrapper: MemoryRouter });
 
 const useNotesMock = vi.hoisted(() => vi.fn());
 const usePinMock = vi.hoisted(() => vi.fn());
@@ -641,6 +652,7 @@ describe('NotesSection — decision chip (ADR-0167, #748)', () => {
     fireEvent.click(screen.getByLabelText('Mark as decision'));
     expect(mutate).toHaveBeenCalledWith(
       expect.objectContaining({ projectId: 'p1', taskId: 't1', noteId: 'n9' }),
+      expect.anything(),
     );
   });
 
@@ -679,5 +691,36 @@ describe('NotesSection — decision chip (ADR-0167, #748)', () => {
       expect(el.querySelector('svg')).toBeTruthy();
       expect(el.textContent).not.toContain('⚖');
     }
+  });
+});
+
+describe('NotesSection — flag confirmation (#1783)', () => {
+  function flagReturning(decision: boolean) {
+    useToastStore.setState({ action: null });
+    useDecisionMock.mockReturnValue({
+      mutate: (_vars: unknown, opts: { onSuccess: (n: TaskNote) => void }) =>
+        opts.onSuccess(note({ decision })),
+      isPending: false,
+    });
+    useNotesMock.mockReturnValue({
+      notes: [note({ decision: !decision })],
+      isLoading: false,
+      error: null,
+    });
+    render(<NotesSection taskId="t1" projectId="p1" canEdit userRole={ROLE_MEMBER} />);
+    fireEvent.click(screen.getByRole('button', { name: /as decision/ }));
+    return useToastStore.getState().action;
+  }
+
+  it('confirms a flag with a link to the Decisions log', () => {
+    const toastItem = flagReturning(true);
+    expect(toastItem?.message).toBe('Flagged as a decision');
+    expect(toastItem?.action?.label).toBe('View Decisions');
+    toastItem?.action?.onClick();
+    expect(navigateMock).toHaveBeenCalledWith('/projects/p1/reports?tab=decisions');
+  });
+
+  it('shows no toast when the flag is removed', () => {
+    expect(flagReturning(false)).toBeNull();
   });
 });

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router';
 import { BurnChart } from './BurnChart';
 import { DecisionsPanel } from '@/features/decisions/DecisionsPanel';
 import { useProjectId } from '@/hooks/useProjectId';
@@ -28,7 +29,21 @@ function orderSprints(sprints: ApiSprint[]): ApiSprint[] {
 
 export function ReportsView() {
   const projectId = useProjectId();
-  const [tab, setTab] = useState<ReportsTab>('metrics');
+  // The tab lives in `?tab=` so the Decisions log has an address that ⌘K and the
+  // note-flag toast can link to (#1783); Metrics is the bare URL.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab: ReportsTab = searchParams.get('tab') === 'decisions' ? 'decisions' : 'metrics';
+  const setTab = (next: ReportsTab) => {
+    setSearchParams(
+      (prev) => {
+        const params = new URLSearchParams(prev);
+        if (next === 'decisions') params.set('tab', next);
+        else params.delete('tab');
+        return params;
+      },
+      { replace: true },
+    );
+  };
   const { sprints, isLoading: sprintsLoading, error: sprintsError } = useSprints(projectId);
   const itl = useIterationLabel(projectId);
 

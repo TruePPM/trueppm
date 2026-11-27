@@ -1,3 +1,4 @@
+import { Button } from '@/components/Button';
 import {
   useEffect,
   useMemo,
@@ -45,6 +46,7 @@ import {
   type BoardColumnDef,
   type BoardLaneDef,
 } from '@/hooks/useBoardConfig';
+import { PHASE_SWATCHES } from '@/lib/identityColors';
 import { MAX_LANES_PER_COLUMN, uniqueLaneKey } from '@/features/board/statusLanes';
 import { useProjectPhases, type ProjectPhase } from '@/hooks/useProjectPhases';
 import type { BoardCadence } from '@/types';
@@ -57,33 +59,6 @@ import {
 import { ROLE_ADMIN, ROLE_SCHEDULER } from '@/lib/roles';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
 import { Link } from 'react-router';
-
-// Preset palette for phase & status colors. Limited so a settings page stays
-// approachable; "More colors" via free-form hex is intentionally not exposed
-// in 0.2 — keeps the picker keyboard-accessible without a complex popover.
-const COLOR_SWATCHES = [
-  '#3E8C6D',
-  '#C17A10',
-  '#7C3AED',
-  '#0EA5E9',
-  '#DC2626',
-  '#16A34A',
-  '#6B6965',
-  '#94A3B8',
-] as const;
-
-// Human-readable names so the swatch buttons announce "Set phase color to
-// Sage" rather than "Set phase color to #3E8C6D" (WCAG 2.4.6 / 4.1.2).
-const COLOR_SWATCH_NAMES: Record<(typeof COLOR_SWATCHES)[number], string> = {
-  '#3E8C6D': 'Sage',
-  '#C17A10': 'Amber',
-  '#7C3AED': 'Violet',
-  '#0EA5E9': 'Sky blue',
-  '#DC2626': 'Red',
-  '#16A34A': 'Green',
-  '#6B6965': 'Slate gray',
-  '#94A3B8': 'Cool gray',
-};
 
 const CUSTOM_FIELD_TYPE_OPTIONS: Array<{ value: CustomFieldType; label: string }> = [
   { value: 'TEXT', label: 'Text' },
@@ -404,7 +379,7 @@ function ColorSwatchToggle({
   shape: 'rounded-control' | 'rounded-full';
   onClick: () => void;
 }) {
-  const background = color ?? '#94A3B8';
+  const background = color ?? PHASE_SWATCHES[7].value;
   if (canEdit) {
     return (
       <button
@@ -490,11 +465,11 @@ function SwatchPicker({
 }) {
   return (
     <div className="mt-2 flex items-center gap-1.5 pl-[56px]">
-      {COLOR_SWATCHES.map((c) => (
+      {PHASE_SWATCHES.map(({ value: c, name }) => (
         <button
           key={c}
           type="button"
-          aria-label={`Set ${noun} color to ${COLOR_SWATCH_NAMES[c]}`}
+          aria-label={`Set ${noun} color to ${name}`}
           onClick={() => onPick(c)}
           className={`w-5 h-5 ${shape} border border-neutral-border/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary`}
           style={{ background: c }}
@@ -1567,13 +1542,13 @@ function CustomFieldModal({
           >
             Cancel
           </button>
-          <button
+          <Button
             type="submit"
             disabled={!canSubmit || submitting}
-            className="px-3 py-1 text-[12px] font-medium text-neutral-text-inverse bg-brand-primary rounded-control hover:bg-brand-primary-dark disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:border-neutral-border/55 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary"
+            size="sm"
           >
             {submitting ? 'Saving…' : mode === 'create' ? 'Add field' : 'Save'}
-          </button>
+          </Button>
         </div>
       </form>
     </div>

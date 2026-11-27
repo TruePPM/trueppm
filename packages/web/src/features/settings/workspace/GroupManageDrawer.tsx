@@ -14,6 +14,7 @@
  * IMMEDIATE, row-level (rule 115) — no dirty/save bar, like WorkspaceMembersPage.
  */
 
+import { Button } from '@/components/Button';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from '@/components/Toast';
 import { EntitySelectCombobox, type EntityOption } from '@/components/EntitySelectCombobox';
@@ -260,14 +261,14 @@ function GroupProjectAccessSection({ group }: { group: WorkspaceGroup }) {
             </option>
           ))}
         </select>
-        <button
+        <Button
           type="button"
           onClick={handleGrant}
           disabled={!pendingProjectId || grant.isPending}
-          className="h-7 rounded-control bg-brand-primary px-3 text-[12px] font-medium text-neutral-text-inverse hover:bg-brand-primary-dark focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 disabled:bg-neutral-surface-sunken disabled:text-neutral-text-secondary disabled:cursor-not-allowed"
+          size="sm"
         >
           Grant
-        </button>
+        </Button>
       </div>
     </section>
   );

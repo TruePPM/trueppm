@@ -148,6 +148,16 @@ function buildCurrentItems(
       run: go(`/projects/${tier2Id}/sprints?sprint=${activeSprint.id}`),
     });
   }
+  // The Decisions log is a tab inside Reports with no nav entry of its own, so
+  // ⌘K is how it is found by name (#1783).
+  currentItems.push({
+    id: `current:decisions:${tier2Id}`,
+    label: 'Go to Decisions',
+    group: 'current',
+    tag: 'View',
+    keywords: 'decision log reports',
+    run: go(`/projects/${tier2Id}/reports?tab=decisions`),
+  });
   // Role/facet-gated: backlog grooming is Product-Owner-facet or Admin+ only, and
   // only meaningful on a methodology that has a backlog (ADR-0105). The gate reads
   // the server-provided role/facets — never an invented client rule.

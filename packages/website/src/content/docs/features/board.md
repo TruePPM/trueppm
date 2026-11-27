@@ -277,13 +277,19 @@ With the new shell on, the Board page is rebuilt so the work is on screen first:
   moves, which sync when you reconnect. Moves keep the optimistic update and roll
   back on failure, exactly as above.
 
-### Not in the redesigned board yet
+### Removed from the redesigned board on purpose
 
-The redesigned board leaves out some of what the board above has. These were
-removed on purpose, with no replacement, and the board above still has them:
+The redesigned board drops some of what the board above has. These are decisions,
+not gaps waiting to be filled: they have no replacement, and they will be
+revisited only if users ask for them. The board above still has them.
 
-- **Saved views**, **grouping** and **density**.
+- **Saved views**.
+- **Grouping** and **density**.
 - The **standup** and **activity** panels.
+- The **card popover**. A card opens in the task drawer instead.
+
+Search, sprint scoping and the WIP-limit confirmation are kept, and a card opens
+in the task drawer.
 
 ## Toolbar
 
