@@ -430,11 +430,12 @@ def _validate_dependency_graph(document: dict[str, Any]) -> None:
     """
     from types import SimpleNamespace
 
-    from trueppm_scheduler import InvalidScheduleInput
+    from trueppm_scheduler import CyclicDependencyError, InvalidScheduleInput
 
     from trueppm_api.apps.scheduling.graph_guard import (
         InfeasibleGraphError,
         find_summary_start_links,
+        validate_summary_expansion,
         validate_task_graph,
     )
     from trueppm_api.apps.scheduling.services import build_children_map
@@ -452,10 +453,14 @@ def _validate_dependency_graph(document: dict[str, Any]) -> None:
     edges = [(p, s) for p, s, t in triples if (p, s, t) not in dropped]
     try:
         validate_task_graph(edges, children_map=children_map)
-    except (InfeasibleGraphError, InvalidScheduleInput) as exc:
+        # #4828: the engine's typed expansion too, which the pairs above cannot see —
+        # a summary link and a differently typed subtask link on one task pair.
+        validate_summary_expansion([t for t in triples if t not in dropped], children_map)
+    except (InfeasibleGraphError, InvalidScheduleInput, CyclicDependencyError) as exc:
         raise TemplateStructureError(
-            "This template's dependencies form a cycle, or link a summary task to one of "
-            "its own subtasks, so it cannot be scheduled. Fix the links in the source "
+            "This template's dependencies form a cycle, link a summary task to one of "
+            "its own subtasks, or resolve two links of different types onto the same "
+            "pair of tasks, so it cannot be scheduled. Fix the links in the source "
             "project and publish again."
         ) from exc
 

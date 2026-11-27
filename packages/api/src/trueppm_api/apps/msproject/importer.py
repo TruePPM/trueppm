@@ -893,6 +893,50 @@ def collect_guard_edges(
     return [(p, s) for p, s, t in triples if (p, s, t) not in dropped]
 
 
+def expansion_refusal(data: ProjectData, children_map: dict[str, list[str]]) -> str | None:
+    """Why the recalculation would refuse this file's links once summaries expand, or ``None``.
+
+    ``validate_task_graph`` reads ``(predecessor, successor)`` pairs, so it passes a
+    file where a summary row's link and a differently typed link on one of its
+    subtasks resolve to the same pair of tasks (``A -FF-> C`` beside
+    ``Phase(A, B) -FS-> C``). Imported as is, every recalculation of the new project
+    would raise (#4828). The engine's own expansion decides
+    (:func:`~trueppm_api.apps.scheduling.graph_guard.validate_summary_expansion`), over
+    the same links :func:`collect_guard_edges` keeps; the uids it names are replaced
+    with the file's task names. Run after the cycle check, which explains its own
+    refusals better.
+    """
+    from trueppm_scheduler import CyclicDependencyError, InvalidScheduleInput
+
+    from trueppm_api.apps.scheduling.graph_guard import (
+        find_summary_start_links,
+        printable_label,
+        validate_summary_expansion,
+    )
+
+    if not children_map:
+        return None
+    triples = [
+        (str(link.predecessor_uid), str(td.uid), str(link.dep_type))
+        for td in data.tasks
+        for link in td.predecessor_links
+    ]
+    dropped = set(find_summary_start_links(triples, children_map.keys()))
+    try:
+        validate_summary_expansion([t for t in triples if t not in dropped], children_map)
+    except (InvalidScheduleInput, CyclicDependencyError) as exc:
+        names = {str(td.uid): td.name for td in data.tasks}
+        message = str(exc)
+        # Longest uid first, so a uid that is a prefix of another is not replaced inside it.
+        for uid in sorted(names, key=len, reverse=True):
+            message = message.replace(f"'{uid}'", f"“{printable_label(names[uid])}”")
+        return (
+            f"This file's links cannot be scheduled once summary rows are expanded: "
+            f"{message} Fix the links in the source file and re-upload."
+        )
+    return None
+
+
 def find_hierarchy_link(
     edges: list[tuple[str, str]], children_map: dict[str, list[str]]
 ) -> tuple[str, str] | None:

@@ -170,6 +170,38 @@ reparent will answer `400` with `code: "summary_descendant_link"` and the same
 `blocking_dependencies` list, and nothing will move. Delete or change the link, then
 try the move again. Saving such a link as a dependency is already refused.
 
+A move will also be refused when it would leave links the scheduler cannot combine.
+A summary's links apply to every task inside it, so moving a task under a summary can
+make a summary link and the moved task's own link land on the same pair of tasks with
+different types: with `Phase → Close` Finish-to-Start and `Review → Close`
+Finish-to-Finish, moving Review into Phase gives Review two different links to Close.
+Indent, outdent and reparent will answer `400` with `code: "unschedulable_change"` and
+a message naming the tasks, and nothing will move. Change one link's type to match the
+other, or delete one, then try the move again. A project whose schedule already fails
+to recalculate is not refused, so the edits that repair it stay possible.
+
+Changing a task's status, type or recurrence will be refused for the same reason when
+the change decides whether the scheduler sees the task at all. Backlog, epic and
+recurring tasks are left out of the schedule, so a parent whose only subtasks are in
+the backlog is scheduled as an ordinary task, and a Finish-to-Finish link into it is
+allowed. Committing one of those subtasks turns the parent into a summary that link
+cannot drive. The edit will answer `400` with the reason under `status` (or `type`),
+and the task will keep its old value. Adding a scheduled subtask to such a parent,
+restoring one from the trash, and removing the recurrence rule from one are refused the
+same way. A mobile sync upload reports the refused row as a conflict, and an external
+tool pushing through inbound task sync gets a warning while the task keeps its old
+status. Retype or delete the link into the parent first.
+
+The check reads the project's own links only. Returning unfinished tasks to the
+backlog when a sprint closes, deleting a task, and recalculating a whole program are
+not checked yet, and a link from a task in another project is not seen at all. A
+Finish-to-Finish or Start-to-Finish link from another project into a parent can still
+stop the program's schedule from recalculating when one of the parent's backlog
+subtasks is committed. Those remaining paths are tracked in
+[#5046](https://gitlab.com/trueppm/trueppm/-/issues/5046). The seed importer does not
+run the type-aware check yet either
+([#5154](https://gitlab.com/trueppm/trueppm/-/issues/5154)).
+
 Restoring a task from the trash will be refused for the same reason. A deleted task
 keeps its old outline position, so if another task now sits above that position and
 the two are linked, bringing the task back would put the link between a summary and

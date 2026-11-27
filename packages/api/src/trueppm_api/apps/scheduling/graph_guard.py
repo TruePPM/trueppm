@@ -38,6 +38,7 @@ from collections.abc import Iterable, Mapping
 from datetime import timedelta
 
 from trueppm_scheduler import (
+    CyclicDependencyError,
     Dependency,
     DependencyType,
     InvalidScheduleInput,
@@ -390,3 +391,77 @@ def validate_expansion_with_edge(
         except InvalidScheduleInput:
             return
         raise
+
+
+#: ``(predecessor_id, successor_id, dep_type)`` — what the recalculation reads off an
+#: edge when it decides whether it can schedule a graph at all. Lag never makes the
+#: expansion raise (same-type collisions merge by largest lag), so it is not carried.
+TypedPair = tuple[str, str, str]
+
+
+def validate_summary_expansion(
+    edges: Iterable[TypedPair], children_map: dict[str, list[str]]
+) -> None:
+    """Run the engine's summary expansion over typed edges, raising what it refuses.
+
+    The type-aware half of the graph guard: ``validate_task_graph`` reads pairs, so a
+    mixed-type leaf-pair collision (#4828) is invisible to it. A no-op without
+    summaries, where there is nothing to expand.
+    """
+    if children_map:
+        _expand([(p, s, t, 0) for p, s, t in edges], children_map)
+
+
+def recalc_refusal(
+    edges: Iterable[TypedPair], children_map: dict[str, list[str]]
+) -> InvalidScheduleInput | CyclicDependencyError | InfeasibleGraphError | None:
+    """The error the recalculation would raise building this graph, or ``None``.
+
+    Runs the two checks the CPM pass itself runs before it schedules anything, never a
+    re-implementation of either: the cycle check (:func:`validate_task_graph`, which
+    expands summaries to their leaves first) and the engine's own
+    ``expand_summary_dependencies`` — a mixed-type leaf-pair collision (#4828), an
+    SS/SF link from a summary or an FF/SF link into one (ADR-0370, #4437), a link
+    between a summary and its own descendant (#4705), and the fan-out cap.
+
+    Returned rather than raised so a caller can compare two states (see
+    :func:`validate_graph_transition`) without nesting ``try`` blocks.
+    """
+    typed = list(edges)
+    try:
+        validate_task_graph([(p, s) for p, s, _ in typed], children_map=children_map)
+        validate_summary_expansion(typed, children_map)
+    except (InfeasibleGraphError, InvalidScheduleInput, CyclicDependencyError) as exc:
+        return exc
+    return None
+
+
+def validate_graph_transition(
+    before: tuple[list[TypedPair], dict[str, list[str]]],
+    after: tuple[list[TypedPair], dict[str, list[str]]],
+) -> None:
+    """Raise the recalculation's error for ``after`` only when ``before`` had none.
+
+    The write-boundary twin of the CPM pass, for a write that changes which tasks are
+    summaries or which tasks the recalculation schedules at all rather than writing an
+    edge: a reparent, indent or outdent (#4828), or a status, type or recurrence change
+    that moves a task into or out of the committed set the recalculation reads
+    (#5046). Neither touches an edge, so the edge-level guard
+    (:func:`validate_expansion_with_edge`) never sees them, yet each can leave a
+    project every later recalculation refuses.
+
+    Differential for the same reason as :func:`validate_expansion_with_edge`: when the
+    project already fails before the write, refusing it would block the edits that
+    repair it. The pre-state is only expanded when the post-state fails, so a write that
+    is allowed pays one expansion.
+
+    Raises:
+        InvalidScheduleInput | CyclicDependencyError | InfeasibleGraphError: The
+            engine's own refusal of the post-write graph.
+    """
+    failure = recalc_refusal(*after)
+    if failure is None:
+        return
+    if recalc_refusal(*before) is not None:
+        return
+    raise failure

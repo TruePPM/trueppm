@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import dataclasses
 import uuid
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 from django.db import DatabaseError, connection, transaction
@@ -227,6 +228,11 @@ class _CachedParent:
     task: Task
     #: 1-based WBS position the NEXT child placed under this parent should get.
     next_child_index: int
+    #: Whether the parent has a child the CPM schedules (not backlog, epic or
+    #: recurring), i.e. is already a summary to the engine. Until it does, every row
+    #: placed under it may be its first scheduled child and is checked (#5046); once
+    #: True it stays True for the batch, since a later row only adds children.
+    scheduled_child: bool = False
 
 
 @dataclasses.dataclass
@@ -427,6 +433,7 @@ def _resolve_bulk_create_placement(
     is_subtask: bool,
     ctx: BulkContext,
     out: BulkOutcome,
+    new_task: Mapping[str, Any] | None = None,
 ) -> tuple[Task | None, str] | None:
     """Resolve a bulk create's WBS placement, or record its rejection and return ``None``.
 
@@ -467,18 +474,65 @@ def _resolve_bulk_create_placement(
     cache_key = str(parent_id)
     cached = cache.parents.get(cache_key)
     if cached is not None:
+        # The cache skips `_resolve_create_parent`, and with it the #5046 check. A
+        # parent with only backlog children is a leaf to the engine, so a later row
+        # can be its first scheduled child even when an earlier one (a backlog row)
+        # was not. Earlier rows of this batch are already inserted, so the read sees
+        # them.
+        if not cached.scheduled_child:
+            cached.scheduled_child = _has_scheduled_child(ctx.project.pk, cached.task)
+        if not cached.scheduled_child:
+            from trueppm_api.apps.projects.summary_link_guard import recalc_transition_block
+
+            block = recalc_transition_block(
+                ctx.project.pk,
+                add_child=(
+                    str(cached.task.wbs_path),
+                    {**(new_task or {}), "is_subtask": is_subtask},
+                ),
+            )
+            if block is not None:
+                out.reject(index, row_id, CODE_INVALID, block.detail)
+                return None
         wbs_path = _build_wbs_path(str(cached.task.wbs_path), cached.next_child_index)
         cached.next_child_index += 1
         return cached.task, wbs_path
 
     try:
-        parent, wbs_path = _resolve_create_parent(ctx.project, parent_id, is_subtask=is_subtask)
+        parent, wbs_path = _resolve_create_parent(
+            ctx.project, parent_id, is_subtask=is_subtask, new_task=new_task
+        )
     except DRFValidationError as exc:
         out.reject(index, row_id, CODE_INVALID, _first_error_message(exc))
         return None
     next_child_index = int(wbs_path.rsplit(".", 1)[-1]) + 1
     cache.parents[cache_key] = _CachedParent(task=parent, next_child_index=next_child_index)
     return parent, wbs_path
+
+
+def _note_scheduled_child(ctx: BulkContext, parent: Task, created: Task) -> None:
+    """Mark ``parent``'s cache entry once a row the CPM schedules lands under it.
+
+    Saves the per-row read in :func:`_resolve_bulk_create_placement` for the common
+    paste (committed rows under one phase): only a batch whose rows so far are all
+    backlog, epic or recurring keeps checking.
+    """
+    from trueppm_api.apps.projects.summary_link_guard import is_feed_eligible
+
+    cached = ctx.placement_cache.parents.get(str(parent.pk))
+    if cached is not None and is_feed_eligible(created.status, created.type, created.is_recurring):
+        cached.scheduled_child = True
+
+
+def _has_scheduled_child(project_id: Any, parent: Task) -> bool:
+    """Whether ``parent`` has a live child the CPM feed admits (see ``is_feed_eligible``)."""
+    from trueppm_api.apps.projects.summary_link_guard import is_feed_eligible
+    from trueppm_api.apps.projects.views import _get_siblings
+
+    return any(
+        is_feed_eligible(c.status, c.type, c.is_recurring)
+        for c in _get_siblings(str(project_id), str(parent.wbs_path))
+    )
 
 
 def _spawn_subtask_under(parent_task: Task, task: Task, ctx: BulkContext, out: BulkOutcome) -> None:
@@ -580,7 +634,17 @@ def _apply_create(index: int, op: dict[str, Any], ctx: BulkContext, out: BulkOut
     # THIS SAME BATCH resolves: the parent's INSERT already committed to this
     # transaction, just not to the outer request's response yet — client-minted
     # ids (ADR-0772) make that forward reference possible without a round trip.
-    placement = _resolve_bulk_create_placement(index, row_id, parent_id_raw, is_subtask, ctx, out)
+    placement = _resolve_bulk_create_placement(
+        index,
+        row_id,
+        parent_id_raw,
+        is_subtask,
+        ctx,
+        out,
+        # Raw row values: the serializer validates them below. They only tell the
+        # #5046 placement check whether the new row is one the CPM schedules.
+        new_task={f: data[f] for f in ("status", "type") if isinstance(data.get(f), str)},
+    )
     if placement is None:
         return
     parent_task, wbs_path = placement
@@ -615,6 +679,8 @@ def _apply_create(index: int, op: dict[str, Any], ctx: BulkContext, out: BulkOut
     task = ser.save(**save_kwargs)
     if is_subtask and parent_task is not None:
         _spawn_subtask_under(parent_task, task, ctx, out)
+    if parent_task is not None:
+        _note_scheduled_child(ctx, parent_task, task)
     maybe_record_scope_injection(task, None, ctx.request.user)
     out.created_ids.append(task.pk)
     out.applied.append({"index": index, "id": str(task.pk), "op": "create", "outcome": "created"})

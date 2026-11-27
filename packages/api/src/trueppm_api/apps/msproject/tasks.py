@@ -100,6 +100,7 @@ def _reject_infeasible_graph(
         build_children_map,
         collect_guard_edges,
         describe_bad_graph,
+        expansion_refusal,
     )
     from trueppm_api.apps.scheduling.graph_guard import (
         InfeasibleGraphError,
@@ -132,6 +133,14 @@ def _reject_infeasible_graph(
                 "The task hierarchy in this file is too large or malformed to schedule.",
             )
         raise
+    # #4828: a summary link and a differently typed subtask link on the same pair of
+    # tasks pass the pair-only check above and fail every recalculation afterwards.
+    expansion_detail = expansion_refusal(project_data, children_map)
+    if expansion_detail is not None:
+        logger.warning("import.msproject: rejected %s — %s", filename, expansion_detail)
+        if import_request_id:
+            _mark_import_dead(import_request_id, expansion_detail)
+        raise InvalidScheduleInput(expansion_detail)
 
 
 @shared_task(  # type: ignore[untyped-decorator]

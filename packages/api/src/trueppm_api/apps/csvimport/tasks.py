@@ -176,6 +176,7 @@ def _validate_graph_or_mark_dead(parsed: Any, import_request_id: str | None) -> 
     from trueppm_api.apps.msproject.importer import (
         build_children_map,
         collect_guard_edges,
+        expansion_refusal,
         find_hierarchy_link,
     )
     from trueppm_api.apps.scheduling.graph_guard import InfeasibleGraphError, validate_task_graph
@@ -200,6 +201,13 @@ def _validate_graph_or_mark_dead(parsed: Any, import_request_id: str | None) -> 
                 "and re-upload.",
             )
         raise
+    # #4828: mixed-type links on one task pair once summary rows expand pass the
+    # pair-only check above and fail every recalculation of the imported project.
+    expansion_detail = expansion_refusal(parsed.project_data, children_map)
+    if expansion_detail is not None:
+        if import_request_id:
+            _mark_import_dead(import_request_id, expansion_detail)
+        raise InvalidScheduleInput(expansion_detail)
 
 
 def _import_within_transaction(

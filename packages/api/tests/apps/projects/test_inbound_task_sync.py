@@ -2002,3 +2002,92 @@ def test_parent_attach_is_refused_when_the_parent_has_an_inbound_ff_link(
     assert child.is_subtask is False
     assert child.wbs_path is None or not str(child.wbs_path).startswith("1.")
     assert any("cannot become a summary task" in w for w in child_resp.data["warnings"])
+
+
+def _ff_target_with_backlog_child(project: Project) -> Task:
+    """``X -FF-> P`` where P's only child is a backlog row: a leaf to the CPM (#5046)."""
+    from trueppm_api.apps.projects.models import Dependency, TaskStatus
+
+    parent = Task.objects.create(project=project, name="P", duration=1, wbs_path="1")
+    Task.objects.create(
+        project=project, name="Child", duration=1, wbs_path="1.1", status=TaskStatus.BACKLOG
+    )
+    x = Task.objects.create(project=project, name="X", duration=1, wbs_path="2")
+    Dependency.objects.create(predecessor=x, successor=parent, dep_type="FF")
+    return parent
+
+
+@pytest.mark.django_db
+def test_committed_task_is_not_attached_under_a_backlog_only_ff_target(
+    project: Project, admin_user: Any
+) -> None:
+    """#5046: P "already has children", but none the CPM schedules — attaching a
+    committed task would make P a summary with an FF link into it."""
+    from trueppm_api.apps.projects.models import InboundTaskLink
+
+    parent = _ff_target_with_backlog_child(project)
+    _token, raw = _mint_token(project, admin_user)
+    client = _bearer(APIClient(), raw)
+    parent_link = client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "EPIC-9", "name": "Epic"},
+        format="json",
+    )
+    InboundTaskLink.objects.filter(task_id=parent_link.data["task_id"]).update(task=parent)
+
+    resp = client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {
+            "source": "jira",
+            "external_id": "STORY-9",
+            "name": "Story",
+            "status": "in_progress",
+            "parent_external_id": "EPIC-9",
+        },
+        format="json",
+    )
+    assert resp.status_code == 201, resp.data
+    story = Task.objects.get(pk=resp.data["task_id"])
+    assert story.wbs_path is None
+    assert len(resp.data["warnings"]) == 1
+    assert "cannot be recalculated" in resp.data["warnings"][0]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(("dep_type", "refused"), [("FF", True), ("FS", False)])
+def test_inbound_status_update_out_of_backlog_is_guarded(
+    project: Project, admin_user: Any, dep_type: str, refused: bool
+) -> None:
+    """#5046: the write-through ``.update()`` commits a backlog child of an FF target.
+
+    Refused, the status stays and the push still lands with a warning — the module's
+    degrade-and-say-so rule, so the external sync does not retry forever.
+    """
+    from trueppm_api.apps.projects.models import Dependency, TaskStatus
+
+    parent = _ff_target_with_backlog_child(project)
+    Dependency.objects.filter(successor=parent).update(dep_type=dep_type)
+    _token, raw = _mint_token(project, admin_user)
+    client = _bearer(APIClient(), raw)
+    first = client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "S-1", "name": "Story", "status": "backlog"},
+        format="json",
+    )
+    Task.objects.filter(project=project, name="Child").delete()
+    Task.objects.filter(pk=first.data["task_id"]).update(wbs_path="1.1")
+
+    resp = client.post(
+        f"/api/v1/projects/{project.pk}/task-sync/",
+        {"source": "jira", "external_id": "S-1", "name": "Story v2", "status": "in_progress"},
+        format="json",
+    )
+    assert resp.status_code == 200, resp.data
+    story = Task.objects.get(pk=first.data["task_id"])
+    assert story.name == "Story v2"
+    if refused:
+        assert story.status == TaskStatus.BACKLOG
+        assert "cannot be recalculated" in resp.data["warnings"][0]
+    else:
+        assert story.status == TaskStatus.IN_PROGRESS
+        assert "warnings" not in resp.data

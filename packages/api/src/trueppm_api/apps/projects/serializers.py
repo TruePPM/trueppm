@@ -7441,6 +7441,8 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
         # final validated_data (e.g. a milestone's duration already zeroed) and can
         # set percent_complete before super().update() persists it.
         self._apply_duration_change_policy(instance, validated_data)
+        # Last, so it judges the status the auto-transition helpers above settled on.
+        self._guard_feed_eligibility_change(instance, validated_data)
 
         updated = super().update(instance, validated_data)
         if owners:
@@ -7451,6 +7453,53 @@ class TaskSerializer(serializers.ModelSerializer[Task]):
                 broadcast=self._owners_broadcast_enabled(),
             )
         return updated
+
+    def _guard_feed_eligibility_change(
+        self, instance: Task, validated_data: dict[str, Any]
+    ) -> None:
+        """Refuse a status or type change the recalculation could not schedule.
+
+        The CPM feed leaves out backlog, epic and recurring rows (ADR-0090, ADR-0105,
+        #1772), so moving a task across that line changes which tasks are summaries
+        without any structural operation: a backlog child committing turns its parent
+        into a summary, and an FF/SF link into that parent — legal while it was a
+        leaf to the engine — makes every later recalculation raise (#5046). The
+        reverse direction can do the same through a summary link's leaf set. No edge
+        is written, so the dependency write guard never runs; this asks the engine
+        about the graph the write leaves behind
+        (:func:`~trueppm_api.apps.projects.summary_link_guard.recalc_transition_block`).
+
+        Only a write that actually flips the task's eligibility pays the project read,
+        so an ordinary status move between committed states costs nothing. It runs on
+        every caller of ``update`` — the REST PATCH, ``tasks/bulk`` rows and the mobile
+        sync upload — and raises before any row is written, so a refusal reaches no
+        on-commit broadcast. ``is_recurring`` is the third eligibility field but not a
+        field of this serializer: its writer is ``TaskRecurrenceRuleViewSet``, which
+        runs the same check when a rule is attached or detached.
+        """
+        from trueppm_api.apps.projects.summary_link_guard import (
+            UnschedulableTaskChange,
+            is_feed_eligible,
+            recalc_transition_block,
+        )
+
+        written = {f: validated_data[f] for f in ("status", "type") if f in validated_data}
+        if not written:
+            return
+        merged = {
+            "status": instance.status,
+            "type": instance.type,
+            "is_recurring": instance.is_recurring,
+            **written,
+        }
+        if is_feed_eligible(instance.status, instance.type, instance.is_recurring) == (
+            is_feed_eligible(merged["status"], merged["type"], merged["is_recurring"])
+        ):
+            return
+        block = recalc_transition_block(instance.project_id, changes={instance.pk: written})
+        if block is None:
+            return
+        raise UnschedulableTaskChange("status" if "status" in written else "type", block.detail)
 
     def _owners_broadcast_enabled(self) -> bool:
         """Whether an inline ``owners`` write should fire its own board broadcast.
