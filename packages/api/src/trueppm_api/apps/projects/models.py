@@ -2081,13 +2081,17 @@ class Project(VersionedModel):
         re-attaches the project. The program row is locked so a concurrent program
         restore cannot clear that list underneath the append; ``.update()`` is used
         because the list is server-only bookkeeping no sync client reads.
+
+        The lock is by primary key alone and ``is_deleted`` is read afterwards: a
+        predicate on it would match nothing while a delete is still uncommitted, so
+        it would not wait, and the restore would write the stale ``program_id`` back
+        over the delete's detach. Program before project is the order both delete
+        paths take.
         """
         if self.program_id is None:
             return
-        program = (
-            Program.objects.select_for_update().filter(pk=self.program_id, is_deleted=True).first()
-        )
-        if program is None:
+        program = Program.objects.select_for_update().filter(pk=self.program_id).first()
+        if program is None or not program.is_deleted:
             return
         detached = list(program.detached_project_ids or [])
         if self.pk not in detached:

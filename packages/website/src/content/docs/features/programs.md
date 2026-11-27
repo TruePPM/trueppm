@@ -322,7 +322,8 @@ deleted program is not recoverable.
 
 From 0.5, projects that are already in project Trash are detached too, so restoring
 one brings it back standalone rather than under the deleted program. Restoring the
-program re-attaches every project that is still standalone.
+program re-attaches only the projects that its delete detached and that are still
+standalone.
 
 ## Roles and permissions
 

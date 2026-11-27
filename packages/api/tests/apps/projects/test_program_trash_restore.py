@@ -11,12 +11,15 @@ Covers:
 
 from __future__ import annotations
 
+import threading
+import time
 from datetime import date
 from typing import Any
 from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.db import connection, transaction
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
@@ -201,8 +204,6 @@ def test_restore_rekeys_a_keyless_shell(program: Program, owner: Any) -> None:
 @pytest.mark.django_db
 def test_subtree_soft_delete_is_restorable(program: Program, owner: Any) -> None:
     """The ADR-0726 seed-replace path lands in Trash too; trashed children re-attach."""
-    from django.db import transaction
-
     from trueppm_api.apps.projects.services import soft_delete_program_subtree
 
     a = _project(program, owner, "Alpha", "ALP")
@@ -317,8 +318,6 @@ def test_project_trashed_before_program_delete_restores_standalone(
     program: Program, owner: Any, path: str
 ) -> None:
     """#4835: no program-delete path may leave a trashed project on the deleted program."""
-    from django.db import transaction
-
     from trueppm_api.apps.projects.models import ProgramImportJob
     from trueppm_api.apps.projects.services import soft_delete_program_subtree
     from trueppm_api.apps.projects.tasks import _reap_empty_import_shell
@@ -372,3 +371,47 @@ def test_restoring_a_project_already_stranded_on_a_deleted_program_detaches_it(
     assert resp.status_code == 200, resp.content
     stranded.refresh_from_db()
     assert stranded.program_id == program.pk
+
+
+@pytest.mark.django_db(transaction=True)
+def test_project_restore_waits_for_an_uncommitted_program_delete(
+    program: Program, owner: Any
+) -> None:
+    """#4835: a restore overlapping a program delete must not re-attach the project.
+
+    The delete holds the program row but has not committed. A lock query that also
+    filtered on ``is_deleted`` would match nothing, not wait, and then save the
+    stale ``program_id`` over the delete's detach.
+    """
+    from trueppm_api.apps.access.services import delete_program_cascade
+
+    racer = _project(program, owner, "Racer", "RAC")
+    _trash_project(owner, racer)
+    stale = Project.objects.get(pk=racer.pk)  # still points at the live program
+    deleted_uncommitted = threading.Event()
+    errors: list[BaseException] = []
+
+    def delete() -> None:
+        try:
+            with transaction.atomic():
+                delete_program_cascade(program_id=program.pk, actor=owner)
+                deleted_uncommitted.set()
+                time.sleep(0.5)  # hold the locks while the restore starts
+        except BaseException as exc:  # surfaced by the assert below
+            errors.append(exc)
+        finally:
+            connection.close()
+
+    deleter = threading.Thread(target=delete)
+    deleter.start()
+    assert deleted_uncommitted.wait(10), errors
+    stale.restore()
+    deleter.join(30)
+
+    assert errors == []
+    racer.refresh_from_db()
+    program.refresh_from_db()
+    assert program.is_deleted is True
+    assert racer.is_deleted is False
+    assert racer.program_id is None
+    assert program.detached_project_ids == [racer.pk]
