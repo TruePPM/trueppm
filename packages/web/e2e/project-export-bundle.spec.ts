@@ -57,12 +57,24 @@ function job(status: string, extra: Record<string, unknown> = {}) {
     started_at: null,
     completed_at: null,
     download_url:
-      status === 'success' ? `/api/v1/projects/${PROJECT_ID}/export/jobs/${JOB_ID}/download/` : null,
+      status === 'success'
+        ? `/api/v1/projects/${PROJECT_ID}/export/jobs/${JOB_ID}/download/`
+        : null,
     ...extra,
   };
 }
 
-async function setup(page: Page, jobStatus: 'success' | 'failed') {
+interface SetupOptions {
+  /** `encryption_mode` the mocked jobs report (issue 2400). */
+  encryption?: 'none' | 'passphrase';
+  /** Collects each POST body so a spec can assert what was sent. */
+  posted?: unknown[];
+  /** Answer the POST with a 400 field error instead of a job. */
+  rejectStart?: boolean;
+}
+
+async function setup(page: Page, jobStatus: 'success' | 'failed', opts: SetupOptions = {}) {
+  const encryption = { encryption_mode: opts.encryption ?? 'none' };
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -100,10 +112,19 @@ async function setup(page: Page, jobStatus: 'success' | 'failed') {
   // POST enqueue → 202 pending. GET (sync seed) → a small JSON doc.
   await page.route(`**/api/v1/projects/${PROJECT_ID}/export/`, async (route) => {
     if (route.request().method() === 'POST') {
+      opts.posted?.push(route.request().postDataJSON());
+      if (opts.rejectStart) {
+        await route.fulfill({
+          status: 400,
+          contentType: 'application/json',
+          body: pj({ encryption: { passphrase: ['Use a passphrase of at least 12 characters.'] } }),
+        });
+        return;
+      }
       await route.fulfill({
         status: 202,
         contentType: 'application/json',
-        body: pj(job('pending')),
+        body: pj(job('pending', encryption)),
       });
       return;
     }
@@ -123,7 +144,12 @@ async function setup(page: Page, jobStatus: 'success' | 'failed') {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: pj(job(jobStatus, jobStatus === 'failed' ? { error_detail: 'disk full' } : {})),
+      body: pj(
+        job(jobStatus, {
+          ...encryption,
+          ...(jobStatus === 'failed' ? { error_detail: 'disk full' } : {}),
+        }),
+      ),
     });
   });
 }
@@ -142,10 +168,7 @@ test.describe('Project export bundle card', () => {
     await expect(downloadButton).toBeVisible();
 
     // Clicking it triggers an authenticated blob download.
-    const [download] = await Promise.all([
-      page.waitForEvent('download'),
-      downloadButton.click(),
-    ]);
+    const [download] = await Promise.all([page.waitForEvent('download'), downloadButton.click()]);
     expect(download.suggestedFilename()).toBe('project-atlas.tar.gz');
   });
 
@@ -158,5 +181,46 @@ test.describe('Project export bundle card', () => {
     const alert = page.getByRole('alert');
     await expect(alert).toBeVisible();
     await expect(alert).toContainText('Export failed');
+  });
+
+  test('encrypted bundle — passphrase is sent once and the download is named .age', async ({
+    page,
+  }) => {
+    const posted: unknown[] = [];
+    await setup(page, 'success', { encryption: 'passphrase', posted });
+    await page.goto(`/projects/${PROJECT_ID}/settings/lifecycle`);
+
+    await page.getByRole('radio', { name: 'Passphrase' }).check();
+    const startButton = page.getByRole('button', { name: 'Export bundle…' });
+    await expect(startButton).toBeDisabled();
+    await page.getByLabel(/Choose a passphrase/).fill('correct horse battery');
+    await page.getByLabel('Confirm passphrase').fill('correct horse battery');
+    await page.getByRole('checkbox', { name: /lost passphrase can’t be recovered/ }).check();
+    await startButton.click();
+
+    expect(posted).toEqual([
+      { encryption: { mode: 'passphrase', passphrase: 'correct horse battery' } },
+    ]);
+    await expect(page.getByTestId('export-encryption-state')).toHaveText(
+      'Encrypted with a passphrase',
+    );
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('button', { name: 'Download bundle' }).click(),
+    ]);
+    expect(download.suggestedFilename()).toBe('project-atlas.tar.gz.age');
+  });
+
+  test('encrypted bundle — a refused start surfaces an error', async ({ page }) => {
+    await setup(page, 'success', { rejectStart: true });
+    await page.goto(`/projects/${PROJECT_ID}/settings/lifecycle`);
+
+    await page.getByRole('radio', { name: 'Passphrase' }).check();
+    await page.getByLabel(/Choose a passphrase/).fill('correct horse battery');
+    await page.getByLabel('Confirm passphrase').fill('correct horse battery');
+    await page.getByRole('checkbox', { name: /lost passphrase can’t be recovered/ }).check();
+    await page.getByRole('button', { name: 'Export bundle…' }).click();
+
+    await expect(page.getByRole('alert')).toBeVisible();
   });
 });

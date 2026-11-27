@@ -42,6 +42,12 @@ from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import QuerySet
 from django.utils import timezone
 
+from trueppm_api.apps.projects.export_crypto import (
+    ENCRYPTED_SUFFIX,
+    MODE_NONE,
+    ExportEncryption,
+    encrypt_stream,
+)
 from trueppm_api.apps.projects.export_integrity import (
     MANIFEST_NAME,
     seal_manifest,
@@ -332,21 +338,42 @@ def _add_attachments(
     counts[count_key] = copied
 
 
-def _store_archive(tmp: IO[bytes], name: str) -> tuple[str, int, str]:
+def _store_archive(tmp: IO[bytes], name: str, job: Any) -> tuple[str, int, str]:
     """Hash the finished archive in one streamed pass, then hand it to storage.
 
     The whole-artifact digest is of the bytes a client will download, so it is taken
     from the finished ``.tar.gz`` on disk (a gzip header carries an mtime, so the
     digest differs between two builds of identical input — only the per-member
     digests are stable). Streaming 1 MiB at a time keeps memory flat.
+
+    An encrypted job (#2400) is still hashed as **plaintext** — the digest is a
+    statement about the content, checked with ``sha256sum`` after decrypting — and
+    only the age ciphertext reaches storage, under a ``.age`` name. The plaintext
+    exists only in this worker's temp file, which is deleted on close.
     """
     tmp.flush()
     size = tmp.tell()
     tmp.seek(0)
     sha256 = sha256_stream(tmp)
     tmp.seek(0)
-    storage_path = default_storage.save(name, File(tmp))
-    return storage_path, size, sha256
+    if job.encryption_mode == MODE_NONE:
+        storage_path = default_storage.save(name, File(tmp))
+        return storage_path, size, sha256
+    encryption = ExportEncryption(job.encryption_mode, dict(job.encryption_params))
+    with tempfile.NamedTemporaryFile(suffix=ENCRYPTED_SUFFIX) as sealed:
+        encrypt_stream(tmp, sealed, encryption)
+        sealed.flush()
+        sealed_size = sealed.tell()
+        sealed.seek(0)
+        storage_path = default_storage.save(name + ENCRYPTED_SUFFIX, File(sealed))
+    return storage_path, sealed_size, sha256
+
+
+def _envelope(manifest: dict[str, Any], job: Any) -> dict[str, Any]:
+    """Record the encryption mode in the manifest (#2400); plaintext bundles are unchanged."""
+    if job.encryption_mode != MODE_NONE:
+        manifest["encryption"] = job.encryption_mode
+    return manifest
 
 
 def build_and_store_project_archive(job_id: str) -> tuple[str, int, str]:
@@ -416,8 +443,8 @@ def build_and_store_project_archive(job_id: str) -> tuple[str, int, str]:
             _add_history(tar, project_id, task_ids, counts, requester=job.requested_by)
             _add_attachments(tar, project_id, counts)
             _add_json(tar, "counts.json", counts)
-            tar.write_manifest(manifest_base)
-        storage_path, size, sha256 = _store_archive(tmp, f"{EXPORT_DIR}/{job_id}.tar.gz")
+            tar.write_manifest(_envelope(manifest_base, job))
+        storage_path, size, sha256 = _store_archive(tmp, f"{EXPORT_DIR}/{job_id}.tar.gz", job)
     logger.info("project export %s stored at %s (%d bytes)", job_id, storage_path, size)
     return storage_path, size, sha256
 
@@ -520,7 +547,9 @@ def build_and_store_program_archive(job_id: str) -> tuple[str, int, str]:
                     tar, project_id, counts, prefix=pfx, count_key=f"{cpfx}attachments"
                 )
             _add_json(tar, "counts.json", counts)
-            tar.write_manifest(manifest_base)
-        storage_path, size, sha256 = _store_archive(tmp, f"{PROGRAM_EXPORT_DIR}/{job_id}.tar.gz")
+            tar.write_manifest(_envelope(manifest_base, job))
+        storage_path, size, sha256 = _store_archive(
+            tmp, f"{PROGRAM_EXPORT_DIR}/{job_id}.tar.gz", job
+        )
     logger.info("program export %s stored at %s (%d bytes)", job_id, storage_path, size)
     return storage_path, size, sha256

@@ -2681,6 +2681,10 @@ SPECTACULAR_SETTINGS = {
         # ADR-1495: TimeEntry.category is a second `category`; pinned so the existing
         # risk CategoryEnum keeps its name instead of both being hash-suffixed.
         "TimeEntryCategoryEnum": "trueppm_api.apps.timetracking.models.TimeEntryCategory.choices",
+        # #2400: the export-encryption request's `mode` is a second `mode`; pinned so
+        # the existing telemetry ModeEnum (pinned too) keeps its name.
+        "ExportEncryptionModeEnum": [("passphrase", "passphrase"), ("recipient", "recipient")],
+        "ModeEnum": [("export", "export"), ("probe", "probe")],
         "CategoryEnum": "trueppm_api.apps.projects.models.RiskCategory.choices",
         "TimesheetStatusEnum": "trueppm_api.apps.timetracking.models.TimesheetStatus.choices",
         # #4291: the derivation `kind` vocabulary is a third kind of `kind`; pinned so

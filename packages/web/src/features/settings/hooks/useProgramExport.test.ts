@@ -52,10 +52,10 @@ describe('useStartProgramExport', () => {
 
     let job: ProgramExportJob | undefined;
     await act(async () => {
-      job = await result.current.mutateAsync(undefined as void);
+      job = await result.current.mutateAsync({});
     });
 
-    expect(postMock).toHaveBeenCalledWith('/programs/prog-1/export/');
+    expect(postMock).toHaveBeenCalledWith('/programs/prog-1/export/', {});
     expect(job?.id).toBe('job-1');
     expect(job?.status).toBe('pending');
     expect(job?.downloadUrl).toBeNull();

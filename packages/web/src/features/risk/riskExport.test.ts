@@ -108,7 +108,7 @@ describe('generateRisksCSV — CSV structure', () => {
     const rows = parseCsv(csv);
     expect(rows[0]).toEqual([
       'ID', 'Title', 'Status', 'Category', 'Response',
-      'P', 'I', 'Severity', 'Owner',
+      'P', 'I', 'Severity', 'Owner', 'Owner Name',
       'Mitigation Due Date', 'Trigger', 'Contingency', 'Description',
     ]);
   });
@@ -148,13 +148,13 @@ describe('generateRisksCSV — formula-injection mitigation', () => {
   it.each(['=', '+', '-', '@', '\t', '\r'])('prefixes a description starting with %j with a leading apostrophe', (char) => {
     const csv = generateRisksCSV([makeRisk({ description: `${char}cmd|'/C calc'!A0` })]);
     const rows = parseCsv(csv);
-    expect(rows[1][12]).toBe(`'${char}cmd|'/C calc'!A0`);
+    expect(rows[1][13]).toBe(`'${char}cmd|'/C calc'!A0`);
   });
 
   it('does not prefix a value where the trigger character is not first', () => {
     const csv = generateRisksCSV([makeRisk({ trigger: 'Budget = exceeded' })]);
     const rows = parseCsv(csv);
-    expect(rows[1][10]).toBe('Budget = exceeded');
+    expect(rows[1][11]).toBe('Budget = exceeded');
   });
 
   it('composes the formula prefix with comma/quote quoting', () => {
@@ -162,13 +162,13 @@ describe('generateRisksCSV — formula-injection mitigation', () => {
     // Raw, unprefixed formula text must never appear verbatim in the output.
     expect(csv).not.toMatch(/[^']=SUM\(A1\)/);
     const rows = parseCsv(csv);
-    expect(rows[1][12]).toBe('\'=SUM(A1), "bad"');
+    expect(rows[1][13]).toBe('\'=SUM(A1), "bad"');
   });
 
   it('composes the formula prefix with newline quoting', () => {
     const csv = generateRisksCSV([makeRisk({ description: '=cmd\nline2' })]);
     const rows = parseCsv(csv);
-    expect(rows[1][12]).toBe("'=cmd\nline2");
+    expect(rows[1][13]).toBe("'=cmd\nline2");
   });
 });
 
@@ -206,15 +206,23 @@ describe('generateRisksCSV — row content', () => {
     expect(r[7]).toBe('12');  // Severity
   });
 
+  it('writes the owner id for the importer and the owner name for a reader (issue 1200)', () => {
+    const r = row({ owner: 42, owner_name: 'Marcus Lee' });
+    expect(r[8]).toBe('42');
+    expect(r[9]).toBe('Marcus Lee');
+    const none = row({ owner: null, owner_name: null });
+    expect([none[8], none[9]]).toEqual(['', '']);
+  });
+
   it('writes mitigation_due_date as ISO 8601 YYYY-MM-DD', () => {
-    expect(row({ mitigation_due_date: '2026-06-15' })[9]).toBe('2026-06-15');
+    expect(row({ mitigation_due_date: '2026-06-15' })[10]).toBe('2026-06-15');
   });
 
   it('null risk framework fields produce empty strings', () => {
     const r = row({ category: null, response: null, mitigation_due_date: null });
     expect(r[3]).toBe('');  // category
     expect(r[4]).toBe('');  // response
-    expect(r[9]).toBe('');  // mitigation_due_date
+    expect(r[10]).toBe('');  // mitigation_due_date
   });
 });
 

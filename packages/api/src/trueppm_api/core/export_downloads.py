@@ -48,13 +48,22 @@ def stream_export_job_or_error(
         handle = default_storage.open(job.file_path, "rb")
     except (FileNotFoundError, OSError) as exc:
         raise Http404("Export archive is no longer available.") from exc
+    # An encrypted bundle (#2400) is age ciphertext, not gzip: name it ``.tar.gz.age``
+    # and type it as opaque bytes so it never looks like a plain archive. getattr:
+    # the workspace export job has no encryption field.
+    encryption = getattr(job, "encryption_mode", "none") or "none"
+    encrypted = encryption != "none"
     response = FileResponse(
         handle,
         as_attachment=True,
-        filename=filename,
-        content_type="application/gzip",
+        filename=f"{filename}.age" if encrypted else filename,
+        content_type="application/octet-stream" if encrypted else "application/gzip",
     )
+    if encrypted:
+        response["X-Export-Encryption"] = encryption
     # Whole-artifact digest (#2399) so a client can verify before writing to disk.
+    # For an encrypted bundle it is the digest of the DECRYPTED .tar.gz (#2400), so it
+    # stays a statement about the content rather than about one ciphertext.
     # getattr: the workspace export job predates digests and has no such field; jobs
     # built before this existed carry "" — no header rather than a wrong one.
     sha256 = getattr(job, "file_sha256", "")

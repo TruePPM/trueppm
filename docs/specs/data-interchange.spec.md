@@ -425,6 +425,7 @@ matter.
 | `I` | `impact` | 1–5; blank → warning + `1`; out of range → row error |
 | `Severity` | `severity` | ignored (derived `P × I`) |
 | `Owner` | `owner` | matched against project members; unmatched → warning + unassigned |
+| `Owner Name` | `owner name` | ignored (export artifact: the owner's display name, for a reader; #1200) |
 | `Mitigation Due Date` | `mitigation due date` | unparseable → warning + blank |
 | `Trigger` | `trigger` | free text |
 | `Contingency` | `contingency` | free text |

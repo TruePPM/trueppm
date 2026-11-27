@@ -222,8 +222,10 @@ responsibility.
 
 ## Encryption and integrity checks
 
-**Exported files are not encrypted.** That is a deliberate position for this
-release, not an oversight — but you should plan around it rather than discover it.
+**In the current release, exported files are not encrypted.** That is a deliberate
+position, not an oversight — but you should plan around it rather than discover it.
+From 0.5 a bundle can be [encrypted when it is built](#optional-encryption), by
+choice, per export; a bundle you do not choose to encrypt is still written in the clear.
 
 What does protect an artifact today:
 
@@ -284,13 +286,66 @@ written. Verification also refuses an archive that inflates past a size bound
 (the larger of 64 times `SEED_MAX_UPLOAD_MB` and 256 MiB) or holds more than 10,000
 members, so a small crafted upload cannot force the server to hash gigabytes. A bundle with no digests (built before 0.5) is imported without the check.
 
-Optional encryption is still planned for **0.5**:
+### Optional encryption
 
-| Planned | What it will add | Issue |
+:::note[Ships in 0.5]
+Opt-in encryption of export bundles ships in 0.5. In the current release every bundle is a plain `.tar.gz`; encrypt it yourself before it leaves your storage.
+:::
+
+From 0.5 the project and program **Export bundle** cards offer **Encryption
+(optional)**. It is off unless you choose it, because an encrypted file you cannot
+open is worse than a plain one you chose. Two ways to encrypt:
+
+| Choice | What you supply | How the bundle is opened |
 |---|---|---|
-| **Optional encryption** | Opt-in encryption of the artifact at generation time, with a passphrase or a recipient key that TruePPM never stores | [#2400](https://gitlab.com/trueppm/trueppm/-/issues/2400) |
+| **Passphrase** | A passphrase of at least 12 characters, typed twice | Send it to the program import API with the same passphrase (below) |
+| **age public key** | An [age](https://age-encryption.org) public key (`age1…`) you already manage | `age -d -i <your key file> project-APOLLO.tar.gz.age > project-APOLLO.tar.gz` |
 
-Plan around its absence until then.
+**TruePPM never keeps the passphrase.** The server turns it into a public key
+while it handles your request and stores only that public key, a random salt and
+the work factor. None of them can open the bundle. **If you lose the passphrase,
+nobody can open the bundle** — build a new one instead. The card asks you to
+confirm you understand that before it starts. For an offsite archive where nobody
+wants to hold a passphrase, use an age public key; TruePPM only ever sees the
+public half.
+
+An encrypted bundle is easy to tell apart from a plain one:
+
+- it downloads as `….tar.gz.age`, typed `application/octet-stream`, with an
+  `X-Export-Encryption: passphrase` (or `recipient`) response header;
+- the job's `encryption_mode` is `passphrase` or `recipient` (`none` for a plain
+  bundle), and the card says **Encrypted with a passphrase** or **Encrypted to an
+  age public key**;
+- inside, `manifest.json` records `"encryption"`.
+
+`file_sha256` and `X-Export-SHA256` are the digest of the **decrypted** `.tar.gz`,
+so they describe the content, not one ciphertext. Check them after you decrypt.
+
+The file is in the age v1 format (X25519, ChaCha20-Poly1305). A key-encrypted
+bundle opens with any age tool. A passphrase bundle carries an extra
+`trueppm-scrypt` header line, which standard age tools do not read, so open it
+through the program import API rather than `age -d`. The web **Import program**
+button takes a JSON seed only, for plain and encrypted bundles alike.
+
+**API.** `POST …/export/` takes an optional body:
+
+```json
+{"encryption": {"mode": "passphrase", "passphrase": "correct horse battery staple"}}
+{"encryption": {"mode": "recipient", "recipient": "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"}}
+```
+
+An empty body builds a plain bundle, as before. A passphrase under 12 characters,
+an invalid key, or a pasted age **secret** key is a `400`. If you already have a
+bundle building with **different** encryption settings, the request is a `409`
+rather than handing you a build that does not match; a passphrase request never
+reuses an in-flight build. To import a passphrase bundle, send its passphrase
+beside the file: `POST /api/v1/programs/import/` with multipart fields `file` and
+`passphrase`. A wrong passphrase and a damaged file both return the same `400`.
+TruePPM cannot decrypt a key-encrypted bundle, since it never has your secret key:
+decrypt it with `age` first and upload the `.tar.gz`.
+
+The JSON seed export (`GET …/export/`) is not encrypted. It is returned straight to
+you and is never stored on the server, so there is nothing at rest to protect.
 
 ## Round-trip guarantee
 

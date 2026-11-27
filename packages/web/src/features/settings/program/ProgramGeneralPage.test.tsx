@@ -97,6 +97,7 @@ function makeJob(over: Partial<ProgramExportJob> = {}): ProgramExportJob {
     startedAt: null,
     completedAt: null,
     downloadUrl: null,
+    encryptionMode: 'none',
     ...over,
   };
 }

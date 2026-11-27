@@ -120,6 +120,9 @@ _HEADER_ALIASES: dict[str, str] = {
     "contingency": "contingency",
     "id": "_ignored",
     "severity": "_ignored",
+    # Display name beside the round-trippable Owner id (#1200): read by people, not
+    # by the importer, which matches Owner.
+    "owner name": "_ignored",
 }
 
 # ISO first (machine-edited), then the export's en-US short format ("Jun 9, 2026")

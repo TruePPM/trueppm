@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { bundleFilename, type EncryptionChoice, type ExportStartBody } from '../exportEncryption';
 
 /**
  * Async program export bundle hooks (issue 1958, ADR-0219). The program-grain
@@ -22,6 +23,8 @@ export interface ProgramExportJob {
   completedAt: string | null;
   /** Non-null only once the archive is ready; presence = "downloadable". */
   downloadUrl: string | null;
+  /** Opt-in encryption at rest (issue 2400); `none` for a plain `.tar.gz`. */
+  encryptionMode: EncryptionChoice;
 }
 
 interface ProgramExportJobRaw {
@@ -34,6 +37,7 @@ interface ProgramExportJobRaw {
   started_at: string | null;
   completed_at: string | null;
   download_url: string | null;
+  encryption_mode?: EncryptionChoice;
 }
 
 function mapJob(raw: ProgramExportJobRaw): ProgramExportJob {
@@ -47,6 +51,8 @@ function mapJob(raw: ProgramExportJobRaw): ProgramExportJob {
     startedAt: raw.started_at,
     completedAt: raw.completed_at,
     downloadUrl: raw.download_url,
+    // Older servers omit the field; their bundles are never encrypted.
+    encryptionMode: raw.encryption_mode ?? 'none',
   };
 }
 
@@ -54,8 +60,8 @@ function mapJob(raw: ProgramExportJobRaw): ProgramExportJob {
 export function useStartProgramExport(programId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async () => {
-      const res = await apiClient.post<ProgramExportJobRaw>(`/programs/${programId}/export/`);
+    mutationFn: async (body: ExportStartBody = {}) => {
+      const res = await apiClient.post<ProgramExportJobRaw>(`/programs/${programId}/export/`, body);
       return mapJob(res.data);
     },
     onSuccess: (job) => {
@@ -103,7 +109,10 @@ export async function downloadProgramExport(
   const url = URL.createObjectURL(res.data);
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.download = `program-${(code || programId).trim() || programId}.tar.gz`;
+  anchor.download = bundleFilename(
+    `program-${(code || programId).trim() || programId}`,
+    job.encryptionMode,
+  );
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();

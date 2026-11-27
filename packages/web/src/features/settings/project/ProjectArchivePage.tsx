@@ -1,4 +1,12 @@
 import { useId, useState } from 'react';
+import { ExportEncryptionFields } from '../ExportEncryptionFields';
+import {
+  EMPTY_ENCRYPTION_DRAFT,
+  type EncryptionDraft,
+  encryptionLabel,
+  encryptionProblem,
+  exportStartBody,
+} from '../exportEncryption';
 import { useNavigate } from 'react-router';
 import { apiClient } from '@/api/client';
 import { queryClient } from '@/lib/queryClient';
@@ -82,9 +90,20 @@ function ExportBundleCard({ projectId, code }: { projectId: string; code?: strin
     startError,
   });
 
+  // Opt-in encryption (issue 2400). The passphrase is cleared once the job is
+  // queued: the server keeps only a derived public key, and so does this card.
+  const [encryption, setEncryption] = useState<EncryptionDraft>(EMPTY_ENCRYPTION_DRAFT);
+  const blocked = encryptionProblem(encryption) != null;
+  const encrypted = encryptionLabel(job?.encryptionMode);
+
   const onStart = () => {
     setDownloadError(null);
-    start.mutate(undefined as void, { onSuccess: (j) => setJobId(j.id) });
+    start.mutate(exportStartBody(encryption), {
+      onSuccess: (j) => {
+        setJobId(j.id);
+        setEncryption((d) => ({ ...d, passphrase: '', confirm: '' }));
+      },
+    });
   };
 
   const onDownload = () => {
@@ -111,11 +130,12 @@ function ExportBundleCard({ projectId, code }: { projectId: string; code?: strin
           MS Project artifact is XML (.xml) — binary .mpp is not generated.
         </li>
       </ul>
+      <ExportEncryptionFields draft={encryption} onChange={setEncryption} disabled={busy} />
       <div className="flex items-center gap-2">
         <button
           type="button"
           onClick={ready ? onDownload : onStart}
-          disabled={busy}
+          disabled={busy || (!ready && blocked)}
           className={[
             'px-3 py-1.5 rounded-control border border-neutral-border text-[12px] font-medium',
             'text-neutral-text-primary hover:bg-neutral-surface-sunken',
@@ -130,10 +150,19 @@ function ExportBundleCard({ projectId, code }: { projectId: string; code?: strin
             {statusLabel}
           </span>
         ) : null}
+        {encrypted && job ? (
+          <span
+            className="text-[11px] text-neutral-text-secondary"
+            data-testid="export-encryption-state"
+          >
+            {encrypted}
+          </span>
+        ) : null}
         {ready ? (
           <button
             type="button"
             onClick={onStart}
+            disabled={blocked}
             className="text-[11px] text-neutral-text-secondary underline hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control"
           >
             Rebuild
@@ -198,7 +227,13 @@ function DeleteProjectCard({
         <div className="text-[12px] text-neutral-text-secondary mb-2">
           To confirm, type the project {usesCode ? 'code' : 'name'}:
         </div>
-        <div className={v2 ? 'flex flex-wrap items-center gap-2 max-md:flex-col max-md:items-stretch' : 'flex items-center gap-2'}>
+        <div
+          className={
+            v2
+              ? 'flex flex-wrap items-center gap-2 max-md:flex-col max-md:items-stretch'
+              : 'flex items-center gap-2'
+          }
+        >
           <code className="px-2 py-0.5 rounded-chip bg-neutral-surface-sunken border border-neutral-border tppm-mono text-[12px] text-neutral-text-primary">
             {confirmTarget || '…'}
           </code>
@@ -379,9 +414,13 @@ export function ProjectArchivePage() {
             data-testid="archive-confirm"
             className="rounded-card border border-neutral-border bg-neutral-surface-raised p-4"
           >
-            <label htmlFor={archiveConfirmId} className="block text-[13px] text-neutral-text-primary">
-              Type <span className="tppm-mono font-semibold">{confirmTarget || '…'}</span> to archive.{' '}
-              Its tasks leave active views, and any program it belongs to re-forecasts without it.
+            <label
+              htmlFor={archiveConfirmId}
+              className="block text-[13px] text-neutral-text-primary"
+            >
+              Type <span className="tppm-mono font-semibold">{confirmTarget || '…'}</span> to
+              archive. Its tasks leave active views, and any program it belongs to re-forecasts
+              without it.
             </label>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <input

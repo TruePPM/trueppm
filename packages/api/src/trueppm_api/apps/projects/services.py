@@ -32,6 +32,11 @@ from django.utils import timezone
 # one. Safe as a module-level import: ``keys.py`` has no Django/ORM imports.
 # The ``as KeyAssignmentError`` (not a plain import) is required under
 # mypy --strict: a plain re-import is not treated as an explicit re-export.
+from trueppm_api.apps.projects.export_crypto import (
+    MODE_NONE,
+    MODE_RECIPIENT,
+    ExportEncryption,
+)
 from trueppm_api.apps.projects.keys import KeyAssignmentError as KeyAssignmentError
 
 if TYPE_CHECKING:
@@ -7774,7 +7779,41 @@ def _advance_generated_through(rule: Any, horizon_end: date) -> None:
 # ---------------------------------------------------------------------------
 
 
-def enqueue_project_export(*, project: Any, requested_by: Any) -> Any:
+class ExportInFlightConflict(Exception):
+    """An export with different encryption settings is already being built (#2400)."""
+
+
+def _encryption_fields(encryption: ExportEncryption | None) -> dict[str, Any]:
+    if encryption is None:
+        return {}
+    return {"encryption_mode": encryption.mode, "encryption_params": dict(encryption.params)}
+
+
+def _reuse_in_flight_export(existing: Any, encryption: ExportEncryption | None) -> Any:
+    """Return the requester's in-flight job only if it matches what they asked for.
+
+    The in-flight de-dupe (#4370) used to hand back any pending job. With opt-in
+    encryption (#2400) that would be wrong in both directions: a request to encrypt
+    must never be answered with a plaintext build, and a passphrase request cannot
+    reuse a build keyed to an earlier passphrase (a fresh salt makes every
+    passphrase key distinct, so a passphrase request never matches). A recipient
+    request matches a build to the same public key.
+    """
+    mode = encryption.mode if encryption is not None else MODE_NONE
+    params = dict(encryption.params) if encryption is not None else {}
+    if existing.encryption_mode == mode and (
+        mode == MODE_NONE or (mode == MODE_RECIPIENT and existing.encryption_params == params)
+    ):
+        return existing
+    raise ExportInFlightConflict(
+        "An export you requested is still being built with different encryption "
+        "settings. Wait for it to finish, then start this one."
+    )
+
+
+def enqueue_project_export(
+    *, project: Any, requested_by: Any, encryption: ExportEncryption | None = None
+) -> Any:
     """Create a project export job row and best-effort dispatch the Celery task.
 
     Mirrors ``workspace.services.enqueue_workspace_export`` (ADR-0174) at the
@@ -7801,9 +7840,11 @@ def enqueue_project_export(*, project: Any, requested_by: Any) -> Any:
         status__in=[ExportJobStatus.PENDING, ExportJobStatus.RUNNING],
     ).first()
     if existing is not None:
-        return existing
+        return _reuse_in_flight_export(existing, encryption)
 
-    job = ProjectExportJob.objects.create(project=project, requested_by=requested_by)
+    job = ProjectExportJob.objects.create(
+        project=project, requested_by=requested_by, **_encryption_fields(encryption)
+    )
 
     # Capture the plain job id (not the ORM instance) in the on_commit closure — a
     # deferred callback must not close over a live row that could be stale by the
@@ -7824,7 +7865,9 @@ def enqueue_project_export(*, project: Any, requested_by: Any) -> Any:
     return job
 
 
-def enqueue_program_export(*, program: Any, requested_by: Any) -> Any:
+def enqueue_program_export(
+    *, program: Any, requested_by: Any, encryption: ExportEncryption | None = None
+) -> Any:
     """Create a program export job row and best-effort dispatch the Celery task.
 
     The program-grain sibling of :func:`enqueue_project_export` (#1958). Same
@@ -7849,9 +7892,11 @@ def enqueue_program_export(*, program: Any, requested_by: Any) -> Any:
         status__in=[ExportJobStatus.PENDING, ExportJobStatus.RUNNING],
     ).first()
     if existing is not None:
-        return existing
+        return _reuse_in_flight_export(existing, encryption)
 
-    job = ProgramExportJob.objects.create(program=program, requested_by=requested_by)
+    job = ProgramExportJob.objects.create(
+        program=program, requested_by=requested_by, **_encryption_fields(encryption)
+    )
 
     # Capture the plain job id (not the ORM instance) in the on_commit closure — a
     # deferred callback must not close over a live row that could be stale by the

@@ -295,6 +295,7 @@
 --+++++  GET api/v1/projects/<project_pk>/risks/::list
 --+++++  GET api/v1/projects/<project_pk>/risks/<pk>/::retrieve
 --+++++  GET api/v1/projects/<project_pk>/risks/<risk_pk>/comments/::list
+--+++++  GET api/v1/projects/<project_pk>/risks/export/::export_csv
 --+++++  GET api/v1/projects/<project_pk>/scheduler-runs/::list
 --+++++  GET api/v1/projects/<project_pk>/scheduler-runs/<pk>/::retrieve
 -----++  GET api/v1/projects/<project_pk>/share-links/::get

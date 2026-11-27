@@ -227,6 +227,7 @@ from trueppm_api.apps.projects.serializers import (
     CycleDetectedError,
     DecisionNoteSerializer,
     DependencySerializer,
+    ExportStartSerializer,
     FlowMetricsSerializer,
     ForecastSnapshotSerializer,
     InboundTaskSyncPayloadSerializer,
@@ -3443,8 +3444,19 @@ class ProjectViewSet(
     @extend_schema(
         methods=["POST"],
         summary="Queue a richer asynchronous project export bundle",
-        request=None,
+        request=ExportStartSerializer,
         responses={
+            400: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Invalid encryption options (passphrase too short, bad age key).",
+            ),
+            409: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "An export this caller requested is still being built with different "
+                    "encryption settings (#2400)."
+                ),
+            ),
             202: OpenApiResponse(
                 response=ProjectExportJobSerializer,
                 description=(
@@ -3470,9 +3482,23 @@ class ProjectViewSet(
         project = self.get_object()
 
         if request.method == "POST":
-            from trueppm_api.apps.projects.services import enqueue_project_export
+            from trueppm_api.apps.projects.services import (
+                ExportInFlightConflict,
+                enqueue_project_export,
+            )
 
-            job = enqueue_project_export(project=project, requested_by=request.user)
+            # Opt-in encryption (#2400). Validation derives the public key in this
+            # thread; the passphrase is dropped before the job row is written.
+            start = ExportStartSerializer(data=request.data or {})
+            start.is_valid(raise_exception=True)
+            options = start.validated_data.get("encryption")
+            encryption = options["encryption"] if options else None
+            try:
+                job = enqueue_project_export(
+                    project=project, requested_by=request.user, encryption=encryption
+                )
+            except ExportInFlightConflict as exc:
+                return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
             return Response(ProjectExportJobSerializer(job).data, status=status.HTTP_202_ACCEPTED)
 
         from trueppm_api.apps.projects.seed.exporter import dump_seed, export_project
@@ -3553,6 +3579,14 @@ class ProjectViewSet(
                     "The project export .tar.gz as a file attachment. The `X-Export-SHA256` "
                     "header carries the archive's lowercase hex SHA-256 (absent for "
                     "exports built before digests existed)."
+                ),
+            ),
+            (200, "application/octet-stream"): OpenApiResponse(
+                response=OpenApiTypes.BINARY,
+                description=(
+                    "An encrypted bundle (#2400): age v1 ciphertext named `.tar.gz.age`, "
+                    "with `X-Export-Encryption: passphrase|recipient`. `X-Export-SHA256` "
+                    "is then the digest of the decrypted .tar.gz."
                 ),
             ),
             409: OpenApiResponse(
@@ -9099,6 +9133,12 @@ class BaselineViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.Model
     def _rbac_permissions(self) -> list[BasePermission]:
         if self.action in ("list", "retrieve"):
             return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
+        if self.action == "export_csv":
+            # Same tier as the list it mirrors (ADR-0634 §6): a risk carries no
+            # ADR-0104 team-private signal and no email. No archived-project guard:
+            # like the seed export, getting one's register out stays available on an
+            # archived project.
+            return [IsAuthenticated(), IsProjectMember()]
         if self.action == "destroy":
             return [IsAuthenticated(), IsProjectOwner(), IsProjectNotArchived()]
         return [IsAuthenticated(), IsProjectAdmin(), IsProjectNotArchived()]
@@ -12247,6 +12287,12 @@ class RiskViewSet(
     def _rbac_permissions(self) -> list[BasePermission]:
         if self.action in ("list", "retrieve"):
             return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
+        if self.action == "export_csv":
+            # Same tier as the list it mirrors (ADR-0634 §6): a risk carries no
+            # ADR-0104 team-private signal and no email. No archived-project guard:
+            # like the seed export, getting one's register out stays available on an
+            # archived project.
+            return [IsAuthenticated(), IsProjectMember()]
         if self.action == "destroy":
             return [IsAuthenticated(), IsProjectOwner(), IsProjectNotArchived()]
         return [IsAuthenticated(), IsProjectMemberWrite(), IsProjectNotArchived()]
@@ -12379,6 +12425,42 @@ class RiskViewSet(
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "risk_deleted", {"id": risk_id})
         )
+
+    @extend_schema(
+        summary="Export the risk register as CSV",
+        parameters=UNDECLARE_FILTER_PARAMS,
+        responses={
+            (200, "text/csv"): OpenApiResponse(
+                response=OpenApiTypes.STR,
+                description=(
+                    "The project's whole live risk register, highest severity first, in "
+                    "the data-interchange CSV dialect (spec §5.6.1) plus an `Owner Name` "
+                    "column. Round-trips through `POST .../risks/import/`. Viewer+."
+                ),
+            ),
+        },
+    )
+    @action(detail=False, methods=["get"], url_path="export")
+    def export_csv(self, request: Request, project_pk: str | None = None) -> HttpResponse:
+        """Download the full risk register as CSV (#1200). Viewer+.
+
+        The web Risks view exports what is on screen; this is the API-first form of
+        the same file for the whole register, reachable by scripts and MCP readers.
+        """
+        from trueppm_api.apps.projects.risk_export import risk_register_csv
+
+        project = get_object_or_404(Project, pk=project_pk, is_deleted=False)
+        # @action(detail=False) does not run has_object_permission on its own.
+        self.check_object_permissions(request, project)
+        # get_queryset, not a fresh Risk query: it carries the project_pk filter and
+        # the McpScope.QUERYSET narrowing (ADR-0678), so a scoped MCP token reads no
+        # register its scope excludes.
+        risks = self.get_queryset()
+        stamp = timezone.localdate().isoformat()
+        response = HttpResponse(risk_register_csv(risks), content_type="text/csv; charset=utf-8")
+        name = (project.code or str(project.pk)).strip()
+        response["Content-Disposition"] = f'attachment; filename="risks-{name}-{stamp}.csv"'
+        return response
 
     @extend_schema(
         summary="Import risks from CSV",

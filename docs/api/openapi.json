@@ -12263,6 +12263,25 @@
                 "tags": [
                     "import-export"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ExportStartRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ExportStartRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ExportStartRequest"
+                            }
+                        }
+                    }
+                },
                 "security": [
                     {
                         "personalApiTokenAuth": []
@@ -12275,6 +12294,28 @@
                     }
                 ],
                 "responses": {
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Invalid encryption options (passphrase too short, bad age key)."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "An export this caller requested is still being built with different encryption settings (#2400)."
+                    },
                     "202": {
                         "content": {
                             "application/json": {
@@ -12518,6 +12559,12 @@
                     "200": {
                         "content": {
                             "application/gzip": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            },
+                            "application/octet-stream": {
                                 "schema": {
                                     "type": "string",
                                     "format": "binary"
@@ -24193,6 +24240,25 @@
                 "tags": [
                     "import-export"
                 ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ExportStartRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ExportStartRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ExportStartRequest"
+                            }
+                        }
+                    }
+                },
                 "security": [
                     {
                         "personalApiTokenAuth": []
@@ -24205,6 +24271,28 @@
                     }
                 ],
                 "responses": {
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "Invalid encryption options (passphrase too short, bad age key)."
+                    },
+                    "409": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": "An export this caller requested is still being built with different encryption settings (#2400)."
+                    },
                     "202": {
                         "content": {
                             "application/json": {
@@ -24448,6 +24536,12 @@
                     "200": {
                         "content": {
                             "application/gzip": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            },
+                            "application/octet-stream": {
                                 "schema": {
                                     "type": "string",
                                     "format": "binary"
@@ -37138,6 +37232,69 @@
                     }
                 },
                 "summary": "Comments risk"
+            }
+        },
+        "/api/v1/projects/{project_pk}/risks/export/": {
+            "get": {
+                "operationId": "v1_projects_risks_export_retrieve",
+                "description": "Download the full risk register as CSV (#1200). Viewer+.\n\nThe web Risks view exports what is on screen; this is the API-first form of\nthe same file for the whole register, reachable by scripts and MCP readers.",
+                "summary": "Export the risk register as CSV",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "project_pk",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "scheduling"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "text/csv": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "The project's whole live risk register, highest severity first, in the data-interchange CSV dialect (spec §5.6.1) plus an `Owner Name` column. Round-trips through `POST .../risks/import/`. Viewer+."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         },
         "/api/v1/projects/{project_pk}/risks/import/": {
@@ -67864,6 +68021,16 @@
                     "version"
                 ]
             },
+            "EncryptionModeEnum": {
+                "enum": [
+                    "none",
+                    "passphrase",
+                    "recipient"
+                ],
+                "type": "string",
+                "description": "* `none` - None\n* `passphrase` - Passphrase\n* `recipient` - Recipient public key",
+                "x-trueppm-enum": "open"
+            },
             "EndTypeEnum": {
                 "enum": [
                     "NEVER",
@@ -67987,6 +68154,52 @@
                 "type": "string",
                 "description": "* `human` - Human\n* `agent` - Agent",
                 "x-trueppm-enum": "open"
+            },
+            "ExportEncryptionModeEnum": {
+                "enum": [
+                    "passphrase",
+                    "recipient"
+                ],
+                "type": "string",
+                "description": "* `passphrase` - passphrase\n* `recipient` - recipient",
+                "x-trueppm-enum": "open"
+            },
+            "ExportEncryptionRequest": {
+                "type": "object",
+                "description": "Opt-in encryption for one async export bundle (#2400, ADR-0634 §5).\n\n``validate`` turns the request into the PUBLIC ``ExportEncryption`` the job row\nkeeps: a recipient is parsed to its age public key, and a passphrase is run\nthrough scrypt here, in the request thread, so only the derived public key\never reaches the job row, the outbox or the broker. The passphrase field is\nwrite-only and never echoed, logged, or included in an error message.",
+                "properties": {
+                    "mode": {
+                        "$ref": "#/components/schemas/ExportEncryptionModeEnum"
+                    },
+                    "passphrase": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "minLength": 1,
+                        "maxLength": 1024
+                    },
+                    "recipient": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 256
+                    }
+                },
+                "required": [
+                    "mode"
+                ]
+            },
+            "ExportStartRequest": {
+                "type": "object",
+                "description": "Optional body of ``POST .../export/``. An empty body queues a plaintext bundle.",
+                "properties": {
+                    "encryption": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ExportEncryptionRequest"
+                            }
+                        ],
+                        "nullable": true
+                    }
+                }
             },
             "ExternalConnectionError": {
                 "type": "object",
@@ -78474,6 +78687,14 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "encryption_mode": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/EncryptionModeEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
                     "error_detail": {
                         "type": "string",
                         "readOnly": true
@@ -78511,6 +78732,7 @@
                     "completed_at",
                     "created_at",
                     "download_url",
+                    "encryption_mode",
                     "error_detail",
                     "expires_at",
                     "file_sha256",
@@ -82332,6 +82554,14 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "encryption_mode": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/EncryptionModeEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
                     "error_detail": {
                         "type": "string",
                         "readOnly": true
@@ -82369,6 +82599,7 @@
                     "completed_at",
                     "created_at",
                     "download_url",
+                    "encryption_mode",
                     "error_detail",
                     "expires_at",
                     "file_sha256",

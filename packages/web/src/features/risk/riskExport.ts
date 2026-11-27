@@ -11,8 +11,11 @@ function csvCell(value: string | number | null | undefined): string {
   return escapeField(value == null ? '' : String(value));
 }
 
-// Column order per ADR-0043: ID, Title, Status, Category, Response, P, I, Severity, Owner,
-// Mitigation Due Date, Trigger, Contingency, Description
+// Column order per ADR-0043 (data-interchange spec §5.6.1): ID, Title, Status, Category,
+// Response, P, I, Severity, Owner, Owner Name, Mitigation Due Date, Trigger, Contingency,
+// Description. Must match the server's `risk_export.HEADERS` (GET .../risks/export/).
+// `Owner` is the member id the importer matches on; `Owner Name` is for a person reading
+// the file (issue 1200) and the importer ignores it.
 const HEADERS = [
   'ID',
   'Title',
@@ -23,6 +26,7 @@ const HEADERS = [
   'I',
   'Severity',
   'Owner',
+  'Owner Name',
   'Mitigation Due Date',
   'Trigger',
   'Contingency',
@@ -44,6 +48,7 @@ function riskToRow(risk: Risk): string[] {
     String(risk.impact),
     String(risk.severity),
     risk.owner == null ? '' : String(risk.owner),
+    risk.owner_name ?? '',
     // ISO 8601 as the API stores it (spec §5.5), never a locale-formatted date.
     risk.mitigation_due_date ?? '',
     risk.trigger ?? '',
