@@ -4,6 +4,7 @@ import { bootstrapAccessToken } from '@/api/client';
 import { useAuthStore } from '@/stores/authStore';
 import { silentDemoLogin } from './demoSession';
 import { hasDemoSessionMarker } from './demoMarker';
+import { SessionRestoreHold } from '@/features/pwa/PwaSplash';
 
 /** One silent demo re-login per page load, across remounts — a failed one must not loop (#4500). */
 let silentDemoAttempted = false;
@@ -76,16 +77,17 @@ export function RequireAuth() {
   // Without this gate, v5's async hydration causes the first render to see
   // accessToken: null even when a valid token exists in storage, resulting in
   // the API interceptor sending requests without an Authorization header.
-  if (!hasHydrated) return null;
+  // Installed (standalone) launches show the branded splash for these holds (ADR-1523 §3).
+  if (!hasHydrated) return <SessionRestoreHold />;
 
   // Hold rendering while the one-shot bootstrap refresh is in flight so no child
   // query mounts and fires before the minted token lands (#911). On success
   // `accessToken` is set and `needsBootstrap` flips false; on failure
   // `sessionExpired` flips true (handled below).
-  if (needsBootstrap && !bootstrapAttempted) return null;
+  if (needsBootstrap && !bootstrapAttempted) return <SessionRestoreHold />;
 
   // Hold the screen (no modal flash) while the silent login is deciding.
-  if (silentPending) return null;
+  if (silentPending) return <SessionRestoreHold />;
 
   // When the session expires mid-app, isAuthenticated flips to false. Without
   // this branch the next render would Navigate to /login, unmounting AppShell

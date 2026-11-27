@@ -57,6 +57,11 @@ export default defineConfig({
   reporter: process.env.CI ? 'line' : 'html',
   use: {
     baseURL: ORIGIN,
+    // The preview build registers the PWA worker (ADR-1523). Playwright's
+    // `page.route` does not see requests a worker sits in front of, so a precache
+    // between a spec and its mocks would make mocks silently partial. Blocked for
+    // every spec; e2e/pwa-*.spec.ts opts back in with `serviceWorkers: 'allow'`.
+    serviceWorkers: 'block',
     trace: 'on-first-retry',
     // Emulate `prefers-reduced-motion: reduce` for every spec. The app gates all
     // decorative animation behind Tailwind's `motion-safe:` variant (drawer

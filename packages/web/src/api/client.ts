@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { honorKillSwitch } from '@/lib/pwa/registerServiceWorker';
 import type { AxiosRequestConfig } from 'axios';
 import { clearSessionCache, useAuthStore } from '@/stores/authStore';
 // Imported from the module, not the barrel: the barrel also exports `ToastHost`, and
@@ -371,3 +372,18 @@ subscribeAuthMessages((type) => {
       break;
   }
 });
+
+// Service-worker kill switch (ADR-1523 §2): any API response, success or error,
+// carrying `X-TruePPM-Service-Worker: disable` unregisters the worker and drops its
+// caches. Registered LAST (tests index the earlier interceptors by position) and never
+// alters the response: it sees the final outcome, after any 401 refresh-and-retry.
+apiClient.interceptors.response.use(
+  (response) => {
+    honorKillSwitch(response.headers);
+    return response;
+  },
+  (error: unknown) => {
+    if (axios.isAxiosError(error)) honorKillSwitch(error.response?.headers);
+    return Promise.reject(error instanceof Error ? error : new Error(String(error)));
+  },
+);

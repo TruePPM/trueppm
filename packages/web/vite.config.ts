@@ -4,6 +4,7 @@ import { defineConfig } from 'vite';
 import type { PluginOption } from 'vite';
 import react from '@vitejs/plugin-react';
 import istanbul from 'vite-plugin-istanbul';
+import { VitePWA } from 'vite-plugin-pwa';
 import { resolve } from 'node:path';
 
 const buildSha = (() => {
@@ -110,8 +111,87 @@ function assetFilesList(): PluginOption {
   };
 }
 
+// Installable PWA shell (ADR-1523, #1425). One worker at /sw.js, scope `/`.
+// - Precache the whole build (every route chunk, fonts, icons), so any route's
+//   CODE loads offline; what is "not cached" offline is DATA (ADR-1523 §5).
+// - NO runtime route for /api/: the worker never caches an API response or sees a
+//   token. The My Work offline read is a page-owned, user-bound IndexedDB snapshot.
+// - Navigations fall back to the precached index.html, except server-owned paths,
+//   which must reach the network as if there were no worker (an OIDC callback or
+//   /admin/ served the SPA shell would break silently).
+// - skipWaiting + clientsClaim, and the page never reloads on update
+//   (src/lib/pwa/registerServiceWorker.ts): an old tab keeps its JS, and its lazy
+//   chunks fall through to the network, where ADR-1249's previous-asset window
+//   serves them.
+// - `injectRegister: false`: registration is our own guarded module. The worker is
+//   not built for the dev server (it would cache-poison HMR).
+const PWA_NAVIGATE_FALLBACK_DENYLIST = [
+  /^\/api\//,
+  /^\/ws\//,
+  /^\/admin\//,
+  /^\/static\//,
+  /^\/media\//,
+  /^\/asset-manifest\.json$/,
+  /^\/asset-files\.json$/,
+];
+
+const pwa = VitePWA({
+  strategies: 'generateSW',
+  injectRegister: false,
+  registerType: 'autoUpdate',
+  filename: 'sw.js',
+  manifestFilename: 'manifest.webmanifest',
+  includeAssets: [
+    'favicon.svg',
+    'app-icon.svg',
+    'apple-touch-icon.png',
+    'theme-init.js',
+    'boot-guard.js',
+  ],
+  manifest: {
+    id: '/',
+    name: 'TruePPM',
+    short_name: 'TruePPM',
+    description: 'Scheduling that tells the truth — project, program, and portfolio management.',
+    start_url: '/',
+    scope: '/',
+    display: 'standalone',
+    theme_color: '#1B2A4A',
+    background_color: '#1B2A4A',
+    lang: 'en',
+    icons: [
+      { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+      { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+      {
+        src: '/pwa-maskable-512x512.png',
+        sizes: '512x512',
+        type: 'image/png',
+        purpose: 'maskable',
+      },
+    ],
+  },
+  workbox: {
+    globPatterns: ['**/*.{js,css,html,woff2,svg,png,webmanifest}'],
+    // Precache must be complete: a chunk silently skipped for size would be the one
+    // route that blank-screens offline. 6 MiB covers the largest chunk with headroom;
+    // a bigger one fails the build instead of shipping an incomplete shell.
+    maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
+    navigateFallback: '/index.html',
+    navigateFallbackDenylist: PWA_NAVIGATE_FALLBACK_DENYLIST,
+    cleanupOutdatedCaches: true,
+    // Inline the Workbox runtime: a separate hashed workbox-*.js at the dist root is
+    // outside ADR-1249's assets/ window, so an old sw.js importing it from a new pod
+    // would get the SPA fallback (text/html) and fail to install.
+    inlineWorkboxRuntime: true,
+    skipWaiting: true,
+    clientsClaim: true,
+    // No `runtimeCaching`: deliberately. See the header comment and ADR-1523 §2.
+  },
+  devOptions: { enabled: false },
+});
+
 export default defineConfig({
-  plugins: [react(), ...coveragePlugins, assetFilesList()],
+  plugins: [react(), ...coveragePlugins, assetFilesList(), pwa],
   define: {
     __BUILD_SHA__: JSON.stringify(buildSha),
     __APP_VERSION__: JSON.stringify(appVersion),

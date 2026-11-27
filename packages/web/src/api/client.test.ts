@@ -652,3 +652,35 @@ describe('apiClient — read-only demo refusal (ADR-1197 D3, #3926)', () => {
     expect(useToastStore.getState().transient).toBeNull();
   });
 });
+
+describe('apiClient — service-worker kill switch (ADR-1523 §2)', () => {
+  function lastResponseInterceptor(client: Awaited<ReturnType<typeof getApiClient>>) {
+    const all = (client.interceptors.response as unknown as { handlers: unknown[] }).handlers;
+    return getResponseInterceptors(client, all.length - 1);
+  }
+
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, 'serviceWorker');
+  });
+
+  it('unregisters workers when a response carries the disable header, and passes it through', async () => {
+    const unregister = vi.fn().mockResolvedValue(true);
+    Object.defineProperty(navigator, 'serviceWorker', {
+      value: { getRegistrations: vi.fn().mockResolvedValue([{ unregister }]) },
+      configurable: true,
+    });
+    const client = await getApiClient();
+    const response = { data: {}, headers: { 'x-trueppm-service-worker': 'disable' } };
+    expect(lastResponseInterceptor(client).fulfilled(response)).toBe(response);
+    await vi.waitFor(() => expect(unregister).toHaveBeenCalled());
+  });
+
+  it('rejects an error response unchanged', async () => {
+    const client = await getApiClient();
+    const err = new AxiosError('boom', '500', undefined, undefined, {
+      status: 500,
+      headers: {},
+    } as AxiosResponse);
+    await expect(lastResponseInterceptor(client).rejected(err)).rejects.toBe(err);
+  });
+});
