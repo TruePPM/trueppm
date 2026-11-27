@@ -87667,7 +87667,7 @@
                     "engine_input": {
                         "type": "object",
                         "additionalProperties": {},
-                        "description": "trueppm_scheduler.Project JSON with names, descriptions, assignees and attachments stripped."
+                        "description": "trueppm_scheduler.Project JSON reduced to an allow-list of schedule inputs: names replaced, team velocity inputs and story points nulled."
                     },
                     "verdict": {
                         "type": "object",

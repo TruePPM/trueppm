@@ -419,7 +419,8 @@ durations, dependencies, calendars, actuals and the data date. That key, not the
 file, is the JSON that `trueppm_scheduler.Project.from_json` loads. The project is
 renamed `redacted` and each
 task `task-1`, `task-2` and so on. Task notes, assignees and attachments are never in
-the file. Task and project ids stay in, so you can say which task looks wrong. Open
+the file, and neither is the team's velocity: past sprint points, sprint length and
+task story points are left empty, since the dates do not depend on them. Task and project ids stay in, so you can say which task looks wrong. Open
 the file and check it before you attach it.
 
 The file also has a `verdict`: the result of the

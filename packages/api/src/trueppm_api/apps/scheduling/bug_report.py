@@ -7,16 +7,28 @@ with every human-readable label stripped, plus the self-check verdict and the en
 version. It is what turns "a date looks wrong" into a fixture a maintainer can run.
 
 **Redaction is the trust boundary.** The file is meant to be attached to a public
-issue. The engine input never carries descriptions, notes, assignees or attachments
-(the converters do not copy them), so what must be removed is the project and task
-``name``. :func:`redact_engine_input` does that, and also blanks any other key that
-names a person or holds free text, so a future engine field of that kind cannot leak
-through this path unnoticed. Ids stay: they are opaque UUIDs, and the reporter needs
-them to point at "this task".
+issue, and it is downloadable by every Scheduler+ member. It must therefore carry only
+what reproduces the CPM pass, and nothing a project reader would be refused elsewhere.
+:func:`redact_engine_input` works from an allow-list: every key that
+``Project/Task/Dependency/Calendar/DateRange.to_dict()`` emits is classified in the
+``*_FIELDS`` tables below as kept, replaced (a human label) or nulled, and a key the
+tables do not name is dropped rather than copied. A new engine field therefore stays
+out of the file until someone classifies it, and
+``test_every_engine_key_is_classified`` fails until they do.
+
+Nulled: the team's velocity inputs (``velocity_samples``, ``sprint_length_days``) and
+each task's ``story_points`` / ``delivery_mode``. Velocity is a team-private signal
+under ADR-0104 (the PM band can be refused it), and ``schedule()`` reads none of these
+fields, so the exported input schedules to the same dates without them. They feed only
+Monte Carlo's velocity sampling. Ids stay: they are opaque UUIDs, and the reporter
+needs them to point at "this task".
 """
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from django.shortcuts import get_object_or_404
@@ -31,41 +43,144 @@ from rest_framework.views import APIView
 from trueppm_api.apps.access.permissions import IsProjectScheduler
 from trueppm_api.apps.projects.models import Project
 
+logger = logging.getLogger(__name__)
+
 EXPORT_FORMAT_VERSION = 1
 
 REDACTED_PROJECT_NAME = "redacted"
-# Keys removed wherever they appear in the engine document. ``name`` is the only one
-# today's engine model carries; the rest guard the boundary against a future field.
-_TEXT_KEYS = frozenset({"name", "title", "label", "description", "notes", "comment"})
-_PERSON_KEYS = frozenset(
-    {"assignee", "assignees", "assignments", "owner", "owners", "attachments", "email"}
-)
+
+# Field classifications. ``KEEP`` copies the value; ``LABEL`` blanks a human-readable
+# label (the project and task names are then replaced with placeholders, because
+# ``from_dict`` requires a string); ``NULL`` emits ``None``. A nested table is applied
+# to a sub-object (``_One``), to each element of a list (``_Each``) or to each value of
+# an id-keyed mapping (``_Map``).
+KEEP = "keep"
+LABEL = "label"
+NULL = "null"
 
 
-def _scrub(value: Any) -> Any:
-    if isinstance(value, dict):
-        out: dict[str, Any] = {}
-        for key, item in value.items():
-            if key in _PERSON_KEYS:
-                out[key] = [] if isinstance(item, list) else None
-            elif key in _TEXT_KEYS:
-                out[key] = "" if isinstance(item, str) else None
-            else:
-                out[key] = _scrub(item)
-        return out
-    if isinstance(value, list):
-        return [_scrub(v) for v in value]
-    return value
+@dataclass(frozen=True)
+class _One:
+    fields: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class _Each:
+    fields: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class _Map:
+    fields: Mapping[str, Any]
+
+
+DATE_RANGE_FIELDS: Mapping[str, Any] = {"start": KEEP, "end": KEEP}
+
+CALENDAR_FIELDS: Mapping[str, Any] = {
+    "working_days": KEEP,
+    "exceptions": _Each(DATE_RANGE_FIELDS),
+    # Reserved-but-inert in the engine; neither identifies a person.
+    "hours_per_day": KEEP,
+    "timezone": KEEP,
+}
+
+DEPENDENCY_FIELDS: Mapping[str, Any] = {
+    "predecessor_id": KEEP,
+    "successor_id": KEEP,
+    "dep_type": KEEP,
+    "lag": KEEP,
+}
+
+TASK_FIELDS: Mapping[str, Any] = {
+    "id": KEEP,
+    "name": LABEL,
+    # CPM inputs.
+    "duration": KEEP,
+    "planned_start": KEEP,
+    "planned_finish": KEEP,
+    "percent_complete": KEEP,
+    "actual_start": KEEP,
+    "actual_finish": KEEP,
+    "calendar_id": KEEP,
+    "live_day_end_on": KEEP,
+    "zero_remaining": KEEP,
+    # Engine outputs (an input value is ignored and recomputed).
+    "early_start": KEEP,
+    "early_finish": KEEP,
+    "late_start": KEEP,
+    "late_finish": KEEP,
+    "total_float": KEEP,
+    "free_float": KEEP,
+    "is_critical": KEEP,
+    "scheduled_start": KEEP,
+    "milestone_at_day_end": KEEP,
+    # Per-task estimates; Monte Carlo only, not a team signal.
+    "optimistic_duration": KEEP,
+    "most_likely_duration": KEEP,
+    "pessimistic_duration": KEEP,
+    # Velocity-path inputs (Monte Carlo only). Story points on completed tasks are
+    # the material the team's velocity series is summed from.
+    "delivery_mode": NULL,
+    "story_points": NULL,
+}
+
+PROJECT_FIELDS: Mapping[str, Any] = {
+    "id": KEEP,
+    "name": LABEL,
+    "start_date": KEEP,
+    "status_date": KEEP,
+    "tasks": _Each(TASK_FIELDS),
+    "dependencies": _Each(DEPENDENCY_FIELDS),
+    "calendar": _One(CALENDAR_FIELDS),
+    "calendars": _Map(CALENDAR_FIELDS),
+    # ADR-0104 team signal: never exported.
+    "velocity_samples": NULL,
+    "sprint_length_days": NULL,
+}
+
+
+def _apply(value: Any, rule: Any) -> Any:
+    if value is None or rule == KEEP:
+        return value
+    if rule == NULL:
+        return None
+    if rule == LABEL:
+        return ""
+    if isinstance(rule, _One):
+        return _filter(value, rule.fields)
+    if isinstance(rule, _Each):
+        return [_filter(v, rule.fields) for v in value] if isinstance(value, list) else None
+    if isinstance(rule, _Map):
+        if not isinstance(value, dict):
+            return None
+        return {k: _filter(v, rule.fields) for k, v in value.items()}
+    return None
+
+
+def _filter(obj: Any, fields: Mapping[str, Any]) -> Any:
+    if not isinstance(obj, dict):
+        return None
+    out: dict[str, Any] = {}
+    for key, value in obj.items():
+        rule = fields.get(key)
+        if rule is None:
+            # Fail closed: an unclassified key is not exported. Logged by name only.
+            logger.warning("bug-report export dropped unclassified engine key %r", key)
+            continue
+        out[key] = _apply(value, rule)
+    return out
 
 
 def redact_engine_input(document: dict[str, Any]) -> dict[str, Any]:
-    """Strip names and person/free-text fields from a ``Project.to_dict()`` document.
+    """Reduce a ``Project.to_dict()`` document to its classified, exportable fields.
 
-    The project is renamed ``redacted`` and each task ``task-<n>`` (in document
-    order), because ``Project.from_dict`` requires a string name; every other text or
-    person key is blanked. The result still loads with ``Project.from_dict``.
+    Every key is copied, blanked or nulled per ``PROJECT_FIELDS`` and the nested
+    tables; any key they do not name is dropped. The project is renamed ``redacted``
+    and each task ``task-<n>`` (in document order), because ``Project.from_dict``
+    requires a string name. The result still loads with ``Project.from_dict`` and
+    schedules to the same dates as the input.
     """
-    scrubbed: dict[str, Any] = _scrub(document)
+    scrubbed: dict[str, Any] = _filter(document, PROJECT_FIELDS)
     scrubbed["name"] = REDACTED_PROJECT_NAME
     for n, task in enumerate(scrubbed.get("tasks") or [], start=1):
         if isinstance(task, dict):
@@ -99,8 +214,9 @@ class ScheduleBugReportExportView(APIView):
                     "engine_version": serializers.CharField(),
                     "engine_input": serializers.DictField(
                         help_text=(
-                            "trueppm_scheduler.Project JSON with names, descriptions, "
-                            "assignees and attachments stripped."
+                            "trueppm_scheduler.Project JSON reduced to an allow-list of "
+                            "schedule inputs: names replaced, team velocity inputs and "
+                            "story points nulled."
                         )
                     ),
                     "verdict": serializers.DictField(

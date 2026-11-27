@@ -28,7 +28,7 @@
 
 <!-- Scheduling bug (a date, float or forecast looks wrong)? Attach the project's
      schedule export: GET /api/v1/projects/<id>/schedule/bug-report-export/
-     (Scheduler role). Names are stripped; check the file before attaching. See
+     (Scheduler role). Names and team velocity are left out; check the file before attaching. See
      https://docs.trueppm.com/overview/known-issues/#how-to-report-a-scheduling-bug -->
 
 /label ~bug

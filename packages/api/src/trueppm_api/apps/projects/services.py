@@ -946,7 +946,8 @@ def scheduler_velocity_inputs(
         # Last eight closed, velocity-eligible sprints — the same window the rolling
         # velocity statistics use (ADR-0037); newest-first, so the slice is recent.
         # velocity-unfiltered-ok: feeds the Monte Carlo engine server-side;
-        # the samples are never returned to a reader.
+        # the samples are never returned to a reader (the bug-report export nulls
+        # them: scheduling/bug_report.py PROJECT_FIELDS).
         for s in velocity_eligible_sprints(project_id)[:8]
         if s.completed_points is not None
     ]

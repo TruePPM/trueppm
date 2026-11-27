@@ -174,7 +174,7 @@ This endpoint ships in 0.5.
 :::
 
 `GET /api/v1/projects/{id}/schedule/bug-report-export/` returns the project's engine
-input with names stripped, to attach to a scheduling bug report. Scheduler role and
+input, reduced to what reproduces the CPM pass, to attach to a scheduling bug report. Scheduler role and
 up only. Archived projects can still be exported. It shares the `cpm_on_read`
 throttle, and answers `503 schedule_busy` when no CPM slot is free. The response is
 sent as a file download.
@@ -183,7 +183,7 @@ sent as a file download.
 |---|---|---|
 | `format_version` | `integer` | Contract version of this payload (`1`) |
 | `engine_version` | `string` | The `trueppm-scheduler` version installed on the server |
-| `engine_input` | `object` | The `trueppm_scheduler.Project` JSON the CPM pass schedules, loadable with `Project.from_json`. The project is named `redacted`, tasks `task-1`, `task-2` and so on; ids are kept |
+| `engine_input` | `object` | The `trueppm_scheduler.Project` JSON the CPM pass schedules, loadable with `Project.from_json`. The project is named `redacted`, tasks `task-1`, `task-2` and so on; ids are kept. The team's velocity inputs (`velocity_samples`, `sprint_length_days`) and each task's `story_points` and `delivery_mode` are `null`: the CPM pass does not read them. A field the server has not classified as safe to export is left out |
 | `verdict` | `object` | The [scheduler self-check](/administration/observability/#scheduler-self-check) on this schedule: `engine_version`, `task_count`, `checks` (each `pass`, `fail`, `skipped` or `error`), `violations`, and `skipped_reason: "above_envelope"` when the project is over the self-check task ceiling |
 
 See [How to report a scheduling bug](/overview/known-issues/#how-to-report-a-scheduling-bug).
