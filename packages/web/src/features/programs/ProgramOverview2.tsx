@@ -471,15 +471,18 @@ export function ProgramOverview2({ programId }: { programId: string }) {
                   className="mt-3 flex flex-wrap gap-x-6 gap-y-2"
                   data-testid="program-overview2-range"
                 >
+                  {/* These peers wrap instead of gridding three across, so they keep the wide date type. */}
                   <Peer
                     label="P50"
                     date={percentiles.p50.value}
                     definition={rollup.definitions?.p50_completion}
+                    phone={false}
                   />
                   <Peer
                     label="P95"
                     date={percentiles.p95.value}
                     definition={rollup.definitions?.p95_completion}
+                    phone={false}
                   />
                 </div>
               )}
