@@ -96,6 +96,15 @@
 #      polices presence). The Helm production branch and the baked web image
 #      omitted it entirely.
 #
+#   H. Share-token pages (#5155). The `/share/*` URL path is the token, so every
+#      SPA server block has a `location ^~ /share/` that serves index.html from
+#      THAT location (`try_files /index.html =404` — a final-argument fallback
+#      would redirect internally and take `= /index.html`'s headers) with exactly
+#      one Referrer-Policy, `no-referrer`, plus the full header set and
+#      `Cache-Control: no-cache`. And every server block, including a redirect-only
+#      listener, logs with the `trueppm_redacted` format so the token in the
+#      request line is not written to the access log.
+#
 # The Helm renders (all THREE branches — production, demo share-link, demo
 # interactive, #4426) are included by shelling out to `helm template`. If helm
 # is not on PATH the static configs are still checked and the Helm renders are
@@ -297,6 +306,25 @@ assert_proxy_forwards_proto() {
   return 0
 }
 
+# (H, #5155) Share pages. $3 is the location body, $4 is has_tls.
+assert_share_location() {
+  local label="$1" idx="$2" share="$3" has_tls="$4" policies
+  if [ -z "$share" ]; then
+    viol "$label" "SPA server block #$idx has no \`location ^~ /share/\` — share pages inherit the site-wide Referrer-Policy, so the token in the path reaches the Referer header (#5155)."
+    return 0
+  fi
+  grep -qE '(^|[ \t{])try_files[ \t]+/index\.html[ \t]+=404[ \t]*;' <<<"$share" \
+    || viol "$label" "SPA server block #$idx's \`/share/\` must \`try_files /index.html =404;\` — any other form can redirect internally and drop this location's headers (#5155)."
+  policies="$(grep -E 'add_header[ \t]+Referrer-Policy' <<<"$share" || true)"
+  if [ "$(grep -c . <<<"$policies")" != "1" ] \
+    || ! grep -qE 'Referrer-Policy[ \t]+"no-referrer"[ \t]+always[ \t]*;' <<<"$policies"; then
+    viol "$label" "SPA server block #$idx's \`/share/\` must set exactly one \`Referrer-Policy \"no-referrer\" always\` (#5155)."
+  fi
+  assert_cache_control "$label" "$idx" "location /share/" "$share" 'no-cache'
+  assert_location_header_set "$label" "$idx" "location /share/" "$share" "$has_tls"
+  return 0
+}
+
 # ── Per-config assertions ────────────────────────────────────────────────────
 # Every assertion feeds grep with a here-string, never `printf "$x" | grep -q`.
 # Under `set -o pipefail` the pipe form reports a PRESENT line as missing: grep
@@ -336,6 +364,11 @@ check_config() {
           || viol "$label" "location /admin/ proxies without a \`limit_req\` — Django admin is a plain Django view, so no DRF throttle covers it (#2569)."
       fi
     fi
+
+    # (H, #5155) Every listener logs share tokens redacted, redirect-only ones too:
+    # the plain-HTTP 301 listener receives the full share URL.
+    grep -qE '(^|[ \t{])access_log +[^ ;]+ +trueppm_redacted *;' <<<"$body" \
+      || viol "$label" "server block #$idx does not \`access_log … trueppm_redacted\` — share tokens are written to its access log (#5155)."
 
     # (A) Only blocks that actually serve the SPA document need the header set.
     #     The compose :80 ACME/redirect listener serves no document and is exempt.
@@ -383,6 +416,10 @@ check_config() {
 
     # (E, #4426) X-Forwarded-Proto must not be overwritten on a plain-HTTP block.
     assert_forwarded_proto_not_overwritten "$label" "$idx" "$body" "$has_tls"
+
+    # (H, #5155) Share pages.
+    assert_share_location "$label" "$idx" \
+      "$(printf '%s\n' "$body" | location_body "/share/" || true)" "$has_tls"
 
     # (D, #4350) Caching parity, checked per location — see the header comment.
     local idxhtml assets fallback assets404
@@ -598,7 +635,10 @@ self_test() {
   # add_header is replace-not-merge per location, so a fixture that gets this
   # right has to look exactly like the real configs do.
   cache_locations() {
-    local headers="$1"
+    local headers="$1" share_headers
+    share_headers="$(sed -E 's/(Referrer-Policy +)"[^"]+"/\1"no-referrer"/' <<<"$headers")"
+    # shellcheck disable=SC2016  # $remote_addr-free nginx syntax, not shell.
+    printf '    access_log /dev/stdout trueppm_redacted;\n    location ^~ /share/ {\n        try_files /index.html =404;\n        add_header Cache-Control "no-cache" always;\n%s\n    }\n' "$share_headers"
     # shellcheck disable=SC2016  # $uri is nginx syntax, not a shell expansion.
     printf '    location /assets/ {\n        try_files $uri @assets_404;\n        add_header Cache-Control "public, max-age=31536000, immutable" always;\n%s\n    }\n\n    location @assets_404 {\n        add_header Cache-Control "no-store" always;\n%s\n        return 404;\n    }\n\n    location = /index.html {\n        add_header Cache-Control "no-cache" always;\n%s\n    }\n' "$headers" "$headers" "$headers"
   }
@@ -610,6 +650,7 @@ self_test() {
   cat >"$tmp/good.conf" <<CONF
 server {
     listen 80;
+    access_log /dev/stdout trueppm_redacted;
     location / { return 301 https://\$host\$request_uri; }
 }
 server {
@@ -1059,6 +1100,18 @@ CONF
       rc=1
     fi
   }
+
+  # (H, #5155) Each defect is one mutation of the accepted good_404 fixture.
+  sed 's/location ^~ \/share\/ {/location ^~ \/other\/ {/' "$tmp/good_404.conf" >"$tmp/bad_noshare.conf"
+  sed '/location ^~ \/share\//,/}/ s/"no-referrer"/"strict-origin-when-cross-origin"/' \
+    "$tmp/good_404.conf" >"$tmp/bad_share_policy.conf"
+  sed 's/try_files \/index\.html =404;/try_files $uri \/index.html;/' \
+    "$tmp/good_404.conf" >"$tmp/bad_share_redirect.conf"
+  sed '/access_log/d' "$tmp/good_404.conf" >"$tmp/bad_share_log.conf"
+  probe bad_noshare.conf        1 "SPA with no /share/ location rejected (#5155)"
+  probe bad_share_policy.conf   1 "/share/ with the site-wide Referrer-Policy rejected (#5155)"
+  probe bad_share_redirect.conf 1 "/share/ falling back by internal redirect rejected (#5155)"
+  probe bad_share_log.conf      1 "listener without redacted access logging rejected (#5155)"
 
   probe good.conf          0 "hardened config with a redirect-only listener accepted"
   probe good_404.conf      0 "plain-HTTP config with /admin/ closed accepted"

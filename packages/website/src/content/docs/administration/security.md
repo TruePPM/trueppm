@@ -178,6 +178,38 @@ those headers become yours to set — nothing in the application can add them.
 `scripts/check-nginx-security-headers.sh` (CI job `nginx:headers`) asserts the
 shipped configs never drift apart on this baseline.
 
+### Public share pages: referrer and access logs
+
+:::note[Ships in 0.5]
+This section describes behavior that ships in 0.5. In the current release the
+`/share/*` pages carry the site-wide `strict-origin-when-cross-origin` policy
+until the app has loaded, and access logs record share URLs in full.
+:::
+
+A public share URL carries its token in the path, so the URL is the credential.
+Every shipped nginx config handles `/share/*` separately:
+
+- The page is served with `Referrer-Policy: no-referrer`, alongside the rest of
+  the security header set. This holds from the first asset request, before any
+  JavaScript runs. In Helm it is not tunable: neither
+  `web.securityHeaders.referrerPolicy` nor `web.securityHeaders.enabled: false`
+  changes it.
+- The access log records the token as `[redacted]`, in both the request line and
+  the `Referer` field (`/share/board/[redacted]`, and the same for
+  `/api/v1/share/...`).
+
+Redaction covers only the access log of the TruePPM nginx. It does **not** cover:
+
+- nginx's error log, which quotes the full request line when a request fails;
+- the API server's own request log;
+- an ingress controller, load balancer, CDN or tunnel in front of nginx. In the
+  default Helm topology `/api/v1/share/...` goes from the Ingress straight to
+  the API Service, so those requests never pass the web tier at all.
+
+Treat those logs as holding live share tokens: restrict who can read them, and
+revoke a link if its log line has left your control. If you replace the web tier
+with your own proxy, set `Referrer-Policy: no-referrer` on `/share/` yourself.
+
 ### Caching the shell and the hashed assets
 
 The same nginx tier also sets the `Cache-Control` policy for the SPA, because a

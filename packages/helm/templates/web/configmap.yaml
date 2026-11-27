@@ -86,12 +86,29 @@ data:
     # see trueppm.web.proxyTrust in _helpers.tpl.
     {{- include "trueppm.web.proxyTrust" . | trim | nindent 4 }}
 
+    # Access-log redaction for share tokens (#5155). `no-referrer` cannot cover the
+    # page and API requests themselves: their paths carry the token. These maps feed
+    # the `trueppm_redacted` format each server block logs with. It does not reach
+    # error_log lines, or logs written by anything in front of or behind nginx.
+    map $request $trueppm_log_request {
+        "~*^(?<trueppm_req_head>[^?]*/share/[a-z-]+/)[^/?# ]+(?<trueppm_req_tail>.*)$" "$trueppm_req_head[redacted]$trueppm_req_tail";
+        default $request;
+    }
+    map $http_referer $trueppm_log_referer {
+        "~*^(?<trueppm_ref_head>[^?]*/share/[a-z-]+/)[^/?# ]+(?<trueppm_ref_tail>.*)$" "$trueppm_ref_head[redacted]$trueppm_ref_tail";
+        default $http_referer;
+    }
+    log_format trueppm_redacted '$remote_addr - $remote_user [$time_local] "$trueppm_log_request" '
+                                '$status $body_bytes_sent "$trueppm_log_referer" '
+                                '"$http_user_agent" "$http_x_forwarded_for"';
+
     server {
         {{/* `| default 8080` is reasoned safe (#4351 sweep): 0 is not a
              valid container port, so there is no legitimate explicit value
              for it to clobber. */}}
         listen {{ .Values.web.containerPort | default 8080 }};
         server_name _;
+        access_log /dev/stdout trueppm_redacted;
         root /usr/share/nginx/html;
         index index.html;
 
@@ -160,6 +177,23 @@ data:
             add_header X-Frame-Options        "DENY" always;
             add_header X-Content-Type-Options "nosniff" always;
             add_header Referrer-Policy        "strict-origin-when-cross-origin" always;
+            add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
+        }
+
+        # Public share pages (#5155). The URL path IS the share token, so the document
+        # must be served with `Referrer-Policy: no-referrer`: under the site-wide
+        # policy the browser sends the full URL on same-origin subresource requests, and
+        # the SPA's own `useNoReferrer` applies only after hydration. `try_files` with
+        # index.html as a non-final argument serves the shell from THIS location; a
+        # final-argument fallback would redirect internally to `= /index.html` and take
+        # that location's headers instead.
+        location ^~ /share/ {
+            try_files /index.html =404;
+            add_header Cache-Control "no-cache" always;
+            add_header X-Robots-Tag           "noindex, nofollow, noarchive" always;
+            add_header X-Frame-Options        "DENY" always;
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header Referrer-Policy        "no-referrer" always;
             add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
         }
 
@@ -302,12 +336,29 @@ data:
     # see trueppm.web.proxyTrust in _helpers.tpl.
     {{- include "trueppm.web.proxyTrust" . | trim | nindent 4 }}
 
+    # Access-log redaction for share tokens (#5155). `no-referrer` cannot cover the
+    # page and API requests themselves: their paths carry the token. These maps feed
+    # the `trueppm_redacted` format each server block logs with. It does not reach
+    # error_log lines, or logs written by anything in front of or behind nginx.
+    map $request $trueppm_log_request {
+        "~*^(?<trueppm_req_head>[^?]*/share/[a-z-]+/)[^/?# ]+(?<trueppm_req_tail>.*)$" "$trueppm_req_head[redacted]$trueppm_req_tail";
+        default $request;
+    }
+    map $http_referer $trueppm_log_referer {
+        "~*^(?<trueppm_ref_head>[^?]*/share/[a-z-]+/)[^/?# ]+(?<trueppm_ref_tail>.*)$" "$trueppm_ref_head[redacted]$trueppm_ref_tail";
+        default $http_referer;
+    }
+    log_format trueppm_redacted '$remote_addr - $remote_user [$time_local] "$trueppm_log_request" '
+                                '$status $body_bytes_sent "$trueppm_log_referer" '
+                                '"$http_user_agent" "$http_x_forwarded_for"';
+
     server {
         {{/* `| default 8080` is reasoned safe (#4351 sweep): 0 is not a
              valid container port, so there is no legitimate explicit value
              for it to clobber. */}}
         listen {{ .Values.web.containerPort | default 8080 }};
         server_name _;
+        access_log /dev/stdout trueppm_redacted;
         root /usr/share/nginx/html;
         index index.html;
 
@@ -408,6 +459,23 @@ data:
             add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
         }
 
+        # Public share pages (#5155). The URL path IS the share token, so the document
+        # must be served with `Referrer-Policy: no-referrer`: under the site-wide
+        # policy the browser sends the full URL on same-origin subresource requests, and
+        # the SPA's own `useNoReferrer` applies only after hydration. `try_files` with
+        # index.html as a non-final argument serves the shell from THIS location; a
+        # final-argument fallback would redirect internally to `= /index.html` and take
+        # that location's headers instead.
+        location ^~ /share/ {
+            try_files /index.html =404;
+            add_header Cache-Control "no-cache" always;
+            add_header X-Robots-Tag           "noindex, nofollow, noarchive" always;
+            add_header X-Frame-Options        "DENY" always;
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header Referrer-Policy        "no-referrer" always;
+            add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
+        }
+
         # Build-specific readiness sentinel (#4359) — same reasoning and the
         # same `=404` (never a fallback to index.html) as the production
         # block below.
@@ -486,6 +554,22 @@ data:
     # see trueppm.web.proxyTrust in _helpers.tpl.
     {{- include "trueppm.web.proxyTrust" . | trim | nindent 4 }}
 
+    # Access-log redaction for share tokens (#5155). `no-referrer` cannot cover the
+    # page and API requests themselves: their paths carry the token. These maps feed
+    # the `trueppm_redacted` format each server block logs with. It does not reach
+    # error_log lines, or logs written by anything in front of or behind nginx.
+    map $request $trueppm_log_request {
+        "~*^(?<trueppm_req_head>[^?]*/share/[a-z-]+/)[^/?# ]+(?<trueppm_req_tail>.*)$" "$trueppm_req_head[redacted]$trueppm_req_tail";
+        default $request;
+    }
+    map $http_referer $trueppm_log_referer {
+        "~*^(?<trueppm_ref_head>[^?]*/share/[a-z-]+/)[^/?# ]+(?<trueppm_ref_tail>.*)$" "$trueppm_ref_head[redacted]$trueppm_ref_tail";
+        default $http_referer;
+    }
+    log_format trueppm_redacted '$remote_addr - $remote_user [$time_local] "$trueppm_log_request" '
+                                '$status $body_bytes_sent "$trueppm_log_referer" '
+                                '"$http_user_agent" "$http_x_forwarded_for"';
+
     {{- if and .Values.web.adminAccess.enabled .Values.web.adminAccess.rateLimit.enabled }}
     # Per-source-IP rate limit for the Django admin login surface (#2569),
     # matching nginx/app.conf.template's 5r/m + burst 2. Declared here at http
@@ -501,6 +585,7 @@ data:
              for it to clobber. */}}
         listen {{ .Values.web.containerPort | default 8080 }};
         server_name _;
+        access_log /dev/stdout trueppm_redacted;
         root /usr/share/nginx/html;
         index index.html;
 
@@ -686,6 +771,25 @@ data:
         location = /index.html {
             add_header Cache-Control "no-cache" always;
             {{- with (include "trueppm.webSecurityHeaderAddLines" $ | trimSuffix "\n") }}
+            {{- . | nindent 12 }}
+            {{- end }}
+        }
+
+        # Public share pages (#5155). The URL path IS the share token, so the document
+        # must be served with `Referrer-Policy: no-referrer`: under the site-wide
+        # policy the browser sends the full URL on same-origin subresource requests, and
+        # the SPA's own `useNoReferrer` applies only after hydration. `try_files` with
+        # index.html as a non-final argument serves the shell from THIS location; a
+        # final-argument fallback would redirect internally to `= /index.html` and take
+        # that location's headers instead.
+        location ^~ /share/ {
+            try_files /index.html =404;
+            add_header Cache-Control "no-cache" always;
+            # A literal, emitted even with securityHeaders.enabled=false: this
+            # protects a credential, it is not a tunable hardening default.
+            add_header Referrer-Policy "no-referrer" always;
+            {{- $shareHeaders := mergeOverwrite (deepCopy .Values.web.securityHeaders) (dict "referrerPolicy" "") }}
+            {{- with (include "trueppm.webSecurityHeaderAddLines" (dict "Values" (dict "web" (dict "securityHeaders" $shareHeaders))) | trimSuffix "\n") }}
             {{- . | nindent 12 }}
             {{- end }}
         }
