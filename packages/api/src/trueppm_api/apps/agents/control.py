@@ -17,7 +17,7 @@ Admin did it, and the chain proves that sentence was not edited afterwards. A re
 is recorded the same way from every path that revokes a token, not only this one
 (:func:`record_token_revoke`, #5109).
 
-Who may act (the "decision for the architect" on #4814, settled here):
+Who may act (ADR-1522, which also fixes the Enterprise scope-ceiling seam):
 
 * **see** an agent — its principal; a workspace Admin (every agent); anyone who is a
   live member of a project the agent has acted in. Which is a per-person view over
