@@ -6,6 +6,7 @@ import { useFeedbackStore } from '@/stores/feedbackStore';
 import { useAuthStore } from '@/stores/authStore';
 import { apiClient } from '@/api/client';
 import { queryClient } from '@/lib/queryClient';
+import { purgePwaUserData } from '@/lib/pwa/pwaStore';
 import { useLastTaskStore } from '@/stores/lastTaskStore';
 import { useAnchoredPopover } from '@/hooks/useAnchoredPopover';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
@@ -389,6 +390,10 @@ export function UserMenu() {
     });
     clearTokens();
     queryClient.clear();
+    // The offline My Work copy on this device is the previous user's (ADR-1523 §4).
+    // This sign-out clears the query cache directly rather than through the session
+    // bridge, so it purges the PWA store itself.
+    void purgePwaUserData();
     // The last-opened task is the previous user's; drop it before the next sign-in (#1211).
     useLastTaskStore.setState({ opened: null });
     void navigate('/login');

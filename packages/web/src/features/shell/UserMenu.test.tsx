@@ -9,36 +9,38 @@ import { FOCUSABLE_SELECTOR } from '@/hooks/useFocusTrap';
 // inside the factory closures without TDZ errors.
 // ---------------------------------------------------------------------------
 
-const { mockClearTokens, mockQueryClientClear, mockSetTheme, mockUserResult } = vi.hoisted(() => {
-  const mockClearTokens = vi.fn();
-  const mockQueryClientClear = vi.fn();
-  const mockSetTheme = vi.fn();
+const { mockClearTokens, mockQueryClientClear, mockPurgePwa, mockSetTheme, mockUserResult } =
+  vi.hoisted(() => {
+    const mockClearTokens = vi.fn();
+    const mockQueryClientClear = vi.fn();
+    const mockPurgePwa = vi.fn(() => Promise.resolve());
+    const mockSetTheme = vi.fn();
 
-  const mockUserResult = {
-    value: {
-      user: {
-        id: '1',
-        username: 'sarah',
-        display_name: 'Sarah Chen',
-        initials: 'SC',
-        email: 'sarah@example.com',
-      } as
-        | {
-            id: string;
-            username: string;
-            display_name: string;
-            initials: string;
-            email: string;
-            can_access_admin_settings?: boolean;
-            workspace_role?: number | null;
-          }
-        | undefined,
-      isLoading: false,
-    },
-  };
+    const mockUserResult = {
+      value: {
+        user: {
+          id: '1',
+          username: 'sarah',
+          display_name: 'Sarah Chen',
+          initials: 'SC',
+          email: 'sarah@example.com',
+        } as
+          | {
+              id: string;
+              username: string;
+              display_name: string;
+              initials: string;
+              email: string;
+              can_access_admin_settings?: boolean;
+              workspace_role?: number | null;
+            }
+          | undefined,
+        isLoading: false,
+      },
+    };
 
-  return { mockClearTokens, mockQueryClientClear, mockSetTheme, mockUserResult };
-});
+    return { mockClearTokens, mockQueryClientClear, mockPurgePwa, mockSetTheme, mockUserResult };
+  });
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -55,6 +57,10 @@ vi.mock('@/stores/authStore', () => ({
 
 vi.mock('@/lib/queryClient', () => ({
   queryClient: { clear: mockQueryClientClear },
+}));
+
+vi.mock('@/lib/pwa/pwaStore', () => ({
+  purgePwaUserData: mockPurgePwa,
 }));
 
 vi.mock('@/stores/themeStore', () => ({
@@ -376,7 +382,7 @@ describe('UserMenu', () => {
     ]);
   });
 
-  it('click "Sign out" → calls clearTokens() and queryClient.clear()', () => {
+  it('click "Sign out" → calls clearTokens(), queryClient.clear() and purges the PWA copy', () => {
     renderWithRouter(<UserMenu />);
     openMenu();
     // JSDOM renders both desktop and mobile variants — use the first match.
@@ -384,6 +390,8 @@ describe('UserMenu', () => {
     fireEvent.click(signOutBtns[0]);
     expect(mockClearTokens).toHaveBeenCalledOnce();
     expect(mockQueryClientClear).toHaveBeenCalledOnce();
+    // ADR-1523 §4: the saved My Work copy is the signed-out user's.
+    expect(mockPurgePwa).toHaveBeenCalledOnce();
   });
 
   it('loading state → avatar shows skeleton with animate-pulse (no initials text)', () => {

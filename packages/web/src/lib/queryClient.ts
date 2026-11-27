@@ -1,4 +1,5 @@
 import { MutationCache, QueryClient } from '@tanstack/react-query';
+import { purgePwaUserData } from '@/lib/pwa/pwaStore';
 import axios from 'axios';
 import { useSyncStatusStore } from '@/stores/syncStatusStore';
 import { registerSessionBridge, useAuthStore } from '@/stores/authStore';
@@ -50,6 +51,20 @@ export const queryClient = new QueryClient({
 // viewing. Counting them made every cold load look warm and skipped the modal.
 const PUBLIC_QUERY_ROOTS = new Set(['edition']);
 
+/**
+ * Drop everything held for the current user: every cached read AND the installed
+ * app's on-device copy (ADR-1523 §4). Called wherever a session ends or is replaced
+ * by a possibly different user's (sign-in, SSO completion, a sibling tab's sign-in
+ * as someone else), so the purge cannot be skipped by a path that only cleared the
+ * cache. On a fresh sign-in it runs before the new user's first `/me/work/` read can
+ * land, so it never deletes that user's own snapshot; the purge never throws, so a
+ * failing IndexedDB cannot block the sign-in.
+ */
+export function clearUserData(): void {
+  queryClient.clear();
+  void purgePwaUserData();
+}
+
 registerSessionBridge({
   inspect: () => ({
     // `pending` covers paused mutations too (offline-queued writes sit pending).
@@ -72,5 +87,5 @@ registerSessionBridge({
           !PUBLIC_QUERY_ROOTS.has(String(q.queryKey[0])),
       ),
   }),
-  clearCache: () => queryClient.clear(),
+  clearCache: clearUserData,
 });

@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it, beforeEach, vi } from 'vitest';
 import { READ_ONLY_VIEW_WINDOW_MS, registerSessionBridge, useAuthStore } from './authStore';
 import * as authBroadcast from '@/lib/authBroadcast';
 import { useLastTaskStore } from './lastTaskStore';
+import { purgePwaUserData } from '@/lib/pwa/pwaStore';
+
+vi.mock('@/lib/pwa/pwaStore', () => ({ purgePwaUserData: vi.fn(() => Promise.resolve()) }));
 
 afterEach(() => {
   registerSessionBridge(null);
@@ -34,6 +37,16 @@ describe('useAuthStore', () => {
     const { accessToken, isAuthenticated } = useAuthStore.getState();
     expect(accessToken).toBeNull();
     expect(isAuthenticated).toBe(false);
+  });
+
+  it("clearTokens purges the installed app's offline copy (ADR-1523 §4)", () => {
+    // Every sign-out funnels through clearTokens (menu, session-expired Sign in,
+    // workspace deletion, a sibling's sign-out), and the snapshot is read only
+    // offline, where the next user cannot be checked against it.
+    useAuthStore.getState().setAccessToken('access-abc');
+    vi.mocked(purgePwaUserData).mockClear();
+    useAuthStore.getState().clearTokens();
+    expect(purgePwaUserData).toHaveBeenCalledOnce();
   });
 
   it('markSessionExpired clears the access token and sets the expired flag', () => {

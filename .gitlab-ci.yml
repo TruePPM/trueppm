@@ -2192,6 +2192,9 @@ helm:template:
     - curl --proto '=https' --proto-redir '=https' -fsSLo /usr/local/bin/yq "https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_amd64"
     - echo "${YQ_SHA256}  /usr/local/bin/yq" | sha256sum -c -
     - chmod +x /usr/local/bin/yq
+  # Never pipe into `grep -q` in this job: grep exits at the first match, the
+  # writer takes SIGPIPE, and pipefail turns a passing assertion into a failure
+  # (or a negative one into a false pass). Use `grep >/dev/null`.
   script:
     # helm:lint runs first, as a named check (#5097). It used to be its own job on
     # this image and trigger. `helm lint` validates values against
@@ -2315,7 +2318,7 @@ helm:template:
     # than trusting the template to stay correct.
     - |
       for closed in 'location /admin/' 'location /ws/' 'location /api/'; do
-        grep -A1 -F "$closed" /tmp/rendered-demo.yaml | grep -q 'return 404' \
+        grep -A1 -F "$closed" /tmp/rendered-demo.yaml | grep >/dev/null 'return 404' \
           || { echo "DEMO ALLOWLIST REGRESSION: '$closed' no longer returns 404"; exit 1; }
       done
     # The bare origin must land on the schedule share link, not the SPA's login form
@@ -2335,7 +2338,7 @@ helm:template:
            --set networkPolicy.ingressControllerConfirmed=true 2>&1); then
         echo "DEMO REGRESSION: a share token containing nginx metacharacters rendered (#3911)"; exit 1
       fi
-      echo "$out" | grep -q 'may contain only letters' \
+      echo "$out" | grep >/dev/null 'may contain only letters' \
         || { echo "DEMO TEST INVALID: render failed but not from the #3911 share-token guard:"; echo "$out"; exit 1; }
     # Block scalars, not plain ones: an unquoted YAML scalar cannot contain ": ",
     # so the message text would be parsed as a mapping and reject the whole file.
@@ -2389,10 +2392,10 @@ helm:template:
     # (allow-before-deny ordering, limit_req zone declared); this keeps the
     # headline invariant visible right next to its demo counterpart.
     - |
-      grep -A14 -F 'location /admin/' /tmp/rendered.yaml | grep -qE '^\s+deny all;' \
+      grep -A14 -F 'location /admin/' /tmp/rendered.yaml | grep >/dev/null -E '^\s+deny all;' \
         || { echo "PROD REGRESSION: /admin/ no longer denies by default — a default install publishes Django admin (#2569)"; exit 1; }
     - |
-      grep -A14 -F 'location /admin/' /tmp/rendered.yaml | grep -q 'limit_req zone=admin_login' \
+      grep -A14 -F 'location /admin/' /tmp/rendered.yaml | grep >/dev/null 'limit_req zone=admin_login' \
         || { echo "PROD REGRESSION: /admin/ login is no longer rate-limited (#2569)"; exit 1; }
     # Trusted-proxy contract (#2592, #2593). web.realIpFrom must render the realip
     # directives AND narrow X-Forwarded-Proto to those peers; an admin allowlist
@@ -2411,7 +2414,7 @@ helm:template:
           --set 'web.adminAccess.allowCIDRs[0]=203.0.113.0/24' 2>&1)"; then
         echo "PROD REGRESSION: allowCIDRs behind an Ingress with no web.realIpFrom rendered (#2592)"; exit 1
       fi
-      printf '%s' "$out" | grep -q 'web.realIpFrom is empty' \
+      printf '%s' "$out" | grep >/dev/null 'web.realIpFrom is empty' \
         || { echo "PROD REGRESSION: the allowCIDRs/realIpFrom guard did not fire: $out"; exit 1; }
     - |
       for broad in '0.0.0.0/0' '::/0'; do
@@ -2419,11 +2422,11 @@ helm:template:
             --set "web.realIpFrom[0]=$broad" 2>&1)"; then
           echo "PROD REGRESSION: web.realIpFrom=$broad rendered; it trusts every peer to forge X-Forwarded-For (#2592)"; exit 1
         fi
-        printf '%s' "$out" | grep -q 'is too broad' \
+        printf '%s' "$out" | grep >/dev/null 'is too broad' \
           || { echo "PROD REGRESSION: the realIpFrom breadth guard did not fire for $broad: $out"; exit 1; }
       done
     - |
-      grep -A6 -F 'location /static/' /tmp/rendered.yaml | grep -q 'X-Forwarded-For' \
+      grep -A6 -F 'location /static/' /tmp/rendered.yaml | grep >/dev/null 'X-Forwarded-For' \
         || { echo "PROD REGRESSION: /static/ no longer forwards X-Forwarded-For (#2593)"; exit 1; }
     # Transport limits must clear the application upload caps (#2604). Before 0.4
     # the ingress shipped `annotations: {}` and the production nginx branch
@@ -2498,7 +2501,7 @@ helm:template:
       helm template trueppm packages/helm --set image.tag=latest --set ingress.enabled=true > /tmp/rendered-ingress.yaml
       [ "$(grep -c 'location ~ ^/api/v1/integrations/projects/\[^/\]+/git-webhook/\$ {' /tmp/rendered.yaml)" = 1 ] \
         || { echo "PROD REGRESSION: web nginx lost its once-only git-webhook 1M location (#2932)"; exit 1; }
-      grep -A2 -F 'git-webhook/$ {' /tmp/rendered.yaml | grep -q 'client_max_body_size 1M;' \
+      grep -A2 -F 'git-webhook/$ {' /tmp/rendered.yaml | grep >/dev/null 'client_max_body_size 1M;' \
         || { echo "PROD REGRESSION: git-webhook web-tier location no longer caps the body at 1M (#2932)"; exit 1; }
       # grep -c, not -q: -q exits at the first match and awk can still be writing, so
       # pipefail intermittently sees awk's SIGPIPE (141) and reports a false regression.
@@ -2506,7 +2509,7 @@ helm:template:
         || { echo "PROD REGRESSION: no dedicated git-webhook Ingress with a 1m body limit (#2932)"; exit 1; }
     - |
       if helm template trueppm packages/helm --set image.tag=latest --set ingress.enabled=true \
-          --set ingress.webhookBodyLimit.enabled=false | grep -q 'git-webhook$'; then
+          --set ingress.webhookBodyLimit.enabled=false | grep >/dev/null 'git-webhook$'; then
         echo "PROD REGRESSION: ingress.webhookBodyLimit.enabled=false still renders the webhook Ingress (#2932)"; exit 1
       fi
     # The demo keeps its own 1M ceiling: it is read-only and imports nothing. If
@@ -2530,7 +2533,7 @@ helm:template:
             --set ingress.enabled=true 2>&1); then
         echo "DEMO REGRESSION: demo.enabled + the default Ingress (which routes /api and /ws to the API Service) rendered (#3908)"; exit 1
       fi
-      echo "$out" | grep -q 'reaches the API Service directly' \
+      echo "$out" | grep >/dev/null 'reaches the API Service directly' \
         || { echo "DEMO TEST INVALID: render failed but not from the #3908 guard:"; echo "$out"; exit 1; }
     # The api Service must stay ClusterIP in demo mode: a LoadBalancer/NodePort there
     # skips the allowlist with no Ingress involved (#3908).
@@ -2542,7 +2545,7 @@ helm:template:
             --set service.type=LoadBalancer 2>&1); then
         echo "DEMO REGRESSION: demo.enabled with a LoadBalancer API Service rendered (#3908)"; exit 1
       fi
-      echo "$out" | grep -q 'API Service must stay ClusterIP' \
+      echo "$out" | grep >/dev/null 'API Service must stay ClusterIP' \
         || { echo "DEMO TEST INVALID: render failed but not from the #3908 Service guard:"; echo "$out"; exit 1; }
     # Positive case: an Ingress whose every path targets the web tier must still
     # render, and must not back onto the API Service. Without this the guard could
@@ -2558,7 +2561,7 @@ helm:template:
         --set 'ingress.hosts[0].paths[0].service=web' > /tmp/rendered-demo-ingress.yaml
       backends=$(yq ea 'select(.kind == "Ingress") | .spec.rules[].http.paths[].backend.service.name' /tmp/rendered-demo-ingress.yaml | grep -v '^---$' | grep -v '^$' || true)
       [ -n "$backends" ] || { echo "DEMO REGRESSION: an all-web demo Ingress no longer renders (#3908)"; exit 1; }
-      echo "$backends" | grep -qv -- '-web$' \
+      echo "$backends" | grep >/dev/null -v -- '-web$' \
         && { echo "DEMO REGRESSION: a demo Ingress backend is not the web Service: $backends (#3908)"; exit 1; } || true
       # The same host would earn a large-body Ingress outside the demo; the demo is
       # read-only and must not get one (#5124).
@@ -2577,7 +2580,7 @@ helm:template:
         grep -q "$leaked" /tmp/rendered-demo.yaml \
           && { echo "DEMO REGRESSION: $leaked leaked into the share-link demo render — demo.interactive must be the only switch that adds it (#3925)"; exit 1; } || true
       done
-      yq ea 'select(.kind == "Pod") | .metadata.name' /tmp/rendered-demo.yaml | grep -q 'test-demo-read-only' \
+      yq ea 'select(.kind == "Pod") | .metadata.name' /tmp/rendered-demo.yaml | grep >/dev/null 'test-demo-read-only' \
         && { echo "DEMO REGRESSION: the interactive verification hook rendered with demo.interactive=false (#3925)"; exit 1; } || true
       grep -q 'TRUEPPM_DEMO_LOGIN' /tmp/rendered.yaml \
         && { echo "LEAK: an interactive-demo credential rendered into a normal deploy (#3925)"; exit 1; } || true
@@ -2597,13 +2600,13 @@ helm:template:
       kubeconform -strict -summary -ignore-missing-schemas /tmp/rendered-demo-interactive.yaml
       api_env="$(yq ea 'select(.kind == "Deployment" and (.metadata.name | test("-api$"))) | .spec.template.spec.containers[] | select(.name == "api") | .env[] | .name + "=" + (.value // "")' /tmp/rendered-demo-interactive.yaml)"
       for want in 'TRUEPPM_DEMO_READ_ONLY=true' 'TRUEPPM_DEMO_LOGIN_HINT=atlas-visitor:ci-visitor-password' 'TRUEPPM_DEMO_RESET_SCHEDULE=0 8 * * *'; do
-        printf '%s\n' "$api_env" | grep -qxF -- "$want" \
+        printf '%s\n' "$api_env" | grep >/dev/null -xF -- "$want" \
           || { echo "DEMO REGRESSION: the api Deployment does not carry '$want' in interactive mode (#3925)"; printf '%s\n' "$api_env"; exit 1; }
       done
       seed_env="$(yq ea 'select((.kind == "Job" or .kind == "CronJob") and (.metadata.name | test("-demo-(seed|reset)$"))) | .metadata.name as $w | (.spec.template.spec // .spec.jobTemplate.spec.template.spec) | .containers[] | .env[] | select(.name == "TRUEPPM_DEMO_LOGIN_USERNAME") | $w + "=" + .value' /tmp/rendered-demo-interactive.yaml | grep -vE '^(---)?$' | sort -u)"
       [ "$(printf '%s\n' "$seed_env" | grep -c .)" -eq 2 ] \
         || { echo "DEMO REGRESSION: the demo login must reach BOTH the install hook and the reset CronJob, got: $seed_env (#3925)"; exit 1; }
-      yq ea 'select(.kind == "Pod") | .metadata.name' /tmp/rendered-demo-interactive.yaml | grep -q 'test-demo-read-only' \
+      yq ea 'select(.kind == "Pod") | .metadata.name' /tmp/rendered-demo-interactive.yaml | grep >/dev/null 'test-demo-read-only' \
         || { echo "DEMO REGRESSION: the interactive verification hook did not render (#3925)"; exit 1; }
     # The inverse guard, and the one that matters most: a login hint on an instance
     # whose write fence is OFF publishes a working credential to a WRITABLE install.
@@ -2614,7 +2617,7 @@ helm:template:
             --set demo.loginHint.password=ci-visitor-password 2>&1); then
         echo "DEMO REGRESSION: demo.loginHint rendered with the read-only fence off (#3925)"; exit 1
       fi
-      echo "$out" | grep -q 'publishes a working login to a WRITABLE instance' \
+      echo "$out" | grep >/dev/null 'publishes a working login to a WRITABLE instance' \
         || { echo "DEMO TEST INVALID: render failed but not from the #3925 loginHint guard:"; echo "$out"; exit 1; }
     # ADR-1197 D5: the persona-password path must fail the install, not the audit.
     # --with-personas passwords EVERY persona and refuses only staff/superuser rows,
@@ -2627,7 +2630,7 @@ helm:template:
             --set env.TRUEPPM_DEMO_PASSWORD=hunter2 2>&1); then
         echo "DEMO REGRESSION: demo.interactive rendered alongside env.TRUEPPM_DEMO_PASSWORD (#3925, ADR-1197 D5)"; exit 1
       fi
-      echo "$out" | grep -q 'ADR-1197 D5' \
+      echo "$out" | grep >/dev/null 'ADR-1197 D5' \
         || { echo "DEMO TEST INVALID: render failed but not from the #3925 persona-password guard:"; echo "$out"; exit 1; }
     # And the mode cannot be half-configured: interactive with no credential would
     # seed no account and leave the login page with nothing to show.
@@ -2636,7 +2639,7 @@ helm:template:
             --set demo.interactive=true 2>&1); then
         echo "DEMO REGRESSION: demo.interactive rendered with no demo.loginHint (#3925)"; exit 1
       fi
-      echo "$out" | grep -q 'demo.loginHint.username / demo.loginHint.password are not both set' \
+      echo "$out" | grep >/dev/null 'demo.loginHint.username / demo.loginHint.password are not both set' \
         || { echo "DEMO TEST INVALID: render failed but not from the #3925 hint-required guard:"; echo "$out"; exit 1; }
     # A null loginHint must reach the crafted guard, not a raw Go nil-pointer from
     # whichever template renders first. The templates resolve both halves through
@@ -2646,7 +2649,7 @@ helm:template:
             --set demo.interactive=true --set demo.loginHint=null 2>&1); then
         echo "DEMO REGRESSION: demo.interactive rendered with demo.loginHint=null (#3925)"; exit 1
       fi
-      echo "$out" | grep -q 'are not both set' \
+      echo "$out" | grep >/dev/null 'are not both set' \
         || { echo "DEMO TEST INVALID: demo.loginHint=null produced a raw template error instead of the #3925 guard:"; echo "$out"; exit 1; }
     # The quieter half: demo.enabled on, demo.interactive off, a hint set. The fence IS
     # armed so the first guard cannot fire, and nothing reads the hint — an operator
@@ -2660,14 +2663,14 @@ helm:template:
             --set demo.loginHint.password=ci-visitor-password 2>&1); then
         echo "DEMO REGRESSION: demo.loginHint rendered with demo.interactive=false (#3925)"; exit 1
       fi
-      echo "$out" | grep -q 'demo.interactive is false, so nothing reads it' \
+      echo "$out" | grep >/dev/null 'demo.interactive is false, so nothing reads it' \
         || { echo "DEMO TEST INVALID: render failed but not from the #3925 inert-hint guard:"; echo "$out"; exit 1; }
     # And the inverse: none of this may leak into a normal deploy. Scoped to the
     # Job kind, not a bare grep: the datastore NetworkPolicy allow-lists name
     # `demo-seed` as a client selector unconditionally (#2560), and a selector
     # matching a pod that does not exist is inert, not a leak.
     - |
-      yq ea 'select(.kind == "Job") | .metadata.name' /tmp/rendered.yaml | grep -q 'demo-seed' \
+      yq ea 'select(.kind == "Job") | .metadata.name' /tmp/rendered.yaml | grep >/dev/null 'demo-seed' \
         && { echo "LEAK: demo Job rendered with demo.enabled=false"; exit 1; } || true
     - |
       grep -q 'X-Robots-Tag' /tmp/rendered.yaml \
@@ -2698,7 +2701,7 @@ helm:template:
         # Exact element match: `contains` on a string array is a SUBSTRING test,
         # so a heavy-only policy would satisfy want=celery-worker.
         yq ea "select(.kind == \"NetworkPolicy\" and (.spec.podSelector.matchLabels.\"app.kubernetes.io/component\" == \"${want}\" or ((.spec.podSelector.matchExpressions // []) | any_c(.key == \"app.kubernetes.io/component\" and .operator == \"In\" and (.values | any_c(. == \"${want}\")))))) | .metadata.name" /tmp/rendered-prod.yaml \
-          | grep -q . \
+          | grep >/dev/null . \
           || { echo "PROD REGRESSION: values-prod.yaml renders no NetworkPolicy selecting component=${want} (#3850)"; exit 1; }
       done
       # The api and web policies must actually admit the configured ingress
@@ -2707,7 +2710,7 @@ helm:template:
       # controller) while satisfying every check above it.
       for want in api web; do
         yq ea "select(.kind == \"NetworkPolicy\" and .spec.podSelector.matchLabels.\"app.kubernetes.io/component\" == \"${want}\") | .spec.ingress[].from[].namespaceSelector.matchLabels.\"kubernetes.io/metadata.name\"" /tmp/rendered-prod.yaml \
-          | grep -q 'ingress-nginx' \
+          | grep >/dev/null 'ingress-nginx' \
           || { echo "PROD REGRESSION: the ${want} NetworkPolicy no longer admits networkPolicy.ingressControllerSelector's default (#3850)"; exit 1; }
       done
     - |
@@ -2742,19 +2745,19 @@ helm:template:
         --set rollout.web.minReadySeconds=0 \
         --set rollout.web.progressDeadlineSeconds=120 > /tmp/rendered-rollout.yaml
       kubeconform -strict -summary -ignore-missing-schemas /tmp/rendered-rollout.yaml
-      yq ea 'select(.kind == "Deployment" and .metadata.name == "trueppm-api") | .spec.strategy.type' /tmp/rendered-rollout.yaml | grep -qx Recreate \
+      yq ea 'select(.kind == "Deployment" and .metadata.name == "trueppm-api") | .spec.strategy.type' /tmp/rendered-rollout.yaml | grep >/dev/null -x Recreate \
         || { echo "ROLLOUT REGRESSION (#4354): rollout.api.strategy=Recreate did not render"; exit 1; }
-      yq ea 'select(.kind == "Deployment" and .metadata.name == "trueppm-celery-worker") | .spec.strategy.rollingUpdate.maxSurge' /tmp/rendered-rollout.yaml | grep -qx 2 \
+      yq ea 'select(.kind == "Deployment" and .metadata.name == "trueppm-celery-worker") | .spec.strategy.rollingUpdate.maxSurge' /tmp/rendered-rollout.yaml | grep >/dev/null -x 2 \
         || { echo "ROLLOUT REGRESSION (#4354): rollout.worker.maxSurge did not render"; exit 1; }
-      yq ea 'select(.kind == "Deployment" and .metadata.name == "trueppm-celery-worker") | .spec.strategy.rollingUpdate.maxUnavailable' /tmp/rendered-rollout.yaml | grep -qx 0 \
+      yq ea 'select(.kind == "Deployment" and .metadata.name == "trueppm-celery-worker") | .spec.strategy.rollingUpdate.maxUnavailable' /tmp/rendered-rollout.yaml | grep >/dev/null -x 0 \
         || { echo "ROLLOUT REGRESSION (#4354): rollout.worker.maxUnavailable=0 did not render (a '| default'-style guard would clobber an explicit 0)"; exit 1; }
-      yq ea 'select(.kind == "Deployment" and .metadata.name == "trueppm-web") | .spec.minReadySeconds' /tmp/rendered-rollout.yaml | grep -qx 0 \
+      yq ea 'select(.kind == "Deployment" and .metadata.name == "trueppm-web") | .spec.minReadySeconds' /tmp/rendered-rollout.yaml | grep >/dev/null -x 0 \
         || { echo "ROLLOUT REGRESSION (#4354): rollout.web.minReadySeconds=0 did not render"; exit 1; }
-      yq ea 'select(.kind == "Deployment" and .metadata.name == "trueppm-web") | .spec.progressDeadlineSeconds' /tmp/rendered-rollout.yaml | grep -qx 120 \
+      yq ea 'select(.kind == "Deployment" and .metadata.name == "trueppm-web") | .spec.progressDeadlineSeconds' /tmp/rendered-rollout.yaml | grep >/dev/null -x 120 \
         || { echo "ROLLOUT REGRESSION (#4354): rollout.web.progressDeadlineSeconds did not render"; exit 1; }
       # Beat stays pinned Recreate with no operator-settable knob (#4354) — assert
       # the shipped singleton strategy is untouched by any of the overrides above.
-      yq ea 'select(.kind == "Deployment" and .metadata.name == "trueppm-celery-beat") | .spec.strategy.type' /tmp/rendered-rollout.yaml | grep -qx Recreate \
+      yq ea 'select(.kind == "Deployment" and .metadata.name == "trueppm-celery-beat") | .spec.strategy.type' /tmp/rendered-rollout.yaml | grep >/dev/null -x Recreate \
         || { echo "ROLLOUT REGRESSION: celery-beat's own fixed Recreate strategy changed"; exit 1; }
     # strategy: Recreate cannot carry maxSurge/maxUnavailable — Kubernetes has no
     # surge/unavailable concept for a tear-down-then-start-up rollout. The chart
@@ -2765,7 +2768,7 @@ helm:template:
             --set rollout.api.strategy=Recreate --set rollout.api.maxSurge=1 2>&1); then
         echo "ROLLOUT REGRESSION (#4354): rollout.api.strategy=Recreate + maxSurge rendered"; exit 1
       fi
-      echo "$out" | grep -q 'cannot carry maxSurge/maxUnavailable' \
+      echo "$out" | grep >/dev/null 'cannot carry maxSurge/maxUnavailable' \
         || { echo "ROLLOUT TEST INVALID: render failed but not from the #4354 Recreate guard:"; echo "$out"; exit 1; }
     - |
       if out=$(helm template trueppm packages/helm --set image.tag=latest \
@@ -2773,7 +2776,7 @@ helm:template:
             --set rollout.web.strategy=Recreate --set rollout.web.maxUnavailable=1 2>&1); then
         echo "ROLLOUT REGRESSION (#4354): rollout.web.strategy=Recreate + maxUnavailable rendered"; exit 1
       fi
-      echo "$out" | grep -q 'cannot carry maxSurge/maxUnavailable' \
+      echo "$out" | grep >/dev/null 'cannot carry maxSurge/maxUnavailable' \
         || { echo "ROLLOUT TEST INVALID: render failed but not from the #4354 Recreate guard:"; echo "$out"; exit 1; }
     # The closed schema must still refuse what it always refused: an unknown key
     # under a tier, an unknown tier (beat has none — it stays a fixed singleton),
@@ -2788,7 +2791,7 @@ helm:template:
         # "rollout.api.strategy must be one of the following: ...", not the "additional
         # properties 'X' not allowed" / "value must be one of ..." wording of newer Helm —
         # match the stem case-insensitively so the check survives either.
-        echo "$out" | grep -qi 'additional propert\|must be one of' \
+        echo "$out" | grep >/dev/null -i 'additional propert\|must be one of' \
           || { echo "ROLLOUT TEST INVALID: --set $bad failed, but not from a schema validation error:"; echo "$out"; exit 1; }
       done
     # Verdict for the helm:lint checks at the top of this script.

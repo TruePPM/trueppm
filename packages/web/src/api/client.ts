@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { honorKillSwitch } from '@/lib/pwa/registerServiceWorker';
 import type { AxiosRequestConfig } from 'axios';
 import { clearSessionCache, useAuthStore } from '@/stores/authStore';
 // Imported from the module, not the barrel: the barrel also exports `ToastHost`, and
@@ -6,7 +7,7 @@ import { clearSessionCache, useAuthStore } from '@/stores/authStore';
 // happen.
 import { toast } from '@/components/Toast/toast';
 import { subscribeAuthMessages } from '@/lib/authBroadcast';
-import { queryClient } from '@/lib/queryClient';
+import { clearUserData, queryClient } from '@/lib/queryClient';
 import { isSameUser } from '@/lib/userId';
 import type { CurrentUser } from '@/hooks/useCurrentUser';
 import { DEMO_REFUSAL_TOAST, isDemoReadOnlyRefusal } from '@/lib/demoReadOnly';
@@ -64,6 +65,16 @@ export const apiClient = axios.create({
 function expireSession(confirmed: boolean): void {
   useAuthStore.getState().markSessionExpired({ broadcast: confirmed });
   window.dispatchEvent(new CustomEvent('auth:sessionExpired'));
+}
+
+/** No HTTP response while the browser reports no network at all. */
+function isOfflineFailure(error: unknown): boolean {
+  return (
+    axios.isAxiosError(error) &&
+    error.response === undefined &&
+    typeof navigator !== 'undefined' &&
+    navigator.onLine === false
+  );
 }
 
 /** The server answered 401: the session itself was refused, not merely unreachable. */
@@ -238,7 +249,8 @@ async function adoptSiblingSession(): Promise<string> {
       sameUser = false;
     }
   }
-  if (!sameUser) queryClient.clear();
+  // The offline My Work copy goes too: it is read only where identity cannot be checked.
+  if (!sameUser) clearUserData();
   // The sibling already announced the sign-in; do not echo it back.
   useAuthStore.getState().setAccessToken(token, { broadcast: false });
   return token;
@@ -269,6 +281,11 @@ export async function bootstrapAccessToken(): Promise<boolean> {
     await refreshPromise;
     return true;
   } catch (error: unknown) {
+    // Cold launch with no network (the installed app opened on a job site,
+    // ADR-1523 §4): the session was not refused, it is unreachable. Expiring it
+    // would put the sign-in modal over the offline shell. Leave it alone; the
+    // first request after reconnecting gets a 401 and refreshes as usual.
+    if (isOfflineFailure(error)) return false;
     expireSession(isConfirmedRefusal(error));
     return false;
   }
@@ -371,3 +388,18 @@ subscribeAuthMessages((type) => {
       break;
   }
 });
+
+// Service-worker kill switch (ADR-1523 §2): any API response, success or error,
+// carrying `X-TruePPM-Service-Worker: disable` unregisters the worker and drops its
+// caches. Registered LAST (tests index the earlier interceptors by position) and never
+// alters the response: it sees the final outcome, after any 401 refresh-and-retry.
+apiClient.interceptors.response.use(
+  (response) => {
+    honorKillSwitch(response.headers);
+    return response;
+  },
+  (error: unknown) => {
+    if (axios.isAxiosError(error)) honorKillSwitch(error.response?.headers);
+    return Promise.reject(error instanceof Error ? error : new Error(String(error)));
+  },
+);

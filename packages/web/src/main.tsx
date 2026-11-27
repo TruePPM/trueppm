@@ -12,6 +12,7 @@ import { applyFeatureFlagsFromUrl } from './lib/featureFlags';
 import { installChunkReloadHandler } from './lib/chunkReload';
 import { getPendingWriteCount } from './hooks/useSyncStatus';
 import { initWebVitals } from './lib/telemetry';
+import { registerServiceWorker } from './lib/pwa/registerServiceWorker';
 
 // Reaching this line means the entry module graph loaded; public/boot-guard.js
 // stands down and refunds its reload budget (#4408).
@@ -25,6 +26,12 @@ installChunkReloadHandler({ pendingWriteCount: getPendingWriteCount });
 // Opt-in, off-by-default client telemetry (issue #1901). No-op unless the
 // operator configured a collector endpoint (see src/lib/telemetry.ts).
 initWebVitals();
+
+// Installable PWA shell (ADR-1523): register the app-shell worker after load so its
+// precache download never competes with the first render. No-op in dev and tests.
+window.addEventListener('load', () => {
+  void registerServiceWorker();
+});
 
 const root = document.getElementById('root');
 if (!root) {

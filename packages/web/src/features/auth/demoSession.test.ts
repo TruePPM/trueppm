@@ -9,8 +9,10 @@ import {
   SILENT_TOKEN_TIMEOUT_MS,
 } from './demoSession';
 
-const mocked = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
+const mocked = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), purge: vi.fn() }));
 vi.mock('axios', () => ({ default: mocked }));
+// A login replaces whoever was signed in before: their offline My Work copy must go.
+vi.mock('@/lib/pwa/pwaStore', () => ({ purgePwaUserData: mocked.purge }));
 
 const HINT = { username: 'demo@trueppm.com', password: 'trueppm-demo' };
 
@@ -110,5 +112,19 @@ describe('silentDemoLogin (#4500)', () => {
       password: 'b',
       remember_me: true,
     });
+  });
+
+  it("requestSession purges the previous user's offline copy (ADR-1523 §4)", async () => {
+    mocked.purge.mockResolvedValue(undefined);
+    mocked.post.mockResolvedValue({ data: { access: 'tok' } });
+    await requestSession('b', 'pw', false);
+    expect(mocked.purge).toHaveBeenCalledOnce();
+    expect(useAuthStore.getState().accessToken).toBe('tok');
+  });
+
+  it('a failing purge never blocks the sign-in', async () => {
+    mocked.purge.mockRejectedValue(new Error('IndexedDB blocked'));
+    mocked.post.mockResolvedValue({ data: { access: 'tok' } });
+    await expect(requestSession('b', 'pw', false)).resolves.toBe('tok');
   });
 });

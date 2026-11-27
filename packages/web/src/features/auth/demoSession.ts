@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { queryClient } from '@/lib/queryClient';
+import { clearUserData, queryClient } from '@/lib/queryClient';
 import { useAuthStore } from '@/stores/authStore';
 import { editionQueryOptions, type EditionResponse } from '@/hooks/useEdition';
 import { markDemoSession } from './demoMarker';
@@ -33,7 +33,8 @@ export async function requestSession(
       ? await axios.post<TokenResponse>('/api/v1/auth/token/', body)
       : await axios.post<TokenResponse>('/api/v1/auth/token/', body, { timeout: timeoutMs });
   useAuthStore.getState().setAccessToken(response.data.access);
-  queryClient.clear();
+  // Whoever signed in last may not be this user: drop their reads and offline copy.
+  clearUserData();
   return response.data.access;
 }
 

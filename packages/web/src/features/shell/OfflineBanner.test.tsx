@@ -81,3 +81,33 @@ describe('OfflineBanner', () => {
     expect(screen.getByRole('status')).toHaveTextContent(/offline/i);
   });
 });
+
+describe('OfflineBanner — reconnect state (ADR-1523, #1427)', () => {
+  afterEach(() => {
+    onlineOverride.value = null;
+  });
+
+  it('shows "syncing N changes" after reconnecting with queued writes, then clears', () => {
+    onlineOverride.value = false;
+    const { rerender } = render(<OfflineBanner pendingWrites={2} />);
+    expect(screen.getByRole('status')).toHaveTextContent(/offline/i);
+
+    onlineOverride.value = true;
+    rerender(<OfflineBanner pendingWrites={2} />);
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Back online — syncing 2 changes made offline…',
+    );
+
+    rerender(<OfflineBanner pendingWrites={1} />);
+    expect(screen.getByRole('status')).toHaveTextContent('syncing 1 change made offline');
+
+    rerender(<OfflineBanner pendingWrites={0} />);
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
+  });
+
+  it('never shows the syncing state without a preceding offline period', () => {
+    onlineOverride.value = true;
+    render(<OfflineBanner pendingWrites={3} />);
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
+  });
+});
