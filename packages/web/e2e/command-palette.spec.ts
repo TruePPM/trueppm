@@ -415,3 +415,40 @@ test.describe('command palette', () => {
     await expect(page).toHaveURL(/\/projects\/cmdk-proj-pc\/sprints/);
   });
 });
+
+test.describe('command palette — phone quick-find (#1592)', () => {
+  test.use({ viewport: { width: 375, height: 812 } });
+
+  // The phone top-bar search icon lives in the v2 shell (the v1 phone bar has no spare width).
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem('trueppm.featureFlags', JSON.stringify({ shell_v2: true }));
+    });
+  });
+
+  test('the top-bar search icon opens the palette by tap and jumps to a project', async ({ page }) => {
+    await setup(page);
+
+    const trigger = page.locator('header').getByRole('button', { name: 'Search projects and tasks' });
+    await expect(trigger).toBeVisible();
+    const box = await trigger.boundingBox();
+    expect(box?.width).toBeGreaterThanOrEqual(44);
+    expect(box?.height).toBeGreaterThanOrEqual(44);
+
+    await trigger.click();
+    const dialog = page.getByRole('dialog', { name: 'Command palette' });
+    await expect(dialog).toBeVisible();
+    await paletteSearch(page).fill('borealis');
+    await dialog.getByRole('option', { name: 'Borealis Platform Project', exact: true }).click();
+    await expect(page).toHaveURL(/\/projects\/cmdk-proj-borealis\/overview/);
+  });
+
+  test('offline, the palette says it searches what is already on the device', async ({ page, context }) => {
+    await setup(page);
+    await context.setOffline(true);
+    await page.locator('header').getByRole('button', { name: 'Search projects and tasks' }).click();
+    await expect(
+      page.getByRole('dialog', { name: 'Command palette' }).getByText(/Offline — searching projects and tasks already loaded/),
+    ).toBeVisible();
+  });
+});

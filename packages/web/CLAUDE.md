@@ -227,6 +227,7 @@ These rules are enforced at review time. Violations block merge.
 471. **A shell v2 screen composes the Pass 3 primitives (`components/page2/`): a non-human actor is a square `NonHumanTile` (never initials or a face), and a bounded step control goes `aria-disabled` at its limit, never `disabled`.** → [rule](../../docs/design/invariants/471-a-shell-v2-screen-composes-the-pass-3-primitives.md)
 449. **The task drawer has four tabs (Details · Subtasks · Activity · Files). A new drawer surface is a Details section unless an ADR adds a tab, so e2e tablist assertions stay state-independent.** → [rule](../../docs/design/invariants/449-the-task-drawer-has-four-tabs.md)
 453. **A diagram may be desktop-only only if a list form exists.** → [rule](../../docs/design/invariants/453-a-desktop-only-diagram-needs-a-list-form.md)
+477. **A wide data grid collapses to a one-slice list below `md` (one day at a time, with a stepper), never a horizontal scroll.** → [rule](../../docs/design/invariants/477-a-desktop-grid-collapses-to-a-single-day-list-on-a-phone.md)
 
 ## Dialogs, focus and keyboard
 

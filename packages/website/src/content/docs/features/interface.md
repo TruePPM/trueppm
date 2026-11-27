@@ -63,6 +63,10 @@ different scopes:
 
 ## The command palette (⌘K)
 
+:::note[Ships in 0.5]
+On a phone there is no keyboard, so the top bar carries a **Search** icon that opens the same palette by tap. Results come from the data already loaded on the device, so projects and tasks you have visited stay searchable offline; searches that need the server (people, workspace-wide results) fill in once you reconnect.
+:::
+
 Press **⌘K** (Ctrl+K on Windows/Linux) anywhere to open the command palette. It
 is the fastest path to:
 

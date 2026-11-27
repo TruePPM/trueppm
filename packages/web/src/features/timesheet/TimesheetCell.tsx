@@ -53,7 +53,7 @@ interface TimesheetCellProps {
 }
 
 const CELL_BASE =
-  'relative h-9 w-full text-right tabular-nums text-sm outline-none transition-colors';
+  'relative h-9 max-md:h-11 w-full text-right tabular-nums text-sm outline-none transition-colors';
 
 /** Weekend / today tint shared by every cell variant. */
 function surfaceClass(isWeekend: boolean, isToday: boolean): string {
