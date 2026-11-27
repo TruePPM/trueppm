@@ -7,7 +7,7 @@ import logging
 import operator
 import re
 import uuid
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, timedelta
 from functools import partial
 from typing import Any, NamedTuple, cast
@@ -841,6 +841,27 @@ ceiling, but the multi-MB SQL string is slow to build, parse, and plan and lands
 on the <500 ms schedule-trigger budget. Batching bounds each statement's size
 without changing the result — the whole writeback still runs in one transaction."""
 
+
+def _bulk_update_in_batches(manager: Any, objs: Sequence[Any], fields: Sequence[str]) -> None:
+    """``manager.bulk_update`` one :data:`_WRITEBACK_BATCH_SIZE` chunk at a time (#3831).
+
+    ``batch_size`` alone bounds each *statement*, not the memory used to build them:
+    Django's ``bulk_update`` builds the ``Case``/``When``/``Value`` tree for every
+    batch up front and only then executes them in a loop. At 9 fields that tree is
+    the recalc's largest single allocation, about 11 KiB per written row measured
+    with ``tracemalloc``. That was more than half the traced peak of a first-ever
+    pass, and it grows with the row count while every other holder is already
+    resident. Calling ``bulk_update`` per chunk emits the same UPDATE statements, in
+    the same order, inside the caller's transaction, and keeps only one chunk's tree
+    alive at a time.
+    """
+    fields = list(fields)
+    for i in range(0, len(objs), _WRITEBACK_BATCH_SIZE):
+        manager.bulk_update(
+            objs[i : i + _WRITEBACK_BATCH_SIZE], fields, batch_size=_WRITEBACK_BATCH_SIZE
+        )
+
+
 CPM_DELTA_BROADCAST_CAP = 500
 """Max moved-task count to ship as per-task ``task_dates_updated`` deltas (ADR-0091).
 
@@ -1579,9 +1600,7 @@ def _bulk_write_cpm_results(
        as *full* delta rows are re-read (:func:`_plan_cpm_delta`): a truncated project
        ships none, and a split delta's float-only rows carry no user-owned field.
     """
-    task_model.objects.bulk_update(
-        moved_tasks, list(_CPM_WRITE_FIELDS), batch_size=_WRITEBACK_BATCH_SIZE
-    )
+    _bulk_update_in_batches(task_model.objects, moved_tasks, _CPM_WRITE_FIELDS)
 
     candidates = [t for t in moved_tasks if str(t.id) in summary_durations]
     written_summary_ids: set[str] = set()
@@ -1589,9 +1608,7 @@ def _bulk_write_cpm_results(
         written_summary_ids = _ids_with_live_child(task_model, candidates)
         summary_rows = [t for t in candidates if str(t.id) in written_summary_ids]
         if summary_rows:
-            task_model.objects.bulk_update(
-                summary_rows, ["duration"], batch_size=_WRITEBACK_BATCH_SIZE
-            )
+            _bulk_update_in_batches(task_model.objects, summary_rows, ["duration"])
 
     # The delta is built per project (the program pass ships one per member), so the
     # plan is made per project — by the same helper the payload builder uses, so the
@@ -1674,7 +1691,7 @@ def _persist_driving_flags_and_shift_events(
     from trueppm_api.apps.projects.models import Dependency, TaskActivityEvent
 
     if db_deps:
-        Dependency.objects.bulk_update(db_deps, ["is_driving"], batch_size=_WRITEBACK_BATCH_SIZE)
+        _bulk_update_in_batches(Dependency.objects, db_deps, ["is_driving"])
     if schedule_shift_events:
         TaskActivityEvent.objects.bulk_create(
             schedule_shift_events, batch_size=_WRITEBACK_BATCH_SIZE
@@ -2831,9 +2848,7 @@ def _run_program_schedule(program_id: str, task: object | None = None) -> None:
 
         # Persist driving-link flags (#2095) — bulk_update, no server_version bump.
         if program_db_deps:
-            Dependency.objects.bulk_update(
-                program_db_deps, ["is_driving"], batch_size=_WRITEBACK_BATCH_SIZE
-            )
+            _bulk_update_in_batches(Dependency.objects, program_db_deps, ["is_driving"])
 
         if schedule_shift_events:
             TaskActivityEvent.objects.bulk_create(

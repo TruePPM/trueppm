@@ -281,12 +281,13 @@ specific defects behind them.
 |---|---|---|
 | [#3381](https://gitlab.com/trueppm/trueppm/-/issues/3381) | Each page of the task list skips the rows before it, and skipping a row still evaluates its per-task subqueries — the last page of a 100 000-task project takes 8.7 s against 0.11 s for the first. This is what sets the ~2 000-task comfort ceiling | 0.5 |
 | [#3119](https://gitlab.com/trueppm/trueppm/-/issues/3119) | The Schedule view loads the whole project before it draws anything — about 2.3 KB of JSON per task, 229 MB at 100 000 tasks | 0.5 |
-| [#3831](https://gitlab.com/trueppm/trueppm/-/issues/3831) | Schedule recalculation holds about 30 KB of memory per task, so the chart's 2 GiB Celery worker limit is exceeded near 60 000 tasks in one project or one cross-linked program. Raise `resources.limits.memory` on the worker before then | 0.5 |
+| [#3831](https://gitlab.com/trueppm/trueppm/-/issues/3831) | In 0.4, schedule recalculation holds about 30 KB of memory per task, so the chart's 2 GiB Celery worker limit can be exceeded from about 50 000 tasks in one project or one cross-linked program. 0.5 will improve this to about 13 KB per task (measured up to 16 000 tasks), which will not remove the need to size the worker for very large plans | 0.5 |
 | [#3832](https://gitlab.com/trueppm/trueppm/-/issues/3832) | The Schedule has never been measured in a browser at scale: heap size, first paint, and interaction latency above a few thousand tasks are unknown | 0.5 |
 
 **What to do:** below roughly 2 000 tasks per project none of these bite. Above that,
 split work across projects in a program rather than one large project, raise the Celery
-worker memory limit before 60 000 tasks, and expect the Schedule view to load slowly.
+worker memory limit before about 50 000 tasks in 0.4 (0.5 will move that to about 70 000,
+an extrapolation), and expect the Schedule view to load slowly.
 The sizing guide above has the measured envelope. Each row is tracked by the issue it
 links; all are planned for 0.5.
 

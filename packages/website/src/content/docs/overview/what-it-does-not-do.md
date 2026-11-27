@@ -208,8 +208,9 @@ seconds to open; a 100,000-task project would take over half an hour, and would 
 of JSON to the browser.
 
 Opening the Schedule is not the only wall on the way to 100,000 tasks. The scheduler
-bounds the longest dependency chain, not the task count, so parallel work no longer trips its span guard (#3830); the total of all durations and lags has a separate ceiling of 3,660,000 days, which a 100,000-task project at 20 days each (2M) is within. Recalculation needs ~30 KB of memory
-per task against a 2 GiB worker limit (#3831). A remote edit to status, progress,
+bounds the longest dependency chain, not the task count, so parallel work no longer trips its span guard (#3830); the total of all durations and lags has a separate ceiling of 3,660,000 days, which a 100,000-task project at 20 days each (2M) is within. In 0.4, recalculation needs ~30 KB of memory
+per task against a 2 GiB worker limit; 0.5 will improve that to about 13 KB per task,
+measured up to 16,000 tasks (#3831). A remote edit to status, progress,
 duration, dates, parent, order, sprint, dependency, owner or assignee still re-fetches the whole
 project for everyone watching (#4950); plain field edits refresh one row. And a program with cross-project dependencies
 recalculates as one project the size of all its members together. The remaining edits are tracked on #4950. The other limits are tracked for
