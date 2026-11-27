@@ -46,7 +46,7 @@ import {
   type BoardColumnDef,
   type BoardLaneDef,
 } from '@/hooks/useBoardConfig';
-import { PHASE_SWATCHES } from '@/lib/identityColors';
+import { PHASE_COOL_GRAY, PHASE_SWATCHES } from '@/lib/identityColors';
 import { MAX_LANES_PER_COLUMN, uniqueLaneKey } from '@/features/board/statusLanes';
 import { useProjectPhases, type ProjectPhase } from '@/hooks/useProjectPhases';
 import type { BoardCadence } from '@/types';
@@ -379,7 +379,7 @@ function ColorSwatchToggle({
   shape: 'rounded-control' | 'rounded-full';
   onClick: () => void;
 }) {
-  const background = color ?? PHASE_SWATCHES[7].value;
+  const background = color ?? PHASE_COOL_GRAY;
   if (canEdit) {
     return (
       <button

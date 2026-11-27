@@ -59,6 +59,8 @@ describe('PHASE_SWATCHES', () => {
       '#22C55E',
       '#F59E0B',
       '#EF4444',
+      '#4D7C0F',
+      '#DB2777',
     ]);
   });
 

@@ -3,8 +3,9 @@ import { render as rtlRender, screen, fireEvent, within } from '@testing-library
 import type { ReactElement } from 'react';
 import { MemoryRouter } from 'react-router';
 import { useToastStore } from '@/components/Toast';
+import { useTaskDrawerStore } from '@/stores/taskDrawerStore';
 import { ROLE_ADMIN, ROLE_MEMBER, ROLE_VIEWER } from '@/lib/roles';
-import type { TaskNote } from '@/types';
+import type { Task, TaskNote } from '@/types';
 import { NotesSection } from './NotesSection';
 
 const navigateMock = vi.hoisted(() => vi.fn());
@@ -718,6 +719,14 @@ describe('NotesSection — flag confirmation (#1783)', () => {
     expect(toastItem?.action?.label).toBe('View Decisions');
     toastItem?.action?.onClick();
     expect(navigateMock).toHaveBeenCalledWith('/projects/p1/reports?tab=decisions');
+  });
+
+  // The drawer is global, so it would otherwise stay open over Reports.
+  it('closes the task drawer when View Decisions is chosen', () => {
+    const toastItem = flagReturning(true);
+    useTaskDrawerStore.getState().openTask({ id: 't1' } as Task, 'p1');
+    toastItem?.action?.onClick();
+    expect(useTaskDrawerStore.getState().task).toBeNull();
   });
 
   it('shows no toast when the flag is removed', () => {

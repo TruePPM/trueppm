@@ -4,16 +4,16 @@ import { PHASE_SWATCHES } from '@/lib/identityColors';
  * The rail's own fixed list, picked by name from the shared set. It is not the
  * whole set on purpose: hashing over `PHASE_SWATCHES` would recolor every rail
  * each time a swatch is appended, and a red (reads as critical) or a gray (reads
- * as inactive) must never be assigned to a phase by chance.
+ * as inactive) must never be assigned to a phase by chance. Every pair is at
+ * least 30 degrees apart in hue so neighboring phases do not look alike.
  */
 const RAIL_NAMES: readonly (typeof PHASE_SWATCHES)[number]['name'][] = [
   'Sage',
   'Amber',
   'Violet',
   'Sky blue',
-  'Green',
-  'Blue',
-  'Purple',
+  'Lime',
+  'Pink',
 ];
 
 export const RAIL_PALETTE: readonly string[] = RAIL_NAMES.flatMap((name) =>

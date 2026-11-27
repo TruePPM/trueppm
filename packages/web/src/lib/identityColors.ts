@@ -17,6 +17,12 @@ export const IDENTITY_SAGE = '#3E8C6D';
 export const IDENTITY_AMBER = '#C17A10';
 /** Violet — the highest workspace role chip (Owner / Admin) and Agile accent. */
 export const IDENTITY_VIOLET = '#7C3AED';
+/** Sky — shared by the identity and phase sets. */
+const IDENTITY_SKY = '#0EA5E9';
+/** Red — shared by the identity and phase sets. */
+const IDENTITY_RED = '#DC2626';
+/** Cool gray — a phase swatch, and the fill shown for a phase with no saved color. */
+export const PHASE_COOL_GRAY = '#94A3B8';
 
 /**
  * The shared categorical identity palette (design-handoff "General" set), used
@@ -27,8 +33,8 @@ export const IDENTITY_SWATCHES = [
   IDENTITY_SAGE,
   IDENTITY_AMBER,
   IDENTITY_VIOLET,
-  '#0EA5E9', // sky
-  '#DC2626', // red
+  IDENTITY_SKY,
+  IDENTITY_RED,
   '#0F766E', // teal
 ] as const;
 
@@ -45,17 +51,19 @@ export const PHASE_SWATCHES = [
   { value: IDENTITY_SAGE, name: 'Sage' },
   { value: IDENTITY_AMBER, name: 'Amber' },
   { value: IDENTITY_VIOLET, name: 'Violet' },
-  { value: '#0EA5E9', name: 'Sky blue' },
-  { value: '#DC2626', name: 'Red' },
+  { value: IDENTITY_SKY, name: 'Sky blue' },
+  { value: IDENTITY_RED, name: 'Red' },
   { value: '#16A34A', name: 'Green' },
   { value: '#6B6965', name: 'Slate gray' },
-  { value: '#94A3B8', name: 'Cool gray' },
+  { value: PHASE_COOL_GRAY, name: 'Cool gray' },
   { value: '#64748B', name: 'Steel gray' },
   { value: '#3B82F6', name: 'Blue' },
   { value: '#A855F7', name: 'Purple' },
   { value: '#22C55E', name: 'Bright green' },
   { value: '#F59E0B', name: 'Bright amber' },
   { value: '#EF4444', name: 'Bright red' },
+  { value: '#4D7C0F', name: 'Lime' },
+  { value: '#DB2777', name: 'Pink' },
 ] as const;
 
 /**
