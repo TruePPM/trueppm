@@ -191,16 +191,20 @@ class TestRunPostRecompute:
         # Small project: CPM is sub-millisecond. A slow zero-variance MC overruns
         # once it is learned, but idempotence (one cheap CPM pass) still runs on
         # every pass, and the overrun leaves no debt behind.
-        import time as _time
-
         project = _project()
         result = schedule(project)
+        # A virtual clock that only the slow check advances: measured costs, and so
+        # the sampling decisions, do not depend on how fast this host is.
+        clock = [0.0]
 
         def slow_mc(_project: Any, _result: Any) -> bool:
-            _time.sleep(0.01)
+            clock[0] += 0.01
             return True
 
-        with mock.patch.object(selfcheck, "check_zero_variance_mc", side_effect=slow_mc):
+        with (
+            mock.patch.object(selfcheck, "time", mock.Mock(perf_counter=lambda: clock[0])),
+            mock.patch.object(selfcheck, "check_zero_variance_mc", side_effect=slow_mc),
+        ):
             verdicts = [
                 selfcheck.run_post_recompute_selfcheck("p", project, result, cpm_seconds=0.0002)
                 for _ in range(12)

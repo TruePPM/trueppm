@@ -10,12 +10,14 @@ from __future__ import annotations
 import json
 from datetime import date
 from typing import Any
+from unittest import mock
 
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from rest_framework.test import APIClient
 from trueppm_scheduler import Project as SchedProject
+from trueppm_scheduler import SchedulerError
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Dependency, Project, Task
@@ -141,6 +143,33 @@ class TestExport:
         project.is_deleted = True
         project.save(update_fields=["is_deleted"])
         assert client.get(url(project.pk)).status_code == 404
+
+    def test_no_free_cpm_slot_is_503(self, project: Project, tasks: list[Task]) -> None:
+        client = _client(project, Role.SCHEDULER)
+        busy = mock.MagicMock()
+        busy.return_value.__enter__.return_value = False
+        # The view imports cpm_slot at call time, so the source module is the lookup.
+        with mock.patch("trueppm_api.apps.scheduling.cpm_admission.cpm_slot", busy):
+            resp = client.get(url(project.pk))
+        assert resp.status_code == 503, resp.content
+        assert resp.json()["code"] == "schedule_busy"
+
+    def test_invalid_schedule_input_is_400(self, project: Project, tasks: list[Task]) -> None:
+        client = _client(project, Role.SCHEDULER)
+        with mock.patch(
+            "trueppm_api.apps.scheduling.views._build_cpm_sched_inputs",
+            side_effect=SchedulerError("bad input"),
+        ):
+            resp = client.get(url(project.pk))
+        assert resp.status_code == 400, resp.content
+
+    def test_archived_project_stays_exportable(self, project: Project, tasks: list[Task]) -> None:
+        client = _client(project, Role.SCHEDULER)
+        project.is_archived = True
+        project.save(update_fields=["is_archived"])
+        resp = client.get(url(project.pk))
+        assert resp.status_code == 200, resp.content
+        assert resp.json()["engine_input"]["tasks"]
 
     def test_above_the_envelope_skips_the_checks(
         self, project: Project, tasks: list[Task], settings: Any
