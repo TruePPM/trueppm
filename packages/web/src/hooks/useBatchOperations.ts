@@ -76,12 +76,22 @@ export function useUndoImportFixOperation(projectId: string | null) {
   });
 }
 
-/** A human-readable summary line for the undo toast, shared across all three. */
+/**
+ * A human-readable summary line for the undo toast, shared across all three.
+ *
+ * A delete-style undo also keeps untouched rows that sit above one it keeps
+ * (deleting a parent deletes its subtree), so its `kept` must not be described as
+ * only rows the user changed. A classification revert has no such rule.
+ */
 export function describeUndo(undo: UndoSummary): string {
   const isRevert = undo.reverted !== undefined;
   const count = undo.reverted ?? undo.deleted ?? 0;
   const verb = isRevert ? 'reverted' : 'removed';
   const rowWord = `row${count === 1 ? '' : 's'}`;
+  if (undo.kept > 0 && !isRevert) {
+    const keptWord = `row${undo.kept === 1 ? '' : 's'}`;
+    return `Undone — ${verb} ${count} ${rowWord}, kept ${undo.kept} ${keptWord} (changed since, or above a row that stays).`;
+  }
   if (undo.kept > 0) {
     return `Undone — ${verb} ${count} ${rowWord}, kept ${undo.kept} you'd already touched.`;
   }

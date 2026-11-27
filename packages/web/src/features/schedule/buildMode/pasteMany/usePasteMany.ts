@@ -174,7 +174,9 @@ export function usePasteMany({
           setIsUndoing(false);
           setReceipt(null);
           if (data.undo.kept > 0) {
-            toast.info(`Undid the paste — kept ${data.undo.kept} row(s) you'd already touched.`);
+            toast.info(
+              `Undid the paste — kept ${data.undo.kept} row(s) (changed since, or above a row that stays).`,
+            );
           }
         },
         onError: () => {
@@ -231,9 +233,7 @@ export function usePasteMany({
   // The F8 walk set: duration-less rows ∪ dropped-owner rows (#3033).
   const needsAttentionIds = useMemo(
     () =>
-      receipt
-        ? pasteAttentionIds(receipt.needsDurationIds, receipt.droppedOwnerIds)
-        : EMPTY_ID_SET,
+      receipt ? pasteAttentionIds(receipt.needsDurationIds, receipt.droppedOwnerIds) : EMPTY_ID_SET,
     [receipt],
   );
 

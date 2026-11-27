@@ -77,9 +77,18 @@ describe('ADR-0810 undo hooks', () => {
     expect(describeUndo({ deleted: 1, kept: 0 })).toBe('Undone — removed 1 row.');
   });
 
-  it('describeUndo names how many rows survived because they were touched since', () => {
+  it('describeUndo does not claim every kept row of a delete undo was touched', () => {
     expect(describeUndo({ deleted: 2, kept: 1 })).toBe(
-      "Undone — removed 2 rows, kept 1 you'd already touched.",
+      'Undone — removed 2 rows, kept 1 row (changed since, or above a row that stays).',
+    );
+    expect(describeUndo({ deleted: 1, kept: 3 })).toBe(
+      'Undone — removed 1 row, kept 3 rows (changed since, or above a row that stays).',
+    );
+  });
+
+  it('describeUndo says a kept row of a classification revert was touched', () => {
+    expect(describeUndo({ reverted: 2, kept: 1 })).toBe(
+      "Undone — reverted 2 rows, kept 1 you'd already touched.",
     );
   });
 
