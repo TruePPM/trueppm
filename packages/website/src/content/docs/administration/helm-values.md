@@ -8,8 +8,9 @@ documentedFor: "0.5"
 `web.realIpFrom`, the render-time refusal of `web.adminAccess.allowCIDRs` behind an
 Ingress without it, and the per-route web-tier body limits (2M default, 10M bulk,
 `web.maxBodySize` for uploads) ship in 0.5. In 0.4 the web tier has no trusted-proxy
-knob and `web.maxBodySize` is the ceiling for every route. Every other value on
-this page is in 0.4.
+knob and `web.maxBodySize` is the ceiling for every route.
+`web.securityHeaders.permissionsPolicy` and the `Permissions-Policy` header also
+ship in 0.5. Every other value on this page is in 0.4.
 :::
 
 This page is the reference for the values the TruePPM Helm chart
@@ -179,11 +180,12 @@ one header.
 | `web.securityHeaders.enabled` | `true` | Render the header block at all. Only set `false` when a trusted upstream (an ingress `configuration-snippet`, a WAF, a CDN edge) already sets the same headers — nginx cannot merge or deduplicate a header the upstream also emits. |
 | `web.securityHeaders.frameOptions` | `DENY` | `X-Frame-Options`. The SPA is never legitimately framed, so `DENY` rather than `SAMEORIGIN`. |
 | `web.securityHeaders.contentTypeOptions` | `nosniff` | `X-Content-Type-Options`. Stops a browser re-typing a response as a script. |
+| `web.securityHeaders.permissionsPolicy` | `camera=(), microphone=(), geolocation=(), payment=(), usb=()` | `Permissions-Policy`. Denies browser features TruePPM never uses to the page and to anything it loads. Clipboard and fullscreen are not listed, so they keep the browser default. Set `""` to omit the header. Ships in 0.5. |
 | `web.securityHeaders.referrerPolicy` | `strict-origin-when-cross-origin` | `Referrer-Policy`. Without it, a user navigating from a TruePPM page to any other site hands that site the **full URL** they came from, and the browser default varies by vendor and version. The default keeps the full referrer for same-origin requests and sends only the bare origin cross-origin; tighten to `no-referrer` to disclose nothing at all. Set `""` to omit the header only when an upstream proxy already sets it. |
 | `web.securityHeaders.contentSecurityPolicy` | `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; font-src 'self'; frame-ancestors 'none'` | `Content-Security-Policy`. `connect-src` includes `ws:`/`wss:` for the real-time collaboration socket. Widen it if you host fonts or images off-origin or add an analytics endpoint. Serving the SPA and API from different origins is **not supported** — see [Split-origin deploys](/administration/configuration/storage-and-networking/#split-origin-deploys). |
 | `web.securityHeaders.strictTransportSecurity` | `""` (off) | `Strict-Transport-Security`. Off by default, unlike the Compose TLS template: in the chart's default topology TLS terminates at the Ingress and this nginx speaks plain HTTP, and most ingress controllers emit HSTS themselves. Turn it on — `"max-age=63072000; includeSubDomains"` — only when the web tier *is* your TLS edge, and note that `includeSubDomains` binds every sibling subdomain of the apex you serve from. |
 
-All four render with nginx's `always` flag, so they are present on error
+All of them render with nginx's `always` flag, so they are present on error
 responses too, not just `200`s.
 
 ## Celery worker tuning

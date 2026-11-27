@@ -209,6 +209,12 @@ web:
     frameOptions: DENY
     # Stops a browser from re-typing a response as a script.
     contentTypeOptions: nosniff
+    # Browser features the document and anything it loads may not use (#3851).
+    # TruePPM uses none of these; `()` denies each to every origin. Clipboard
+    # and fullscreen are deliberately not listed, so they keep the browser
+    # default (the app's copy buttons need clipboard write). Empty omits the
+    # header.
+    permissionsPolicy: "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
     # How much of the current URL a browser may disclose to another origin
     # (#3553). Without it, a navigation away from any TruePPM page sends the FULL
     # URL as `Referer`, and the browser default varies by vendor and version.

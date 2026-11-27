@@ -168,6 +168,9 @@
             "contentTypeOptions": {
               "type": "string"
             },
+            "permissionsPolicy": {
+              "type": "string"
+            },
             "referrerPolicy": {
               "type": "string"
             },

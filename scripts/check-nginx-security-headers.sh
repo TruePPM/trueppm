@@ -29,6 +29,10 @@
 #
 # Invariants, asserted on every config above:
 #
+#   (#3851) Every SPA server block, and every location that adds a header, sends
+#      a `Permissions-Policy` whose value denies camera, microphone, geolocation,
+#      payment and usb with `()`.
+#
 #   A. Every server block that serves the SPA (identified by a `try_files …
 #      /index.html` fallback — the ACME/redirect listener is correctly exempt)
 #      sets all four of:
@@ -161,6 +165,18 @@ split_server_blocks() {
   '
 }
 
+# Lines at depth 1 of a server block: its own directives, no nested block's.
+server_level_lines() {
+  awk '
+    {
+      tmp = $0
+      o = gsub(/\{/, "{", tmp); c = gsub(/\}/, "}", tmp)
+      if (depth == 1 && o == 0) print
+      depth += o - c
+    }
+  '
+}
+
 # Body of a `location <path>` block, brace-position-independent (the opening
 # brace may sit on the location line or the next one).
 location_body() {
@@ -226,6 +242,7 @@ assert_location_header_set() {
     || viol "$label" "SPA server block #$idx's \`$where\` sets its own add_header but drops X-Content-Type-Options (#2849, #4350)."
   grep -qE 'add_header[ \t]+Referrer-Policy[ \t]+"?(no-referrer|same-origin|strict-origin|origin|strict-origin-when-cross-origin)"?[ \t]+always' <<<"$body" \
     || viol "$label" "SPA server block #$idx's \`$where\` sets its own add_header but drops (or weakens) Referrer-Policy (#2849, #4350)."
+  assert_permissions_policy "$label" "$idx" "\`$where\`" "$body"
   grep -qE 'add_header[ \t]+Content-Security-Policy' <<<"$body" \
     || viol "$label" "SPA server block #$idx's \`$where\` sets its own add_header but drops Content-Security-Policy (#2849, #4350)."
   if [ "$has_tls" = "1" ]; then
@@ -325,6 +342,25 @@ assert_share_location() {
   return 0
 }
 
+# (A, #3851) Permissions-Policy: assert the VALUE. Each feature the app never
+# uses must be denied to every origin — `camera=*` or `camera=(self)` is a header
+# that is present and grants the thing it exists to refuse.
+assert_permissions_policy() {
+  local label="$1" idx="$2" where="$3" body="$4" line feature
+  line="$(grep -E 'add_header[ \t]+Permissions-Policy' <<<"$body" || true)"
+  if [ -z "$line" ]; then
+    viol "$label" "SPA server block #$idx $where sets no Permissions-Policy (#3851)."
+    return 0
+  fi
+  grep -qE '"[ \t]+always[ \t]*;' <<<"$line" \
+    || viol "$label" "SPA server block #$idx $where sets Permissions-Policy without \`always\` (#3851)."
+  for feature in camera microphone geolocation payment usb; do
+    grep -qE "[\" ]$feature=\(\)[,\"]" <<<"$line" \
+      || viol "$label" "SPA server block #$idx $where Permissions-Policy does not deny $feature with \`$feature=()\` (#3851)."
+  done
+  return 0
+}
+
 # ── Per-config assertions ────────────────────────────────────────────────────
 # Every assertion feeds grep with a here-string, never `printf "$x" | grep -q`.
 # Under `set -o pipefail` the pipe form reports a PRESENT line as missing: grep
@@ -379,6 +415,11 @@ check_config() {
       || viol "$label" "SPA server block #$idx does not set \`add_header X-Frame-Options \"DENY\" always\` — the document is framable for clickjacking."
     grep -qE 'add_header[ \t]+X-Content-Type-Options[ \t]+"?nosniff"?[ \t]+always' <<<"$body" \
       || viol "$label" "SPA server block #$idx does not set \`add_header X-Content-Type-Options \"nosniff\" always\`."
+
+    # Permissions-Policy (#3851), on the SERVER level only: a copy inside one
+    # location must not satisfy the check for every other response.
+    assert_permissions_policy "$label" "$idx" "at server level" \
+      "$(printf '%s\n' "$body" | server_level_lines)"
 
     # Referrer-Policy (#3553). The value matters, not just the presence: a policy
     # that discloses the path cross-origin is the leak this header exists to stop.
@@ -628,6 +669,7 @@ self_test() {
   local good_headers='        add_header X-Frame-Options        "DENY" always;
         add_header X-Content-Type-Options "nosniff" always;
         add_header Referrer-Policy        "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy     "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
         add_header Content-Security-Policy "default-src '"'"'self'"'"'; frame-ancestors '"'"'none'"'"'" always;'
 
   # (D, #4350) The three Cache-Control-bearing locations every SPA server
@@ -808,6 +850,7 @@ CONF
   local noreferrer_headers='    add_header X-Frame-Options        "DENY" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy        "no-referrer" always;
+    add_header Permissions-Policy     "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
     add_header Content-Security-Policy "default-src '"'"'self'"'"'; frame-ancestors '"'"'none'"'"'" always;'
   cat >"$tmp/good_noreferrer.conf" <<CONF
 server {
@@ -1108,6 +1151,17 @@ CONF
   sed 's/try_files \/index\.html =404;/try_files $uri \/index.html;/' \
     "$tmp/good_404.conf" >"$tmp/bad_share_redirect.conf"
   sed '/access_log/d' "$tmp/good_404.conf" >"$tmp/bad_share_log.conf"
+  # (A, #3851) value, not presence: a grant, a dropped feature, a missing
+  # `always`, and a header that survives only inside locations.
+  sed 's/camera=()/camera=*/' "$tmp/good_404.conf" >"$tmp/bad_pp_grant.conf"
+  sed 's/, usb=()//' "$tmp/good_404.conf" >"$tmp/bad_pp_missing.conf"
+  sed 's/\(usb=()"\) always/\1/' "$tmp/good_404.conf" >"$tmp/bad_pp_notalways.conf"
+  awk '!done && /^        add_header Permissions-Policy/ { done = 1; next } { print }' \
+    "$tmp/good_404.conf" >"$tmp/bad_pp_noserver.conf"
+  probe bad_pp_grant.conf       1 "Permissions-Policy granting a feature rejected (#3851)"
+  probe bad_pp_missing.conf     1 "Permissions-Policy omitting a feature rejected (#3851)"
+  probe bad_pp_notalways.conf   1 "Permissions-Policy without \`always\` rejected (#3851)"
+  probe bad_pp_noserver.conf    1 "Permissions-Policy only inside locations rejected (#3851)"
   probe bad_noshare.conf        1 "SPA with no /share/ location rejected (#5155)"
   probe bad_share_policy.conf   1 "/share/ with the site-wide Referrer-Policy rejected (#5155)"
   probe bad_share_redirect.conf 1 "/share/ falling back by internal redirect rejected (#5155)"

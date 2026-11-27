@@ -173,6 +173,15 @@ uses, and every shipped path sets the same baseline:
 | Docker Compose (HTTP) | `nginx/app-http.conf.template` |
 | Published `web` image, run directly | baked `packages/web/nginx.conf` |
 
+:::note[Ships in 0.5]
+The `Permissions-Policy` header ships in 0.5. The current release does not send it.
+:::
+
+Every shipped path also sends
+`Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()`.
+TruePPM uses none of those browser features, so the page and anything it loads are
+denied them. Clipboard and fullscreen are not restricted.
+
 If you replace the web tier with your own nginx, CDN, or object-store hosting,
 those headers become yours to set — nothing in the application can add them.
 `scripts/check-nginx-security-headers.sh` (CI job `nginx:headers`) asserts the

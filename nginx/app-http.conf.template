@@ -59,6 +59,7 @@ server {
 
     add_header X-Frame-Options        "DENY" always;
     add_header X-Content-Type-Options "nosniff" always;
+    add_header Permissions-Policy     "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
     # #3553 — see packages/web/nginx.conf for the rationale.
     add_header Referrer-Policy        "strict-origin-when-cross-origin" always;
     add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws:; font-src 'self'; frame-ancestors 'none'" always;
@@ -97,6 +98,7 @@ server {
         add_header Cache-Control "public, max-age=31536000, immutable" always;
         add_header X-Frame-Options        "DENY" always;
         add_header X-Content-Type-Options "nosniff" always;
+        add_header Permissions-Policy     "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
         add_header Referrer-Policy        "strict-origin-when-cross-origin" always;
         add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws:; font-src 'self'; frame-ancestors 'none'" always;
     }
@@ -107,6 +109,7 @@ server {
         add_header Cache-Control "no-store" always;
         add_header X-Frame-Options        "DENY" always;
         add_header X-Content-Type-Options "nosniff" always;
+        add_header Permissions-Policy     "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
         add_header Referrer-Policy        "strict-origin-when-cross-origin" always;
         add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws:; font-src 'self'; frame-ancestors 'none'" always;
         return 404;
@@ -120,6 +123,7 @@ server {
         add_header Cache-Control "no-cache" always;
         add_header X-Frame-Options        "DENY" always;
         add_header X-Content-Type-Options "nosniff" always;
+        add_header Permissions-Policy     "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
         add_header Referrer-Policy        "strict-origin-when-cross-origin" always;
         add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws:; font-src 'self'; frame-ancestors 'none'" always;
     }
@@ -136,6 +140,7 @@ server {
         add_header Cache-Control "no-cache" always;
         add_header X-Frame-Options        "DENY" always;
         add_header X-Content-Type-Options "nosniff" always;
+        add_header Permissions-Policy     "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
         add_header Referrer-Policy        "no-referrer" always;
         add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws:; font-src 'self'; frame-ancestors 'none'" always;
     }
