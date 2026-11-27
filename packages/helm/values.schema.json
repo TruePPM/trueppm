@@ -155,6 +155,39 @@
             }
           }
         },
+        "rateLimit": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "auth": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "rate": {
+                  "type": "string"
+                },
+                "burst": {
+                  "type": "integer"
+                }
+              }
+            },
+            "websocket": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "rate": {
+                  "type": "string"
+                },
+                "burst": {
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
         "securityHeaders": {
           "type": "object",
           "additionalProperties": false,

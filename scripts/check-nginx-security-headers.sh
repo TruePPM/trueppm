@@ -361,6 +361,55 @@ assert_permissions_policy() {
   return 0
 }
 
+# (I, #3852) Edge rate limits. Run over the real configs only (check_file /
+# check_helm), with its own self-test fixtures. A server block that proxies /api/
+# must limit the unauthenticated auth endpoints — either the nested auth regex
+# location, or each of the interactive demo's three exact carve-outs — and one
+# that proxies /ws/ must limit the handshake. Refusals are 429, not nginx's 503.
+AUTH_LOCATION='^/api/v1/(auth/(token|logout|password/reset|oidc)|workspace/invites/accept)/'
+
+assert_limited() {
+  local label="$1" where="$2" zone="$3" body="$4"
+  grep -qE "(^|[ {])limit_req +zone=$zone +burst=[0-9]+ +nodelay *;" <<<"$body" \
+    || viol "$label" "$where has no \`limit_req zone=$zone burst=… nodelay\` (#3852)."
+  grep -qE '(^|[ {])limit_req_status +429 *;' <<<"$body" \
+    || viol "$label" "$where does not set \`limit_req_status 429\` (#3852)."
+  return 0
+}
+
+assert_edge_rate_limits() {
+  local label="$1" text="$2" blocks idx body api ws exact path zone
+  blocks="$(printf '%s\n' "$text" | split_server_blocks)"
+  for idx in $(printf '%s\n' "$blocks" | cut -f1 | sort -un); do
+    body="$(printf '%s\n' "$blocks" | awk -F'\t' -v b="$idx" '$1 == b { sub(/^[^\t]*\t/, ""); print }')"
+    api="$(printf '%s\n' "$body" | location_body "/api/")"
+    ws="$(printf '%s\n' "$body" | location_body "/ws/")"
+    if grep -q 'proxy_pass' <<<"$api"; then
+      exact="$(printf '%s\n' "$body" | location_body "/api/v1/auth/token/")"
+      if [ -n "$exact" ]; then
+        for path in /api/v1/auth/token/ /api/v1/auth/token/refresh/ /api/v1/auth/logout/; do
+          assert_limited "$label" "location = $path" trueppm_auth \
+            "$(printf '%s\n' "$body" | location_body "$path")"
+        done
+      else
+        # Nested: drop /api/'s opening line so location_body sees the inner block.
+        assert_limited "$label" "the auth location under /api/" trueppm_auth \
+          "$(sed 1d <<<"$api" | location_body "$AUTH_LOCATION")"
+      fi
+    fi
+    if grep -q 'proxy_pass' <<<"$ws"; then
+      assert_limited "$label" "location /ws/" trueppm_ws "$ws"
+    fi
+  done
+  for zone in trueppm_auth trueppm_ws; do
+    if grep -qE "limit_req +zone=$zone " <<<"$text" \
+      && ! grep -qE "^ *limit_req_zone +\\\$binary_remote_addr +zone=$zone:" <<<"$text"; then
+      viol "$label" "uses zone $zone but declares no \`limit_req_zone\` for it (#3852)."
+    fi
+  done
+  return 0
+}
+
 # ── Per-config assertions ────────────────────────────────────────────────────
 # Every assertion feeds grep with a here-string, never `printf "$x" | grep -q`.
 # Under `set -o pipefail` the pipe form reports a PRESENT line as missing: grep
@@ -511,6 +560,7 @@ check_file() {
   fi
   local before="$violations"
   check_config "$label" "$(cat "$path")"
+  assert_edge_rate_limits "$label" "$(cat "$path")"
   if [ "$violations" -gt "$before" ]; then
     file_provenance "$label" "$path"
   fi
@@ -582,6 +632,7 @@ check_helm() {
   fi
   local before="$violations"
   check_config "$label" "$conf"
+  assert_edge_rate_limits "$label" "$conf"
   # Dump provenance for THIS render, with THIS render's args, next to the
   # violation it explains. Handing over the checked bytes is what lets the
   # verdict decide "the gate read something else" rather than only "helm is
@@ -1162,6 +1213,35 @@ CONF
   probe bad_pp_missing.conf     1 "Permissions-Policy omitting a feature rejected (#3851)"
   probe bad_pp_notalways.conf   1 "Permissions-Policy without \`always\` rejected (#3851)"
   probe bad_pp_noserver.conf    1 "Permissions-Policy only inside locations rejected (#3851)"
+  # (I, #3852)
+  local lim='        limit_req zone=trueppm_ws burst=5 nodelay;
+        limit_req_status 429;'
+  local zones='limit_req_zone $binary_remote_addr zone=trueppm_auth:1m rate=1r/s;
+limit_req_zone $binary_remote_addr zone=trueppm_ws:1m rate=1r/s;'
+  printf '%s\nserver {\n    location /api/ {\n        proxy_pass http://api;\n        location ~ %s {\n%s\n            proxy_pass http://api;\n        }\n    }\n    location /ws/ {\n%s\n        proxy_pass http://api;\n    }\n}\n' \
+    "$zones" "$AUTH_LOCATION" "${lim//trueppm_ws/trueppm_auth}" "$lim" >"$tmp/good_limits.conf"
+  sed '/limit_req zone=trueppm_auth/d' "$tmp/good_limits.conf" >"$tmp/bad_limit_auth.conf"
+  sed '/limit_req zone=trueppm_ws/d' "$tmp/good_limits.conf" >"$tmp/bad_limit_ws.conf"
+  sed 's/limit_req_status 429/limit_req_status 503/' "$tmp/good_limits.conf" >"$tmp/bad_limit_status.conf"
+  sed '/^limit_req_zone/d' "$tmp/good_limits.conf" >"$tmp/bad_limit_zone.conf"
+  limit_probe() {
+    violations=0
+    assert_edge_rate_limits "$1" "$(cat "$tmp/$1")" >/dev/null 2>&1
+    local got=0
+    [ "$violations" -gt 0 ] && got=1
+    if [ "$got" = "$2" ]; then
+      echo "SELF-TEST OK: $3"
+    else
+      echo "SELF-TEST FAILED: $3 (expected violation=$2, got $got)" >&2
+      rc=1
+    fi
+  }
+  limit_probe good_limits.conf      0 "rate-limited /api/ auth and /ws/ accepted (#3852)"
+  limit_probe bad_limit_auth.conf   1 "unthrottled auth location rejected (#3852)"
+  limit_probe bad_limit_ws.conf     1 "unthrottled /ws/ rejected (#3852)"
+  limit_probe bad_limit_status.conf 1 "503 refusals rejected (#3852)"
+  limit_probe bad_limit_zone.conf   1 "undeclared zone rejected (#3852)"
+
   probe bad_noshare.conf        1 "SPA with no /share/ location rejected (#5155)"
   probe bad_share_policy.conf   1 "/share/ with the site-wide Referrer-Policy rejected (#5155)"
   probe bad_share_redirect.conf 1 "/share/ falling back by internal redirect rejected (#5155)"

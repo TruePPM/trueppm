@@ -85,6 +85,17 @@ data:
     # proxies and $remote_addr is recovered from X-Forwarded-For (#2592, #2593);
     # see trueppm.web.proxyTrust in _helpers.tpl.
     {{- include "trueppm.web.proxyTrust" . | trim | nindent 4 }}
+    {{- $rl := .Values.web.rateLimit | default dict }}
+    {{- if $rl.enabled }}
+
+    # Edge rate limit for the unauthenticated auth endpoints and the WebSocket
+    # handshake (#3852). A coarse flood backstop BEHIND the DRF throttles, which
+    # stay the real limit and live in Valkey: this one still holds when Valkey is
+    # down or a view loses its throttle scope. Sized far above SPA traffic, because
+    # the key is $remote_addr and everyone behind one NAT or upstream proxy shares it.
+    limit_req_zone $binary_remote_addr zone=trueppm_auth:10m rate={{ $rl.auth.rate }};
+    limit_req_zone $binary_remote_addr zone=trueppm_ws:10m rate={{ $rl.websocket.rate }};
+    {{- end }}
 
     # Access-log redaction for share tokens (#5155). `no-referrer` cannot cover the
     # page and API requests themselves: their paths carry the token. These maps feed
@@ -223,6 +234,10 @@ data:
         # POSTs D2 allows — while everything else under /api/ is bounded by
         # limit_except.
         location = /api/v1/auth/token/ {
+            {{- if $rl.enabled }}
+            limit_req zone=trueppm_auth burst={{ $rl.auth.burst }} nodelay;
+            limit_req_status 429;
+            {{- end }}
             proxy_pass         http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
             proxy_set_header   Host              $host;
             proxy_set_header   X-Real-IP         $remote_addr;
@@ -230,6 +245,10 @@ data:
             proxy_set_header   X-Forwarded-Proto $forwarded_proto;
         }
         location = /api/v1/auth/token/refresh/ {
+            {{- if $rl.enabled }}
+            limit_req zone=trueppm_auth burst={{ $rl.auth.burst }} nodelay;
+            limit_req_status 429;
+            {{- end }}
             proxy_pass         http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
             proxy_set_header   Host              $host;
             proxy_set_header   X-Real-IP         $remote_addr;
@@ -237,6 +256,10 @@ data:
             proxy_set_header   X-Forwarded-Proto $forwarded_proto;
         }
         location = /api/v1/auth/logout/ {
+            {{- if $rl.enabled }}
+            limit_req zone=trueppm_auth burst={{ $rl.auth.burst }} nodelay;
+            limit_req_status 429;
+            {{- end }}
             proxy_pass         http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
             proxy_set_header   Host              $host;
             proxy_set_header   X-Real-IP         $remote_addr;
@@ -563,6 +586,17 @@ data:
     # proxies and $remote_addr is recovered from X-Forwarded-For (#2592, #2593);
     # see trueppm.web.proxyTrust in _helpers.tpl.
     {{- include "trueppm.web.proxyTrust" . | trim | nindent 4 }}
+    {{- $rl := .Values.web.rateLimit | default dict }}
+    {{- if $rl.enabled }}
+
+    # Edge rate limit for the unauthenticated auth endpoints and the WebSocket
+    # handshake (#3852). A coarse flood backstop BEHIND the DRF throttles, which
+    # stay the real limit and live in Valkey: this one still holds when Valkey is
+    # down or a view loses its throttle scope. Sized far above SPA traffic, because
+    # the key is $remote_addr and everyone behind one NAT or upstream proxy shares it.
+    limit_req_zone $binary_remote_addr zone=trueppm_auth:10m rate={{ $rl.auth.rate }};
+    limit_req_zone $binary_remote_addr zone=trueppm_ws:10m rate={{ $rl.websocket.rate }};
+    {{- end }}
 
     # Access-log redaction for share tokens (#5155). `no-referrer` cannot cover the
     # page and API requests themselves: their paths carry the token. These maps feed
@@ -684,10 +718,24 @@ data:
                 client_max_body_size 1M;
                 proxy_pass http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
             }
+            {{- if $rl.enabled }}
+            # Sign-in, refresh, sign-out, password reset, SSO and invite accept
+            # (#3852). Off the default topology: /api reaches this nginx only when
+            # the Ingress or load balancer routes it to the web Service.
+            location ~ ^/api/v1/(auth/(token|logout|password/reset|oidc)|workspace/invites/accept)/ {
+                limit_req zone=trueppm_auth burst={{ $rl.auth.burst }} nodelay;
+                limit_req_status 429;
+                proxy_pass http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
+            }
+            {{- end }}
         }
 
         # WebSocket (Django Channels)
         location /ws/ {
+            {{- if $rl.enabled }}
+            limit_req zone=trueppm_ws burst={{ $rl.websocket.burst }} nodelay;
+            limit_req_status 429;
+            {{- end }}
             proxy_pass         http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
             proxy_http_version 1.1;
             proxy_set_header   Upgrade    $http_upgrade;

@@ -181,6 +181,21 @@ web:
   # is raised to 110m in step with this — that one, not this, is what binds on
   # the default topology.
   maxBodySize: 110M
+  # Edge rate limit for the unauthenticated auth endpoints (sign-in, token
+  # refresh, sign-out, password reset, SSO, invite accept) and for /ws/
+  # handshakes (#3852). A coarse flood backstop behind the application's own
+  # throttles; refused requests get 429. Per source address ($remote_addr), so
+  # behind an ingress or load balancer set web.realIpFrom or everyone shares one
+  # bucket. It binds ONLY for traffic that crosses the web tier: the default
+  # ingress.hosts send /api and /ws straight to the API Service.
+  rateLimit:
+    enabled: true
+    auth:
+      rate: 20r/s
+      burst: 100
+    websocket:
+      rate: 20r/s
+      burst: 200
   # Security response headers on everything the web tier serves (#2849).
   #
   # These are NOT redundant with Django's XFrameOptionsMiddleware,

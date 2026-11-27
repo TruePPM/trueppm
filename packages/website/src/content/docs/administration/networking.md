@@ -589,6 +589,53 @@ repeat steps 2 and 3 only.
 The nginx container already reloads itself every 6 hours, so replacing the files
 and waiting is also valid — the explicit reload just makes it immediate.
 
+## Edge rate limits
+
+:::note[Ships in 0.5]
+This section describes limits that ship in 0.5. In the current release the only
+`limit_req` in the shipped nginx configs is on `/admin/`, and the application's
+own throttles are the single rate limit on every other route.
+:::
+
+The application throttles its sign-in and token endpoints itself, and those
+[per-IP and per-account limits](/administration/security/#login-rate-limiting-and-per-account-lockout)
+are the real control. The shipped nginx configs add a coarse flood backstop in
+front of them, which still holds if the cache that stores throttle state is down:
+
+| What | Sustained rate per source address | Burst | Refusal |
+|---|---|---|---|
+| `/api/v1/auth/token/` (and `refresh/`), `/api/v1/auth/logout/`, `/api/v1/auth/password/reset/` (and `confirm/`), `/api/v1/auth/oidc/...`, `/api/v1/workspace/invites/accept/` | 20 requests/second | 100 | `429` |
+| `/ws/` handshakes (an open socket is not counted) | 20 requests/second | 200 | `429` |
+
+The rest of `/api/` is not limited at the edge, including share links and the
+inbound Git-event receiver.
+
+These values are far above normal use on purpose. The key is the address nginx
+sees, so **everyone behind one NAT, load balancer or tunnel shares one bucket**.
+In Helm, set [`web.realIpFrom`](/administration/helm-values/) so nginx sees the
+real client, and tune or disable the limit with `web.rateLimit`:
+
+```yaml
+web:
+  rateLimit:
+    enabled: true
+    auth: { rate: 20r/s, burst: 100 }
+    websocket: { rate: 20r/s, burst: 200 }
+```
+
+For Docker Compose and the published `web` image, edit the `limit_req_zone` and
+`limit_req` lines in the config.
+
+Where the limits apply:
+
+- Docker Compose (HTTP and TLS) and the published `web` image: all traffic.
+- Helm: **only traffic that crosses the web tier.** The default `ingress.hosts`
+  send `/api` and `/ws` straight to the API Service, so these limits do not apply
+  there. Route those paths with `service: web`, or rate limit at your ingress
+  controller.
+- Interactive demo mode: sign-in, refresh and sign-out only. The share-link demo
+  serves no sign-in route and no WebSocket, so it has no limit to apply.
+
 ## WebSockets behind a proxy
 
 Real-time collaboration runs over `wss://<host>/ws/v1/projects/<uuid>/`. The

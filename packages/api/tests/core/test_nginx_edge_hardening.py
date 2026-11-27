@@ -1,9 +1,10 @@
-"""Share-token redaction in the shipped nginx access logs (#5155).
+"""Behavior of the regexes in the shipped nginx configs (#5155, #3852).
 
-The response headers of ``/share/*`` are asserted by
+Headers and ``limit_req`` presence are asserted by
 ``scripts/check-nginx-security-headers.sh``. What that gate cannot say is whether
-the redaction regex actually removes a token, so this applies each config's own
-``map`` patterns to sample log values.
+a regex matches what it is meant to: that the access-log ``map`` removes a share
+token, and that the auth rate-limit location covers real URLs and nothing the SPA
+calls while signed in.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ import re
 from pathlib import Path
 
 import pytest
+from django.urls import resolve
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 
@@ -66,3 +68,46 @@ def test_share_tokens_are_redacted_from_the_access_log(rel: str) -> None:
             "GET /projects/abc/schedule HTTP/1.1",
         ):
             assert _redact(pattern, kind, untouched) == untouched
+
+
+#: Unauthenticated auth routes the edge rate limit must cover (#3852).
+_RATE_LIMITED_PATHS = (
+    "/api/v1/auth/token/",
+    "/api/v1/auth/token/refresh/",
+    "/api/v1/auth/logout/",
+    "/api/v1/auth/password/reset/",
+    "/api/v1/auth/password/reset/confirm/",
+    "/api/v1/auth/oidc/discover/",
+    "/api/v1/auth/oidc/login/",
+    "/api/v1/auth/oidc/callback/",
+    "/api/v1/workspace/invites/accept/",
+)
+
+#: Authenticated, frequently called routes it must never catch.
+_UNLIMITED_PATHS = (
+    "/api/v1/auth/me/",
+    "/api/v1/auth/me/profile/",
+    "/api/v1/workspace/invites/",
+    "/api/v1/projects/",
+)
+
+
+@pytest.mark.parametrize(
+    "rel",
+    [
+        "nginx/app.conf.template",
+        "nginx/app-http.conf.template",
+        "packages/web/nginx.conf",
+        "packages/helm/templates/web/configmap.yaml",
+    ],
+)
+def test_edge_rate_limit_covers_real_auth_routes_only(rel: str) -> None:
+    """A renamed auth URL would otherwise leave the nginx regex limiting nothing."""
+    text = (REPO_ROOT / rel).read_text(encoding="utf-8")
+    patterns = re.findall(r"^\s*location ~ (\^/api/v1/\(auth/\S+) \{$", text, re.MULTILINE)
+    assert len(patterns) == 1, f"{rel}: expected one auth rate-limit location"
+    for path in _RATE_LIMITED_PATHS:
+        resolve(path)
+        assert re.search(patterns[0], path), f"{rel}: {path} is not rate limited"
+    for path in _UNLIMITED_PATHS:
+        assert not re.search(patterns[0], path), f"{rel}: {path} must not be rate limited"
