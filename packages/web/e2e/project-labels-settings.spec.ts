@@ -45,7 +45,7 @@ const ADMIN_MEMBERSHIP = {
 const FIXTURE_LABEL = {
   id: 'label-bug',
   name: 'bug',
-  color: 'red',
+  color: 'rose',
   position: 0,
   server_version: 1,
   task_count: 3,

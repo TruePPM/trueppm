@@ -23,8 +23,8 @@ const PROJECT_ID = 'cmdk-label-proj-00000000-0000-0000-0000-000000002334';
 const PROJECTS: ProjectFixture[] = [{ id: PROJECT_ID, name: 'Atlas Migration' }];
 
 const LABELS = [
-  { id: 'lab-rework', name: 'Rework', color: '#B45309', position: 0, server_version: 1, task_count: 12 },
-  { id: 'lab-review', name: 'Needs review', color: '#1D4ED8', position: 1, server_version: 1, task_count: 1 },
+  { id: 'lab-rework', name: 'Rework', color: 'amber', position: 0, server_version: 1, task_count: 12 },
+  { id: 'lab-review', name: 'Needs review', color: 'blue', position: 1, server_version: 1, task_count: 1 },
 ];
 
 async function setup(page: Page, { inProject = true } = {}): Promise<void> {

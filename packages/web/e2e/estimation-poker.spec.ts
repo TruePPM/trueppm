@@ -55,7 +55,7 @@ const BACKLOG_TASKS = [
     short_id_display: 'T-1',
     name: 'Login redesign',
     wbs_path: '1.1',
-    status: 'TODO',
+    status: 'NOT_STARTED',
     story_points: null,
     is_critical: false,
     assignments: [],

@@ -1076,7 +1076,7 @@ const FIXTURE_NOTIFICATION = {
       display_name: FIXTURE_USER.display_name,
     },
     mentioned_group_key: '',
-    scope: 'individual',
+    scope: 'project_visible',
     task_comment: 'c-source-1',
     created_at: '2026-05-19T12:00:00Z',
   },

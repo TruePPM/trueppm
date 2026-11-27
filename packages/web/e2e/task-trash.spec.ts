@@ -67,7 +67,7 @@ function trashRow(over: Partial<TrashRow> = {}): TrashRow {
     name: 'Pour foundation',
     wbs_path: '1.2',
     type: 'TASK',
-    status: 'TODO',
+    status: 'NOT_STARTED',
     deleted_at: new Date(Date.now() - 3 * 86_400_000).toISOString(),
     days_remaining: 87,
     retention_days: 90,
