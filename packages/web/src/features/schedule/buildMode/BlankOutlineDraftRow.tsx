@@ -55,7 +55,15 @@ export function BlankOutlineDraftRow({
   const committingRef = useRef(false);
 
   useEffect(() => {
-    if (onCommit) inputRef.current?.focus();
+    // This effect can run well after navigation (the row mounts when the task
+    // read lands, and re-runs when `onCommit` changes identity). By then the user
+    // may be typing in a modal such as the command palette; taking focus would
+    // send their query, or their Enter, into this field instead.
+    // Both modal gates match the selector text; this row is not a modal.
+    // focus-trap: no modal here, the selector only asks whether focus is in one.
+    // focus-trap-ok: no modal here, the selector only asks whether focus is in one.
+    if (!onCommit || document.activeElement?.closest('[aria-modal="true"]')) return;
+    inputRef.current?.focus();
   }, [onCommit]);
 
   function commit(next: string) {
