@@ -181,8 +181,9 @@ web:
   # step with this — that one, not this, is what binds on the default topology.
   maxBodySize: 110M
   # Edge rate limit for the unauthenticated auth endpoints (sign-in, token
-  # refresh, sign-out, password reset, SSO, invite accept) and for /ws/
-  # handshakes (#3852). A coarse flood backstop behind the application's own
+  # refresh, sign-out, password reset, SSO, invite accept), for /ws/ handshakes,
+  # and a much looser one for the rest of /api/, share links and the Git-event
+  # receiver included (#3852). A coarse flood backstop behind the application's own
   # throttles; refused requests get 429. Per source address ($remote_addr), so
   # behind an ingress or load balancer set web.realIpFrom or everyone shares one
   # bucket. It binds ONLY for traffic that crosses the web tier: the default
@@ -195,6 +196,11 @@ web:
     websocket:
       rate: 20r/s
       burst: 200
+    # Everything else under /api/. Keep it generous: one page load is dozens of
+    # requests, and everyone behind one NAT shares the bucket.
+    api:
+      rate: 100r/s
+      burst: 1000
   # Security response headers on everything the web tier serves (#2849).
   #
   # These are NOT redundant with Django's XFrameOptionsMiddleware,
@@ -267,8 +273,8 @@ ingress:
   # default IngressClass, if one is marked default.
   className: ""
   # Tight body ceiling for the anonymous Git-event receiver (#2932). The
-  # proxy-body-size annotation below is sized for 100 MB attachments and applies
-  # to every path of its Ingress, so a second Ingress scopes a smaller limit to
+  # proxy-body-size annotation below (2m) applies to every path of its Ingress,
+  # so a second Ingress scopes a still smaller limit to
   # /api/v1/integrations/projects/<id>/git-webhook/. Matches the app's 1 MB cap
   # (real providers send far less); the web tier's nginx enforces the same 1M.
   # ingress-nginx only: it sets use-regex for the host (see templates/ingress.yaml).

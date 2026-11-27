@@ -41,6 +41,13 @@ map $http_x_forwarded_proto $forwarded_proto {
 # the key is $remote_addr and everyone behind one NAT or upstream proxy shares it.
 limit_req_zone $binary_remote_addr zone=trueppm_auth:10m rate=20r/s;
 limit_req_zone $binary_remote_addr zone=trueppm_ws:10m rate=20r/s;
+# Coarse ceiling on the rest of /api/, share links and the Git-event receiver
+# included (#3852). A flood stop, not a quota: an open tab averages under one
+# request a second (polls are 30s or slower), while a page load fires dozens at
+# once and the Schedule fetches pages four at a time. So 100r/s carries a large
+# office behind one NAT, and burst 1000 absorbs about twenty of its users loading
+# a heavy page together. The auth location under /api/ keeps its own, stricter limit.
+limit_req_zone $binary_remote_addr zone=trueppm_api:10m rate=100r/s;
 
 # Access-log redaction for share tokens (#5155). `no-referrer` cannot cover the
 # page and API requests themselves: their paths carry the token. These maps feed
@@ -165,6 +172,10 @@ server {
     }
 
     location /api/ {
+        # Inherited by every nested location that declares no limit of its own (#3852).
+        limit_req zone=trueppm_api burst=1000 nodelay;
+        limit_req_status 429;
+
         proxy_pass         http://api:8000;
         proxy_set_header   Host              $host;
         proxy_set_header   X-Real-IP         $remote_addr;

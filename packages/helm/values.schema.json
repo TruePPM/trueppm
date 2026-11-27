@@ -185,6 +185,18 @@
                   "type": "integer"
                 }
               }
+            },
+            "api": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "rate": {
+                  "type": "string"
+                },
+                "burst": {
+                  "type": "integer"
+                }
+              }
             }
           }
         },

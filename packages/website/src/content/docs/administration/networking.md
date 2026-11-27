@@ -607,9 +607,13 @@ front of them, which still holds if the cache that stores throttle state is down
 |---|---|---|---|
 | `/api/v1/auth/token/` (and `refresh/`), `/api/v1/auth/logout/`, `/api/v1/auth/password/reset/` (and `confirm/`), `/api/v1/auth/oidc/...`, `/api/v1/workspace/invites/accept/` | 20 requests/second | 100 | `429` |
 | `/ws/` handshakes (an open socket is not counted) | 20 requests/second | 200 | `429` |
+| Everything else under `/api/`, including share links and the inbound Git-event receiver | 100 requests/second | 1000 | `429` |
 
-The rest of `/api/` is not limited at the edge, including share links and the
-inbound Git-event receiver.
+A request counts against one row only: the sign-in routes use their own,
+stricter limit and not the general `/api/` one. The general limit is a flood stop
+rather than a quota. A page load sends dozens of requests at once and a large
+schedule is fetched four pages at a time, but an open tab then averages well under
+one request a second.
 
 These values are far above normal use on purpose. The key is the address nginx
 sees, so **everyone behind one NAT, load balancer or tunnel shares one bucket**.
@@ -634,8 +638,9 @@ Where the limits apply:
   send `/api` and `/ws` straight to the API Service, so these limits do not apply
   there. Route those paths with `service: web`, or rate limit at your ingress
   controller.
-- Interactive demo mode: sign-in, refresh and sign-out only. The share-link demo
-  serves no sign-in route and no WebSocket, so it has no limit to apply.
+- Interactive demo mode: sign-in, refresh and sign-out, plus the general `/api/`
+  limit. The share-link demo serves no sign-in route and no WebSocket, so only the
+  general limit applies, to `/api/v1/share/`.
 
 ## WebSockets behind a proxy
 

@@ -365,7 +365,10 @@ assert_permissions_policy() {
 # check_helm), with its own self-test fixtures. A server block that proxies /api/
 # must limit the unauthenticated auth endpoints — either the nested auth regex
 # location, or each of the interactive demo's three exact carve-outs — and one
-# that proxies /ws/ must limit the handshake. Refusals are 429, not nginx's 503.
+# that proxies /ws/ must limit the handshake. Every proxying `location /api/` and
+# share-link location must also carry the coarse `trueppm_api` limit on its OWN
+# level (a limit only in a nested location covers nothing else). Refusals are 429,
+# not nginx's 503.
 AUTH_LOCATION='^/api/v1/(auth/(token|logout|password/reset|oidc)|workspace/invites/accept)/'
 
 assert_limited() {
@@ -382,6 +385,13 @@ assert_edge_rate_limits() {
   blocks="$(printf '%s\n' "$text" | split_server_blocks)"
   for idx in $(printf '%s\n' "$blocks" | cut -f1 | sort -un); do
     body="$(printf '%s\n' "$blocks" | awk -F'\t' -v b="$idx" '$1 == b { sub(/^[^\t]*\t/, ""); print }')"
+    for path in /api/ /api/v1/share/; do
+      api="$(printf '%s\n' "$body" | location_body "$path")"
+      if grep -q 'proxy_pass' <<<"$api"; then
+        assert_limited "$label" "location $path (its own level)" trueppm_api \
+          "$(printf '%s\n' "$api" | server_level_lines)"
+      fi
+    done
     api="$(printf '%s\n' "$body" | location_body "/api/")"
     ws="$(printf '%s\n' "$body" | location_body "/ws/")"
     if grep -q 'proxy_pass' <<<"$api"; then
@@ -401,7 +411,7 @@ assert_edge_rate_limits() {
       assert_limited "$label" "location /ws/" trueppm_ws "$ws"
     fi
   done
-  for zone in trueppm_auth trueppm_ws; do
+  for zone in trueppm_auth trueppm_ws trueppm_api; do
     if grep -qE "limit_req +zone=$zone " <<<"$text" \
       && ! grep -qE "^ *limit_req_zone +\\\$binary_remote_addr +zone=$zone:" <<<"$text"; then
       viol "$label" "uses zone $zone but declares no \`limit_req_zone\` for it (#3852)."
@@ -1217,13 +1227,21 @@ CONF
   local lim='        limit_req zone=trueppm_ws burst=5 nodelay;
         limit_req_status 429;'
   local zones='limit_req_zone $binary_remote_addr zone=trueppm_auth:1m rate=1r/s;
-limit_req_zone $binary_remote_addr zone=trueppm_ws:1m rate=1r/s;'
-  printf '%s\nserver {\n    location /api/ {\n        proxy_pass http://api;\n        location ~ %s {\n%s\n            proxy_pass http://api;\n        }\n    }\n    location /ws/ {\n%s\n        proxy_pass http://api;\n    }\n}\n' \
-    "$zones" "$AUTH_LOCATION" "${lim//trueppm_ws/trueppm_auth}" "$lim" >"$tmp/good_limits.conf"
+limit_req_zone $binary_remote_addr zone=trueppm_ws:1m rate=1r/s;
+limit_req_zone $binary_remote_addr zone=trueppm_api:1m rate=1r/s;'
+  local apilim="${lim//trueppm_ws/trueppm_api}"
+  printf '%s\nserver {\n    location ^~ /api/v1/share/ {\n%s\n        proxy_pass http://api;\n    }\n    location /api/ {\n%s\n        proxy_pass http://api;\n        location ~ %s {\n%s\n            proxy_pass http://api;\n        }\n    }\n    location /ws/ {\n%s\n        proxy_pass http://api;\n    }\n}\n' \
+    "$zones" "$apilim" "$apilim" "$AUTH_LOCATION" "${lim//trueppm_ws/trueppm_auth}" "$lim" >"$tmp/good_limits.conf"
   sed '/limit_req zone=trueppm_auth/d' "$tmp/good_limits.conf" >"$tmp/bad_limit_auth.conf"
   sed '/limit_req zone=trueppm_ws/d' "$tmp/good_limits.conf" >"$tmp/bad_limit_ws.conf"
   sed 's/limit_req_status 429/limit_req_status 503/' "$tmp/good_limits.conf" >"$tmp/bad_limit_status.conf"
   sed '/^limit_req_zone/d' "$tmp/good_limits.conf" >"$tmp/bad_limit_zone.conf"
+  # Drop the coarse limit from one location at a time: the first occurrence is the
+  # share location's, the second /api/'s. The nested auth limit stays in both.
+  awk '/limit_req zone=trueppm_api/ && ++n == 1 { next } { print }' \
+    "$tmp/good_limits.conf" >"$tmp/bad_limit_share.conf"
+  awk '/limit_req zone=trueppm_api/ && ++n == 2 { next } { print }' \
+    "$tmp/good_limits.conf" >"$tmp/bad_limit_api.conf"
   limit_probe() {
     violations=0
     assert_edge_rate_limits "$1" "$(cat "$tmp/$1")" >/dev/null 2>&1
@@ -1241,6 +1259,8 @@ limit_req_zone $binary_remote_addr zone=trueppm_ws:1m rate=1r/s;'
   limit_probe bad_limit_ws.conf     1 "unthrottled /ws/ rejected (#3852)"
   limit_probe bad_limit_status.conf 1 "503 refusals rejected (#3852)"
   limit_probe bad_limit_zone.conf   1 "undeclared zone rejected (#3852)"
+  limit_probe bad_limit_api.conf    1 "unlimited proxying /api/ rejected even with a limited nested location (#3852)"
+  limit_probe bad_limit_share.conf  1 "unlimited proxying share location rejected (#3852)"
 
   probe bad_noshare.conf        1 "SPA with no /share/ location rejected (#5155)"
   probe bad_share_policy.conf   1 "/share/ with the site-wide Referrer-Policy rejected (#5155)"

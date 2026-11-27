@@ -95,6 +95,9 @@ data:
     # the key is $remote_addr and everyone behind one NAT or upstream proxy shares it.
     limit_req_zone $binary_remote_addr zone=trueppm_auth:10m rate={{ $rl.auth.rate }};
     limit_req_zone $binary_remote_addr zone=trueppm_ws:10m rate={{ $rl.websocket.rate }};
+    # Coarse ceiling on the rest of /api/, share links and the Git-event receiver
+    # included (web.rateLimit.api): sized far above SPA traffic.
+    limit_req_zone $binary_remote_addr zone=trueppm_api:10m rate={{ $rl.api.rate }};
     {{- end }}
 
     # Access-log redaction for share tokens (#5155). `no-referrer` cannot cover the
@@ -274,6 +277,10 @@ data:
         # GET. Any other method is refused by nginx itself, before the request
         # ever reaches Django or DemoReadOnlyMiddleware.
         location /api/ {
+            {{- if $rl.enabled }}
+            limit_req zone=trueppm_api burst={{ $rl.api.burst }} nodelay;
+            limit_req_status 429;
+            {{- end }}
             limit_except GET HEAD OPTIONS {
                 deny all;
             }
@@ -363,6 +370,13 @@ data:
     # proxies and $remote_addr is recovered from X-Forwarded-For (#2592, #2593);
     # see trueppm.web.proxyTrust in _helpers.tpl.
     {{- include "trueppm.web.proxyTrust" . | trim | nindent 4 }}
+    {{- $rl := .Values.web.rateLimit | default dict }}
+    {{- if $rl.enabled }}
+
+    # Coarse ceiling on the public share-link API (#3852), the one data route this
+    # demo serves: a flood stop behind the share views' own throttles.
+    limit_req_zone $binary_remote_addr zone=trueppm_api:10m rate={{ $rl.api.rate }};
+    {{- end }}
 
     # Access-log redaction for share tokens (#5155). `no-referrer` cannot cover the
     # page and API requests themselves: their paths carry the token. These maps feed
@@ -528,6 +542,10 @@ data:
         # The ONLY public data plane: anonymous, read-only, throttled, GET-only
         # share projections. Self-contained — the share pages fetch nothing else.
         location ^~ /api/v1/share/ {
+            {{- if $rl.enabled }}
+            limit_req zone=trueppm_api burst={{ $rl.api.burst }} nodelay;
+            limit_req_status 429;
+            {{- end }}
             proxy_pass         http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
             proxy_set_header   Host              $host;
             proxy_set_header   X-Real-IP         $remote_addr;
@@ -596,6 +614,9 @@ data:
     # the key is $remote_addr and everyone behind one NAT or upstream proxy shares it.
     limit_req_zone $binary_remote_addr zone=trueppm_auth:10m rate={{ $rl.auth.rate }};
     limit_req_zone $binary_remote_addr zone=trueppm_ws:10m rate={{ $rl.websocket.rate }};
+    # Coarse ceiling on the rest of /api/, share links and the Git-event receiver
+    # included (web.rateLimit.api): sized far above SPA traffic.
+    limit_req_zone $binary_remote_addr zone=trueppm_api:10m rate={{ $rl.api.rate }};
     {{- end }}
 
     # Access-log redaction for share tokens (#5155). `no-referrer` cannot cover the
@@ -687,6 +708,11 @@ data:
 
         # Proxy API calls to the Django backend (release-scoped Service DNS).
         location /api/ {
+            # Inherited by every nested location that declares no limit of its own (#3852).
+            {{- if $rl.enabled }}
+            limit_req zone=trueppm_api burst={{ $rl.api.burst }} nodelay;
+            limit_req_status 429;
+            {{- end }}
             proxy_pass http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
