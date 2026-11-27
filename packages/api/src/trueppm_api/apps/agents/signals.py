@@ -26,7 +26,8 @@ from django.dispatch import Signal
 #: Rows of ``actor_kind="person"`` (#4814, ADR-0112 amendment of 2026-11-23) also reach
 #: receivers: a person paused, resumed, re-scoped or revoked an agent. On those rows
 #: ``actor_token`` is the agent acted on (not the caller's credential), ``principal`` is
-#: its owner, ``capability_used`` is ``"agent:control"``, ``action`` is ``agent.pause`` /
+#: its owner (``None`` when a project or program token is revoked, #5109),
+#: ``capability_used`` is ``"agent:control"``, ``action`` is ``agent.pause`` /
 #: ``agent.resume`` / ``agent.scope_edit`` / ``agent.revoke``, and the acting person is
 #: named only in the hashed ``summary``. ``SCHEMA_VERSION`` is unchanged; a receiver must
 #: branch on ``actor_kind`` rather than read every row as an agent's own action.

@@ -164,9 +164,18 @@ including the agent's own, so an agent cannot resume itself or widen its own sco
 Every pause, resume, scope change and revoke made on this page is written to the
 same tamper-evident chain as the agent's own calls, with who made it and why. The
 record belongs to the person the agent acts for — it appears in their action log
-beside the agent's calls — and names the person who made the change. Revoking a
-token elsewhere, such as under **Settings › API tokens**, is not written to this
-chain yet.
+beside the agent's calls — and names the person who made the change.
+
+A revoke is written to the chain wherever it happens, not only on this page. Revoking
+an agent's token under **Settings › API tokens**, or a project's or program's agent
+token in its settings, records who revoked it and from where. So does a sweep that
+revokes all of a person's tokens at once, a password reset or an Admin's off-boarding,
+which records the reason (`password_reset`, `offboarding`). An operator running
+`manage.py revoke_api_tokens` is recorded as a server operator, with the reason
+`operator_bulk_revoke`. A project token's revoke appears in that project's agent log.
+A program token's revoke has no person or project to file it under, so it is in the
+chain that `audit_verify` checks but in no one's action log. A token with full API
+access is not an agent, and its revoke is recorded only in the token audit log.
 
 For a workspace Admin, the line under the page title — **Action log verified · N
 records · as of …** — is the result of the same check as `audit_verify`, run by the

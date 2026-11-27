@@ -385,7 +385,7 @@ class Command(BaseCommand):
                 to_revoke = list(
                     self._resolve_scope(options, None)[0]
                     .select_for_update()
-                    .only("pk", "token_prefix", "name", "owner", "project", "program")
+                    .only("pk", "token_prefix", "name", "scopes", "owner", "project", "program")
                 )
                 revoked = ApiToken.objects.filter(
                     pk__in=[token.pk for token in to_revoke], revoked_at__isnull=True
@@ -408,6 +408,15 @@ class Command(BaseCommand):
                         for token in to_revoke
                     ]
                 )
+                # Agent tokens also get their chain row, in this transaction (#5109).
+                # layering-ok: the revoke and its chain row must commit together; an
+                # extension-signal receiver would run outside this transaction.
+                from trueppm_api.apps.agents.control import record_token_revoke
+
+                for token in to_revoke:
+                    record_token_revoke(
+                        token, None, reason=REASON, via="the revoke_api_tokens command"
+                    )
             links_revoked = secrets_cleared = webhooks_deactivated = 0
             refresh_revoked = sockets_evicted = 0
             if options["all"]:

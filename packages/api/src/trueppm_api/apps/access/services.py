@@ -732,7 +732,7 @@ def revoke_all_personal_access_tokens(
             is_deleted=False,
             revoked_at__isnull=True,
         )
-        .only("pk", "token_prefix", "name")
+        .only("pk", "token_prefix", "name", "scopes", "owner", "project")
     )
     if not doomed:
         return 0
@@ -754,6 +754,23 @@ def revoke_all_personal_access_tokens(
             for token in doomed
         ]
     )
+    # Each agent token among them also gets its ``agent.revoke`` chain row, in the
+    # caller's transaction, so a password reset or off-boarding that contained an agent
+    # is on the record the agent's own calls are on (#5109). ``owner`` is set from
+    # ``user`` so the row's principal needs no extra query per token.
+    # layering-ok: the revoke and its chain row must commit together; an
+    # extension-signal receiver would run outside this transaction.
+    from trueppm_api.apps.agents.control import record_token_revoke
+
+    for token in doomed:
+        token.owner = user
+        record_token_revoke(
+            token,
+            actor,
+            reason=reason,
+            via="an account-wide revoke",
+            source_ip=source_ip,
+        )
     return revoked
 
 

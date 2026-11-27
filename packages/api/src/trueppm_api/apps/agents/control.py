@@ -13,7 +13,9 @@ A control row's ``principal`` is the **agent's** principal (its owner), not the 
 who acted, so the row lands in the owner's own ``/agent-actions/`` log beside the
 agent's calls. The acting person is named, with their user id, in the hashed
 ``summary``: an Admin pausing Alice's agent writes a row in Alice's log that says the
-Admin did it, and the chain proves that sentence was not edited afterwards.
+Admin did it, and the chain proves that sentence was not edited afterwards. A revoke
+is recorded the same way from every path that revokes a token, not only this one
+(:func:`record_token_revoke`, #5109).
 
 Who may act (the "decision for the architect" on #4814, settled here):
 
@@ -31,6 +33,7 @@ agent can never resume itself, widen its own scope or revoke another agent.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
@@ -138,29 +141,52 @@ def display_name(user: Any) -> str:
 
 
 def _record_control(
-    request: Request, token: ApiToken, actor: Any, action: str, summary: str
+    request: Request | None,
+    token: ApiToken,
+    actor: Any,
+    action: str,
+    summary: str,
+    *,
+    project_id: Any | None = None,
+    source_ip: str | None = None,
+    payload: dict[str, Any] | None = None,
 ) -> None:
     """Append the control event to the hash chain, in the caller's transaction.
 
     ``principal`` is the agent's owner; ``actor`` is named in ``summary`` (see the
     module docstring). ``actor`` is accepted so the call sites read as who-did-what.
+
+    ``request`` is ``None`` for a revoke that no HTTP request of this agent's carries:
+    an account-wide sweep (password reset, off-boarding) runs in a service with no
+    request, and ``revoke_api_tokens`` runs from a shell. The row then records no
+    method, the ``source_ip`` its caller supplies, and a ``payload_hash`` over
+    ``payload`` (the facts of the revoke), so it is still reproducible from the row.
     """
     from trueppm_api.core.throttling import resolve_client_ip
 
     del actor  # recorded in the summary by the caller
+    if request is not None:
+        method = request.method or "POST"
+        payload_hash = hash_request_payload(request)
+        source_ip = resolve_client_ip(request)
+    else:
+        method = ""
+        canonical = json.dumps(payload or {}, sort_keys=True, separators=(",", ":"), default=str)
+        payload_hash = hashlib.sha256(canonical.encode()).hexdigest()
     record_agent_action(
         actor_kind=AgentActorKind.PERSON,
         actor_token=token,
         principal=token.owner,
         action=action,
-        method=request.method or "POST",
+        method=method,
         capability_used=CONTROL_CAPABILITY,
         verdict=AgentActionVerdict.ALLOWED,
-        payload_hash=hash_request_payload(request),
+        payload_hash=payload_hash,
         object_type="ApiToken",
         object_id=str(token.pk),
+        project_id=project_id,
         summary=summary,
-        source_ip=resolve_client_ip(request),
+        source_ip=source_ip,
     )
 
 
@@ -280,15 +306,82 @@ def revoke(request: Request, token: ApiToken, actor: Any, reason: str = "") -> A
                     "via": "agents",
                 },
             )
-            _record_control(
-                request,
-                row,
-                actor,
-                "agent.revoke",
-                f"Agent {row.name} (tppm_{row.token_prefix}) token revoked by "
-                f"{_actor_label(actor)}." + _reason_suffix(reason),
-            )
+            record_token_revoke(row, actor, reason=reason, request=request)
     return row
+
+
+def record_token_revoke(
+    token: ApiToken,
+    actor: Any,
+    *,
+    reason: str = "",
+    via: str = "",
+    request: Request | None = None,
+    source_ip: str | None = None,
+) -> bool:
+    """Record a token revoke in the agent hash chain, if the token is an agent (#5109).
+
+    The one writer of the ``agent.revoke`` chain row, for every path that revokes a
+    token: the Agents page (:func:`revoke`), the personal and project/program token
+    settings, the account-wide sweep that password reset, off-boarding and
+    ``create_admin`` share (``revoke_all_personal_access_tokens``), and
+    ``revoke_api_tokens``. Before #5109 only the Agents page wrote one, so an agent
+    revoked from its token settings, or contained by a password reset, left a chain
+    that showed it acting and then going quiet, with nothing proving who stopped it.
+
+    Must be called in the transaction that flips ``revoked_at``, after the flip, so the
+    revoke and its record commit or roll back together, and only by the caller whose
+    write actually revoked the token (each path already gates on that), so a
+    re-revoke writes nothing.
+
+    "Agent" is :func:`~trueppm_api.apps.projects.models.is_agent_token`, the same
+    predicate that decides whether a token's own calls are recorded: any token without
+    the full scope, owner-scoped or not. A full-scope token is the owner's own script,
+    whose calls the chain never records, so its revoke is not recorded either; it
+    keeps its ``ApiTokenAuditEntry`` row like every token. A project token's row carries
+    its project, so it lands in that project's agent log beside the token's calls; a
+    program token's row has neither principal nor project and is reachable through the
+    chain (``audit_verify``) only.
+
+    Args:
+        token: The revoked token, with ``scopes``, ``owner``, ``project_id``,
+            ``name`` and ``token_prefix`` loaded.
+        actor: The person who revoked it, or ``None`` for a server-side operation
+            (``revoke_api_tokens``, ``create_admin``), which has no user account.
+        reason: Free text from the Agents page, or a machine reason
+            (``password_reset``, ``offboarding``, ``operator_bulk_revoke``).
+        via: Which surface revoked it, written into the hashed summary. Empty for the
+            Agents page.
+        request: The request that revoked it, when there is one.
+        source_ip: The client IP when there is no ``request`` but the caller knows it.
+
+    Returns:
+        Whether a chain row was written.
+    """
+    from trueppm_api.apps.projects.models import is_agent_token
+
+    if not is_agent_token(token):
+        return False
+    who = _actor_label(actor) if actor is not None else "a server operator (no user account)"
+    where = f" via {via}" if via else ""
+    _record_control(
+        request,
+        token,
+        actor,
+        "agent.revoke",
+        f"Agent {token.name} (tppm_{token.token_prefix}) token revoked by {who}{where}."
+        + _reason_suffix(reason),
+        project_id=token.project_id,
+        source_ip=source_ip,
+        payload={
+            "action": "agent.revoke",
+            "token": str(token.pk),
+            "actor": getattr(actor, "pk", None),
+            "via": via,
+            "reason": reason,
+        },
+    )
+    return True
 
 
 def notify_refusal(action: AgentAction) -> None:
