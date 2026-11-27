@@ -64,6 +64,7 @@ from trueppm_api.apps.projects.models import (
 from trueppm_api.apps.webhooks.models import Webhook
 from trueppm_api.apps.workspace.models import InviteStatus, WorkspaceInvite
 from trueppm_api.core.credential_cutoff import (
+    issued_before_cutoff,
     lock_and_recheck_credential_cutoff,
     mark_credentials_revoked,
 )
@@ -174,8 +175,19 @@ def _clear_cache() -> Any:
 
 @pytest.fixture(autouse=True)
 def _no_real_ticket_store() -> Any:
-    """Keep the ws-ticket mint off Valkey and let tests see whether a ticket was issued."""
-    with patch("trueppm_api.apps.sync.views.issue_ticket", return_value="race-ticket") as mint:
+    """Keep the ws-ticket mint off Valkey and record when each ticket was issued.
+
+    ``issued_at`` holds the ``time.time()`` of every issue, standing in for the issue
+    time the handshake derives from the stored ticket.
+    """
+    issued_at: list[float] = []
+
+    def _issue(user_id: str) -> str:
+        issued_at.append(time.time())
+        return "race-ticket"
+
+    with patch("trueppm_api.apps.sync.views.issue_ticket", side_effect=_issue) as mint:
+        mint.issued_at = issued_at
         yield mint
 
 
@@ -393,18 +405,28 @@ def test_ws_ticket_mint_during_an_open_reset_issues_no_ticket(
 
 @pytest.mark.parametrize("mint", _MINTS, ids=lambda m: m.id)
 def test_reset_waits_for_an_in_flight_mint_and_sweeps_what_it_wrote(
-    mint: _Mint, user: Any, project: Project, program: Program
+    mint: _Mint, user: Any, project: Project, program: Program, _no_real_ticket_store: Any
 ) -> None:
     """Mint holds the profile lock mid-request; the reset must wait, then revoke it.
 
     Project and program tokens are org assets the reset deliberately never revokes
     (``live`` is ``None``): for those this proves only that the reset serialized behind
     the mint and the mint completed.
+
+    A WebSocket ticket has no row to sweep, so for it this asserts the ticket was
+    issued at or before the cutoff the reset stored.
     """
     out = _mint_first(mint, "view", _post(mint, project, program), user)
     assert out["resp"].status_code == mint.success, (mint.id, out["resp"].data)
     if mint.live is not None:
         assert not mint.live(user), f"{mint.id} survived the reset's sweep"
+    if mint.id == "ws-ticket":
+        (issued,) = _no_real_ticket_store.issued_at
+        cutoff = UserProfile.objects.get(user=user).credentials_revoked_at
+        assert cutoff is not None
+        assert issued_before_cutoff(issued, cutoff, whole_seconds=False), (
+            "the ticket postdates the cutoff, so the handshake would accept it"
+        )
 
 
 _SWEPT = [m for m in _MINTS if m.live is not None]
