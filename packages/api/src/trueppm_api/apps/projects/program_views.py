@@ -501,7 +501,9 @@ def _read_seed_multipart(
     head = upload.read(len(AGE_MAGIC))
     upload.seek(0)
     if is_encrypted(head):
-        upload, problem = _decrypt_upload(upload, request.data.get("passphrase"))
+        fields = request.data
+        passphrase = fields.get("passphrase") if isinstance(fields, dict) else None
+        upload, problem = _decrypt_upload(upload, passphrase)
         if problem is not None:
             return None, problem
     # An export bundle (.tar.gz, gzip magic) is verified against its integrity
