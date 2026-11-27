@@ -297,6 +297,23 @@ describe('#5104 driver lookup and phone layout', () => {
     expect(screen.getByTestId('not-computable')).toHaveTextContent('Cost variance');
   });
 
+  it('keeps the driver inside one child of the flex link, and sets the three peer dates alike', async () => {
+    h.bp = 'sm';
+    h.mc = {
+      data: { ...MC, sensitivity: [{ taskId: 't9', index: 0.8 }] },
+      isLoading: false,
+      error: null,
+    };
+    renderPage();
+    const link = await screen.findByRole('link', { name: /Why this date\?/ });
+    // jsdom has no flex layout: the structure is what keeps the space (the screenshot shows it).
+    expect(link.childNodes).toHaveLength(1);
+    expect(link.firstChild?.textContent).toBe('Why this date? Biggest driver: Pour foundation');
+    const dates = screen.getAllByTestId('overview2-peer-date');
+    expect(dates).toHaveLength(3);
+    for (const date of dates) expect(date).toHaveClass('text-xs', 'font-mono', 'tabular-nums');
+  });
+
   it('keeps the wide layout above the phone breakpoint', async () => {
     renderPage();
     expect(await screen.findByTestId('overview2-lead')).toHaveAttribute('data-layout', 'wide');
