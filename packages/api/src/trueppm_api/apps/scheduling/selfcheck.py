@@ -299,6 +299,7 @@ def run_post_recompute_selfcheck(
             return None
         if not _within_envelope(len(result.tasks)):
             return None
+        # layering-ok: the OTel metric sink, a no-op unless telemetry is enabled
         from trueppm_api.apps.observability.otel.metrics import (
             record_selfcheck_run,
             record_selfcheck_violation,
