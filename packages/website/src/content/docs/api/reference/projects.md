@@ -183,8 +183,13 @@ sent as a file download.
 |---|---|---|
 | `format_version` | `integer` | Contract version of this payload (`1`) |
 | `engine_version` | `string` | The `trueppm-scheduler` version installed on the server |
-| `engine_input` | `object` | The `trueppm_scheduler.Project` JSON the CPM pass schedules, loadable with `Project.from_json`. The project is named `redacted`, tasks `task-1`, `task-2` and so on; ids are kept. The team's velocity inputs (`velocity_samples`, `sprint_length_days`) and each task's `story_points` and `delivery_mode` are `null`: the CPM pass does not read them. A field the server has not classified as safe to export is left out |
-| `verdict` | `object` | The [scheduler self-check](/administration/observability/#scheduler-self-check) on this schedule: `engine_version`, `task_count`, `checks` (each `pass`, `fail`, `skipped` or `error`), `violations`, and `skipped_reason: "above_envelope"` when the project is over the self-check task ceiling |
+| `engine_input` | `object` | The `trueppm_scheduler.Project` JSON the CPM pass schedules, loadable with `Project.from_json`. The project is named `redacted`, tasks `task-1`, `task-2` and so on; ids are kept. The team's velocity inputs (`velocity_samples`, `sprint_length_days`) and each task's `story_points` and `delivery_mode` are `null`: the CPM pass does not read them. Calendar `hours_per_day` and `timezone` are always `8.0` and `"UTC"`, since the engine ignores them. A field the server has not classified as safe to export is left out |
+| `verdict` | `object` | The [scheduler self-check](/administration/observability/#scheduler-self-check) on this schedule: `engine_version`, `task_count`, `checks` (each `pass`, `fail`, `skipped` or `error`; the Monte Carlo check is also `skipped` when the network is over the server's Monte Carlo size cap), `violations`, and `skipped_reason: "above_envelope"` when the project is over the self-check task ceiling |
+
+The file includes calendar non-working date ranges, real schedule dates (including
+sprint start dates used as planned starts), task progress and three-point estimates.
+A single-project export does not include cross-project dependencies, so a date merged
+across a program may not reproduce from it.
 
 See [How to report a scheduling bug](/overview/known-issues/#how-to-report-a-scheduling-bug).
 

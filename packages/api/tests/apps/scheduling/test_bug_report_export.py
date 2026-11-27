@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import secrets
 from datetime import date
 from typing import Any
 from unittest import mock
@@ -22,7 +23,10 @@ from trueppm_scheduler import Project as SchedProject
 from trueppm_scheduler import SchedulerError
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
+from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
 from trueppm_api.apps.projects.models import (
+    SCOPE_MCP_READ,
+    ApiToken,
     Calendar,
     DeliveryMode,
     Dependency,
@@ -148,6 +152,50 @@ class TestExport:
 
     def test_anonymous_is_refused(self, project: Project) -> None:
         assert APIClient().get(url(project.pk)).status_code in (401, 403)
+
+    @pytest.mark.parametrize("kind", ["mcp_read", "project"])
+    def test_api_tokens_get_401(self, project: Project, tasks: list[Task], kind: str) -> None:
+        owner = User.objects.create_user(username="token-owner", password="pw")
+        ProjectMembership.objects.create(project=project, user=owner, role=Role.OWNER)
+        raw = f"{TOKEN_PREFIX}{secrets.token_hex(32)}"
+        scope: dict[str, Any] = (
+            {"owner": owner, "scopes": [SCOPE_MCP_READ]}
+            if kind == "mcp_read"
+            else {"project": project}
+        )
+        ApiToken.objects.create(
+            name="t",
+            token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
+            token_hash=sha256_hex(raw),
+            created_by=owner,
+            **scope,
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+        assert client.get(url(project.pk)).status_code == 401
+
+    def test_calendar_hours_and_timezone_are_constants(
+        self, project: Project, tasks: list[Task]
+    ) -> None:
+        from trueppm_scheduler import schedule
+
+        from trueppm_api.apps.scheduling.views import _build_cpm_sched_inputs
+
+        calendar = project.calendar
+        assert calendar is not None
+        calendar.hours_per_day = 6
+        calendar.timezone = "Pacific/Auckland"
+        calendar.save()
+        project.refresh_from_db()
+        armed = _build_cpm_sched_inputs(project, str(project.pk))[0]
+        assert armed.calendar.timezone == "Pacific/Auckland"
+
+        doc = _client(project, Role.SCHEDULER).get(url(project.pk)).json()["engine_input"]
+        assert doc["calendar"]["hours_per_day"] == 8.0
+        assert doc["calendar"]["timezone"] == "UTC"
+        reproduced = schedule(SchedProject.from_json(json.dumps(doc)))
+        dates = lambda r: {t.id: (t.early_start, t.early_finish) for t in r.tasks}  # noqa: E731
+        assert dates(reproduced) == dates(schedule(armed))
 
     def test_trashed_project_is_404(self, project: Project, tasks: list[Task]) -> None:
         client = _client(project, Role.OWNER)

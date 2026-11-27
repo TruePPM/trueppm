@@ -56,7 +56,7 @@ import dataclasses
 import logging
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import timedelta
 from typing import Any
 
@@ -251,11 +251,22 @@ def zero_variance_project(project: Any) -> Any:
     return dataclasses.replace(project, tasks=tasks, velocity_samples=None, sprint_length_days=None)
 
 
-def check_zero_variance_mc(project: Any, result: Any) -> bool:
-    """``True`` when a zero-variance Monte Carlo lands P50/P80/P95 on the CPM finish."""
+def check_zero_variance_mc(
+    project: Any, result: Any, *, max_lag_delta_cells: int | None = None
+) -> bool:
+    """``True`` when a zero-variance Monte Carlo lands P50/P80/P95 on the CPM finish.
+
+    Raises:
+        SimulationCapExceeded: the network is over ``max_lag_delta_cells``
+            (``None`` leaves the library default). ``evaluate`` reports that as
+            ``skipped``: a size cap is not evidence about the engine.
+    """
     from trueppm_scheduler import monte_carlo
 
-    mc = monte_carlo(zero_variance_project(project), runs=ZERO_VARIANCE_MC_RUNS, seed=0)
+    caps: dict[str, Any] = (
+        {} if max_lag_delta_cells is None else {"max_lag_delta_cells": max_lag_delta_cells}
+    )
+    mc = monte_carlo(zero_variance_project(project), runs=ZERO_VARIANCE_MC_RUNS, seed=0, **caps)
     return all(mc.percentiles[p].date == result.project_finish for p in (50, 80, 95))
 
 
@@ -270,6 +281,7 @@ def evaluate(
     *,
     run_sampled: Callable[[str], bool],
     after_sampled: Callable[[str, float], None] | None = None,
+    mc_kwargs: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run the checks and return a verdict; never raises.
 
@@ -278,14 +290,19 @@ def evaluate(
         result: Its ``ScheduleResult``.
         run_sampled: Decides, per expensive check, whether to run it this time.
         after_sampled: Called with each expensive check's name and wall-clock
-            seconds once it has run (pass, fail or error).
+            seconds once it has run (pass, fail, over-cap or error).
+        mc_kwargs: The API's request-path ``monte_carlo()`` caps for the
+            zero-variance check.
 
     Returns:
         ``{"engine_version", "task_count", "checks": {name: "pass"|"fail"|"skipped"|
         "error"}, "violations": [names]}``. ``violations`` lists failed checks and,
         as ``selfcheck_error``, any check that raised.
     """
+    from trueppm_scheduler import SimulationCapExceeded
+
     checks: dict[str, str] = {}
+    caps = dict(mc_kwargs or {})
     cheap: dict[str, Callable[[], bool]] = {
         NEGATIVE_FLOAT: lambda: check_negative_float(result),
         CRITICAL_FLOAT_MISMATCH: lambda: check_critical_float(result),
@@ -293,7 +310,7 @@ def evaluate(
     }
     sampled: dict[str, Callable[[], bool]] = {
         RECOMPUTE_NOT_IDEMPOTENT: lambda: check_idempotent(project, result),
-        ZERO_VARIANCE_MC_MISMATCH: lambda: check_zero_variance_mc(project, result),
+        ZERO_VARIANCE_MC_MISMATCH: lambda: check_zero_variance_mc(project, result, **caps),
     }
     for name, fn in [*cheap.items(), *sampled.items()]:
         if name in sampled and not run_sampled(name):
@@ -302,6 +319,8 @@ def evaluate(
         started = time.perf_counter()
         try:
             checks[name] = "pass" if fn() else "fail"
+        except SimulationCapExceeded:
+            checks[name] = "skipped"
         except Exception:
             # Telemetry must never destabilize the recompute it observes.
             logger.warning("scheduler self-check %s raised", name, exc_info=True)
@@ -319,10 +338,13 @@ def evaluate(
     }
 
 
-def full_verdict(project: Any, result: Any) -> dict[str, Any]:
+def full_verdict(
+    project: Any, result: Any, *, mc_kwargs: Mapping[str, Any] | None = None
+) -> dict[str, Any]:
     """Every check, unsampled, for the bug-report export. Never raises.
 
     Above the sizing envelope the checks are skipped and the verdict says so.
+    ``mc_kwargs`` bounds the zero-variance Monte Carlo as in :func:`evaluate`.
     """
     if not _within_envelope(len(result.tasks)):
         return {
@@ -332,7 +354,7 @@ def full_verdict(project: Any, result: Any) -> dict[str, Any]:
             "violations": [],
             "skipped_reason": "above_envelope",
         }
-    return evaluate(project, result, run_sampled=lambda _name: True)
+    return evaluate(project, result, run_sampled=lambda _name: True, mc_kwargs=mc_kwargs)
 
 
 def run_post_recompute_selfcheck(
@@ -369,6 +391,7 @@ def run_post_recompute_selfcheck(
             record_selfcheck_run,
             record_selfcheck_violation,
         )
+        from trueppm_api.apps.scheduling.views import _mc_lag_delta_kwargs
 
         share = float(getattr(settings, "SCHEDULER_SELFCHECK_BUDGET_SHARE", 0.25))
         _budget.deposit(share * cpm_seconds)
@@ -385,7 +408,13 @@ def run_post_recompute_selfcheck(
         def _after_sampled(name: str, elapsed: float) -> None:
             _budget.settle(name, cpm_seconds, reserved.pop(name, 0.0), elapsed)
 
-        verdict = evaluate(project, result, run_sampled=_run_sampled, after_sampled=_after_sampled)
+        verdict = evaluate(
+            project,
+            result,
+            run_sampled=_run_sampled,
+            after_sampled=_after_sampled,
+            mc_kwargs=_mc_lag_delta_kwargs(),
+        )
         for name, outcome in verdict["checks"].items():
             if outcome != "skipped":
                 record_selfcheck_run(name)

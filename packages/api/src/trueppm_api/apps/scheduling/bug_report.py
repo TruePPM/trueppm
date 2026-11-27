@@ -9,6 +9,10 @@ version. It is what turns "a date looks wrong" into a fixture a maintainer can r
 **Redaction is the trust boundary.** The file is meant to be attached to a public
 issue, and it is downloadable by every Scheduler+ member. It must therefore carry only
 what reproduces the CPM pass, and nothing a project reader would be refused elsewhere.
+That still includes real schedule dates (sprint start dates among them, folded into
+``planned_start``), calendar non-working date ranges, progress and three-point
+estimates. Only this project's network is exported: cross-project dependencies are not,
+so a date set by a program-merged pass may not reproduce from the file.
 :func:`redact_engine_input` works from an allow-list: every key that
 ``Project/Task/Dependency/Calendar/DateRange.to_dict()`` emits is classified in the
 ``*_FIELDS`` tables below as kept, replaced (a human label) or nulled, and a key the
@@ -60,6 +64,11 @@ NULL = "null"
 
 
 @dataclass(frozen=True)
+class _Const:
+    value: Any
+
+
+@dataclass(frozen=True)
 class _One:
     fields: Mapping[str, Any]
 
@@ -79,9 +88,10 @@ DATE_RANGE_FIELDS: Mapping[str, Any] = {"start": KEEP, "end": KEEP}
 CALENDAR_FIELDS: Mapping[str, Any] = {
     "working_days": KEEP,
     "exceptions": _Each(DATE_RANGE_FIELDS),
-    # Reserved-but-inert in the engine; neither identifies a person.
-    "hours_per_day": KEEP,
-    "timezone": KEEP,
+    # Reserved-but-inert in the engine, and a timezone can place a team: emit the
+    # engine's defaults, never the stored values.
+    "hours_per_day": _Const(8.0),
+    "timezone": _Const("UTC"),
 }
 
 DEPENDENCY_FIELDS: Mapping[str, Any] = {
@@ -140,6 +150,8 @@ PROJECT_FIELDS: Mapping[str, Any] = {
 
 
 def _apply(value: Any, rule: Any) -> Any:
+    if isinstance(rule, _Const):
+        return rule.value
     if value is None or rule == KEEP:
         return value
     if rule == NULL:
@@ -238,7 +250,10 @@ class ScheduleBugReportExportView(APIView):
 
         from trueppm_api.apps.scheduling.cpm_admission import cpm_busy_response, cpm_slot
         from trueppm_api.apps.scheduling.selfcheck import engine_version, full_verdict
-        from trueppm_api.apps.scheduling.views import _build_cpm_sched_inputs
+        from trueppm_api.apps.scheduling.views import (
+            _build_cpm_sched_inputs,
+            _mc_lag_delta_kwargs,
+        )
 
         project = get_object_or_404(
             Project.objects.select_related("calendar", "program__calendar").prefetch_related(
@@ -258,7 +273,7 @@ class ScheduleBugReportExportView(APIView):
                 if not admitted:
                     return cpm_busy_response()
                 result = schedule(sched_project)
-                verdict = full_verdict(sched_project, result)
+                verdict = full_verdict(sched_project, result, mc_kwargs=_mc_lag_delta_kwargs())
         except (SchedulerError, ValueError):
             return Response({"detail": "The project's schedule input is invalid."}, status=400)
 

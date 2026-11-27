@@ -8,7 +8,7 @@ from typing import Any
 from unittest import mock
 
 import pytest
-from trueppm_scheduler import Dependency, Project, Task, schedule
+from trueppm_scheduler import Dependency, Project, SimulationCapExceeded, Task, schedule
 
 from trueppm_api.apps.scheduling import selfcheck
 
@@ -137,6 +137,25 @@ class TestChecks:
         with mock.patch("trueppm_scheduler.monte_carlo", return_value=late):
             assert not selfcheck.check_zero_variance_mc(project, result)
 
+    def test_over_the_lag_delta_cap_is_skipped_not_a_violation(self) -> None:
+        project = _project()
+        result = schedule(project)
+        with mock.patch(
+            "trueppm_scheduler.monte_carlo", side_effect=SimulationCapExceeded("too big")
+        ) as mc:
+            verdict = selfcheck.full_verdict(project, result, mc_kwargs={"max_lag_delta_cells": 7})
+        assert mc.call_args.kwargs["max_lag_delta_cells"] == 7
+        assert verdict["checks"]["zero_variance_mc_mismatch"] == "skipped"
+        assert verdict["violations"] == []
+
+    def test_the_recompute_pass_uses_the_api_lag_delta_cap(self, settings: Any) -> None:
+        settings.MC_LAG_DELTA_CELL_CAP = 1234
+        project = _project()
+        result = schedule(project)
+        with mock.patch.object(selfcheck, "check_zero_variance_mc", return_value=True) as check:
+            selfcheck.run_post_recompute_selfcheck("p", project, result, cpm_seconds=0.0)
+        assert check.call_args.kwargs == {"max_lag_delta_cells": 1234}
+
     def test_a_check_that_raises_is_counted_not_propagated(self) -> None:
         with mock.patch.object(selfcheck, "check_negative_float", side_effect=RuntimeError):
             verdict = selfcheck.evaluate(_project(), schedule(_project()), run_sampled=_all)
@@ -197,7 +216,7 @@ class TestRunPostRecompute:
         # the sampling decisions, do not depend on how fast this host is.
         clock = [0.0]
 
-        def slow_mc(_project: Any, _result: Any) -> bool:
+        def slow_mc(_project: Any, _result: Any, **_caps: Any) -> bool:
             clock[0] += 0.01
             return True
 

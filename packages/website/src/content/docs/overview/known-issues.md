@@ -420,8 +420,16 @@ file, is the JSON that `trueppm_scheduler.Project.from_json` loads. The project 
 renamed `redacted` and each
 task `task-1`, `task-2` and so on. Task notes, assignees and attachments are never in
 the file, and neither is the team's velocity: past sprint points, sprint length and
-task story points are left empty, since the dates do not depend on them. Task and project ids stay in, so you can say which task looks wrong. Open
-the file and check it before you attach it.
+task story points are left empty, since the dates do not depend on them. Task and
+project ids stay in, so you can say which task looks wrong.
+
+The file does include your calendars' non-working date ranges, real schedule dates
+(including sprint start dates used as planned starts), task progress and three-point
+estimates. Open the file and check it before you attach it.
+
+A single-project export does not include cross-project dependencies, so a date that a
+program-wide schedule computed from another project may not reproduce from the file.
+Say so in the issue if the task depends on work in another project.
 
 The file also has a `verdict`: the result of the
 [scheduler self-check](/administration/observability/#scheduler-self-check) on this
