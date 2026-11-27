@@ -93,6 +93,12 @@ export interface NotificationRow {
    * `project` on the same gate.
    */
   task_id: string | null;
+  /**
+   * The agent an `agent.refused` row is about (#5110), so opening it selects that
+   * agent on the Agents page. `null` on every other row, and on a refusal row
+   * created before the field existed.
+   */
+  agent_id: string | null;
 }
 
 interface ListResult {

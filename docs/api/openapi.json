@@ -72539,9 +72539,16 @@
                         "type": "string",
                         "nullable": true,
                         "readOnly": true
+                    },
+                    "agent_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true
                     }
                 },
                 "required": [
+                    "agent_id",
                     "body",
                     "category",
                     "created_at",

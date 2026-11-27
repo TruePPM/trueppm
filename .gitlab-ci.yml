@@ -729,7 +729,7 @@ scripts:test:
         - scripts/backup.sh
         - scripts/restore.sh
         - scripts/lib/s3.sh
-        - scripts/lib/gitlab-issues.sh
+        - scripts/{lib/gitlab-issues.sh,check-todo-grep.sh}
         - scripts/tests/gitlab-issues.test.sh
         - scripts/tracker-drift-report.sh
         - scripts/check-enterprise-imports.sh
@@ -782,7 +782,7 @@ scripts:test:
         - scripts/backup.sh
         - scripts/restore.sh
         - scripts/lib/s3.sh
-        - scripts/lib/gitlab-issues.sh
+        - scripts/{lib/gitlab-issues.sh,check-todo-grep.sh}
         - scripts/tests/gitlab-issues.test.sh
         - scripts/tracker-drift-report.sh
         - scripts/check-enterprise-imports.sh
