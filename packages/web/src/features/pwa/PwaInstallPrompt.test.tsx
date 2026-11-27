@@ -57,6 +57,11 @@ describe('PwaInstallPrompt', () => {
     render(<PwaInstallPrompt eligible />);
     expect(screen.getByRole('region', { name: 'Install TruePPM' })).toBeInTheDocument();
     expect(screen.getByText(/Share, then Add to Home Screen/)).toBeInTheDocument();
+    // Claims only what ships (ADR-1523 Decision 6, the persistent outbox, is not built).
+    expect(
+      screen.getByText(/opens without a signal and shows your last My Work list/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/time tracking/i)).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Not now' }));
     expect(screen.queryByRole('region', { name: 'Install TruePPM' })).not.toBeInTheDocument();
     expect(readNudgeState().dismissCount).toBe(1);
@@ -68,6 +73,8 @@ describe('PwaInstallPrompt', () => {
     const steps = screen.getByRole('list', { name: 'How to install' });
     expect(steps).toHaveFocus();
     expect(steps).toHaveTextContent('Add to Home Screen');
+    expect(steps).toHaveTextContent('Changes made offline are kept only while the app stays open.');
+    expect(steps).not.toHaveTextContent('works offline');
     expect(screen.queryByRole('button', { name: 'Show me how' })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Done' }));
     expect(screen.queryByRole('region', { name: 'Install TruePPM' })).not.toBeInTheDocument();

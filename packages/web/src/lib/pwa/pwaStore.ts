@@ -7,8 +7,8 @@
  * network is unreachable. A 4xx/5xx is a real answer and never replaced by it.
  *
  * Bound to the user: purged on logout (via the session bridge's cache clear), on
- * user switch (the signed-in id differs from the snapshot's), and after
- * {@link SNAPSHOT_TTL_MS}. A cold offline launch cannot confirm identity, so it
+ * user switch (the signed-in id differs from the snapshot's), and when read after
+ * {@link SNAPSHOT_TTL_MS} (deleted on that read). A cold offline launch cannot confirm identity, so it
  * shows the snapshot on the persisted `isAuthenticated` hint alone — the same
  * trust the shell already places in that hint — and the logout purge is what
  * keeps that safe on a shared device.
@@ -67,12 +67,21 @@ export async function saveMyWorkSnapshot(
   }
 }
 
-/** The stored snapshot, or null when absent, expired, or storage is unavailable. */
+/**
+ * The stored snapshot, or null when absent, expired, or storage is unavailable.
+ * An expired record is deleted here rather than left on disk until the next
+ * logout or overwrite: the TTL is a retention bound, not just a display filter.
+ */
 export async function loadMyWorkSnapshot(now: number = Date.now()): Promise<MyWorkSnapshot | null> {
   if (!idbAvailable()) return null;
   try {
-    const snap = await (await db()).get('myWorkSnapshot', 'me');
-    if (!snap || now - snap.savedAt > SNAPSHOT_TTL_MS) return null;
+    const database = await db();
+    const snap = await database.get('myWorkSnapshot', 'me');
+    if (!snap) return null;
+    if (now - snap.savedAt > SNAPSHOT_TTL_MS) {
+      await database.delete('myWorkSnapshot', 'me');
+      return null;
+    }
     return snap;
   } catch {
     return null;

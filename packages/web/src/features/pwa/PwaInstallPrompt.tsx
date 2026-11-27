@@ -70,7 +70,8 @@ export function PwaInstallPrompt({ eligible }: { eligible?: boolean }) {
             Install TruePPM
           </h2>
           <p className="mt-0.5 text-sm text-neutral-text-secondary">
-            Add to your Home Screen for full-screen access and offline time tracking.
+            Add to your Home Screen for full-screen access. It opens without a signal and shows your
+            last My Work list.
           </p>
           {!expanded && (
             <p className="mt-1 flex items-center gap-1 text-xs text-neutral-text-secondary">
@@ -103,7 +104,10 @@ export function PwaInstallPrompt({ eligible }: { eligible?: boolean }) {
           </li>
           <li className="flex items-start gap-2 text-neutral-text-secondary">
             <span className="font-mono">3.</span>
-            <span>Open TruePPM from your Home Screen. It runs full-screen and works offline.</span>
+            <span>
+              Open TruePPM from your Home Screen. It runs full-screen and opens without a signal.
+              Changes made offline are kept only while the app stays open.
+            </span>
           </li>
         </ol>
       )}

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { AxiosError } from 'axios';
 import { createElement, type ReactNode } from 'react';
 import { QueryClientProvider, useMutation } from '@tanstack/react-query';
@@ -6,6 +6,11 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { queryClient } from './queryClient';
 import { useAuthStore } from '@/stores/authStore';
 import { useToastStore } from '@/components/Toast/toastStore';
+import { clearSessionCache } from '@/stores/authStore';
+import { purgePwaUserData } from '@/lib/pwa/pwaStore';
+
+// The session bridge's cache clear also owns the PWA's offline copy (ADR-1523 §4).
+vi.mock('@/lib/pwa/pwaStore', () => ({ purgePwaUserData: vi.fn(() => Promise.resolve()) }));
 
 describe('queryClient — retry policy', () => {
   // Pull the configured retry function back out of the QueryClient so we can
@@ -187,5 +192,15 @@ describe('queryClient — session bridge (#4316, #4313)', () => {
     useAuthStore.getState().markSessionExpired({ broadcast: false });
     useAuthStore.getState().endReadOnlyViewing();
     expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
+  });
+});
+
+describe('queryClient — session bridge clearCache (ADR-1523 §4)', () => {
+  it('purges the PWA offline copy along with the query cache', () => {
+    vi.mocked(purgePwaUserData).mockClear();
+    queryClient.setQueryData(['tasks', 'p1'], [{ id: 't1' }]);
+    clearSessionCache();
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
+    expect(purgePwaUserData).toHaveBeenCalledOnce();
   });
 });

@@ -20,7 +20,7 @@ export function isOfflineCapableRoute(pathname: string): boolean {
 
 /**
  * "This view isn't cached" (ADR-1523 §5, #1427). Honest about what needs a
- * connection, and points at what still works offline.
+ * connection, and points at the one view with a saved copy.
  */
 export function OfflineMiss() {
   return (
@@ -32,7 +32,7 @@ export function OfflineMiss() {
         This view isn&rsquo;t cached
       </h1>
       <p className="text-sm text-neutral-text-secondary">
-        This page needs a connection. Your tasks and time tracking still work offline.
+        This page needs a connection. My Work shows the last copy saved on this device.
       </p>
       <div className="mt-2 flex flex-wrap justify-center gap-2">
         <Link

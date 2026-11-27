@@ -39,6 +39,11 @@ describe('OfflineRouteGate', () => {
     );
     expect(screen.getByRole('button', { name: 'Retry connection' })).toBeInTheDocument();
     expect(screen.queryByText('route content')).not.toBeInTheDocument();
+    // Honest copy: only My Work has an offline copy; no offline time tracking ships yet.
+    expect(
+      screen.getByText(/My Work shows the last copy saved on this device/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/time tracking/i)).not.toBeInTheDocument();
   });
 
   it('renders My Work on a cold offline launch', () => {
