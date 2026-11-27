@@ -64,6 +64,7 @@ from trueppm_api.apps.projects.models import (
 from trueppm_api.apps.webhooks.models import Webhook
 from trueppm_api.apps.workspace.models import InviteStatus, WorkspaceInvite
 from trueppm_api.core.credential_cutoff import (
+    issued_before_cutoff,
     lock_and_recheck_credential_cutoff,
     mark_credentials_revoked,
 )
@@ -142,6 +143,17 @@ _MINTS = [
         {"url": "https://example.com/h", "events": ["task.created"]},
         lambda u: Webhook.objects.filter(created_by=u, is_active=True).exists(),
     ),
+    # #4958: the grant is a Valkey ticket the handshake compares to the cutoff, so
+    # there is no row for the sweep to revoke; both orderings still must serialize.
+    # ``issue_ticket`` is stubbed by ``_no_real_ticket_store``.
+    _Mint(
+        "ws-ticket",
+        "trueppm_api.apps.sync.views",
+        lambda p, g: "/api/v1/ws/ticket/",
+        {},
+        None,
+        200,
+    ),
     _Mint(
         "workspace-invite",
         "trueppm_api.apps.workspace.views",
@@ -159,6 +171,24 @@ def _clear_cache() -> Any:
     cache.clear()
     yield
     cache.clear()
+
+
+@pytest.fixture(autouse=True)
+def _no_real_ticket_store() -> Any:
+    """Keep the ws-ticket mint off Valkey and record when each ticket was issued.
+
+    ``issued_at`` holds the ``time.time()`` of every issue, standing in for the issue
+    time the handshake derives from the stored ticket.
+    """
+    issued_at: list[float] = []
+
+    def _issue(user_id: str) -> str:
+        issued_at.append(time.time())
+        return "race-ticket"
+
+    with patch("trueppm_api.apps.sync.views.issue_ticket", side_effect=_issue) as mint:
+        mint.issued_at = issued_at
+        yield mint
 
 
 @pytest.fixture
@@ -363,20 +393,40 @@ def test_mint_that_passed_auth_before_a_reset_commits_is_refused(
     _no_grants(user)
 
 
+def test_ws_ticket_mint_during_an_open_reset_issues_no_ticket(
+    user: Any, project: Project, program: Program, _no_real_ticket_store: Any
+) -> None:
+    """#4958: refused *before* the ticket is written, not merely answered with a 401."""
+    mint = next(m for m in _MINTS if m.id == "ws-ticket")
+    _, out = _reset_first("view", _post(mint, project, program), user)
+    assert out["resp"].status_code == 401, out["resp"].data
+    _no_real_ticket_store.assert_not_called()
+
+
 @pytest.mark.parametrize("mint", _MINTS, ids=lambda m: m.id)
 def test_reset_waits_for_an_in_flight_mint_and_sweeps_what_it_wrote(
-    mint: _Mint, user: Any, project: Project, program: Program
+    mint: _Mint, user: Any, project: Project, program: Program, _no_real_ticket_store: Any
 ) -> None:
     """Mint holds the profile lock mid-request; the reset must wait, then revoke it.
 
     Project and program tokens are org assets the reset deliberately never revokes
     (``live`` is ``None``): for those this proves only that the reset serialized behind
     the mint and the mint completed.
+
+    A WebSocket ticket has no row to sweep, so for it this asserts the ticket was
+    issued at or before the cutoff the reset stored.
     """
     out = _mint_first(mint, "view", _post(mint, project, program), user)
     assert out["resp"].status_code == mint.success, (mint.id, out["resp"].data)
     if mint.live is not None:
         assert not mint.live(user), f"{mint.id} survived the reset's sweep"
+    if mint.id == "ws-ticket":
+        (issued,) = _no_real_ticket_store.issued_at
+        cutoff = UserProfile.objects.get(user=user).credentials_revoked_at
+        assert cutoff is not None
+        assert issued_before_cutoff(issued, cutoff, whole_seconds=False), (
+            "the ticket postdates the cutoff, so the handshake would accept it"
+        )
 
 
 _SWEPT = [m for m in _MINTS if m.live is not None]

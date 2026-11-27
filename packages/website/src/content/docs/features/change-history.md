@@ -1,6 +1,7 @@
 ---
 title: Change History
 description: Every change to a task, project, or dependency is recorded with a field-level diff, so you can see what changed, when, and (as an admin) who changed it.
+documentedFor: "0.5"
 ---
 
 :::note[Shipped in 0.2 (alpha)]
@@ -54,6 +55,18 @@ notes — under recalculation noise.
 Any project Viewer or above can read history. The identity of the editing user
 (`history_user`) is included only for Admins — for everyone else the field is
 present but `null`, so a client should treat it as optional rather than absent.
+
+:::note[Ships in 0.5]
+Withholding relation values below Admin ships in 0.5. In 0.4 the project history
+and changelog endpoints return the related record's id to every member.
+:::
+
+From 0.5, the same role gate will cover the values of fields that point at another
+record (`assignee`, `lead`, `archived_by`, `sprint`, `calendar`, and every other
+relation) on the project history and project changelog endpoints. Below Admin,
+`old` and `new` will be `null` for these fields, and `old_display` / `new_display`
+will read `Hidden` for a side that held a value. A side with no `*_display` was
+empty.
 
 The project-level endpoint materializes at most a fixed number of records before
 paginating. When that cap is reached it sets `count_truncated: true` alongside the

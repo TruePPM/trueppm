@@ -721,6 +721,14 @@ def resend_invite(invite_id: _PK) -> WorkspaceInvite | None:
     flight (idempotent no-op), or ``None`` when it does not exist or is not
     resendable (accepted/revoked/expired) — the view maps ``None`` to 409/404.
     Locks the row so a concurrent double-submit re-issues at most once.
+
+    No ``lock_and_recheck_credential_cutoff`` here (or in ``resend_all_pending``),
+    unlike invite *create*. The fresh token goes only to the invite's own address,
+    never back to the caller, so a resend hands a pre-reset session no new grant.
+    The caller's own invites are covered by the row lock: the reset's sweep
+    (``revoke_pending_workspace_invites``) locks the same rows, so a resend that
+    runs second sees ``REVOKED`` and refuses, and one that runs first is revoked
+    after it commits.
     """
     with transaction.atomic():
         invite = WorkspaceInvite.objects.select_for_update().filter(pk=invite_id).first()

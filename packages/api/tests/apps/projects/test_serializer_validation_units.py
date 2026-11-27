@@ -995,10 +995,13 @@ class TestProjectSettingsValidation:
     def test_unsetting_the_lead_is_always_allowed(self) -> None:
         assert ProjectSerializer().validate_lead(None) is None
 
-    def test_the_lead_membership_check_is_skipped_on_create(self) -> None:
-        # No instance yet, so there are no membership rows to check against.
-        lead = User(username="ada")
-        assert ProjectSerializer().validate_lead(lead) is lead
+    def test_only_the_requester_may_be_lead_on_create(self) -> None:
+        # No instance yet: the requester is the only member the create will produce.
+        creator = User(pk=1, username="ada")
+        ser = ProjectSerializer(context={"request": SimpleNamespace(user=creator)})
+        assert ser.validate_lead(creator) is creator
+        with pytest.raises(serializers.ValidationError, match="member of this project"):
+            ser.validate_lead(User(pk=2, username="eve"))
 
     def test_the_program_gate_is_skipped_without_an_authenticated_request(self) -> None:
         assert ProjectSerializer(context={}).validate_program(None) is None

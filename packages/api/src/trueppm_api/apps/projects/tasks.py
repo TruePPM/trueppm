@@ -1830,12 +1830,14 @@ def run_program_import(self: object, job_id: str) -> None:
         # tells the importer to skip its own replace pass entirely — the
         # replacement, if any, already happened inside the request the operator
         # authorized (ADR-0726 §4).
+        resource_report: dict[str, Any] = {}
         run_import(
             payload,
             owner=job.requested_by,
             create_users=False,
             target_program=program,
             adopt_keys_from=job.replaced_project_ids,
+            report=resource_report,
         )
     except SeedValidationError as exc:
         _fail_import_job(job_id, "; ".join(exc.errors)[:2000])
@@ -1853,7 +1855,7 @@ def run_program_import(self: object, job_id: str) -> None:
     expires_at = timezone.now() + timedelta(days=retention) if retention is not None else None
     ProgramImportJob.objects.filter(pk=job_id).update(
         status=ImportJobStatus.SUCCESS,
-        result_summary=_import_summary(program),
+        result_summary={**_import_summary(program), **resource_report},
         expires_at=expires_at,
         completed_at=timezone.now(),
         error_detail="",

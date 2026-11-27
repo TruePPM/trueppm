@@ -43,6 +43,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from celery.exceptions import SoftTimeLimitExceeded
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
@@ -217,6 +218,7 @@ def import_seed(
     expected_program_id: str | None = None,
     target_program: Program | None = None,
     adopt_keys_from: list[str] | None = None,
+    report: dict[str, Any] | None = None,
 ) -> Program:
     """Validate and import a seed document, returning the created ``Program``.
 
@@ -263,6 +265,9 @@ def import_seed(
             when it replaced a program. Each rebuilt project takes the keys of
             the trashed one with the same name, inside this import's
             transaction (ADR-1237 §3). Only meaningful with ``target_program``.
+        report: optional dict this call fills with ``resources_created``,
+            ``resources_created_names``, ``resources_refused_names`` and
+            ``warnings`` once the import has committed (#4939).
 
     Raises:
         SeedValidationError: if the payload fails validation; nothing is written.
@@ -290,6 +295,8 @@ def import_seed(
     # batch lands wholly on one side of any client checkpoint.
     with transaction.atomic(), coalesce_sync_seq():
         program = importer.run()
+    if report is not None:
+        report.update(importer.report)
     return program
 
 
@@ -382,6 +389,16 @@ class _SeedImporter:
         self.users: dict[str, Any] = {}
         self.calendars: dict[str, Calendar] = {}
         self.resources: dict[str, Resource] = {}
+        # What the run did to the workspace-global Resource library, in the keys the
+        # file and spreadsheet importers already report (#2485, #4939).
+        self.report: dict[str, Any] = {
+            "resources_created": 0,
+            "resources_created_names": [],
+            "resources_refused_names": [],
+            "warnings": [],
+        }
+        # Slugs the per-import cap refused: their assignments are skipped.
+        self.refused_resource_slugs: set[str] = set()
         # account slug -> Resource, so a task carrying only ``assignee`` (an
         # ACCOUNT slug) can still be given the TaskResource row that capacity,
         # utilization and the heatmap actually read (#2900).
@@ -1177,6 +1194,15 @@ class _SeedImporter:
             CalendarException.objects.filter(pk__in=stale_ids).delete()
 
     def _resolve_resources(self) -> None:
+        """Materialize ``resources[]``, bounding what the generic path may create.
+
+        ``Resource`` is a workspace-global library, so a generic import (any
+        authenticated user may run one) creates at most
+        ``IMPORT_MAX_RESOURCES_CREATED`` rows, warning per value, as the MS Project
+        and spreadsheet importers do (#2485, #4939). The server-curated sample path
+        is not capped: its payload is ours and it reuses existing persona rows.
+        """
+        cap = max(0, int(getattr(settings, "IMPORT_MAX_RESOURCES_CREATED", 200)))
         for res in self.payload.get("resources", []):
             calendar = self.calendars.get(res["calendar"]) if res.get("calendar") else None
             # account_user is already None on the generic path for any account that
@@ -1214,12 +1240,31 @@ class _SeedImporter:
                 # real ``user`` FK it may carry — into the importer's project via
                 # ``_assign_resources``. Create a fresh row so an attacker-crafted
                 # seed cannot pull a real user's resource into their program.
+                if self.report["resources_created"] >= cap:
+                    self.refused_resource_slugs.add(res["slug"])
+                    self.report["resources_refused_names"].append(res["name"])
+                    continue
                 obj = Resource.objects.create(**defaults)
+                self.report["resources_created"] += 1
+                self.report["resources_created_names"].append(res["name"])
+                self.report["warnings"].append(
+                    f"Resource '{res['name']}': a new resource was created for it"
+                )
             self.resources[res["slug"]] = obj
             account = res.get("account")
             if account:
                 self.resources_by_account[account] = obj
             self._assign_resource_skills(obj, res.get("skills", []))
+
+        refused = self.report["resources_refused_names"]
+        if refused:
+            shown = ", ".join(f"'{n}'" for n in refused[:3])
+            more = f" and {len(refused) - 3} more" if len(refused) > 3 else ""
+            self.report["warnings"].append(
+                f"{len(refused)} people were not created: the per-import cap of {cap} "
+                f"(IMPORT_MAX_RESOURCES_CREATED={cap}) was reached ({shown}{more}); "
+                "their assignments were skipped"
+            )
 
     def _assign_resource_skills(self, resource: Resource, skills: list[dict[str, Any]]) -> None:
         """Attach a resource's skills from the workspace catalog (#3498).
@@ -2185,6 +2230,8 @@ class _SeedImporter:
             if assignments:
                 task = self.tasks[task_key]
                 for assignment in assignments:
+                    if assignment["resource"] in self.refused_resource_slugs:
+                        continue
                     resource = self.resources[assignment["resource"]]
                     used[resource.pk] = resource
                     rows.append(

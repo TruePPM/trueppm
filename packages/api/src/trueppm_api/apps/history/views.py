@@ -88,14 +88,33 @@ def _compared_fields(model: Any, *, object_scoped: bool) -> tuple[Any, ...]:
     return tuple(f for f in model._meta.fields if is_compared(f.name, object_scoped=object_scoped))
 
 
-def _change_entry(f: Any, old: Any, new: Any) -> dict[str, Any]:
+#: What ``old_display``/``new_display`` read when a relation's id is withheld.
+HIDDEN_RELATION_DISPLAY = "Hidden"
+
+
+def _change_entry(f: Any, old: Any, new: Any, *, show_relations: bool) -> dict[str, Any]:
     """One diff entry; a choice field also carries the human labels of both sides.
 
     The raw value stays in ``old``/``new`` (the stable, machine-readable fact); the
     labels come from ``flatchoices`` so every client reads "Mitigating" rather than
     ``MITIGATING`` without keeping its own copy of each enum. ``None`` and values
     outside the choices (a retired code) get no label and render raw.
+
+    A relation's raw value is the related row's primary key — for ``*_by``,
+    ``assignee``, ``lead`` and ``owner`` an account id, which would name the actor
+    these feeds hide from readers below Admin (#5083). Every relation is withheld
+    from them, by ``f.is_relation`` rather than a list of user fields, so a new FK
+    is covered the day it is added. A withheld side that held a value is ``null``
+    with ``*_display`` set to :data:`HIDDEN_RELATION_DISPLAY`; an unset side is a
+    bare ``null``, so "cleared" and "hidden" stay distinguishable.
     """
+    if f.is_relation and not show_relations:
+        hidden: dict[str, Any] = {"field": f.name, "old": None, "new": None}
+        if old is not None:
+            hidden["old_display"] = HIDDEN_RELATION_DISPLAY
+        if new is not None:
+            hidden["new_display"] = HIDDEN_RELATION_DISPLAY
+        return hidden
     entry: dict[str, Any] = {"field": f.name, "old": old, "new": new}
     if f.choices:
         labels = {k: str(v) for k, v in f.flatchoices}
@@ -111,6 +130,7 @@ def _compute_diffs(
     all_records: list[Any] | None = None,
     *,
     object_scoped: bool = True,
+    show_relations: bool = False,
 ) -> dict[int, list[dict[str, Any]]]:
     """Return history_id → field-diff list for a batch of HistoricalRecords.
 
@@ -131,6 +151,9 @@ def _compute_diffs(
     field change worth a row) or a cross-object stream (``False``: the project
     changelog, where that flag is the only record a soft delete left).
 
+    ``show_relations`` is ``True`` only for an Owner/Admin reader (see
+    ``_change_entry``); it defaults to withholding so a new caller fails closed.
+
     Pass all_records (the full unpaginated list for the same object) so that
     the first record on a page can find its predecessor even when it sits on
     a different page.
@@ -145,14 +168,19 @@ def _compute_diffs(
             # Creation — list non-null fields as old=None → new=value. Promotion is
             # a rule about updates, so promotable noise is dropped here outright.
             changes: list[dict[str, Any]] = [
-                _change_entry(f, None, getattr(record, f.attname))
+                _change_entry(f, None, getattr(record, f.attname), show_relations=show_relations)
                 for f in fields
                 if f.name not in HISTORY_DIFF_NOISE and getattr(record, f.attname) is not None
             ]
         else:
             changes = visible_changes(
                 (
-                    _change_entry(f, getattr(prev, f.attname), getattr(record, f.attname))
+                    _change_entry(
+                        f,
+                        getattr(prev, f.attname),
+                        getattr(record, f.attname),
+                        show_relations=show_relations,
+                    )
                     for f in fields
                     if getattr(record, f.attname) != getattr(prev, f.attname)
                 ),
@@ -221,8 +249,8 @@ def _history_page_response(
     paginator = HistoryPagination()
     page: list[Any] = paginator.paginate_queryset(records, request, view=view) or records
 
-    diffs = _compute_diffs(page, all_records=raw)
     hide_user = not _caller_can_see_user(request, project)
+    diffs = _compute_diffs(page, all_records=raw, show_relations=not hide_user)
     visible = [r for r in page if diffs.get(r.history_id)]
     serializer = HistoryRecordSerializer(
         visible,
@@ -296,7 +324,9 @@ class ProjectChangelogView(APIView):
 
     Permissions: any project member (Viewer+) may read (see ADR-0201 — every
     source's live GET is Viewer+, so membership is a sufficient row gate).
-    ``history_user`` is returned only to Owner/Admin (``role >= Role.ADMIN``); the
+    ``history_user`` and the values of relation fields (``assignee``,
+    ``archived_by``, ``sprint``, ...) are returned only to Owner/Admin
+    (``role >= Role.ADMIN``); the
     ``user=`` filter is likewise honored only for those callers, so the feed can
     never be turned into a per-person activity tracker by a lower-privilege reader.
 
@@ -373,7 +403,9 @@ class ProjectChangelogView(APIView):
 
         entries, next_cursor = changelog.build_project_changelog(
             project,
-            diff_fn=functools.partial(_compute_diffs, object_scoped=False),
+            diff_fn=functools.partial(
+                _compute_diffs, object_scoped=False, show_relations=not hide_user
+            ),
             cursor=cursor,
             since=since,
             object_types=object_types,

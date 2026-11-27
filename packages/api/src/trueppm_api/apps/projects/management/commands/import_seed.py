@@ -89,12 +89,14 @@ class Command(BaseCommand):
         # never use would fail that case for no reason.
         owner = self._resolve_owner(options.get("owner"))
 
+        report: dict[str, Any] = {}
         try:
             program = import_seed(
                 payload,
                 owner=owner,
                 create_users=options["create_users"],
                 replace=not options["no_replace"],
+                report=report,
             )
         except SeedValidationError as exc:
             # Surface every validation error, one per line, then fail.
@@ -111,6 +113,10 @@ class Command(BaseCommand):
             raise CommandError(
                 f"{exc} Delete or re-code one of them, or import as a different user."
             ) from exc
+
+        # Only the cap line: a warning per created row would bury it on a big file.
+        if report.get("resources_refused_names"):
+            self.stderr.write(self.style.WARNING(report["warnings"][-1]))
 
         project_count = Project.objects.filter(program=program).count()
         self.stdout.write(
