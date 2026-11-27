@@ -405,7 +405,7 @@ if [ -n "$todo_refs" ]; then
         # Line-level: a TODO(#N) is the change's own when the diff ADDS the
         # line carrying it, even if another TODO(#N) already existed.
         added_iids=$(for r in "${EXISTING_ROOTS[@]}"; do
-          [ -d "$r" ] && git -C "$r" diff --no-color -U0 "$base" -- . 2>/dev/null
+          [ -d "$r" ] && tracker_gate_git "$r" diff --no-color -U0 "$base" -- . 2>/dev/null
         done | grep -E '^[+]' | grep -vE '^[+]{3} ' | grep -oE 'TODO\(#[0-9]+\)' |
           grep -oE '[0-9]+' | sort -un || true)
         for iid in $unique_iids; do

@@ -5,6 +5,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+# Run from a hook, GIT_DIR and friends would point every fixture `git` call at the
+# real repository.
+# shellcheck disable=SC2046  # one variable name per word is the intent
+unset $(git rev-parse --local-env-vars)
 # shellcheck source-path=SCRIPTDIR source=../lib/gitlab-issues.sh
 . "$ROOT/scripts/lib/gitlab-issues.sh"
 
@@ -246,6 +250,39 @@ grep -q '#7' "$tmp/boundary.out" || fail "boundary:check did not name the violat
 [ "$(calls)" = 2 ] || fail "boundary:check retried a real violation (one call per label expected, calls=$(calls))"
 reset 404
 [ "$(boundary)" = 2 ] || fail "boundary:check 404 was not exit 2"
+ok
+
+# 15. Base reads from a subdirectory ignore an inherited GIT_DIR (#5195): what a
+#     hook in a LINKED worktree exports. The root and sub/ READMEs differ, so
+#     reading the wrong one is visible.
+m="$tmp/main"
+g init -q -b main "$m"
+mkdir -p "$m/sub"
+echo root >"$m/README.md"
+echo sub >"$m/sub/README.md"
+echo x >"$m/sub/a.sh"
+g -C "$m" add -A
+g -C "$m" commit -qm base
+l="$tmp/linked"
+g -C "$m" worktree add -q -b topic "$l"
+lbase=$(g -C "$l" rev-parse HEAD)
+lgit=$(g -C "$l" rev-parse --absolute-git-dir)
+out=$(cd "$l" && GIT_DIR="$lgit" tracker_gate_file_at_base "$lbase" sub/README.md)
+[ "$out" = sub ] || fail "base read under GIT_DIR returned '$out', not sub/README.md"
+out=$(cd "$l" && GIT_DIR="$lgit" GIT_WORK_TREE="$l" tracker_gate_file_at_base "$lbase" sub/README.md)
+[ "$out" = sub ] || fail "base read under GIT_DIR+GIT_WORK_TREE returned '$out'"
+# The two gates that diff from a subdirectory see the line the change adds.
+# The markers are split so the real gates do not read them out of this file.
+{ echo "# TODO""(#1) x"; echo "# SUPPRESSED-UNTIL""(#2) x"; } >>"$l/sub/a.sh"
+for gate in "check-todo-grep.sh:1 TODO(#NNN) reference(s) added" \
+  "check-suppression-issues.sh:1 marker issue(s) added"; do
+  script="${gate%%:*}"
+  reset 200
+  out=$(cd "$l" && env -u TRACKER_GATE_MODE -u CI_MERGE_REQUEST_IID GIT_DIR="$lgit" CI_PROJECT_ID=1 \
+    TRACKER_GATE_BASE="$lbase" TRACKER_GATE_CLOSES="" bash "$ROOT/scripts/$script" sub 2>&1) ||
+    fail "$script failed under GIT_DIR: $out"
+  grep -qF "${gate#*:}" <<<"$out" || fail "$script missed the added line under GIT_DIR: $out"
+done
 ok
 
 echo "gitlab-issues.test.sh: all ${pass} checks passed"
