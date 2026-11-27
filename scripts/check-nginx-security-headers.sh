@@ -369,6 +369,16 @@ assert_permissions_policy() {
 # share-link location must also carry the coarse `trueppm_api` limit on its OWN
 # level (a limit only in a nested location covers nothing else). Refusals are 429,
 # not nginx's 503.
+#
+# Only where nginx can see the real client (#3852 audit): a zone keyed on
+# $binary_remote_addr behind a load balancer, ingress or tunnel puts every user
+# in ONE bucket, so one anonymous client can lock everybody out of sign-in. A
+# `trueppm_` zone may therefore key on the peer address only when the rendering
+# is directly exposed (the caller passes "direct") or declares a trusted proxy
+# with `set_real_ip_from`. Otherwise it must key on `$trueppm_rl_key`, a map that
+# is empty (nginx does not account an empty key) unless the peer is a trusted
+# proxy — or declare no edge limits at all, which leaves the DRF throttles.
+# A rendering that can see the client must carry the full set.
 AUTH_LOCATION='^/api/v1/(auth/(token|logout|password/reset|oidc)|workspace/invites/accept)/'
 
 assert_limited() {
@@ -381,7 +391,23 @@ assert_limited() {
 }
 
 assert_edge_rate_limits() {
-  local label="$1" text="$2" blocks idx body api ws exact path zone
+  local label="$1" text="$2" exposure="${3:-}" blocks idx body api ws exact path zone
+  local peer_ok=0 gated=0
+  if [ "$exposure" = direct ] \
+    || grep -qE '^[[:space:]]*set_real_ip_from[[:space:]]+[^[:space:];]+[[:space:]]*;' <<<"$text"; then
+    peer_ok=1
+  fi
+  if grep -qE '^ *limit_req_zone +\$trueppm_rl_key +zone=trueppm_' <<<"$text"; then
+    gated=1
+    grep -qE '^ *map +[^ ]+ +\$trueppm_rl_key *\{' <<<"$text" \
+      || viol "$label" "keys a zone on \$trueppm_rl_key but no \`map\` defines it (#3852)."
+  fi
+  if [ "$peer_ok" = 0 ] && grep -qE '^ *limit_req_zone +\$binary_remote_addr +zone=trueppm_' <<<"$text"; then
+    viol "$label" "keys a trueppm_ zone on \$binary_remote_addr with no trusted proxy (set_real_ip_from) and is not directly exposed: behind a proxy every client shares one bucket, so one client can lock out sign-in for all (#3852)."
+  fi
+  if [ "$peer_ok" = 0 ] && [ "$gated" = 0 ] && ! grep -qE 'limit_req +zone=trueppm_' <<<"$text"; then
+    return 0 # edge limits off by design: nginx cannot see the client here
+  fi
   blocks="$(printf '%s\n' "$text" | split_server_blocks)"
   for idx in $(printf '%s\n' "$blocks" | cut -f1 | sort -un); do
     body="$(printf '%s\n' "$blocks" | awk -F'\t' -v b="$idx" '$1 == b { sub(/^[^\t]*\t/, ""); print }')"
@@ -413,7 +439,7 @@ assert_edge_rate_limits() {
   done
   for zone in trueppm_auth trueppm_ws trueppm_api; do
     if grep -qE "limit_req +zone=$zone " <<<"$text" \
-      && ! grep -qE "^ *limit_req_zone +\\\$binary_remote_addr +zone=$zone:" <<<"$text"; then
+      && ! grep -qE "^ *limit_req_zone +\\\$(binary_remote_addr|trueppm_rl_key) +zone=$zone:" <<<"$text"; then
       viol "$label" "uses zone $zone but declares no \`limit_req_zone\` for it (#3852)."
     fi
   done
@@ -570,7 +596,7 @@ check_file() {
   fi
   local before="$violations"
   check_config "$label" "$(cat "$path")"
-  assert_edge_rate_limits "$label" "$(cat "$path")"
+  assert_edge_rate_limits "$label" "$(cat "$path")" "${3:-}"
   if [ "$violations" -gt "$before" ]; then
     file_provenance "$label" "$path"
   fi
@@ -641,7 +667,10 @@ check_helm() {
     return 2
   fi
   local before="$violations"
-  check_config "$label" "$conf"
+  # LIMITS_ONLY: a render made only to prove the edge limits appear (#3852).
+  # check_config's $forwarded_proto test reads the no-realIpFrom map shape; the
+  # realIpFrom shape is nginx -t-checked by check-helm-nginx-syntax.sh.
+  [ -n "${LIMITS_ONLY:-}" ] || check_config "$label" "$conf"
   assert_edge_rate_limits "$label" "$conf"
   # Dump provenance for THIS render, with THIS render's args, next to the
   # violation it explains. Handing over the checked bytes is what lets the
@@ -661,13 +690,17 @@ run_check() {
   echo "nginx hardening parity — checking every deployment path's rendered config"
   echo ""
 
-  check_file "compose prod (TLS)"  "nginx/app.conf.template"
+  # The TLS template terminates the client's own connection on published ports
+  # 80/443, so it is the one compose rendering nginx sees the client on.
+  check_file "compose prod (TLS)"  "nginx/app.conf.template" direct
   check_file "compose prod (HTTP)" "nginx/app-http.conf.template"
   check_file "compose demo"        "nginx/demo.conf.template"
   check_file "baked web image"     "packages/web/nginx.conf"
 
   if command -v helm >/dev/null 2>&1; then
     check_helm "helm production"
+    # With a trusted proxy the edge limits must render in full (#3852).
+    LIMITS_ONLY=1 check_helm "helm production (realIpFrom)" --set 'web.realIpFrom={10.0.0.0/8}'
     check_helm "helm demo (share-link)" \
       -f "$CHART/values-demo.yaml" \
       --set demo.baseUrl=https://demo.example.com \
@@ -1226,7 +1259,8 @@ CONF
   # (I, #3852)
   local lim='        limit_req zone=trueppm_ws burst=5 nodelay;
         limit_req_status 429;'
-  local zones='limit_req_zone $binary_remote_addr zone=trueppm_auth:1m rate=1r/s;
+  local zones='set_real_ip_from 10.0.0.0/8;
+limit_req_zone $binary_remote_addr zone=trueppm_auth:1m rate=1r/s;
 limit_req_zone $binary_remote_addr zone=trueppm_ws:1m rate=1r/s;
 limit_req_zone $binary_remote_addr zone=trueppm_api:1m rate=1r/s;'
   local apilim="${lim//trueppm_ws/trueppm_api}"
@@ -1242,9 +1276,17 @@ limit_req_zone $binary_remote_addr zone=trueppm_api:1m rate=1r/s;'
     "$tmp/good_limits.conf" >"$tmp/bad_limit_share.conf"
   awk '/limit_req zone=trueppm_api/ && ++n == 2 { next } { print }' \
     "$tmp/good_limits.conf" >"$tmp/bad_limit_api.conf"
+  # Trust (#3852 audit): the fixtures above declare a trusted proxy.
+  sed '/^set_real_ip_from/d' "$tmp/good_limits.conf" >"$tmp/bad_limit_untrusted.conf"
+  { echo 'map $remote_addr $trueppm_rl_key { default ""; }'
+    sed 's/limit_req_zone \$binary_remote_addr/limit_req_zone $trueppm_rl_key/' "$tmp/bad_limit_untrusted.conf"
+  } >"$tmp/good_limit_gated.conf"
+  sed '/^map /d' "$tmp/good_limit_gated.conf" >"$tmp/bad_limit_gated_nomap.conf"
+  sed '/limit_req/d' "$tmp/bad_limit_untrusted.conf" >"$tmp/good_limit_off.conf"
+  sed '/limit_req/d' "$tmp/good_limits.conf" >"$tmp/bad_limit_off_trusted.conf"
   limit_probe() {
     violations=0
-    assert_edge_rate_limits "$1" "$(cat "$tmp/$1")" >/dev/null 2>&1
+    assert_edge_rate_limits "$1" "$(cat "$tmp/$1")" "${4:-}" >/dev/null 2>&1
     local got=0
     [ "$violations" -gt 0 ] && got=1
     if [ "$got" = "$2" ]; then
@@ -1261,6 +1303,13 @@ limit_req_zone $binary_remote_addr zone=trueppm_api:1m rate=1r/s;'
   limit_probe bad_limit_zone.conf   1 "undeclared zone rejected (#3852)"
   limit_probe bad_limit_api.conf    1 "unlimited proxying /api/ rejected even with a limited nested location (#3852)"
   limit_probe bad_limit_share.conf  1 "unlimited proxying share location rejected (#3852)"
+  limit_probe bad_limit_untrusted.conf 1 "peer-keyed zone with no trusted proxy rejected (#3852)"
+  limit_probe bad_limit_untrusted.conf 0 "peer-keyed zone on a directly exposed config accepted (#3852)" direct
+  limit_probe good_limit_gated.conf    0 "zone keyed on the gated \$trueppm_rl_key accepted (#3852)"
+  limit_probe bad_limit_gated_nomap.conf 1 "\$trueppm_rl_key with no map rejected (#3852)"
+  limit_probe good_limit_off.conf      0 "no edge limits where nginx cannot see the client accepted (#3852)"
+  limit_probe bad_limit_off_trusted.conf 1 "no edge limits despite a trusted proxy rejected (#3852)"
+  limit_probe good_limit_off.conf      1 "no edge limits on a directly exposed config rejected (#3852)" direct
 
   probe bad_noshare.conf        1 "SPA with no /share/ location rejected (#5155)"
   probe bad_share_policy.conf   1 "/share/ with the site-wide Referrer-Policy rejected (#5155)"

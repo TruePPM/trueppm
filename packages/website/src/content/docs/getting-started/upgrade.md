@@ -153,6 +153,27 @@ needs no change. Check two cases:
 
 See [Upload size limits](/administration/helm-values/#upload-size-limits).
 
+### Edge rate limits apply only where nginx sees the client
+
+:::note[Ships in 0.5]
+On 0.4 the only nginx rate limit is on `/admin/`.
+:::
+
+The nginx rate limits on sign-in, `/ws/` handshakes and `/api/` that ship in 0.5
+are rendered only where nginx can see the real client address, so an upgrade never
+puts every user in one shared bucket:
+
+- Helm: on only when `web.realIpFrom` is set. With it empty (the default) nothing
+  changes. If you set it, check that it names only your ingress controller.
+- Docker Compose with TLS: on. If a load balancer, CDN or tunnel sits in front of
+  this nginx, use `TLS_MODE=none` with `NGINX_TRUSTED_PROXY_CIDR`, or remove the
+  limits from the template.
+- Docker Compose with `TLS_MODE=none`: off until you set `NGINX_TRUSTED_PROXY_CIDR`
+  in `.env`. An unset value starts the container with the limits off.
+- The Compose demo and the published `web` image: off.
+
+See [Edge rate limits](/administration/networking/#edge-rate-limits).
+
 ### Workers must consume the `heavy` queue
 
 :::note[Ships in 0.5]

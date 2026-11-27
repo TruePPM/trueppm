@@ -97,7 +97,6 @@ _UNLIMITED_PATHS = (
     [
         "nginx/app.conf.template",
         "nginx/app-http.conf.template",
-        "packages/web/nginx.conf",
         "packages/helm/templates/web/configmap.yaml",
     ],
 )
@@ -111,3 +110,33 @@ def test_edge_rate_limit_covers_real_auth_routes_only(rel: str) -> None:
         assert re.search(patterns[0], path), f"{rel}: {path} is not rate limited"
     for path in _UNLIMITED_PATHS:
         assert not re.search(patterns[0], path), f"{rel}: {path} must not be rate limited"
+
+
+@pytest.mark.parametrize(
+    ("rel", "peer_keyed"),
+    [
+        ("nginx/app.conf.template", True),
+        ("nginx/app-http.conf.template", False),
+        ("nginx/demo.conf.template", None),
+        ("packages/web/nginx.conf", None),
+    ],
+)
+def test_edge_rate_limit_keys_on_a_client_address_only(rel: str, peer_keyed: bool | None) -> None:
+    """A per-address limit behind a proxy is one shared bucket for every user (#3852).
+
+    Only the TLS template, which terminates the client's own connection, may key
+    on the peer address. app-http sits behind a load balancer and keys on
+    ``$trueppm_rl_key``, which is empty (uncounted) unless the peer is
+    NGINX_TRUSTED_PROXY_CIDR. The demo and the baked image cannot tell clients
+    apart at all and declare no edge zone, leaving the DRF throttles.
+    """
+    text = (REPO_ROOT / rel).read_text(encoding="utf-8")
+    keys = set(re.findall(r"^limit_req_zone (\$\w+) zone=trueppm_", text, re.MULTILINE))
+    if peer_keyed is None:
+        assert not keys, f"{rel} declares an edge zone it cannot key on a client"
+        assert "zone=trueppm_" not in text
+    elif peer_keyed:
+        assert keys == {"$binary_remote_addr"}
+    else:
+        assert keys == {"$trueppm_rl_key"}
+        assert "${NGINX_TRUSTED_PROXY_CIDR} 1;" in text

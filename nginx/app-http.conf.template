@@ -38,16 +38,35 @@ map $http_x_forwarded_proto $forwarded_proto {
 # handshake (#3852). A coarse flood backstop BEHIND the DRF throttles, which
 # stay the real limit and live in Valkey: this one still holds when Valkey is
 # down or a view loses its throttle scope. Sized far above SPA traffic, because
-# the key is $remote_addr and everyone behind one NAT or upstream proxy shares it.
-limit_req_zone $binary_remote_addr zone=trueppm_auth:10m rate=20r/s;
-limit_req_zone $binary_remote_addr zone=trueppm_ws:10m rate=20r/s;
+# everyone behind one NAT shares the key.
+#
+# OFF unless NGINX_TRUSTED_PROXY_CIDR names your load balancer. This template
+# sits behind one, so the peer address is the load balancer's and keying on it
+# would put every user in one bucket: one client could lock everyone out of
+# sign-in. $trueppm_rl_key is the client address only when the peer is inside
+# NGINX_TRUSTED_PROXY_CIDR, taken as the LAST X-Forwarded-For entry (the one
+# your load balancer appended; earlier entries are client-supplied). From any
+# other peer, and when the variable is unset (docker-compose.prod.yml defaults
+# it to 192.0.2.1/32, a TEST-NET address no real peer has), the key is empty and nginx
+# does not count the request. The DRF throttles apply either way. $remote_addr
+# is not rewritten, so TRUEPPM_NUM_PROXIES and the logs are unchanged.
+geo $remote_addr $trueppm_peer_is_trusted_proxy {
+    default 0;
+    ${NGINX_TRUSTED_PROXY_CIDR} 1;
+}
+map "$trueppm_peer_is_trusted_proxy:$http_x_forwarded_for" $trueppm_rl_key {
+    "~^1:(?:.*,)?\s*(?<trueppm_xff_client>[^,\s]+)\s*$" $trueppm_xff_client;
+    default "";
+}
+limit_req_zone $trueppm_rl_key zone=trueppm_auth:10m rate=20r/s;
+limit_req_zone $trueppm_rl_key zone=trueppm_ws:10m rate=20r/s;
 # Coarse ceiling on the rest of /api/, share links and the Git-event receiver
 # included (#3852). A flood stop, not a quota: an open tab averages under one
 # request a second (polls are 30s or slower), while a page load fires dozens at
 # once and the Schedule fetches pages four at a time. So 100r/s carries a large
 # office behind one NAT, and burst 1000 absorbs about twenty of its users loading
 # a heavy page together. The auth location under /api/ keeps its own, stricter limit.
-limit_req_zone $binary_remote_addr zone=trueppm_api:10m rate=100r/s;
+limit_req_zone $trueppm_rl_key zone=trueppm_api:10m rate=100r/s;
 
 # Access-log redaction for share tokens (#5155). `no-referrer` cannot cover the
 # page and API requests themselves: their paths carry the token. These maps feed

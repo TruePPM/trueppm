@@ -184,10 +184,14 @@ web:
   # refresh, sign-out, password reset, SSO, invite accept), for /ws/ handshakes,
   # and a much looser one for the rest of /api/, share links and the Git-event
   # receiver included (#3852). A coarse flood backstop behind the application's own
-  # throttles; refused requests get 429. Per source address ($remote_addr), so
-  # behind an ingress or load balancer set web.realIpFrom or everyone shares one
-  # bucket. It binds ONLY for traffic that crosses the web tier: the default
-  # ingress.hosts send /api and /ws straight to the API Service.
+  # throttles; refused requests get 429. Per client address, so it is rendered
+  # ONLY when web.realIpFrom names a trusted proxy: without it nginx sees every
+  # request as coming from the ingress controller (or a node or load balancer),
+  # and one shared bucket would let a single client lock everyone out of sign-in.
+  # With realIpFrom empty, `enabled: true` renders no edge limit and the
+  # application's DRF throttles are the limit. Even then it binds ONLY for traffic
+  # that crosses the web tier: the default ingress.hosts send /api and /ws
+  # straight to the API Service. Rates are `<n>r/s` or `<n>r/m`, n > 0.
   rateLimit:
     enabled: true
     auth:

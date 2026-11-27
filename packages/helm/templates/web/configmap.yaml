@@ -86,13 +86,25 @@ data:
     # see trueppm.web.proxyTrust in _helpers.tpl.
     {{- include "trueppm.web.proxyTrust" . | trim | nindent 4 }}
     {{- $rl := .Values.web.rateLimit | default dict }}
-    {{- if $rl.enabled }}
+    {{- /* Edge limits only where nginx can see the client: web.realIpFrom names a
+      trusted proxy, so $remote_addr is the client from X-Forwarded-For (#3852).
+      Without it every request arrives from the ingress controller or tunnel, one
+      shared bucket that a single client could fill for everyone. */}}
+    {{- $rlOn := and $rl.enabled (not (empty .Values.web.realIpFrom)) }}
+    {{- if and $rl.enabled (not $rlOn) }}
+
+    # web.rateLimit is on, but web.realIpFrom is empty, so nginx cannot tell
+    # clients apart and renders no edge rate limit (#3852). The application's own
+    # DRF throttles still apply. Set web.realIpFrom to turn it on.
+    {{- end }}
+    {{- if $rlOn }}
 
     # Edge rate limit for the unauthenticated auth endpoints and the WebSocket
     # handshake (#3852). A coarse flood backstop BEHIND the DRF throttles, which
     # stay the real limit and live in Valkey: this one still holds when Valkey is
     # down or a view loses its throttle scope. Sized far above SPA traffic, because
-    # the key is $remote_addr and everyone behind one NAT or upstream proxy shares it.
+    # the key is the client address recovered from X-Forwarded-For, and everyone
+    # behind one NAT shares it.
     limit_req_zone $binary_remote_addr zone=trueppm_auth:10m rate={{ $rl.auth.rate }};
     limit_req_zone $binary_remote_addr zone=trueppm_ws:10m rate={{ $rl.websocket.rate }};
     # Coarse ceiling on the rest of /api/, share links and the Git-event receiver
@@ -237,7 +249,7 @@ data:
         # POSTs D2 allows — while everything else under /api/ is bounded by
         # limit_except.
         location = /api/v1/auth/token/ {
-            {{- if $rl.enabled }}
+            {{- if $rlOn }}
             limit_req zone=trueppm_auth burst={{ $rl.auth.burst }} nodelay;
             limit_req_status 429;
             {{- end }}
@@ -248,7 +260,7 @@ data:
             proxy_set_header   X-Forwarded-Proto $forwarded_proto;
         }
         location = /api/v1/auth/token/refresh/ {
-            {{- if $rl.enabled }}
+            {{- if $rlOn }}
             limit_req zone=trueppm_auth burst={{ $rl.auth.burst }} nodelay;
             limit_req_status 429;
             {{- end }}
@@ -259,7 +271,7 @@ data:
             proxy_set_header   X-Forwarded-Proto $forwarded_proto;
         }
         location = /api/v1/auth/logout/ {
-            {{- if $rl.enabled }}
+            {{- if $rlOn }}
             limit_req zone=trueppm_auth burst={{ $rl.auth.burst }} nodelay;
             limit_req_status 429;
             {{- end }}
@@ -277,7 +289,7 @@ data:
         # GET. Any other method is refused by nginx itself, before the request
         # ever reaches Django or DemoReadOnlyMiddleware.
         location /api/ {
-            {{- if $rl.enabled }}
+            {{- if $rlOn }}
             limit_req zone=trueppm_api burst={{ $rl.api.burst }} nodelay;
             limit_req_status 429;
             {{- end }}
@@ -371,7 +383,18 @@ data:
     # see trueppm.web.proxyTrust in _helpers.tpl.
     {{- include "trueppm.web.proxyTrust" . | trim | nindent 4 }}
     {{- $rl := .Values.web.rateLimit | default dict }}
-    {{- if $rl.enabled }}
+    {{- /* Edge limits only where nginx can see the client: web.realIpFrom names a
+      trusted proxy, so $remote_addr is the client from X-Forwarded-For (#3852).
+      Without it every request arrives from the ingress controller or tunnel, one
+      shared bucket that a single client could fill for everyone. */}}
+    {{- $rlOn := and $rl.enabled (not (empty .Values.web.realIpFrom)) }}
+    {{- if and $rl.enabled (not $rlOn) }}
+
+    # web.rateLimit is on, but web.realIpFrom is empty, so nginx cannot tell
+    # clients apart and renders no edge rate limit (#3852). The application's own
+    # DRF throttles still apply. Set web.realIpFrom to turn it on.
+    {{- end }}
+    {{- if $rlOn }}
 
     # Coarse ceiling on the public share-link API (#3852), the one data route this
     # demo serves: a flood stop behind the share views' own throttles.
@@ -542,7 +565,7 @@ data:
         # The ONLY public data plane: anonymous, read-only, throttled, GET-only
         # share projections. Self-contained — the share pages fetch nothing else.
         location ^~ /api/v1/share/ {
-            {{- if $rl.enabled }}
+            {{- if $rlOn }}
             limit_req zone=trueppm_api burst={{ $rl.api.burst }} nodelay;
             limit_req_status 429;
             {{- end }}
@@ -605,13 +628,25 @@ data:
     # see trueppm.web.proxyTrust in _helpers.tpl.
     {{- include "trueppm.web.proxyTrust" . | trim | nindent 4 }}
     {{- $rl := .Values.web.rateLimit | default dict }}
-    {{- if $rl.enabled }}
+    {{- /* Edge limits only where nginx can see the client: web.realIpFrom names a
+      trusted proxy, so $remote_addr is the client from X-Forwarded-For (#3852).
+      Without it every request arrives from the ingress controller or tunnel, one
+      shared bucket that a single client could fill for everyone. */}}
+    {{- $rlOn := and $rl.enabled (not (empty .Values.web.realIpFrom)) }}
+    {{- if and $rl.enabled (not $rlOn) }}
+
+    # web.rateLimit is on, but web.realIpFrom is empty, so nginx cannot tell
+    # clients apart and renders no edge rate limit (#3852). The application's own
+    # DRF throttles still apply. Set web.realIpFrom to turn it on.
+    {{- end }}
+    {{- if $rlOn }}
 
     # Edge rate limit for the unauthenticated auth endpoints and the WebSocket
     # handshake (#3852). A coarse flood backstop BEHIND the DRF throttles, which
     # stay the real limit and live in Valkey: this one still holds when Valkey is
     # down or a view loses its throttle scope. Sized far above SPA traffic, because
-    # the key is $remote_addr and everyone behind one NAT or upstream proxy shares it.
+    # the key is the client address recovered from X-Forwarded-For, and everyone
+    # behind one NAT shares it.
     limit_req_zone $binary_remote_addr zone=trueppm_auth:10m rate={{ $rl.auth.rate }};
     limit_req_zone $binary_remote_addr zone=trueppm_ws:10m rate={{ $rl.websocket.rate }};
     # Coarse ceiling on the rest of /api/, share links and the Git-event receiver
@@ -709,7 +744,7 @@ data:
         # Proxy API calls to the Django backend (release-scoped Service DNS).
         location /api/ {
             # Inherited by every nested location that declares no limit of its own (#3852).
-            {{- if $rl.enabled }}
+            {{- if $rlOn }}
             limit_req zone=trueppm_api burst={{ $rl.api.burst }} nodelay;
             limit_req_status 429;
             {{- end }}
@@ -744,7 +779,7 @@ data:
                 client_max_body_size 1M;
                 proxy_pass http://{{ include "trueppm.fullname" . }}-api:{{ .Values.service.port }};
             }
-            {{- if $rl.enabled }}
+            {{- if $rlOn }}
             # Sign-in, refresh, sign-out, password reset, SSO and invite accept
             # (#3852). Off the default topology: /api reaches this nginx only when
             # the Ingress or load balancer routes it to the web Service.
@@ -758,7 +793,7 @@ data:
 
         # WebSocket (Django Channels)
         location /ws/ {
-            {{- if $rl.enabled }}
+            {{- if $rlOn }}
             limit_req zone=trueppm_ws burst={{ $rl.websocket.burst }} nodelay;
             limit_req_status 429;
             {{- end }}

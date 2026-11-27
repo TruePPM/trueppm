@@ -82,9 +82,11 @@ log_format trueppm_redacted '$remote_addr - $remote_user [$time_local] "$trueppm
 # have had no rate limit at all (#2849).
 limit_req_zone $binary_remote_addr zone=admin_login:1m rate=5r/m;
 
-# Coarse ceiling on the public share-link API (#3852), the same zone and values as
-# the production templates: a flood stop behind the share views' own throttles.
-limit_req_zone $binary_remote_addr zone=trueppm_api:10m rate=100r/s;
+# No edge rate limit on the share-link API (#3852). The demo runs behind a
+# tunnel or ingress and has no trusted-proxy configuration, so nginx sees one
+# peer for every visitor: a per-address limit would be one shared bucket that a
+# single client could fill for everyone. The share views' own DRF throttles,
+# which see the client through TRUEPPM_NUM_PROXIES, are the limit.
 
 server {
     listen 80;
@@ -213,8 +215,6 @@ server {
     # PublicBoardShareView, both AllowAny). Self-contained: the share pages fetch
     # nothing else, so no project-scoped route needs opening.
     location ^~ /api/v1/share/ {
-        limit_req zone=trueppm_api burst=1000 nodelay;
-        limit_req_status 429;
         proxy_pass         http://api:8000;
         proxy_set_header   Host              $host;
         proxy_set_header   X-Real-IP         $remote_addr;

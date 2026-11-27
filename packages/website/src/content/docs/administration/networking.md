@@ -615,32 +615,49 @@ rather than a quota. A page load sends dozens of requests at once and a large
 schedule is fetched four pages at a time, but an open tab then averages well under
 one request a second.
 
-These values are far above normal use on purpose. The key is the address nginx
-sees, so **everyone behind one NAT, load balancer or tunnel shares one bucket**.
-In Helm, set [`web.realIpFrom`](/administration/helm-values/) so nginx sees the
-real client, and tune or disable the limit with `web.rateLimit`:
+These values are far above normal use on purpose: everyone behind one NAT shares
+the key.
+
+**The limits apply only where nginx can see the real client address.** A
+per-address limit keyed on a load balancer, ingress controller or tunnel would put
+every user in one bucket, and a single client could then lock everyone out of
+sign-in. So each config keys on the client, or renders no edge limit at all. Where
+there is none, the application's own throttles still apply, because they see the
+client through `TRUEPPM_NUM_PROXIES`.
+
+| Deployment | Edge limits |
+|---|---|
+| Docker Compose, TLS (`nginx/app.conf.template`) | On. This nginx terminates the client's own connection on ports 80/443. If you put a load balancer, CDN or tunnel in front of it, switch to the HTTP template below or remove the limits. |
+| Docker Compose, HTTP behind a load balancer (`TLS_MODE=none`, `nginx/app-http.conf.template`) | Off until you set `NGINX_TRUSTED_PROXY_CIDR` in `.env` to your load balancer's address or CIDR (one value). Then requests from that peer are keyed on the **last** `X-Forwarded-For` entry, which is the one your load balancer appends. Requests from any other peer are not counted. Your load balancer must append the client to `X-Forwarded-For`. |
+| Helm, `web.realIpFrom` set | On, for traffic that crosses the web tier. nginx recovers the client from `X-Forwarded-For`. |
+| Helm, `web.realIpFrom` empty (the default), with or without an Ingress | Off. Every request reaches nginx from the ingress controller, a load balancer or a node address. |
+| Helm demo modes (share-link and interactive) | Off, unless you set `web.realIpFrom`. |
+| Compose demo (`nginx/demo.conf.template`) and the published `web` image | Off. Neither can tell clients apart. |
+
+In Helm, set [`web.realIpFrom`](/administration/helm-values/) to your ingress
+controller's pod CIDR to turn the limits on, and tune or disable them with
+`web.rateLimit`:
 
 ```yaml
 web:
+  realIpFrom: ["10.42.0.0/16"]
   rateLimit:
     enabled: true
     auth: { rate: 20r/s, burst: 100 }
     websocket: { rate: 20r/s, burst: 200 }
 ```
 
-For Docker Compose and the published `web` image, edit the `limit_req_zone` and
-`limit_req` lines in the config.
+The chart rejects a rate that is not `<n>r/s` or `<n>r/m` with `n` above zero,
+and a negative burst. For Docker Compose, edit the `limit_req_zone` and
+`limit_req` lines in the template.
 
-Where the limits apply:
-
-- Docker Compose (HTTP and TLS) and the published `web` image: all traffic.
-- Helm: **only traffic that crosses the web tier.** The default `ingress.hosts`
-  send `/api` and `/ws` straight to the API Service, so these limits do not apply
-  there. Route those paths with `service: web`, or rate limit at your ingress
-  controller.
-- Interactive demo mode: sign-in, refresh and sign-out, plus the general `/api/`
-  limit. The share-link demo serves no sign-in route and no WebSocket, so only the
-  general limit applies, to `/api/v1/share/`.
+Even with `web.realIpFrom` set, Helm applies the limits **only to traffic that
+crosses the web tier.** The default `ingress.hosts` send `/api` and `/ws` straight
+to the API Service, so these limits do not apply there. Route those paths with
+`service: web`, or rate limit at your ingress controller. In interactive demo mode
+the limits cover sign-in, refresh and sign-out, plus the general `/api/` limit.
+The share-link demo serves no sign-in route and no WebSocket, so only the general
+limit applies, to `/api/v1/share/`.
 
 ## WebSockets behind a proxy
 

@@ -2462,6 +2462,20 @@ helm:template:
       if grep -hE '^ *- path: /api/v1/' /tmp/rendered-large-only.yaml /tmp/rendered-bulk-only.yaml | grep -vqE '\$$'; then
         echo "PROD REGRESSION: an unanchored large/bulk-body path raises every route beneath it (#5124)"; exit 1
       fi
+    # Edge rate limits only where nginx can see the client (#3852). Behind the
+    # Ingress with no web.realIpFrom every request comes from the controller, so
+    # a per-address zone would be ONE bucket a single client could fill for all
+    # users: none may render. With realIpFrom the zones must render.
+    - |
+      if grep -q 'zone=trueppm_' /tmp/rendered-large.yaml; then
+        echo "PROD REGRESSION: ingress.enabled with no web.realIpFrom renders a trueppm_ rate-limit zone keyed on the controller's address (#3852)"; exit 1
+      fi
+      helm template trueppm packages/helm --set image.tag=latest --set ingress.enabled=true \
+        --set 'web.realIpFrom={10.0.0.0/8}' > /tmp/rendered-rl.yaml
+      for z in trueppm_auth trueppm_ws trueppm_api; do
+        grep -qF "limit_req_zone \$binary_remote_addr zone=$z:" /tmp/rendered-rl.yaml \
+          || { echo "PROD REGRESSION: web.realIpFrom set but zone $z is not rendered (#3852)"; exit 1; }
+      done
     # A host whose /api/v1/ goes to the web tier must send the large-body paths
     # there too, or uploads bypass the web nginx it was routed through (#5124).
     - |

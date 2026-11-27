@@ -12,7 +12,14 @@ map $http_upgrade $connection_upgrade {
 # handshake (#3852). A coarse flood backstop BEHIND the DRF throttles, which
 # stay the real limit and live in Valkey: this one still holds when Valkey is
 # down or a view loses its throttle scope. Sized far above SPA traffic, because
-# the key is $remote_addr and everyone behind one NAT or upstream proxy shares it.
+# everyone behind one NAT shares the key.
+#
+# Keyed on the peer address because this template terminates the client's own
+# TLS connection on published ports 80/443, so the peer IS the client. If you put
+# a load balancer, CDN or tunnel in front of it, every user arrives from that
+# proxy and shares one bucket: use app-http.conf.template with
+# NGINX_TRUSTED_PROXY_CIDR instead, or remove these limits (the DRF throttles
+# still apply).
 limit_req_zone $binary_remote_addr zone=trueppm_auth:10m rate=20r/s;
 limit_req_zone $binary_remote_addr zone=trueppm_ws:10m rate=20r/s;
 # Coarse ceiling on the rest of /api/, share links and the Git-event receiver
