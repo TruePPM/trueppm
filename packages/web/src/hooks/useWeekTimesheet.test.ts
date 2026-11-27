@@ -205,24 +205,56 @@ describe('offline cell writes (#1949)', () => {
 
   it('a queued second edit creates instead of throwing when the first create is rejected', async () => {
     const { qc, Wrapper } = wrapper();
+    // The first create stays in flight while the second edit starts, so the second edit awaits
+    // the same promise and sees it reject (paused mutations resume one at a time and never would).
+    let rejectFirst: (err: Error) => void = () => {};
     postMock
       .mockReset()
-      .mockRejectedValueOnce(new Error('network down'))
+      .mockReturnValueOnce(
+        new Promise((_, reject) => {
+          rejectFirst = reject;
+        }),
+      )
       .mockResolvedValueOnce({ data: { id: 'real-2' } });
-    onlineManager.setOnline(false);
     const { result } = renderHook(() => useTimesheetCell('2026-06-15'), { wrapper: Wrapper });
     act(() => {
       result.current.mutate({ meta: META, date: '2026-06-16', minutes: 90, entryId: null });
     });
     await waitFor(() => expect(cellEntryId(qc)).not.toBeNull());
+    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(1));
     const placeholder = cellEntryId(qc);
+    const second = renderHook(() => useTimesheetCell('2026-06-15'), { wrapper: Wrapper });
+    let secondOutcome: 'ok' | 'threw' | null = null;
     act(() => {
-      result.current.mutate({ meta: META, date: '2026-06-16', minutes: 120, entryId: placeholder });
+      second.result.current
+        .mutateAsync({ meta: META, date: '2026-06-16', minutes: 120, entryId: placeholder })
+        .then(
+          () => {
+            secondOutcome = 'ok';
+          },
+          () => {
+            secondOutcome = 'threw';
+          },
+        );
     });
-    act(() => onlineManager.setOnline(true));
-    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(2));
-    expect(postMock).toHaveBeenLastCalledWith('/tasks/task-a/time-entries/', { minutes: 120, entry_date: '2026-06-16' });
-    expect(patchMock.mock.calls.filter(([url]) => String(url).includes('optimistic-'))).toHaveLength(0);
+    // The second edit's onMutate has run (cache shows 120), so its mutationFn is awaiting the create.
+    await waitFor(() => {
+      const cur = qc.getQueryData<WeeklyResponse>(weekTimesheetKey('2026-06-15'));
+      expect(cur?.results.find((e) => e.id === placeholder)?.minutes).toBe(120);
+    });
+    await act(async () => {
+      rejectFirst(new Error('network down'));
+    });
+    await waitFor(() => expect(secondOutcome).not.toBeNull());
+    expect(secondOutcome).toBe('ok');
+    expect(postMock).toHaveBeenCalledTimes(2);
+    expect(postMock).toHaveBeenLastCalledWith('/tasks/task-a/time-entries/', {
+      minutes: 120,
+      entry_date: '2026-06-16',
+    });
+    expect(
+      patchMock.mock.calls.filter(([url]) => String(url).includes('optimistic-')),
+    ).toHaveLength(0);
   });
 });
 
@@ -308,3 +340,4 @@ describe('useSubmitWeek', () => {
     await waitFor(() => expect(deleteMock).toHaveBeenCalledWith('/me/timesheets/2026-06-15/submit/'));
   });
 });
+
