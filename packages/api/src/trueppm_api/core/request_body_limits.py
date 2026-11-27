@@ -104,8 +104,10 @@ def _route(name: str, pattern: str, example: str, tier: BodyTier) -> LargeBodyRo
 
 
 #: Every route allowed a body above 2 MiB. Adding a row here without adding the
-#: path to the matching nginx location in all four configs fails
-#: ``test_request_body_limits.py`` — that is the point of keeping one table.
+#: path to the matching nginx location in all four configs, and to the path list
+#: in the Helm chart's ``<release>-large-body`` Ingress (templates/ingress.yaml,
+#: #5124), fails ``test_request_body_limits.py`` — that is the point of keeping
+#: one table.
 LARGE_BODY_ROUTES: tuple[LargeBodyRoute, ...] = (
     # --- upload tier: multipart file parts -------------------------------
     _route(

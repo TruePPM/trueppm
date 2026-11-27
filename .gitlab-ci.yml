@@ -729,7 +729,7 @@ scripts:test:
         - scripts/backup.sh
         - scripts/restore.sh
         - scripts/lib/s3.sh
-        - scripts/lib/gitlab-issues.sh
+        - scripts/{lib/gitlab-issues.sh,check-todo-grep.sh}
         - scripts/tests/gitlab-issues.test.sh
         - scripts/tracker-drift-report.sh
         - scripts/check-enterprise-imports.sh
@@ -782,7 +782,7 @@ scripts:test:
         - scripts/backup.sh
         - scripts/restore.sh
         - scripts/lib/s3.sh
-        - scripts/lib/gitlab-issues.sh
+        - scripts/{lib/gitlab-issues.sh,check-todo-grep.sh}
         - scripts/tests/gitlab-issues.test.sh
         - scripts/tracker-drift-report.sh
         - scripts/check-enterprise-imports.sh
@@ -2435,25 +2435,74 @@ helm:template:
     # Both are 110M/110m since #3189, sized against the largest cap — attachments
     # at 100 MB — plus 10 MB of multipart framing headroom. The ingress one is
     # the load-bearing assertion: /api goes straight to the API Service, so it is
-    # the only limit an attachment upload meets on a default install.
+    # the only limit an attachment upload meets on a default install. Since #5124
+    # that 110m lives on the <release>-large-body Ingress and the main Ingress is
+    # 2m, so every other route (anonymous ones included) is tight at the edge.
     - |
       grep -q 'client_max_body_size 110M;' /tmp/rendered.yaml \
         || { echo "PROD REGRESSION: web nginx no longer clears the 100 MB attachment cap (#2604, #3189)"; exit 1; }
     - |
+      helm template trueppm packages/helm --set image.tag=latest --set ingress.enabled=true > /tmp/rendered-large.yaml
+      awk '/name: .*-large-body$/{f=1} /^---/{f=0} f' /tmp/rendered-large.yaml > /tmp/rendered-large-only.yaml
+      grep -q 'proxy-body-size: "110m"' /tmp/rendered-large-only.yaml \
+        && grep -qF 'path: /api/v1/projects/[^/]+/tasks/[^/]+/attachments/' /tmp/rendered-large-only.yaml \
+        || { echo "PROD REGRESSION: ingress no longer clears the 100 MB attachment cap — a default install 413s every attachment >2 MB (#2604, #3189, #5124)"; exit 1; }
+      grep -q 'nginx.ingress.kubernetes.io/proxy-body-size: 2m$' /tmp/rendered-large.yaml \
+        || { echo "PROD REGRESSION: the main Ingress no longer bounds anonymous routes at 2m (#5124)"; exit 1; }
+      # The bulk tier (logo, seed import, bulk, sync, task-sync) is capped at 10 MiB
+      # by the app and gets its own 10m Ingress, never the 110m upload one; every
+      # path is `$`-anchored so it raises only that exact route (#5124).
+      awk '/name: .*-bulk-body$/{f=1} /^---/{f=0} f' /tmp/rendered-large.yaml > /tmp/rendered-bulk-only.yaml
+      grep -q 'proxy-body-size: "10m"' /tmp/rendered-bulk-only.yaml \
+        && grep -qF 'path: /api/v1/projects/[^/]+/task-sync/$' /tmp/rendered-bulk-only.yaml \
+        || { echo "PROD REGRESSION: the bulk-tier routes lost their 10m Ingress (#5124)"; exit 1; }
+      if grep -qE 'path: /api/v1/(workspace/logo|programs/import|projects/\[\^/\]\+/(tasks/bulk|sync|task-sync))/' /tmp/rendered-large-only.yaml; then
+        echo "PROD REGRESSION: a 10 MiB bulk-tier route is on the 110m large-body Ingress (#5124)"; exit 1
+      fi
+      if grep -hE '^ *- path: /api/v1/' /tmp/rendered-large-only.yaml /tmp/rendered-bulk-only.yaml | grep -vqE '\$$'; then
+        echo "PROD REGRESSION: an unanchored large/bulk-body path raises every route beneath it (#5124)"; exit 1
+      fi
+    # Edge rate limits only where nginx can see the client (#3852). Behind the
+    # Ingress with no web.realIpFrom every request comes from the controller, so
+    # a per-address zone would be ONE bucket a single client could fill for all
+    # users: none may render. With realIpFrom the zones must render.
+    - |
+      if grep -q 'zone=trueppm_' /tmp/rendered-large.yaml; then
+        echo "PROD REGRESSION: ingress.enabled with no web.realIpFrom renders a trueppm_ rate-limit zone keyed on the controller's address (#3852)"; exit 1
+      fi
       helm template trueppm packages/helm --set image.tag=latest --set ingress.enabled=true \
-        | grep -q 'nginx.ingress.kubernetes.io/proxy-body-size: 110m' \
-        || { echo "PROD REGRESSION: ingress no longer clears the 100 MB attachment cap — a default install 413s every attachment >50 MB (#2604, #3189)"; exit 1; }
+        --set 'web.realIpFrom={10.0.0.0/8}' > /tmp/rendered-rl.yaml
+      for z in trueppm_auth trueppm_ws trueppm_api; do
+        grep -qF "limit_req_zone \$binary_remote_addr zone=$z:" /tmp/rendered-rl.yaml \
+          || { echo "PROD REGRESSION: web.realIpFrom set but zone $z is not rendered (#3852)"; exit 1; }
+      done
+    # A host whose /api/v1/ goes to the web tier must send the large-body paths
+    # there too, or uploads bypass the web nginx it was routed through (#5124).
+    - |
+      helm template trueppm packages/helm --set image.tag=latest --set ingress.enabled=true \
+        --set 'ingress.hosts[0].host=web.example.com' \
+        --set 'ingress.hosts[0].paths[0].path=/' \
+        --set 'ingress.hosts[0].paths[0].pathType=Prefix' \
+        --set 'ingress.hosts[0].paths[0].service=web' > /tmp/rendered-large-web.yaml
+      backends="$(yq ea 'select(.kind == "Ingress" and (.metadata.name | test("-(large|bulk)-body$"))) | .spec.rules[].http.paths[].backend.service.name' /tmp/rendered-large-web.yaml | grep -vE '^(---)?$' || true)"
+      [ -n "$backends" ] || { echo "PROD REGRESSION: a web-tier host renders no large-body Ingress (#5124)"; exit 1; }
+      if echo "$backends" | grep -qv -- '-web$'; then
+        echo "PROD REGRESSION: a large-body backend for a service: web host is not the web Service: $backends (#5124)"; exit 1
+      fi
     # The anonymous Git-event receiver gets a 1 MB ceiling at BOTH edges (#2932):
-    # a dedicated Ingress (the 110m annotation on the main one covers every path
-    # of that object) and a nested web-tier nginx location. Without the Ingress
-    # an anonymous caller can push 110 MB at an unconfigured project UUID.
+    # a dedicated Ingress (the main one's 2m annotation covers every path of that
+    # object) and a nested web-tier nginx location. Without the Ingress an
+    # anonymous caller gets the main Ingress's looser 2m at an unconfigured
+    # project UUID.
     - |
       helm template trueppm packages/helm --set image.tag=latest --set ingress.enabled=true > /tmp/rendered-ingress.yaml
       [ "$(grep -c 'location ~ ^/api/v1/integrations/projects/\[^/\]+/git-webhook/\$ {' /tmp/rendered.yaml)" = 1 ] \
         || { echo "PROD REGRESSION: web nginx lost its once-only git-webhook 1M location (#2932)"; exit 1; }
       grep -A2 -F 'git-webhook/$ {' /tmp/rendered.yaml | grep -q 'client_max_body_size 1M;' \
         || { echo "PROD REGRESSION: git-webhook web-tier location no longer caps the body at 1M (#2932)"; exit 1; }
-      awk '/name: .*-git-webhook$/{f=1} f' /tmp/rendered-ingress.yaml | grep -q 'proxy-body-size: "1m"' \
+      # grep -c, not -q: -q exits at the first match and awk can still be writing, so
+      # pipefail intermittently sees awk's SIGPIPE (141) and reports a false regression.
+      [ "$(awk '/name: .*-git-webhook$/{f=1} f' /tmp/rendered-ingress.yaml | grep -c 'proxy-body-size: "1m"')" -ge 1 ] \
         || { echo "PROD REGRESSION: no dedicated git-webhook Ingress with a 1m body limit (#2932)"; exit 1; }
     - |
       if helm template trueppm packages/helm --set image.tag=latest --set ingress.enabled=true \
@@ -2511,6 +2560,11 @@ helm:template:
       [ -n "$backends" ] || { echo "DEMO REGRESSION: an all-web demo Ingress no longer renders (#3908)"; exit 1; }
       echo "$backends" | grep -qv -- '-web$' \
         && { echo "DEMO REGRESSION: a demo Ingress backend is not the web Service: $backends (#3908)"; exit 1; } || true
+      # The same host would earn a large-body Ingress outside the demo; the demo is
+      # read-only and must not get one (#5124).
+      if grep -qE 'name: .*-large-body$' /tmp/rendered-demo-ingress.yaml; then
+        echo "DEMO REGRESSION: demo.enabled renders the large-body Ingress (#5124)"; exit 1
+      fi
     # ── Interactive demo mode (ADR-1197, #3925) ───────────────────────────────
     # The SHARE-LINK demo's render must be unchanged by the interactive mode. It is
     # a separate switch precisely so that publishing two anonymous projections can
@@ -2854,6 +2908,25 @@ api:static:
     - bash scripts/ci/step.sh api:migration-check pip install -e "packages/api[dev]" --quiet
     - bash scripts/ci/step.sh api:migration-check sh -c 'cd packages/api && python manage.py makemigrations --check --dry-run'
     - bash scripts/ci/step.sh --finish
+
+api:nginx-parity:
+  # The two pytest files that read nginx and Helm text (#3852, #4383, #5124,
+  # #5155). api:test runs them on api/scheduler changes only (.rules-api), so an
+  # nginx- or chart-only change would never reach them. Scoped to exactly those
+  # inputs instead of widening the whole api suite.
+  extends: .api
+  stage: analyze
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" || $CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - nginx/**/*
+        - packages/web/nginx.conf
+        - packages/helm/templates/**/*
+        - packages/helm/values*.yaml
+        - .gitlab-ci.yml
+  script:
+    - cd packages/api
+    - pytest tests/core/test_nginx_edge_hardening.py tests/core/test_request_body_limits.py -q
 
 api:analyze:
   # api:type-check and api:openapi-check share one trigger (rules-api), one image

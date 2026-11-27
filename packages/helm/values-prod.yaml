@@ -195,7 +195,7 @@ ingress:
   #       - trueppm.example.com
   annotations: {}
   #   cert-manager.io/cluster-issuer: letsencrypt-prod
-  #   nginx.ingress.kubernetes.io/proxy-body-size: "110m"   # match the API's 100 MB cap
+  #   Leave proxy-body-size at the chart default (2m); uploads use ingress.largeBody.size.
 
 # ── Availability ─────────────────────────────────────────────────────────────
 # A PDB bounds voluntary disruption (node drains, upgrades). It does NOT make

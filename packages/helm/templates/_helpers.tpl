@@ -1572,6 +1572,9 @@ add_header X-Frame-Options        "{{ . }}" always;
 {{- with .Values.web.securityHeaders.contentTypeOptions -}}
 add_header X-Content-Type-Options "{{ . }}" always;
 {{ end -}}
+{{- with .Values.web.securityHeaders.permissionsPolicy -}}
+add_header Permissions-Policy     "{{ . }}" always;
+{{ end -}}
 {{- with .Values.web.securityHeaders.referrerPolicy -}}
 add_header Referrer-Policy        "{{ . }}" always;
 {{ end -}}

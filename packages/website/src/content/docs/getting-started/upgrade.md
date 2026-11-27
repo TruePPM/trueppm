@@ -131,6 +131,49 @@ retried, so a delivery attempted during the window is not replayed automatically
 once you fix the list. Set the new variables on the API, Celery worker, and Celery
 beat processes. See [Networking](/administration/networking/#split-horizon-and-internal-only-names).
 
+### Helm: the Ingress body ceiling is now tight by default
+
+:::note[Ships in 0.5]
+On 0.4 the chart's Ingress allows `110m` on every route.
+:::
+
+The main Ingress `proxy-body-size` default drops from `110m` to `2m`. A new
+`<release>-large-body` Ingress carries `110m` for attachments and file imports,
+and a new `<release>-bulk-body` Ingress carries `10m` (`ingress.largeBody.bulkSize`)
+for logo, seed import, bulk, sync and inbound task push. A chart-default install
+needs no change. Check two cases:
+
+- Your values file sets `nginx.ingress.kubernetes.io/proxy-body-size`. Your value
+  still wins on the main Ingress, so anonymous routes keep it. Remove it, or set
+  `2m`. If it was above `110m` for larger uploads, set
+  `ingress.largeBody.size` to that number, or those uploads now get `413` above
+  `110m`.
+- You upgrade with `--reuse-values`. The new keys are not picked up, and the old
+  `110m` annotation stays.
+
+See [Upload size limits](/administration/helm-values/#upload-size-limits).
+
+### Edge rate limits apply only where nginx sees the client
+
+:::note[Ships in 0.5]
+On 0.4 the only nginx rate limit is on `/admin/`.
+:::
+
+The nginx rate limits on sign-in, `/ws/` handshakes and `/api/` that ship in 0.5
+are rendered only where nginx can see the real client address, so an upgrade never
+puts every user in one shared bucket:
+
+- Helm: on only when `web.realIpFrom` is set. With it empty (the default) nothing
+  changes. If you set it, check that it names only your ingress controller.
+- Docker Compose with TLS: on. If a load balancer, CDN or tunnel sits in front of
+  this nginx, use `TLS_MODE=none` with `NGINX_TRUSTED_PROXY_CIDR`, or remove the
+  limits from the template.
+- Docker Compose with `TLS_MODE=none`: off until you set `NGINX_TRUSTED_PROXY_CIDR`
+  in `.env`. An unset value starts the container with the limits off.
+- The Compose demo and the published `web` image: off.
+
+See [Edge rate limits](/administration/networking/#edge-rate-limits).
+
 ### Workers must consume the `heavy` queue
 
 :::note[Ships in 0.5]
