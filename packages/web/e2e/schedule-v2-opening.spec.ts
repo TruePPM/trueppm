@@ -18,7 +18,6 @@ const base = {
   percent_complete: 0,
   is_critical: false,
   is_milestone: false,
-  assignees: [],
   total_float: 5,
   predecessor_count: 0,
   is_blocked: false,

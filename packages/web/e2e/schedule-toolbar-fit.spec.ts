@@ -51,7 +51,6 @@ const baseRow = {
   is_critical: false,
   is_milestone: false,
   status: 'NOT_STARTED',
-  assignees: [],
   total_float: null,
   predecessor_count: 0,
   is_blocked: false,

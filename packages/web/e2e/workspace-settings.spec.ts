@@ -1717,7 +1717,7 @@ const SYS_TRASH = [
   {
     id: 't2',
     name: 'Gemini',
-    code: null,
+    code: '',
     deleted_by_name: 'AK',
     deleted_at: '2026-05-21T10:00:00Z',
     days_remaining: 26,

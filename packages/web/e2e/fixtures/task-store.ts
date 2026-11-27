@@ -122,6 +122,14 @@ function expandSubtree(rows: TaskRow[], rootId: string | undefined): Set<string>
   return ids;
 }
 
+/** Write-only task request keys: the server accepts them and never serializes them back. */
+const WRITE_ONLY_KEYS = new Set(['surface', 'amend_group', 'owners', 'parent', 'slip_reason']);
+
+/** Drop write-only keys before a request body is merged into a row the GETs serve. */
+export function readFields(body: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(body).filter(([key]) => !WRITE_ONLY_KEYS.has(key)));
+}
+
 /**
  * One row's half of the classification cascade — the mirror of the server's
  * `task_classification._classify_row`. Mutates `row` in place the way the endpoint
@@ -174,7 +182,7 @@ export async function setupTaskStore(page: Page, opts: TaskStoreOptions): Promis
   let lastPasteManyUndo: string[] | null = null;
   const applyPatch =
     opts.applyPatch ??
-    ((body: Record<string, unknown>, current: TaskRow) => ({ ...current, ...body }));
+    ((body: Record<string, unknown>, current: TaskRow) => ({ ...current, ...readFields(body) }));
 
   const json = (body: unknown, status = 200) => ({
     status,
@@ -218,13 +226,12 @@ export async function setupTaskStore(page: Page, opts: TaskStoreOptions): Promis
       is_milestone: false,
       is_summary: false,
       status: 'NOT_STARTED',
-      assignees: [],
       total_float: null,
       predecessor_count: 0,
       is_blocked: false,
       linked_risks_count: 0,
       linked_risks_max_severity: null,
-      ...body,
+      ...readFields(body),
       id: `created-${createSeq}`,
       parent_id: parentId,
       wbs_path: parentWbs ? `${parentWbs}.${siblings.length + 1}` : `${siblings.length + 1}`,
@@ -292,7 +299,7 @@ export async function setupTaskStore(page: Page, opts: TaskStoreOptions): Promis
     (body.operations ?? []).forEach((op, index) => {
       if (op.op === 'create') {
         const id = op.id ?? `bulk-${rows.length}-${index}`;
-        rows.push({ id, ...op.data });
+        rows.push({ id, ...readFields(op.data ?? {}) });
         applied.push({ index, id, op: 'create', outcome: 'created' });
         createdIds.push(id);
         return;

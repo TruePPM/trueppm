@@ -169,7 +169,8 @@ async function setupRoutes(page: import('@playwright/test').Page) {
       body: JSON.stringify({
         count: FIXTURE_TASKS.length, next: null, previous: null, results: FIXTURE_TASKS,
       }),
-    }),
+    });
+  },
   );
   await page.route('**/api/v1/dependencies/**', (route) =>
     route.fulfill({

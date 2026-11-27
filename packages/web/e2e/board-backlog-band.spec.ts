@@ -39,7 +39,6 @@ function commonTaskShape() {
     is_critical: false,
     is_milestone: false,
     is_summary: false,
-    assignees: [],
     total_float: null,
     predecessor_count: 0,
     is_blocked: false,
@@ -53,7 +52,7 @@ const SUMMARY_TASK = {
   early_start: '2026-04-05', early_finish: '2026-04-30',
   duration: 25, percent_complete: 30, is_critical: false,
   is_milestone: false, is_summary: true, parent_id: null,
-  status: 'IN_PROGRESS', assignees: [], total_float: null,
+  status: 'IN_PROGRESS', total_float: null,
   predecessor_count: 0, is_blocked: false,
   linked_risks_count: 0, linked_risks_max_severity: null,
 };

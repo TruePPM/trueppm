@@ -105,7 +105,6 @@ const FULL_TASK = {
   is_critical: false,
   is_milestone: false,
   is_summary: false,
-  assignees: [],
   total_float: 4,
   predecessor_count: 0,
   is_blocked: false,

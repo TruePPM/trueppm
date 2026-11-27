@@ -29,7 +29,6 @@ function taskRow(id: string, wbs: string, name: string, extra: Record<string, un
     is_summary: false,
     parent_id: null,
     status: 'NOT_STARTED',
-    assignees: [],
     assignments: [],
     total_float: 4,
     predecessor_count: 0,

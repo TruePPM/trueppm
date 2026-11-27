@@ -34,7 +34,6 @@ function task(id: string, wbs: string, name: string) {
     planned_start: '2026-04-06',
     scheduled_start: '2026-04-06',
     is_critical: false,
-    assignees: [],
     notes: '',
     server_version: 1,
     can_edit: true,

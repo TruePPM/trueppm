@@ -48,7 +48,6 @@ function task(over: Record<string, unknown>) {
     is_summary: false,
     parent_id: null,
     status: 'NOT_STARTED',
-    assignees: [],
     total_float: null,
     predecessor_count: 0,
     is_blocked: false,
@@ -111,7 +110,6 @@ const DEPENDENCIES = [
     successor: 'c-build',
     dep_type: 'FS',
     lag: 0,
-    is_critical: false,
   },
   {
     id: 'd2',
@@ -119,7 +117,6 @@ const DEPENDENCIES = [
     successor: 'c-ship',
     dep_type: 'FS',
     lag: 0,
-    is_critical: false,
   },
 ];
 

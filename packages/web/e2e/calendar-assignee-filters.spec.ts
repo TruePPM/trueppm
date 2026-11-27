@@ -13,8 +13,8 @@ const ANCHOR = '2026-03-11';
 const url = (extra = '') =>
   `/projects/${PROJECT_ID}/calendar?calAnchor=${ANCHOR}&calView=week${extra}`;
 
-const AISHA = { resource_id: 'res-aisha', resource_name: 'Aisha Khan', units: 100 };
-const BEN = { resource_id: 'res-ben', resource_name: 'Ben Ortiz', units: 100 };
+const AISHA = { resource_id: 'res-aisha', resource_name: 'Aisha Khan', units: '1.00' };
+const BEN = { resource_id: 'res-ben', resource_name: 'Ben Ortiz', units: '1.00' };
 
 const task = (id: string, name: string, assignments: unknown[]) => ({
   id,

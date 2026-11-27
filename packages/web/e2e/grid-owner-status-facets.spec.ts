@@ -39,11 +39,10 @@ function task(
     is_summary: false,
     parent_id: null,
     status,
-    assignments: assignees.map((a, i) => ({
-      id: `as-${id}-${i}`,
+    assignments: assignees.map((a) => ({
       resource_id: a.id,
       resource_name: a.name,
-      units: 1,
+      units: '1.00',
     })),
     total_float: 5,
     predecessor_count: 0,

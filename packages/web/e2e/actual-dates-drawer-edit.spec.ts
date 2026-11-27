@@ -113,7 +113,6 @@ function fullTasks(state: ActualsState) {
       is_critical: false,
       is_milestone: false,
       is_summary: false,
-      assignees: [],
       total_float: 4,
       free_float: 2,
       predecessor_count: 0,

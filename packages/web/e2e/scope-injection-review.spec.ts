@@ -63,14 +63,14 @@ const PHASE = {
   id: 'ph1', wbs_path: '1', name: 'Delivery', early_start: '2026-04-01',
   early_finish: '2026-04-14', planned_start: '2026-04-01', duration: 14,
   percent_complete: 0, is_critical: false, is_milestone: false, is_summary: true,
-  parent_id: null, status: 'IN_PROGRESS', assignees: [], total_float: null,
+  parent_id: null, status: 'IN_PROGRESS', total_float: null,
 };
 
 const PENDING_TASK = {
   id: 'tk-pending', wbs_path: '1.1', name: 'Urgent hotfix', early_start: '2026-04-05',
   early_finish: '2026-04-07', planned_start: '2026-04-05', duration: 2,
   percent_complete: 0, is_critical: false, is_milestone: false, is_summary: false,
-  parent_id: 'ph1', status: 'NOT_STARTED', assignees: [], total_float: null,
+  parent_id: 'ph1', status: 'NOT_STARTED', total_float: null,
   sprint: ACTIVE_SPRINT.id,
   sprint_pending: true,
   sprint_scope_changes: [

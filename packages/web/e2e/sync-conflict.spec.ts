@@ -40,7 +40,6 @@ const TASK = {
   is_summary: false,
   parent_id: null,
   status: 'IN_PROGRESS',
-  assignees: [],
   total_float: 5,
   predecessor_count: 0,
   is_blocked: false,

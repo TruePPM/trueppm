@@ -420,7 +420,6 @@ test.describe('the "+ New task" demotion (#2952, design case 18)', () => {
           status: 'NOT_STARTED',
           is_summary: false,
           is_milestone: false,
-          parent: null,
           wbs_path: '1',
         }),
       });

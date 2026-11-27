@@ -219,7 +219,22 @@ async function setupTimesheet(page: Page, opts: TimesheetOpts = {}): Promise<voi
       entry_date: body.entry_date,
     };
     state.entries.push(entry);
-    await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(entry) });
+    // The POST returns the plain TimeEntry shape; the task/project labels belong to
+    // the weekly read serializer only.
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: entry.id,
+        task: entry.task,
+        minutes: entry.minutes,
+        entry_date: entry.entry_date,
+        note: '',
+        source: 'manual',
+        server_version: 1,
+        created_at: '2026-01-01T00:00:00Z',
+      }),
+    });
   });
 
   // POST / DELETE /me/timesheets/{week}/submit — the marker.

@@ -3,6 +3,7 @@ export { setupAuth, type SetupAuthOptions } from './auth';
 export { openCommandPalette, paletteDialog, paletteSearch } from './command-palette';
 export {
   setupTaskStore,
+  readFields,
   type TaskRow,
   type TaskStoreHandle,
   type TaskStoreOptions,
@@ -13,6 +14,7 @@ export {
   setupApiMocks,
   setupCatchAll,
   setupPinned,
+  toListProject,
   type PinnedFixture,
   type ApiMockOptions,
   type ProjectFixture,

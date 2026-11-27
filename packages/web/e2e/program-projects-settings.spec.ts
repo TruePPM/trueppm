@@ -28,7 +28,6 @@ const FIXTURE_PROGRAM = {
   id: PROGRAM_ID,
   server_version: 1,
   name: 'Phase 2 Modernization',
-  description: 'Q3 platform rebuild',
   methodology: 'HYBRID',
   created_by: ME_ID,
   created_at: '2026-05-18T00:00:00Z',
@@ -117,7 +116,7 @@ async function setup(
         mc_history_override_policy: 'suggest',
         task_duration_change_percent_policy: 'WARN',
         task_duration_change_percent_override_policy: 'suggest',
-        estimation_scale: 'FIBONACCI',
+        estimation_scale: 'fibonacci',
         sprint_picker_ready_only_default: false,
         methodology: 'HYBRID',
         methodology_override_policy: opts.methodologyOverridePolicy ?? 'suggest',
@@ -144,7 +143,6 @@ function project(
   return {
     id,
     name,
-    description: '',
     start_date: '2026-01-01',
     methodology,
     effective_methodology: methodology,
@@ -159,7 +157,6 @@ test.describe('Program Settings → Projects', () => {
       {
         id: 'pr-1',
         name: 'Artemis IV Lift',
-        description: '',
         start_date: '2026-01-01',
         methodology: 'WATERFALL',
         program: PROGRAM_ID,
@@ -167,7 +164,6 @@ test.describe('Program Settings → Projects', () => {
       {
         id: 'pr-2',
         name: 'Launch Control Software',
-        description: '',
         start_date: '2026-01-01',
         methodology: 'AGILE',
         program: PROGRAM_ID,
@@ -190,8 +186,8 @@ test.describe('Program Settings → Projects', () => {
 
   test('admin bulk-sets a field on the selected projects (issue 1233)', async ({ page }) => {
     await setup(page, [
-      { id: 'pr-1', name: 'Artemis IV Lift', description: '', start_date: '2026-01-01', methodology: 'WATERFALL', program: PROGRAM_ID },
-      { id: 'pr-2', name: 'Launch Control Software', description: '', start_date: '2026-01-01', methodology: 'AGILE', program: PROGRAM_ID },
+      { id: 'pr-1', name: 'Artemis IV Lift', start_date: '2026-01-01', methodology: 'WATERFALL', program: PROGRAM_ID },
+      { id: 'pr-2', name: 'Launch Control Software', start_date: '2026-01-01', methodology: 'AGILE', program: PROGRAM_ID },
     ]);
     let posted: { ids: string[]; fields: Record<string, unknown> } | null = null;
     await page.route(`**/api/v1/programs/${PROGRAM_ID}/bulk-project-fields/`, async (route) => {

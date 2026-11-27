@@ -83,7 +83,7 @@ async function setup(page: Page, { catalogFails = false } = {}) {
     r.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: pj({ id: 'ws-1', name: 'TrueScope' }),
+      body: pj({ name: 'TrueScope' }),
     }),
   );
   await page.route('**/api/v1/programs/', (r) =>

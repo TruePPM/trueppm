@@ -26,7 +26,6 @@ const FIXTURE_TASKS = [
     is_summary: false,
     parent_id: null,
     status: 'NOT_STARTED',
-    assignees: [],
     assignments: [],
     notes: '',
   },
@@ -43,7 +42,6 @@ const FIXTURE_TASKS = [
     is_summary: false,
     parent_id: null,
     status: 'NOT_STARTED',
-    assignees: [],
     assignments: [],
     notes: '',
   },
@@ -56,7 +54,6 @@ const FIXTURE_DEP = {
   successor: 'task-build',
   dep_type: 'FS',
   lag: 0,
-  is_critical: false,
 };
 
 test.describe('Schedule ARIA overlay dep edges (#1371)', () => {

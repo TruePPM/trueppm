@@ -47,7 +47,7 @@ const FIXTURE_TASKS = [
     baseline_start: null, baseline_finish: null,
     optimistic_duration: null, most_likely_duration: null, pessimistic_duration: null,
     estimate_status: null, total_float: 0,
-    assignments: [{ resource_id: 'r1', resource_name: 'Alice Kim', units: 1.0 }],
+    assignments: [{ resource_id: 'r1', resource_name: 'Alice Kim', units: '1.00' }],
   },
   {
     id: 'task2', wbs_path: '1.2', name: 'Backend Build',

@@ -3,23 +3,13 @@
  * `docs/api/openapi.json`, and the reason each one is still served (#3440).
  *
  * Read this as a ledger, not as an exemption list. Each entry is one place a
- * spec is still asserting the front end against itself; `schema-guard.ts` fails
- * the spec on every operation NOT listed here — 237 of the 339 the mock layer
- * touches, plus everything a future spec mocks.
+ * mock and the published schema still disagree; `schema-guard.ts` fails the spec
+ * on every operation and pair NOT listed here.
  *
  * Be honest about what a waiver buys. Like `--update-baseline` on the docs gate,
  * it cannot stop a wrong answer — a wrong entry here gets today's outcome. What
  * it removes is the **silence**: before this file existed, a mock the server
- * could never produce generated no signal anywhere in the pipeline. The first
- * measured pass found 346 such lines across 104 operations, all of them green;
- * #3440 corrected four field families, #3649 closed the cluster-(a)
- * list-vs-envelope entries below — that wildcard was also silently covering
- * two `/members/` operations' unrelated #2633 user-id drift, which needed its
- * own narrower cluster-(e) entry once uncovered — #3651 corrected 11 more
- * (nullability), and #3650 closed the cluster-(b) entry by fixing the schema
- * rather than waiving the mock, opening one narrower property-level entry —
- * cluster (g) — for a client field #1753 has not yet shipped on this
- * endpoint. These 89 operations are what is left.
+ * could never produce generated no signal anywhere in the pipeline.
  *
  * ## Shape
  *
@@ -49,61 +39,24 @@
  *   one. That script also ratchets the entry count: it may shrink — and when it
  *   does, the budget must be lowered in the same MR — never grow.
  *
- * ## The six clusters, and which side is wrong
+ * ## The clusters, and which side is wrong
  *
- * Each was verified against the Django source before it was written down; the
- * cluster says which artifact to change, which is the part a bare "mismatch"
- * cannot tell you.
+ * Each was verified against the Django source; the cluster says which artifact to
+ * change, which is the part a bare "mismatch" cannot tell you. The letters are
+ * stable, so a closed cluster ((b), (c), (d), (f)) leaves a gap.
  *
- * **(a) SCHEMA WRONG — a hand-written `list()` returns a bare array** (#3649).
- * drf-spectacular infers a paginated envelope from the `GenericViewSet` default
- * pagination class even where `list()` is overridden and returns
- * `Response(serializer.data)` on a plain list. The mock and the client both match
- * the *server*; only the published contract is wrong, so "fixing" the mock would
- * make it wrong.
+ * **(a) SCHEMA WRONG** — the server sends the field or body shape and the
+ * published response does not declare it. "Fixing" the mock would make it wrong.
  *
- * **(b) SCHEMA WRONG — an under-declared response** (#3650, CLOSED). `GET
- * /me/work/` hand-added five real top-level keys the declared schema did not
- * model. Fixed by declaring the real envelope (`MeWorkListPage`) instead of
- * waiving the mock — no entry remains below. Left here so the cluster
- * lettering in the rest of this header stays stable.
+ * **(e) #2633 — user ids are integers.** `created_by`, `lead`, `user` and
+ * friends are `AutoField` integer PKs; many fixtures still send strings.
  *
- * **(c) MOCK WRONG — an invented null** (#3654, folded in from #3651). #3651
- * fixed the 11 fields here that were genuinely null at runtime but declared
- * with no `allow_null` (`deleted_by` on comments/notes/attachments,
- * `started_by` on poker, `mention` on notifications) — the shape that crashes
- * a *correctly written* generated client — by adding `allow_null` to the
- * serializer and regenerating the schema. One entry remains for the opposite
- * reason: `Project.code` is `blank=True, default=""`, never `null=True`, so
- * the trash view's `code` can never be `None`; the mock's `code: null` is
- * invented, and the schema is already correct.
+ * **(g) TEST AHEAD OF SERVER** — a field the client reads that this one endpoint
+ * has not shipped.
  *
- * **(d) SPEC CATCH-ALL** (#3653). Fourteen specs register their own
- * `**\/api/v1/**` returning `[]` or a `{count,next,previous,results}` envelope
- * for *everything*, so an object-shaped endpoint is answered with a list. That is
- * the crash class CLAUDE.md describes — the component throws, the root error
- * boundary replaces the app, and it surfaces as a flaky detached-element timeout
- * on an unrelated click. Converting them is per-spec work.
- *
- * **(e) #2633 — user ids are integers.** `created_by`, `lead` and
- * `lead_detail.id` are `AutoField` integer PKs; `types.ts` types them `string`
- * and every fixture follows. Correcting it is 30 TypeScript errors across ~12
- * files — the other half of #2633, outside the denominator #3440 bound. Listed
- * rather than silently tolerated: these entries are the proof the drift is live,
- * and #2633 closing is what deletes them.
- *
- * **(f) MOCK WRONG — stale or invented fields** (#3654). Fields no serializer
- * sends (`assignees` for `assignments`, `is_critical` for `is_driving`,
- * `finish_date`, `skill_fit`) and enum values the server cannot emit. Four
- * families were fixed in #3440 itself; the rest are ~10 investigations, each of
- * which may surface a component reading a field that does not exist.
- *
- * **(g) TEST AHEAD OF SERVER — a client field the endpoint has not shipped yet**
- * (#1753). The client reads `is_phase` on My Work rows for the once-#1753-ships
- * behavior; `MeWorkTaskSerializer` does not emit it today. Distinct from (f): the
- * field is real and shipped elsewhere (`TaskSerializer`), just not on this one
- * endpoint yet, so this is not an invented field — it is a mock dated to land
- * before the server does.
+ * **(h) APP READS A FIELD NO SERIALIZER SENDS** — the component depends on it, so
+ * the feature behind it cannot render against the real server. Deleting it from
+ * the mock only hides that; the serializer or the component has to change.
  */
 export interface SchemaGuardWaiver {
   /** Why this drift is still served, and the issue whose closure removes it. */
@@ -118,698 +71,416 @@ export interface SchemaGuardWaiver {
 
 export const SCHEMA_GUARD_WAIVERS: Readonly<Record<string, SchemaGuardWaiver>> = {
   // ---------------------------------------------------------------------------
-  // (a) SCHEMA WRONG - a hand-written list() returns a bare array - 0 operations
-  // Fixed in #3649: the five list() overrides now carry @extend_schema(responses=
-  // {200: <Serializer>(many=True)}) + @suppress_list_pagination, so the published
-  // schema matches the bare array each already returned.
+  // (h) APP READS A FIELD NO SERIALIZER SENDS - product question, not a fixture fix - 4 operations
   // ---------------------------------------------------------------------------
+  'GET /api/v1/resources/': {
+    reason:
+      'PRODUCT (found by #3654): useResources maps `is_deleted` to the Deactivated UI, but ' +
+      'ResourceSerializer never sends it. The fixture keeps it until that is decided.',
+    allow: [
+      'results[].is_deleted:unknown-property',
+    ],
+  },
+  'GET /api/v1/tasks/': {
+    reason:
+      'PRODUCT (found by #3654): ConversionNotice keys on `auto_container`, but ' +
+      'TaskSerializer never sends it. The fixture keeps it until that is decided.',
+    allow: [
+      'results[].auto_container:unknown-property',
+    ],
+  },
+  'POST /api/v1/resources/': {
+    reason:
+      'PRODUCT (found by #3654): useResources maps `is_deleted` to the Deactivated UI, but ' +
+      'ResourceSerializer never sends it. The fixture keeps it until that is decided.',
+    allow: [
+      'is_deleted:unknown-property',
+    ],
+  },
+  'POST /api/v1/resources/{id}/restore/': {
+    reason:
+      'PRODUCT (found by #3654): useResources maps `is_deleted` to the Deactivated UI, but ' +
+      'ResourceSerializer never sends it. The fixture keeps it until that is decided.',
+    allow: [
+      'is_deleted:unknown-property',
+    ],
+  },
+  // ---------------------------------------------------------------------------
+  // (a) SCHEMA WRONG - the server sends it, the published response does not declare it - 11 operations
+  // ---------------------------------------------------------------------------
+  'GET /api/v1/programs/{program_pk}/label-tasks/': {
+    reason:
+      'SCHEMA-WRONG (found by #3654): the view adds `withheld_project_count` to the ' +
+      'paginated envelope after serialization. The mock matches the server; fix the schema.',
+    allow: [
+      'withheld_project_count:unknown-property',
+    ],
+  },
+  'PATCH /api/v1/projects/{id}/tasks/classification/': {
+    reason:
+      'SCHEMA-WRONG (found by #3654): the view sends `capabilities_denied`. The mock ' +
+      'matches the server; fix the schema.',
+    allow: [
+      'capabilities_denied:unknown-property',
+    ],
+  },
+  'PATCH /api/v1/tasks/{id}/': {
+    reason:
+      'SCHEMA-WRONG (found by #3654): the lost-update 409 body ' +
+      '(conflict_fields/server_value/client_value/server_version) is sent, but only ' +
+      'StructureRoleConflict is declared for 409. The mock matches the server; fix the ' +
+      'schema.',
+    allow: [
+      'client_value:unknown-property',
+      'conflict_fields:unknown-property',
+      'server_value:unknown-property',
+      'server_version:unknown-property',
+    ],
+  },
+  'PATCH /api/v1/teams/{team_pk}/members/{id}/': {
+    reason:
+      'SCHEMA-WRONG (found by #3654): partial_update answers with ' +
+      'TeamMembershipReadSerializer; the write serializer is declared. The mock matches the ' +
+      'server; fix the schema.',
+    allow: [
+      'id:unknown-property',
+      'role_label:unknown-property',
+      'user:unknown-property',
+      'user_detail:unknown-property',
+    ],
+  },
+  'POST /api/v1/me/api-tokens/': {
+    reason:
+      'SCHEMA-WRONG (found by #3654): the create view adds the one-time raw `token` to the ' +
+      'response. The mock matches the server; fix the schema.',
+    allow: [
+      'token:unknown-property',
+    ],
+  },
+  'POST /api/v1/programs/{program_pk}/api-tokens/': {
+    reason:
+      'SCHEMA-WRONG (found by #3654): the create view adds the one-time raw `token` to the ' +
+      'response. The mock matches the server; fix the schema.',
+    allow: [
+      'token:unknown-property',
+    ],
+  },
+  'POST /api/v1/programs/{program_pk}/mention-groups/': {
+    reason:
+      'SCHEMA-WRONG (found by #3654): create answers with the read serializer; the write ' +
+      'serializer is declared. The mock matches the server; fix the schema.',
+    allow: [
+      'id:unknown-property',
+      'member_count:unknown-property',
+      'members:unknown-property',
+      'muted_by_me:unknown-property',
+      'program:unknown-property',
+      'server_version:unknown-property',
+    ],
+  },
+  'POST /api/v1/projects/{project_pk}/api-tokens/': {
+    reason:
+      'SCHEMA-WRONG (found by #3654): the create view adds the one-time raw `token` to the ' +
+      'response. The mock matches the server; fix the schema.',
+    allow: [
+      'token:unknown-property',
+    ],
+  },
+  'POST /api/v1/projects/{project_pk}/mention-groups/': {
+    reason:
+      'SCHEMA-WRONG (found by #3654): create answers with the read serializer; the write ' +
+      'serializer is declared. The mock matches the server; fix the schema.',
+    allow: [
+      'id:unknown-property',
+      'member_count:unknown-property',
+      'members:unknown-property',
+      'muted_by_me:unknown-property',
+      'project:unknown-property',
+      'server_version:unknown-property',
+    ],
+  },
+  'POST /api/v1/sprints/{id}/activate/': {
+    reason:
+      'SCHEMA-WRONG (found by #3654): the view adds `warnings` after serialization. The ' +
+      'mock matches the server; fix the schema.',
+    allow: [
+      'warnings:unknown-property',
+    ],
+  },
+  'POST /api/v1/task-resources/': {
+    reason:
+      'SCHEMA-WRONG (found by #3654): the view adds `warnings` after serialization. The ' +
+      'mock matches the server; fix the schema.',
+    allow: [
+      'warnings:unknown-property',
+    ],
+  },
+  // ---------------------------------------------------------------------------
+  // (e) #2633 - user ids are integers server-side, strings in types.ts - 30 operations
+  // ---------------------------------------------------------------------------
+  'GET /api/v1/agent-actions/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      'results[].principal:type',
+    ],
+  },
+  'GET /api/v1/me/notifications/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      'results[].recipient:type',
+    ],
+  },
+  'GET /api/v1/programs/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      'results[].created_by:type',
+      'results[].lead:type',
+      'results[].lead_detail.id:type',
+    ],
+  },
+  'GET /api/v1/programs/{id}/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      'created_by:type',
+      'lead:type',
+      'lead_detail.id:type',
+    ],
+  },
+  'GET /api/v1/programs/{program_pk}/backlog-items/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      'results[].created_by:type',
+    ],
+  },
+  'GET /api/v1/programs/{program_pk}/ceremonies/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      'results[].created_by:type',
+    ],
+  },
+  'GET /api/v1/programs/{program_pk}/members/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      '[].user:type',
+      '[].user_detail.id:type',
+    ],
+  },
+  'GET /api/v1/projects/{id}/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      'lead:type',
+      'lead_detail.id:type',
+    ],
+  },
+  'GET /api/v1/projects/{project_pk}/members/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      '[].user:type',
+      '[].user_detail.id:type',
+    ],
+  },
+  'GET /api/v1/projects/{project_pk}/mention-groups/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      '[].members[].id:type',
+    ],
+  },
+  'GET /api/v1/projects/{project_pk}/risks/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      'results[].owner:type',
+    ],
+  },
+  'GET /api/v1/teams/{team_pk}/members/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      'results[].user:type',
+      'results[].user_detail.id:type',
+    ],
+  },
+  'PATCH /api/v1/me/notifications/{id}/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      'recipient:type',
+    ],
+  },
+  'PATCH /api/v1/programs/{id}/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      'created_by:type',
+      'lead_detail.id:type',
+    ],
+  },
+  'PATCH /api/v1/programs/{program_pk}/backlog-items/{id}/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      'created_by:type',
+    ],
+  },
+  'PATCH /api/v1/programs/{program_pk}/ceremonies/{id}/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      'created_by:type',
+    ],
+  },
+  'PATCH /api/v1/projects/{id}/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      'lead:type',
+      'lead_detail.id:type',
+    ],
+  },
+  'PATCH /api/v1/projects/{project_pk}/members/{id}/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      'user:type',
+      'user_detail.id:type',
+    ],
+  },
+  'POST /api/v1/me/notifications/{id}/snooze/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      'recipient:type',
+    ],
+  },
+  'POST /api/v1/programs/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      'created_by:type',
+    ],
+  },
+  'POST /api/v1/programs/load-sample/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      'program.created_by:type',
+    ],
+  },
+  'POST /api/v1/programs/{id}/close/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      'closed_by:type',
+      'created_by:type',
+    ],
+  },
+  'POST /api/v1/programs/{id}/transfer-sponsorship/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      'created_by:type',
+    ],
+  },
+  'POST /api/v1/programs/{program_pk}/backlog-items/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      'created_by:type',
+    ],
+  },
+  'POST /api/v1/programs/{program_pk}/ceremonies/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      'created_by:type',
+    ],
+  },
+  'POST /api/v1/programs/{program_pk}/members/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      'user:type',
+      'user_detail.id:type',
+    ],
+  },
+  'POST /api/v1/projects/{id}/archive/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      'archived_by:type',
+    ],
+  },
+  'POST /api/v1/projects/{project_pk}/members/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      'user:type',
+      'user_detail.id:type',
+    ],
+  },
+  'POST /api/v1/velocity-suggestions/{id}/accept/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      'accepted_by:type',
+    ],
+  },
+  'POST /api/v1/velocity-suggestions/{id}/dismiss/': {
+    reason:
+      '#2633: user ids are integer AutoField PKs server-side; these fixtures still send ' +
+      'strings.',
+    allow: [
+      'dismissed_by:type',
+    ],
+  },
   // ---------------------------------------------------------------------------
   // (g) TEST AHEAD OF SERVER - a client field not yet emitted by this endpoint - 1 operation
   // ---------------------------------------------------------------------------
   'GET /api/v1/me/work/': {
     reason:
-      'TEST-AHEAD-OF-SERVER (#1753): MyWorkTaskRow/QuickLogTime/MyWorkPage read a client-side ' +
-      '`is_phase` on My Work rows in anticipation of #1753, which has landed `is_phase` on ' +
-      'TaskSerializer but not yet on MeWorkTaskSerializer. schedule-add-phase.spec.ts seeds it to ' +
-      'cover the once-#1753-ships behavior; the real /me/work/ cannot produce it today (a phase ' +
-      'cannot be assigned, so it would never reach this endpoint regardless). Remove once #1753 ' +
-      'adds the field server-side. Observed: results[].is_phase:unknown-property.',
-    allow: ['results[].is_phase:unknown-property'],
-  },
-  // ---------------------------------------------------------------------------
-  // (c) MOCK WRONG - the fixture sends a null the server can never produce - 1 operation
-  // ---------------------------------------------------------------------------
-  // #3651 fixed the 11 genuinely-nullable fields this cluster previously held
-  // (deleted_by on comments/notes/attachments, started_by on poker, mention on
-  // notifications) by adding allow_null to their serializers and regenerating
-  // the schema. This one is different: Project.code is `blank=True,
-  // default=""` — never `null=True` — so `p.code` in the trash view's
-  // hand-built response is always a string. The mock's `code: null` is an
-  // invented value the server cannot send; "fixing" the schema to allow_null
-  // would make it wrong. Recategorized from SCHEMA-WRONG to MOCK-WRONG.
-  'GET /api/v1/projects/trash/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      "Project.code is blank=True/default=\"\", never null=True, so the view's p.code is always a " +
-      'string; the schema is correct as declared. Observed: [].code:null-on-non-nullable.',
-    allow: ['*'],
-  },
-  // ---------------------------------------------------------------------------
-  // (d) SPEC CATCH-ALL - one shape answers every endpoint - 27 operations
-  // ---------------------------------------------------------------------------
-  'GET /api/v1/auth/me/pinned/': {
-    reason:
-      'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
-      'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
-      'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/calendars/': {
-    reason:
-      'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
-      'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
-      'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed: ' +
-      '<root>:type, results[].working_days:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/dependencies/': {
-    reason:
-      'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
-      'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
-      'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed: ' +
-      'results[].is_critical:unknown-property, results[].dependency_type:unknown-property, ' +
-      'results[].project:unknown-property, <root>:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/health/system/': {
-    reason:
-      'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
-      'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
-      'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/me/external-items/': {
-    reason:
-      'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
-      'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
-      'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/me/notifications/': {
-    reason:
-      'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
-      'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
-      'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed: ' +
-      '<root>:type, results[].snippet:null-on-non-nullable, results[].recipient:type, ' +
-      'results[].mention.scope:enum.',
-    allow: ['*'],
-  },
-  'GET /api/v1/programs/': {
-    reason:
-      'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
-      'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
-      'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed: ' +
-      'results[].created_by:type, <root>:type, results[].lead:type, results[].lead_detail.id:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/programs/{id}/': {
-    reason:
-      'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
-      'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
-      'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed: ' +
-      'created_by:type, lead:type, lead_detail.id:type, count:unknown-property, ' +
-      'next:unknown-property, +2 more.',
-    allow: ['*'],
-  },
-  'GET /api/v1/programs/{id}/mention-reach/': {
-    reason:
-      'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
-      'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
-      'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/programs/{id}/risk-policy/': {
-    reason:
-      'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
-      'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
-      'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/programs/{id}/rollup-config/': {
-    reason:
-      'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
-      'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
-      'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/programs/{program_pk}/api-tokens/': {
-    reason:
-      'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
-      'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
-      'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/programs/{program_pk}/backlog-items/': {
-    reason:
-      'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
-      'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
-      'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/programs/{program_pk}/ceremonies/': {
-    reason:
-      'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
-      'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
-      'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/programs/{program_pk}/webhooks/': {
-    reason:
-      'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
-      'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
-      'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/projects/': {
-    reason:
-      'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
-      'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
-      'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed: ' +
-      'results[].program_detail:unknown-property, <root>:type, ' +
-      'results[].recalculated_at:unknown-property, results[].is_sample:unknown-property, ' +
-      'results[].finish_date:unknown-property, +2 more.',
-    allow: ['*'],
-  },
-  'GET /api/v1/projects/health-summary/': {
-    reason:
-      'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
-      'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
-      'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/projects/{id}/presence/': {
-    reason:
-      'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
-      'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
-      'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed on an ' +
-      'earlier pass of this suite; this operation was not exercised in the run that measured the ' +
-      'ledger, so it is kept rather than dropped on one sample.',
-    allow: ['*'],
-  },
-  'GET /api/v1/projects/{id}/status-summary/': {
-    reason:
-      'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
-      'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
-      'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed on an ' +
-      'earlier pass of this suite; this operation was not exercised in the run that measured the ' +
-      'ledger, so it is kept rather than dropped on one sample.',
-    allow: ['*'],
-  },
-  'GET /api/v1/sprints/{id}/close-request/': {
-    reason:
-      'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
-      'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
-      'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/sprints/{id}/daily-delta/': {
-    reason:
-      'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
-      'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
-      'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/sprints/{id}/outcome/': {
-    reason:
-      'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
-      'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
-      'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/velocity-suggestions/': {
-    reason:
-      'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
-      'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
-      'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed: ' +
-      '<root>:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/workspace/': {
-    reason:
-      'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
-      'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
-      'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed: ' +
-      '<root>:type, id:unknown-property, count:unknown-property, next:unknown-property, ' +
-      'previous:unknown-property, +5 more.',
-    allow: ['*'],
-  },
-  'PATCH /api/v1/tasks/{id}/': {
-    reason:
-      'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
-      'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
-      'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed: ' +
-      'assignees:unknown-property, project_id:unknown-property, ' +
-      'project_name:unknown-property, program_id:unknown-property, +15 more.',
-    allow: ['*'],
-  },
-  'POST /api/v1/projects/{id}/visit/': {
-    reason:
-      'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
-      'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
-      'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed: ' +
-      'count:unknown-property, next:unknown-property, previous:unknown-property, ' +
-      'results:unknown-property, ok:unknown-property, +1 more.',
-    allow: ['*'],
-  },
-  'POST /api/v1/ws/ticket/': {
-    reason:
-      'SPEC CATCH-ALL (#3653): a spec registers its own **/api/v1/** route that answers every ' +
-      'endpoint with one shape, so an object endpoint is served a list or a paginated envelope. This ' +
-      'is the crash class CLAUDE.md documents; converting each spec is per-spec work. Observed: ' +
-      'count:unknown-property, next:unknown-property, previous:unknown-property, ' +
-      'results:unknown-property, <root>:type.',
-    allow: ['*'],
-  },
-  // ---------------------------------------------------------------------------
-  // (e) #2633 - user ids are integers server-side, strings in types.ts - 13 operations
-  // ---------------------------------------------------------------------------
-  'GET /api/v1/projects/{id}/': {
-    reason:
-      '#2633: user ids are integer AutoField PKs server-side and typed string in types.ts, so every ' +
-      'fixture follows. Correcting it is 30 TypeScript errors across ~12 files, which is the other ' +
-      'half of #2633 and outside the denominator #3440 bound. Observed: finish_date:unknown-property, ' +
-      'lead:type, lead_detail.id:type.',
-    allow: ['*'],
-  },
-  'PATCH /api/v1/programs/{id}/': {
-    reason:
-      '#2633: user ids are integer AutoField PKs server-side and typed string in types.ts, so every ' +
-      'fixture follows. Correcting it is 30 TypeScript errors across ~12 files, which is the other ' +
-      'half of #2633 and outside the denominator #3440 bound. Observed: created_by:type, lead:type, ' +
-      'lead_detail.id:type.',
-    allow: ['*'],
-  },
-  'PATCH /api/v1/programs/{program_pk}/backlog-items/{id}/': {
-    reason:
-      '#2633: user ids are integer AutoField PKs server-side and typed string in types.ts, so every ' +
-      'fixture follows. Correcting it is 30 TypeScript errors across ~12 files, which is the other ' +
-      'half of #2633 and outside the denominator #3440 bound. Observed: created_by:type.',
-    allow: ['*'],
-  },
-  'PATCH /api/v1/programs/{program_pk}/ceremonies/{id}/': {
-    reason:
-      '#2633: user ids are integer AutoField PKs server-side and typed string in types.ts, so every ' +
-      'fixture follows. Correcting it is 30 TypeScript errors across ~12 files, which is the other ' +
-      'half of #2633 and outside the denominator #3440 bound. Observed: created_by:type.',
-    allow: ['*'],
-  },
-  'PATCH /api/v1/projects/{id}/': {
-    reason:
-      '#2633: user ids are integer AutoField PKs server-side and typed string in types.ts, so every ' +
-      'fixture follows. Correcting it is 30 TypeScript errors across ~12 files, which is the other ' +
-      'half of #2633 and outside the denominator #3440 bound. Observed: ' +
-      'program_detail:unknown-property, lead:type, lead_detail.id:type.',
-    allow: ['*'],
-  },
-  'POST /api/v1/programs/': {
-    reason:
-      '#2633: user ids are integer AutoField PKs server-side and typed string in types.ts, so every ' +
-      'fixture follows. Correcting it is 30 TypeScript errors across ~12 files, which is the other ' +
-      'half of #2633 and outside the denominator #3440 bound. Observed: created_by:type.',
-    allow: ['*'],
-  },
-  'POST /api/v1/programs/{id}/close/': {
-    reason:
-      '#2633: user ids are integer AutoField PKs server-side and typed string in types.ts, so every ' +
-      'fixture follows. Correcting it is 30 TypeScript errors across ~12 files, which is the other ' +
-      'half of #2633 and outside the denominator #3440 bound. Observed: created_by:type, ' +
-      'closed_by:type.',
-    allow: ['*'],
-  },
-  'POST /api/v1/programs/{id}/transfer-sponsorship/': {
-    reason:
-      '#2633: user ids are integer AutoField PKs server-side and typed string in types.ts, so every ' +
-      'fixture follows. Correcting it is 30 TypeScript errors across ~12 files, which is the other ' +
-      'half of #2633 and outside the denominator #3440 bound. Observed: created_by:type.',
-    allow: ['*'],
-  },
-  'POST /api/v1/programs/{program_pk}/backlog-items/': {
-    reason:
-      '#2633: user ids are integer AutoField PKs server-side and typed string in types.ts, so every ' +
-      'fixture follows. Correcting it is 30 TypeScript errors across ~12 files, which is the other ' +
-      'half of #2633 and outside the denominator #3440 bound. Observed: created_by:type.',
-    allow: ['*'],
-  },
-  'POST /api/v1/programs/{program_pk}/ceremonies/': {
-    reason:
-      '#2633: user ids are integer AutoField PKs server-side and typed string in types.ts, so every ' +
-      'fixture follows. Correcting it is 30 TypeScript errors across ~12 files, which is the other ' +
-      'half of #2633 and outside the denominator #3440 bound. Observed: created_by:type.',
-    allow: ['*'],
-  },
-  // #3649 narrowed the cluster-(a) wildcard on these two `/members/` operations to
-  // just its pagination-envelope claim, which surfaced this pre-existing #2633
-  // drift underneath it — it was never fixed, only hidden by the broader waiver.
-  'GET /api/v1/projects/{project_pk}/members/': {
-    reason:
-      '#2633: user ids are integer AutoField PKs server-side and typed string in types.ts, so every ' +
-      'fixture follows. Correcting it is 30 TypeScript errors across ~12 files, which is the other ' +
-      'half of #2633 and outside the denominator #3440 bound. Observed: [].user:type, ' +
-      '[].user_detail.id:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/programs/{program_pk}/members/': {
-    reason:
-      '#2633: user ids are integer AutoField PKs server-side and typed string in types.ts, so every ' +
-      'fixture follows. Correcting it is 30 TypeScript errors across ~12 files, which is the other ' +
-      'half of #2633 and outside the denominator #3440 bound. Observed: [].user:type, ' +
-      '[].user_detail.id:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/projects/{project_pk}/mention-groups/': {
-    reason:
-      '#2633: user ids are integer AutoField PKs server-side and typed string in types.ts, so every ' +
-      'fixture follows. Correcting it is 30 TypeScript errors across ~12 files, which is the other ' +
-      'half of #2633 and outside the denominator #3440 bound. Observed: [].members[].id:type.',
-    allow: ['*'],
-  },
-  // ---------------------------------------------------------------------------
-  // (f) MOCK WRONG - stale or invented fields, and enums the server cannot emit - 45 operations
-  // ---------------------------------------------------------------------------
-  'GET /api/v1/agent-actions/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: results[].refusal_detail:null-on-non-nullable, ' +
-      'results[].refusal_reason:enum, results[].principal:type, results[].refusal_detail:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/programs/{id}/projects/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: [].description:unknown-property.',
-    allow: ['*'],
-  },
-  'GET /api/v1/programs/{program_pk}/label-tasks/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: withheld_project_count:unknown-property.',
-    allow: ['*'],
-  },
-  'GET /api/v1/projects/{id}/sprint-forecast/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: status:enum.',
-    allow: ['*'],
-  },
-  'GET /api/v1/projects/{project_pk}/labels/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: results[].color:enum.',
-    allow: ['*'],
-  },
-  'GET /api/v1/projects/{project_pk}/risks/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: results[].owner:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/projects/{project_pk}/sprints/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: results[].state:enum.',
-    allow: ['*'],
-  },
-  'GET /api/v1/projects/{project_pk}/tasks/{task_pk}/links/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: [].preview_type:enum.',
-    allow: ['*'],
-  },
-  'GET /api/v1/projects/{project_pk}/webhooks/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: results[].events[]:enum.',
-    allow: ['*'],
-  },
-  'GET /api/v1/resources/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: results[].skill_fit:unknown-property, ' +
-      'results[].missing_skills:unknown-property, results[].is_deleted:unknown-property.',
-    allow: ['*'],
-  },
-  'GET /api/v1/resources/{id}/assignments/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: results[].server_version:unknown-property, ' +
-      'results[].name:unknown-property, results[].email:unknown-property, ' +
-      'results[].job_role:unknown-property, results[].max_units:unknown-property, +2 more.',
-    allow: ['*'],
-  },
-  'GET /api/v1/task-resources/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: results[].units:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/tasks/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: results[].assignees:unknown-property, ' +
-      'results[].assignments[].units:type, results[].assignments[].id:unknown-property, ' +
-      'results[].labels[].server_version:unknown-property, results[].owners:unknown-property, +3 ' +
-      'more.',
-    allow: ['*'],
-  },
-  'GET /api/v1/teams/{team_pk}/members/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: results[].user:type, results[].user_detail.id:type.',
-    allow: ['*'],
-  },
-  'GET /api/v1/users/search/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: [].email:unknown-property.',
-    allow: ['*'],
-  },
-  'PATCH /api/v1/dependencies/{id}/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: is_critical:unknown-property.',
-    allow: ['*'],
-  },
-  'PATCH /api/v1/me/notifications/{id}/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: recipient:type, mention.scope:enum.',
-    allow: ['*'],
-  },
-  'PATCH /api/v1/projects/{id}/tasks/classification/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: capabilities_denied:unknown-property.',
-    allow: ['*'],
-  },
-  'PATCH /api/v1/projects/{project_pk}/members/{id}/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: id:unknown-property, ' +
-      'server_version:unknown-property, project:unknown-property, user:type, ' +
-      'user_detail:unknown-property, +5 more.',
-    allow: ['*'],
-  },
-  'PATCH /api/v1/projects/{project_pk}/webhooks/{id}/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: events[]:enum.',
-    allow: ['*'],
-  },
-  'PATCH /api/v1/teams/{team_pk}/members/{id}/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: id:unknown-property, user:unknown-property, ' +
-      'user_detail:unknown-property, role_label:unknown-property.',
-    allow: ['*'],
-  },
-  'POST /api/v1/me/api-tokens/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: token:unknown-property.',
-    allow: ['*'],
-  },
-  'POST /api/v1/me/notifications/{id}/snooze/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: recipient:type, mention.scope:enum.',
-    allow: ['*'],
-  },
-  'POST /api/v1/programs/load-sample/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: program.created_by:type.',
-    allow: ['*'],
-  },
-  'POST /api/v1/programs/{program_pk}/api-tokens/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: token:unknown-property.',
-    allow: ['*'],
-  },
-  'POST /api/v1/programs/{program_pk}/members/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: id:unknown-property, ' +
-      'server_version:unknown-property, program:unknown-property, user:type, ' +
-      'user_detail:unknown-property, +1 more.',
-    allow: ['*'],
-  },
-  'POST /api/v1/programs/{program_pk}/mention-groups/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: id:unknown-property, ' +
-      'server_version:unknown-property, program:unknown-property, members:unknown-property, ' +
-      'member_count:unknown-property, +1 more.',
-    allow: ['*'],
-  },
-  'POST /api/v1/projects/{id}/archive/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: archived_by:type.',
-    allow: ['*'],
-  },
-  'POST /api/v1/projects/{id}/tasks/{task_id}/reparent/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: updated:type.',
-    allow: ['*'],
-  },
-  'POST /api/v1/projects/{project_pk}/api-tokens/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: token:unknown-property.',
-    allow: ['*'],
-  },
-  'POST /api/v1/projects/{project_pk}/members/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: id:unknown-property, ' +
-      'server_version:unknown-property, project:unknown-property, user:type, ' +
-      'user_detail:unknown-property, +3 more.',
-    allow: ['*'],
-  },
-  'POST /api/v1/projects/{project_pk}/mention-groups/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: id:unknown-property, ' +
-      'server_version:unknown-property, project:unknown-property, members:unknown-property, ' +
-      'member_count:unknown-property, +1 more.',
-    allow: ['*'],
-  },
-  'POST /api/v1/projects/{project_pk}/tasks/{task_pk}/links/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: preview_type:enum.',
-    allow: ['*'],
-  },
-  'POST /api/v1/projects/{project_pk}/tasks/{task_pk}/links/{id}/refresh/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: preview_type:enum.',
-    allow: ['*'],
-  },
-  'POST /api/v1/resources/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: is_deleted:unknown-property.',
-    allow: ['*'],
-  },
-  'POST /api/v1/resources/{id}/restore/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: is_deleted:unknown-property.',
-    allow: ['*'],
-  },
-  'POST /api/v1/sprints/{id}/activate/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: warnings:unknown-property.',
-    allow: ['*'],
-  },
-  'POST /api/v1/task-resources/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: units:type, warnings:unknown-property.',
-    allow: ['*'],
-  },
-  'POST /api/v1/tasks/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: assignees:unknown-property, ' +
-      'parent:unknown-property.',
-    allow: ['*'],
-  },
-  'POST /api/v1/tasks/{id}/restore/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: assignees:unknown-property.',
-    allow: ['*'],
-  },
-  'POST /api/v1/tasks/{task_pk}/time-entries/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: task_short_id:unknown-property, ' +
-      'task_name:unknown-property, project:unknown-property, project_code:unknown-property, ' +
-      'project_name:unknown-property.',
-    allow: ['*'],
-  },
-  'POST /api/v1/velocity-suggestions/{id}/accept/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: accepted_by:type.',
-    allow: ['*'],
-  },
-  'POST /api/v1/velocity-suggestions/{id}/dismiss/': {
-    reason:
-      'MOCK-WRONG (#3654): the fixture sends a field or an enum value that no serializer produces. ' +
-      'The sweep is ~10 separate investigations, each of which may surface a component reading a ' +
-      'field the server does not send. Observed: dismissed_by:type.',
-    allow: ['*'],
+      'TEST-AHEAD-OF-SERVER (#1753): the client reads `is_phase` on My Work rows and ' +
+      'schedule-add-phase.spec.ts seeds it, but MeWorkTaskSerializer does not emit it.',
+    allow: [
+      'results[].is_phase:unknown-property',
+    ],
   },
 };

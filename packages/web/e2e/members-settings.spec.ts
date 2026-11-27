@@ -63,7 +63,7 @@ const FIXTURE_MEMBERS = [
 ];
 
 const FIXTURE_SEARCH_RESULTS = [
-  { id: 'user-carol', username: 'carol', email: 'carol@example.com', display_name: 'Carol', initials: 'CA' },
+  { id: 'user-carol', username: 'carol', display_name: 'Carol', initials: 'CA' },
 ];
 
 type Page = import('@playwright/test').Page;

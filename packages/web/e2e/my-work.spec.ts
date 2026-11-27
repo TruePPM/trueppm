@@ -61,6 +61,25 @@ const TASK = {
   url: `/projects/${PROJECT_ID}/schedule?task=${TASK_ID}`,
 };
 
+/** My Work row keys `PATCH /tasks/{id}/` does not send: it answers with TaskSerializer. */
+const MY_WORK_ONLY_KEYS = new Set([
+  'due',
+  'due_source',
+  'group',
+  'program_color',
+  'program_id',
+  'program_name',
+  'project_id',
+  'project_name',
+  'sprint_id',
+  'sprint_name',
+  'url',
+]);
+
+function taskWriteResponse(row: object): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(row).filter(([key]) => !MY_WORK_ONLY_KEYS.has(key)));
+}
+
 const PROJECT_DETAIL = {
   id: PROJECT_ID,
   name: 'Design App',
@@ -296,7 +315,7 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ ...TASK, status: 'COMPLETE' }),
+        body: JSON.stringify(taskWriteResponse({ ...TASK, status: 'COMPLETE' })),
       }),
     );
 
@@ -335,7 +354,7 @@ test.describe('My Work — contributor surface (#499, ADR-0065 Gap 2)', () => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ ...TASK, status: 'COMPLETE' }),
+        body: JSON.stringify(taskWriteResponse({ ...TASK, status: 'COMPLETE' })),
       }),
     );
 

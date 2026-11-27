@@ -69,7 +69,6 @@ function task(overrides: Record<string, unknown>) {
     is_summary: false,
     parent_id: null,
     status: 'NOT_STARTED',
-    assignees: [],
     assignments: [],
     total_float: null,
     predecessor_count: 0,

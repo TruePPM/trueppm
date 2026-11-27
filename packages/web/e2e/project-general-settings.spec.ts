@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures/coverage';
+import { toListProject } from './fixtures';
 import { setupCatchAll } from './fixtures/api-mocks';
 
 /**
@@ -86,10 +87,10 @@ const FIXTURE_CALENDARS = [
   {
     id: 'cal-default',
     name: 'Workspace standard',
-    working_days: [1, 2, 3, 4, 5],
+    working_days: 31,
     hours_per_day: 8,
   },
-  { id: 'cal-site', name: 'Site 6-day week', working_days: [1, 2, 3, 4, 5, 6], hours_per_day: 10 },
+  { id: 'cal-site', name: 'Site 6-day week', working_days: 63, hours_per_day: 10 },
 ];
 
 type Page = import('@playwright/test').Page;
@@ -160,7 +161,7 @@ async function setup(
     r.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: pj({ results: [FIXTURE_PROJECT], count: 1, next: null, previous: null }),
+      body: pj({ results: [toListProject(FIXTURE_PROJECT)], count: 1, next: null, previous: null }),
     }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/`, async (route: Route) => {
@@ -177,7 +178,8 @@ async function setup(
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: pj({ ...FIXTURE_PROJECT, ...captures.patch }),
+        // The write answers with ProjectSerializer, which has no detail-only fields.
+        body: pj(toListProject({ ...FIXTURE_PROJECT, ...captures.patch })),
       });
       return;
     }

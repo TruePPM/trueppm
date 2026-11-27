@@ -47,7 +47,6 @@ function row(id: string, wbs: string, name: string, start: string, finish: strin
     is_summary: false,
     parent_id: null,
     status: 'NOT_STARTED',
-    assignees: [],
     total_float: null,
     predecessor_count: 0,
     is_blocked: false,

@@ -52,7 +52,6 @@ function taskRow(over: Partial<FixtureTask> & { id: string; wbs_path: string; na
     is_summary: false,
     parent_id: null,
     status: 'NOT_STARTED',
-    assignees: [],
     total_float: null,
     predecessor_count: 0,
     is_blocked: false,

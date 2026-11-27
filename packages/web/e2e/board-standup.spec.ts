@@ -17,7 +17,7 @@ const TASKS = [
     id: 'f1', wbs_path: '1', name: 'Vault card', early_start: '2026-06-05',
     early_finish: '2026-06-12', planned_start: '2026-06-05', duration: 5,
     percent_complete: 40, is_critical: false, is_milestone: false, is_summary: false,
-    parent_id: null, status: 'IN_PROGRESS', assignees: [], total_float: null,
+    parent_id: null, status: 'IN_PROGRESS', total_float: null,
     predecessor_count: 0, is_blocked: false, linked_risks_count: 0, linked_risks_max_severity: null,
   },
 ];

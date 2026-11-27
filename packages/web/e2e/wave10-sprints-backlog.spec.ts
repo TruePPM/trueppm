@@ -94,7 +94,7 @@ const BACKLOG_TASKS = [
     status: 'IN_PROGRESS',
     story_points: 5,
     is_critical: true,
-    assignments: [{ resource_id: 'r1', resource_name: 'Aisha Khan', units: 1 }],
+    assignments: [{ resource_id: 'r1', resource_name: 'Aisha Khan', units: '1.00' }],
   },
   {
     id: 'task-2',
@@ -104,7 +104,7 @@ const BACKLOG_TASKS = [
     status: 'IN_PROGRESS',
     story_points: 8,
     is_critical: false,
-    assignments: [{ resource_id: 'r2', resource_name: 'Ben Lee', units: 1 }],
+    assignments: [{ resource_id: 'r2', resource_name: 'Ben Lee', units: '1.00' }],
   },
   {
     id: 'task-3',
@@ -124,7 +124,7 @@ const BACKLOG_TASKS = [
     status: 'COMPLETE',
     story_points: 2,
     is_critical: false,
-    assignments: [{ resource_id: 'r1', resource_name: 'Aisha Khan', units: 0.5 }],
+    assignments: [{ resource_id: 'r1', resource_name: 'Aisha Khan', units: '0.50' }],
   },
 ];
 
@@ -147,7 +147,6 @@ function fullTaskShape(t: { id: string; name: string; wbs_path: string; status: 
     is_critical: false,
     is_milestone: false,
     is_summary: false,
-    assignees: [],
     total_float: null,
     predecessor_count: 0,
     is_blocked: false,

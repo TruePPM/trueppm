@@ -54,7 +54,6 @@ function task(id: string, name: string, start: string, finish: string, wbs: stri
     is_summary: false,
     parent_id: null,
     status: 'NOT_STARTED',
-    assignees: [],
     total_float: 0,
     predecessor_count: 0,
     is_blocked: false,
@@ -210,7 +209,6 @@ test.describe('Schedule preview uses the project calendar (#4170)', () => {
       successor: 'cal-m',
       dep_type: 'FS',
       lag: 0,
-      is_critical: false,
     },
   ];
 

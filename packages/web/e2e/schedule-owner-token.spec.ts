@@ -17,7 +17,7 @@
  * the `['tasks']` invalidation `useUpdateTask` fires on success (#2752).
  */
 import { test, expect } from './fixtures/coverage';
-import { setupAuth, setupApiMocks, setupCatchAll, setupTaskStore } from './fixtures';
+import { setupAuth, setupApiMocks, setupCatchAll, setupTaskStore, readFields } from './fixtures';
 import type { TaskStoreHandle } from './fixtures';
 
 type Page = import('@playwright/test').Page;
@@ -51,7 +51,6 @@ const FIXTURE_TASKS = [
     is_summary: false,
     parent_id: null,
     status: 'NOT_STARTED',
-    assignees: [],
     assignments: [],
     total_float: null,
     predecessor_count: 0,
@@ -136,7 +135,7 @@ async function setup(page: Page): Promise<TaskStoreHandle> {
       } & Record<string, unknown>;
       return {
         ...current,
-        ...rest,
+        ...readFields(rest),
         ...(owners
           ? {
               assignments: owners.map((o) => ({

@@ -157,7 +157,7 @@ async function mockBoardReads(page: Page) {
     route.fulfill(json(paginated([]))),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/visit/`, (route) =>
-    route.fulfill(json({ ok: true })),
+    route.fulfill(json({ recorded: true })),
   );
   await page.route('**/api/v1/me/timer/', (route) => route.fulfill(json({ active: false })));
   await page.route('**/api/v1/me/work/', (route) =>
@@ -172,7 +172,7 @@ async function mockBoardReads(page: Page) {
   );
   await page.route('**/api/v1/programs/', (route) => route.fulfill(json(paginated([]))));
   await page.route('**/api/v1/workspace/', (route) =>
-    route.fulfill(json({ id: 'w1', name: 'E2E', public_sharing_enabled: false })),
+    route.fulfill(json({ name: 'E2E', })),
   );
 }
 

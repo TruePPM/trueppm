@@ -13,14 +13,7 @@
  * the vitest layer where they can be asserted without canvas/network coupling.
  */
 import { test, expect } from './fixtures/coverage';
-import {
-  setupAuth,
-  setupApiMocks,
-  setupCatchAll,
-  useFullToolbar,
-  modeChip,
-  openScheduleCheatsheet,
-} from './fixtures';
+import { setupAuth, setupApiMocks, setupCatchAll, useFullToolbar, modeChip, openScheduleCheatsheet, readFields } from './fixtures';
 import { setupTaskStore } from './fixtures/task-store';
 
 const FIXTURE_PROJECT_ID = 'e2e-build-00000000-0000-0000-0000-000000000349';
@@ -43,7 +36,7 @@ const FIXTURE_TASKS = [
     planned_start: '2026-04-05',
     duration: 5, percent_complete: 0, is_critical: false,
     is_milestone: false, is_summary: false, parent_id: null,
-    status: 'NOT_STARTED', assignees: [], total_float: null,
+    status: 'NOT_STARTED', total_float: null,
     predecessor_count: 0, is_blocked: false,
     linked_risks_count: 0, linked_risks_max_severity: null,
   },
@@ -53,7 +46,7 @@ const FIXTURE_TASKS = [
     planned_start: '2026-04-12',
     duration: 5, percent_complete: 0, is_critical: false,
     is_milestone: false, is_summary: false, parent_id: null,
-    status: 'NOT_STARTED', assignees: [], total_float: null,
+    status: 'NOT_STARTED', total_float: null,
     predecessor_count: 0, is_blocked: false,
     linked_risks_count: 0, linked_risks_max_severity: null,
   },
@@ -387,7 +380,7 @@ test.describe('Schedule build-mode — subtree delete confirms, Undo restores it
       early_start: '2026-04-05', early_finish: '2026-04-20', planned_start: '2026-04-05',
       duration: 12, percent_complete: 0, is_critical: false,
       is_milestone: false, is_summary: true, parent_id: null,
-      status: 'IN_PROGRESS', assignees: [], total_float: null,
+      status: 'IN_PROGRESS', total_float: null,
       predecessor_count: 0, is_blocked: false,
       linked_risks_count: 0, linked_risks_max_severity: null,
     },
@@ -396,7 +389,7 @@ test.describe('Schedule build-mode — subtree delete confirms, Undo restores it
       early_start: '2026-04-05', early_finish: '2026-04-09', planned_start: '2026-04-05',
       duration: 5, percent_complete: 0, is_critical: false,
       is_milestone: false, is_summary: false, parent_id: 'phase',
-      status: 'NOT_STARTED', assignees: [], total_float: null,
+      status: 'NOT_STARTED', total_float: null,
       predecessor_count: 0, is_blocked: false,
       linked_risks_count: 0, linked_risks_max_severity: null,
     },
@@ -405,7 +398,7 @@ test.describe('Schedule build-mode — subtree delete confirms, Undo restores it
       early_start: '2026-04-10', early_finish: '2026-04-14', planned_start: '2026-04-10',
       duration: 5, percent_complete: 0, is_critical: false,
       is_milestone: false, is_summary: false, parent_id: 'phase',
-      status: 'NOT_STARTED', assignees: [], total_float: null,
+      status: 'NOT_STARTED', total_float: null,
       predecessor_count: 0, is_blocked: false,
       linked_risks_count: 0, linked_risks_max_severity: null,
     },
@@ -548,7 +541,7 @@ test.describe('Schedule build-mode — Enter inserts a sibling row (#1666)', () 
       planned_start: '2026-04-05',
       duration: 12, percent_complete: 0, is_critical: false,
       is_milestone: false, is_summary: true, parent_id: null,
-      status: 'IN_PROGRESS', assignees: [], total_float: null,
+      status: 'IN_PROGRESS', total_float: null,
       predecessor_count: 0, is_blocked: false,
       linked_risks_count: 0, linked_risks_max_severity: null,
     },
@@ -559,7 +552,7 @@ test.describe('Schedule build-mode — Enter inserts a sibling row (#1666)', () 
       duration: 5, percent_complete: 0, is_critical: false,
       is_milestone: false, is_summary: false, parent_id: 'phase',
       delivery_mode: 'scrum',
-      status: 'NOT_STARTED', assignees: [], total_float: null,
+      status: 'NOT_STARTED', total_float: null,
       predecessor_count: 0, is_blocked: false,
       linked_risks_count: 0, linked_risks_max_severity: null,
     },
@@ -569,7 +562,7 @@ test.describe('Schedule build-mode — Enter inserts a sibling row (#1666)', () 
       planned_start: '2026-04-05',
       duration: 5, percent_complete: 0, is_critical: false,
       is_milestone: false, is_summary: false, parent_id: 'phase',
-      status: 'NOT_STARTED', assignees: [], total_float: null,
+      status: 'NOT_STARTED', total_float: null,
       predecessor_count: 0, is_blocked: false,
       linked_risks_count: 0, linked_risks_max_severity: null,
     },
@@ -625,7 +618,7 @@ test.describe('Schedule build-mode — Enter inserts a sibling row (#1666)', () 
           planned_start: '2026-04-10',
           duration: body.duration ?? 1, percent_complete: 0, is_critical: false,
           is_milestone: false, is_summary: false, parent_id: parentId,
-          status: 'NOT_STARTED', assignees: [], total_float: null,
+          status: 'NOT_STARTED', total_float: null,
           predecessor_count: 0, is_blocked: false,
           linked_risks_count: 0, linked_risks_max_severity: null,
         });
@@ -909,7 +902,7 @@ test.describe('Schedule build-mode — duplicate names what was not cloned (#291
       tasks,
       applyPatch: (body, current) => {
         const { owners, ...rest } = body;
-        const next = { ...current, ...rest };
+        const next = { ...current, ...readFields(rest) };
         if (Array.isArray(owners)) {
           next.assignments = (owners as { resource: string; units: number | string }[]).map((o) => ({
             resource_id: o.resource,

@@ -66,7 +66,7 @@ const BACKLOG_TASKS = [
     status: 'IN_PROGRESS',
     story_points: 18,
     is_critical: false,
-    assignments: [{ resource_id: 'r1', resource_name: 'Aisha Khan', units: 1 }],
+    assignments: [{ resource_id: 'r1', resource_name: 'Aisha Khan', units: '1.00' }],
   },
 ];
 

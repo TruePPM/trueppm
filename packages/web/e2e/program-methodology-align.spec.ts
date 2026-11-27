@@ -166,7 +166,7 @@ async function setup(page: Page) {
         mc_history_override_policy: 'suggest',
         task_duration_change_percent_policy: 'WARN',
         task_duration_change_percent_override_policy: 'suggest',
-        estimation_scale: 'FIBONACCI',
+        estimation_scale: 'fibonacci',
         sprint_picker_ready_only_default: false,
         methodology: 'HYBRID',
         methodology_override_policy: 'suggest',

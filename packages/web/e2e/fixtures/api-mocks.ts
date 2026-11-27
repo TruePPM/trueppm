@@ -325,6 +325,29 @@ export async function setupCatchAll(page: Page): Promise<void> {
 }
 
 /**
+ * Fields only `ProjectDetailSerializer` sends — `GET /projects/{id}/`. The list
+ * action uses the lighter `ProjectSerializer`, so a fixture object shared by both
+ * routes has to shed these on the list side.
+ */
+const PROJECT_DETAIL_ONLY_KEYS = new Set([
+  'program_detail',
+  'is_sample',
+  'recalculated_at',
+  'scheduling_calendar',
+  'my_facets',
+  'retired_key_count',
+  'unresolved_assignee_count',
+  'start_floor',
+]);
+
+/** Project a detail-shaped project fixture down to its `GET /projects/` row. */
+export function toListProject<T extends object>(project: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(project).filter(([key]) => !PROJECT_DETAIL_ONLY_KEYS.has(key)),
+  ) as Partial<T>;
+}
+
+/**
  * Default `GET /resolve/` (ADR-1237 §5): echo the ref back as the object's id.
  *
  * The app now treats a non-UUID route segment as a KEY and resolves it before
@@ -488,7 +511,7 @@ export async function setupApiMocks(page: Page, opts: ApiMockOptions = {}): Prom
 
   // ----- Project list -----
   await page.route('**/api/v1/projects/', (route) =>
-    route.fulfill(jsonResponse(paginated(projects))),
+    route.fulfill(jsonResponse(paginated(projects.map(toListProject)))),
   );
 
   // ----- Project-scoped (any project id, glob) -----
