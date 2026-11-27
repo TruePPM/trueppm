@@ -356,6 +356,7 @@ class Command(BaseCommand):
         )
 
         now = timezone.now()
+        to_revoke: list[ApiToken] = []
         with transaction.atomic():
             if not options["all"]:
                 # Stamp the cutoff, and so take each account's UserProfile lock, BEFORE
@@ -408,15 +409,6 @@ class Command(BaseCommand):
                         for token in to_revoke
                     ]
                 )
-                # Agent tokens also get their chain row, in this transaction (#5109).
-                # layering-ok: the revoke and its chain row must commit together; an
-                # extension-signal receiver would run outside this transaction.
-                from trueppm_api.apps.agents.control import record_token_revoke
-
-                for token in to_revoke:
-                    record_token_revoke(
-                        token, None, reason=REASON, via="the revoke_api_tokens command"
-                    )
             links_revoked = secrets_cleared = webhooks_deactivated = 0
             refresh_revoked = sockets_evicted = 0
             if options["all"]:
@@ -445,6 +437,22 @@ class Command(BaseCommand):
                     secrets_cleared += u_secrets
                     webhooks_deactivated += u_webhooks
                     evict_all_live_project_sockets(user.pk)
+            # Agent tokens also get their chain row, in this transaction (#5109), and
+            # last in it: the first row takes the chain-head row lock, which every
+            # agent call's recording also needs, and holds it until this commits. That
+            # stall is deliberate for an incident command (the revoke and its record
+            # commit together or not at all), so it is kept to the tail of the
+            # transaction rather than spanning the sweeps above. Lock order is
+            # UserProfile (every mode but --all) -> ApiToken -> chain head: the head
+            # is always taken last, after every row lock this command holds.
+            # (`--user` goes through revoke_all_personal_access_tokens, which writes
+            # its own rows; `to_revoke` is empty then.)
+            # layering-ok: the revoke and its chain row must commit together; an
+            # extension-signal receiver would run outside this transaction.
+            from trueppm_api.apps.agents.control import record_token_revoke
+
+            for token in to_revoke:
+                record_token_revoke(token, None, reason=REASON, via="the revoke_api_tokens command")
         return (
             revoked,
             links_revoked,

@@ -4,12 +4,12 @@
 
 Accepted (2026-11-27), #5111
 
-> **Implementation status (2026-11-27, #5111):** the *decision* stands, and its OSS
-> half is on `main`: `can_manage` and the control writes in
+> **Implementation status (2026-11-27, #5111):** the *decision* stands, and #4814
+> shipped the OSS half: `can_manage` and the control writes in
 > `packages/api/src/trueppm_api/apps/agents/control.py`, and the ceiling cap in
 > `agent_scope.validate_grant` / `principal_ceiling` in
-> `packages/api/src/trueppm_api/apps/projects/agent_scope.py` (#4814). The
-> Enterprise scope-ceiling provider hook in Decision 4 is **not** on `main`: no slot
+> `packages/api/src/trueppm_api/apps/projects/agent_scope.py`. The
+> Enterprise scope-ceiling provider hook in Decision 4 is **not** built: no slot
 > exists yet, because no Enterprise provider exists to register against it. The
 > per-project `propose` intersection in Decision 5 waits on plan mode (#1813).
 

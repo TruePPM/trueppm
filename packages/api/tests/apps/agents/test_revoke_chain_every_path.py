@@ -171,12 +171,22 @@ def test_account_wide_sweep_chains_each_agent_token_with_actor_and_reason(
 
 @pytest.mark.django_db
 def test_chain_row_rolls_back_with_the_revoke(chain: None) -> None:
-    """Same transaction: a sweep that rolls back leaves neither the revoke nor its row."""
+    """Same transaction: a sweep that rolls back leaves neither the revoke nor its row.
+
+    The row must already exist inside the revoke's transaction, before it commits. A
+    row deferred to ``transaction.on_commit`` would be absent here (the outer atomic
+    never commits under ``django_db``), so the in-transaction assertion is what tells
+    "written with the revoke" from "written after it" and from "never written".
+    """
     alice = _user("Alice")
     agent = _mint(owner=alice, created_by=alice)
 
     with pytest.raises(RuntimeError), transaction.atomic():
         revoke_all_personal_access_tokens(alice, actor=alice, reason="password_reset")
+        agent.refresh_from_db()
+        assert agent.revoked_at is not None
+        [row] = _revoke_rows(agent)
+        assert "password_reset" in row.summary
         raise RuntimeError("roll back")
 
     agent.refresh_from_db()

@@ -144,7 +144,7 @@ test.describe('Workspace Agents page', () => {
     await expect(list.getByText('Acts for Alice')).toBeVisible();
     await expect(list.getByText('3 refused in 7 days')).toBeVisible();
 
-    const panel = page.getByRole('region', { name: 'Claude' });
+    const panel = page.getByRole('region', { name: 'Claude', exact: true });
     await expect(panel.getByRole('columnheader', { name: 'Dry run' })).toBeVisible();
     await expect(panel.getByRole('checkbox', { name: 'Resources: Write' })).toBeDisabled();
     await expect(panel.getByText(/Refused · outside scope/)).toBeVisible();
@@ -211,8 +211,10 @@ test.describe('Workspace Agents page', () => {
       .click();
     await expect(page).toHaveURL(new RegExp(`/agents\\?agent=${AGENT_ID}$`));
     // The refused agent is selected, not the first one on the list (#5110).
-    await expect(page.getByRole('region', { name: 'Claude' })).toBeVisible();
-    await expect(page.getByRole('region', { name: 'Cursor' })).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'Claude', exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Cursor', exact: true })).toHaveCount(0);
+    // The notice's live region is mounted but empty: the agent is listed.
+    await expect(page.getByTestId('agents-requested-notice')).toHaveText('');
   });
 
   test('an Inbox link to an agent no longer listed says so', async ({ page }) => {
@@ -223,6 +225,6 @@ test.describe('Workspace Agents page', () => {
         hasText: 'The agent from your Inbox item is no longer on this list',
       }),
     ).toBeVisible();
-    await expect(page.getByRole('region', { name: 'Claude' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Claude', exact: true })).toBeVisible();
   });
 });

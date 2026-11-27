@@ -334,6 +334,10 @@ def record_token_revoke(
     write actually revoked the token (each path already gates on that), so a
     re-revoke writes nothing.
 
+    Deleting a project, program or workspace is deliberately not a caller: the
+    delete cascades the scope's tokens away with no revoke row. That is a scope
+    deletion, not a revoke, and the token, its project and its log go with it.
+
     "Agent" is :func:`~trueppm_api.apps.projects.models.is_agent_token`, the same
     predicate that decides whether a token's own calls are recorded: any token without
     the full scope, owner-scoped or not. A full-scope token is the owner's own script,

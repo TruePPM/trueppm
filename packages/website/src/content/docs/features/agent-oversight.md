@@ -166,7 +166,7 @@ same tamper-evident chain as the agent's own calls, with who made it and why. Th
 record belongs to the person the agent acts for — it appears in their action log
 beside the agent's calls — and names the person who made the change.
 
-A revoke is written to the chain wherever it happens, not only on this page. Revoking
+A revoke is written to the chain on every revoke path, not only on this page. Revoking
 an agent's token under **Settings › API tokens**, or a project's or program's agent
 token in its settings, records who revoked it and from where. So does a sweep that
 revokes all of a person's tokens at once, a password reset or an Admin's off-boarding,
@@ -176,6 +176,9 @@ which records the reason (`password_reset`, `offboarding`). An operator running
 A program token's revoke has no person or project to file it under, so it is in the
 chain that `audit_verify` checks but in no one's action log. A token with full API
 access is not an agent, and its revoke is recorded only in the token audit log.
+Deleting a project, program or workspace is not a revoke: it removes that scope's
+tokens without writing a revoke row, so a deleted project's agent token leaves no
+`agent.revoke` record in the chain.
 
 For a workspace Admin, the line under the page title — **Action log verified · N
 records · as of …** — is the result of the same check as `audit_verify`, run by the
@@ -193,7 +196,9 @@ so two agents with the same name get separate items. Repeats from the
 same agent for the same reason within 15 minutes update one item with a count, so a
 looping agent cannot fill your Inbox. Opening the item takes you to the Agents page
 with that agent selected. If the agent is no longer on your list, for example because
-its token was revoked since, the page says so and shows the first agent instead.
+its token was revoked since, the page says so and shows the first agent instead. When
+you can see more than 200 agents, the list is partial, so the page says only that the
+agent is not among the ones shown.
 You can turn these items off with **When one of your agents is refused** in your
 notification settings.
 
