@@ -28,7 +28,9 @@ What the server retains for an encrypted job while it builds: the mode, the publ
 key and, for a passphrase, the salt and work factor. None of it decrypts anything,
 but together they let someone with database read access test passphrase guesses
 offline (at scrypt 2**17 per guess) and encrypt a forged bundle that opens under
-the passphrase, so the worker clears them when the job finishes. Passphrase mode
+the passphrase, so the worker clears them when the job finishes, and the export
+drain fails and clears a job its worker abandoned once it is two hours old
+(``tasks.EXPORT_STALE_JOB_MINUTES``). Passphrase mode
 therefore gives confidentiality, not authenticity: anyone who learns the public
 key can produce a file the passphrase opens. The bundle's integrity manifest
 (#2399) is unkeyed, so it does not prove origin either; the job's ``file_sha256``,

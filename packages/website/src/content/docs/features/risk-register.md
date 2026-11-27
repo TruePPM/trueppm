@@ -115,7 +115,7 @@ Every risk receives a project-scoped short ID (e.g. `R-00000003`) that shares th
 Export the full register to CSV from the **Export CSV** toolbar action. The file carries every column shown in the table: ID, title, status, category, response, probability, impact, severity, owner, mitigation due date, trigger, contingency, and description.
 
 :::note[Ships in 0.5]
-The **Owner Name** column and the `GET …/risks/export/` endpoint below ship in 0.5. So does the import change below. In the current release the export's **Owner** column holds the member's id only, the CSV is built in the browser from the rows on screen, and import keeps the `'` the export puts in front of a cell that starts with `=`, `+`, `-` or `@`.
+The **Owner Name** column and the `GET …/risks/export/` endpoint below ship in 0.5. So does the import change below. In the current release the export's **Owner** column holds the member's id only, the CSV is built in the browser from the rows on screen, and import keeps the `'` the export puts in front of a cell that starts with `=`, `+`, `-` or `@`. The status update PDF named at the end of this section ships in 0.5 as well; the current release has no PDF of a status update.
 :::
 
 From 0.5 the file adds an **Owner Name** column beside **Owner**: **Owner** keeps the member id that import matches on, and **Owner Name** is the person's name for whoever reads the file. Import ignores **Owner Name**. The toolbar's file holds the rows on screen, in the table's current order; the API file below holds the whole register, highest severity (probability × impact) first.
