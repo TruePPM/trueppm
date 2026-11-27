@@ -22,6 +22,9 @@ derivation sentence from :func:`~trueppm_api.apps.scheduling.derivation_summary.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Any
 
 from celery.exceptions import SoftTimeLimitExceeded
@@ -32,6 +35,24 @@ logger = logging.getLogger(__name__)
 
 #: Task names listed in a notice body before it says "and N more".
 _NOTICE_NAME_LIMIT = 5
+
+_suppressed: ContextVar[bool] = ContextVar("commitment_detection_suppressed", default=False)
+
+
+@contextmanager
+def suppress_commitment_detection() -> Iterator[None]:
+    """Skip :func:`detect_commitment_at_risk` for the duration of the block.
+
+    For a schedule run that no person caused, where a notice would be noise: the demo
+    seed's landing overlay schedules the sample program, and its sprints already
+    carry committed tasks past their ends, so the run would otherwise fill the demo
+    inboxes with at-risk notices before any visitor arrives.
+    """
+    token = _suppressed.set(True)
+    try:
+        yield
+    finally:
+        _suppressed.reset(token)
 
 
 def _at_risk_queryset(sprint: Any) -> Any:
@@ -168,6 +189,8 @@ def detect_commitment_at_risk(project_id: Any) -> int:
     """
     from trueppm_api.apps.projects.models import Sprint, SprintState
 
+    if _suppressed.get():
+        return 0
     announced = 0
     try:
         sprints = list(
