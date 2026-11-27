@@ -37,7 +37,10 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from trueppm_api.apps.projects.models import Methodology
-from trueppm_api.core.extension_providers import guard_single_provider
+from trueppm_api.core.extension_providers import (
+    guard_single_provider,
+    invoke_extension_provider,
+)
 
 if TYPE_CHECKING:
     from trueppm_api.apps.projects.models import Program, Project
@@ -67,8 +70,18 @@ def methodology_enforcement_active() -> bool:
 
     OSS has no provider → always False, so a workspace ``ENFORCE`` policy never
     locks downstream methodology overrides in the community edition.
+
+    Fails open (#3866): a provider that raises reads as inactive, so ``ENFORCE``
+    degrades to ``SUGGEST`` rather than failing the OSS request. This lock limits
+    which settings a scope may choose, not who may see or do anything.
     """
-    return _ENFORCEMENT_PROVIDER is not None and bool(_ENFORCEMENT_PROVIDER())
+    if _ENFORCEMENT_PROVIDER is None:
+        return False
+    return bool(
+        invoke_extension_provider(
+            _ENFORCEMENT_PROVIDER, hook="methodology enforcement", fallback=False
+        )
+    )
 
 
 def methodology_override_locked(workspace: Workspace) -> bool:

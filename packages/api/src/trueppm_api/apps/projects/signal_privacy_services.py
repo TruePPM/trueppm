@@ -27,6 +27,7 @@ inverted statement and is corrected here and in the ADR.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Iterable
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
@@ -48,8 +49,13 @@ from trueppm_api.apps.projects.models import (
     SignalCeilingRaiseVote,
     signal_audience_rank,
 )
-from trueppm_api.core.extension_providers import guard_single_provider
+from trueppm_api.core.extension_providers import (
+    guard_single_provider,
+    invoke_extension_provider,
+)
 from trueppm_api.core.extension_signals import dispatch_extension_signal
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
@@ -97,7 +103,16 @@ def _seed_initial_visibility(policy: ProjectSignalPrivacyPolicy, project: Projec
     """
     if _DEFAULT_POSTURE_PROVIDER is None:
         return
-    seed = _DEFAULT_POSTURE_PROVIDER(project) or {}
+    # A raising provider leaves the coded SIGNAL_DEFAULTS, the OSS posture (#3866).
+    # Seeding runs only at creation, so such a row keeps the defaults.
+    nothing: dict[str, dict[str, str]] = {}
+    seed: object = invoke_extension_provider(
+        _DEFAULT_POSTURE_PROVIDER, project, hook="signal-privacy default posture", fallback=nothing
+    )
+    seed = seed or {}
+    if not isinstance(seed, dict):
+        logger.error("signal-privacy default posture returned non-dict %r; ignoring", seed)
+        return
     cleaned: dict[str, dict[str, str]] = {}
     for signal_key, pair in seed.items():
         if signal_key not in SIGNAL_DEFAULTS or not isinstance(pair, dict):

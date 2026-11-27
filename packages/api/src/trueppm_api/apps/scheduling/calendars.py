@@ -24,6 +24,7 @@ from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING, Any
 
 from trueppm_api.apps.scheduling.services import build_sched_calendar
+from trueppm_api.core.extension_providers import invoke_extension_provider
 
 if TYPE_CHECKING:
     from trueppm_api.apps.projects.models import Calendar, Project
@@ -83,6 +84,13 @@ def oss_project_layers(project: Project) -> list[Calendar]:
 register_calendar_layer_resolver(oss_project_layers)
 
 
+def _resolver_pairs(
+    resolver: CalendarLayerResolver, project: Project
+) -> list[tuple[Any, Calendar]]:
+    """Run one resolver and read each row's id, so a lazy or malformed result fails here."""
+    return [(cal.id, cal) for cal in resolver(project)]
+
+
 def resolve_applied_calendars(project: Project) -> list[Calendar]:
     """The de-duplicated, ordered list of every ``Calendar`` applied to a project.
 
@@ -91,13 +99,26 @@ def resolve_applied_calendars(project: Project) -> list[Calendar]:
     instance, must not be counted twice if a later resolver also returns it). The
     first occurrence — the base calendar under the OSS resolver — leads, so its
     scalar ``hours_per_day``/``timezone`` win in :func:`compose_project_calendar`.
+
+    A registered (non-OSS) resolver that raises is logged and its layer skipped
+    (#3866): the result is the schedule a community install computes. Refusing to
+    schedule instead would let one extension bug stop every CPM and Monte Carlo run
+    for every project. The cost is that dates ignore that layer's non-working days
+    until the resolver is fixed; the error log is the signal. The OSS resolver is not
+    guarded: swallowing its failure would schedule against the wrong base calendar.
     """
     seen: set[Any] = set()
     result: list[Calendar] = []
     for resolver in _LAYER_RESOLVERS:
-        for cal in resolver(project):
-            if cal.id not in seen:
-                seen.add(cal.id)
+        if resolver is oss_project_layers:
+            pairs = _resolver_pairs(resolver, project)
+        else:
+            pairs = invoke_extension_provider(
+                _resolver_pairs, resolver, project, hook="calendar layer resolver", fallback=[]
+            )
+        for cal_id, cal in pairs:
+            if cal_id not in seen:
+                seen.add(cal_id)
                 result.append(cal)
     return result
 

@@ -32,7 +32,10 @@ from typing import TYPE_CHECKING, Any
 from django.conf import settings
 
 from trueppm_api.apps.scheduling.models import MCAttributionAudience
-from trueppm_api.core.extension_providers import guard_single_provider
+from trueppm_api.core.extension_providers import (
+    guard_single_provider,
+    invoke_extension_provider,
+)
 
 if TYPE_CHECKING:
     from trueppm_api.apps.projects.models import Program, Project
@@ -61,6 +64,18 @@ def register_forecast_history_enforcement_provider(provider: Callable[[], bool] 
     )
 
 
+def _provider_state() -> bool | None:
+    """The registered provider's answer; ``None`` when it raised (unknown)."""
+    if _ENFORCEMENT_PROVIDER is None:
+        return False
+    # FAIL-CLOSED (#3866): "unknown" must stay distinct from "inactive" so the
+    # resolvers below can pick the stricter value instead of dropping the lock.
+    answer = invoke_extension_provider(
+        _ENFORCEMENT_PROVIDER, hook="forecast history enforcement", fallback=None
+    )
+    return None if answer is None else bool(answer)
+
+
 def forecast_history_enforcement_active(workspace: Workspace | None = None) -> bool:
     """True only when an enterprise provider is registered AND reports active.
 
@@ -69,7 +84,7 @@ def forecast_history_enforcement_active(workspace: Workspace | None = None) -> b
     ``workspace`` is accepted for signature parity with the sharing seam and any
     future provider that needs the workspace context; the inert OSS path ignores it.
     """
-    return _ENFORCEMENT_PROVIDER is not None and bool(_ENFORCEMENT_PROVIDER())
+    return _provider_state() is True
 
 
 def _settings_default(key: str) -> Any:
@@ -101,14 +116,42 @@ def _clamp(key: str, value: Any) -> Any:
     return value
 
 
-def _enforced(workspace: Workspace) -> bool:
-    """Whether the workspace value is a hard lock (Enterprise enforcement active)."""
+def _lock_state(workspace: Workspace) -> bool | None:
+    """Whether the workspace value is a hard lock (Enterprise enforcement active).
+
+    ``None`` means the policy is ``ENFORCE`` but the provider raised;
+    :func:`_resolve_unknown_lock` then decides per key.
+    """
     from trueppm_api.apps.workspace.models import TermOverridePolicy
 
-    return (
-        workspace.mc_history_override_policy == TermOverridePolicy.ENFORCE
-        and forecast_history_enforcement_active(workspace)
-    )
+    if workspace.mc_history_override_policy != TermOverridePolicy.ENFORCE:
+        return False
+    return _provider_state()
+
+
+#: Least to most restrictive, for resolving the attribution gate fail-closed.
+_AUDIENCE_STRICTNESS = (
+    MCAttributionAudience.SCHEDULER_PLUS,
+    MCAttributionAudience.ADMIN_OWNER,
+    MCAttributionAudience.NONE,
+)
+
+
+def _resolve_unknown_lock(key: str, unlocked: Any, locked: Any) -> Any:
+    """Pick a value when the lock provider raised (#3866). Per key, because the harm differs.
+
+    * attribution audience — who may see a run author's name, a read-authorization
+      decision: FAIL-CLOSED, the stricter of the two.
+    * retention cap — the nightly purge deletes beyond it irreversibly: keep the
+      larger of the two, so nothing is deleted on a guess.
+    * enabled — plain configuration: fail open to the unlocked (OSS) value.
+    """
+    if key == "mc_history_attribution_audience":
+        # FAIL-CLOSED: never widen disclosure because a provider is broken.
+        return max(unlocked, locked, key=_AUDIENCE_STRICTNESS.index)
+    if key == "mc_history_retention_cap":
+        return max(unlocked, locked)
+    return unlocked
 
 
 def resolve_effective_mc_history(
@@ -146,14 +189,16 @@ def resolve_effective_mc_history(
         ws_value = getattr(obj, key)
         return _clamp(key, ws_value if ws_value is not None else _settings_default(key))
 
-    if _enforced(workspace):
+    lock = _lock_state(workspace)
+    if lock:
         # Enterprise lock: the workspace value wins regardless of lower overrides.
         return _clamp(key, getattr(workspace, key))
 
     own = getattr(obj, key)  # nullable override on Program/Project
-    if own is not None:
-        return _clamp(key, own)
-    return _clamp(key, _parent_value(obj, key, workspace=workspace))
+    value = own if own is not None else _parent_value(obj, key, workspace=workspace)
+    if lock is None:
+        value = _resolve_unknown_lock(key, value, getattr(workspace, key))
+    return _clamp(key, value)
 
 
 def resolve_inherited_mc_history(
@@ -181,9 +226,13 @@ def resolve_inherited_mc_history(
     if workspace is None:
         workspace = WorkspaceModel.load()
 
-    if _enforced(workspace):
+    lock = _lock_state(workspace)
+    if lock:
         return _clamp(key, getattr(workspace, key))
-    return _clamp(key, _parent_value(obj, key, workspace=workspace))
+    value = _parent_value(obj, key, workspace=workspace)
+    if lock is None:
+        value = _resolve_unknown_lock(key, value, getattr(workspace, key))
+    return _clamp(key, value)
 
 
 def _parent_value(
