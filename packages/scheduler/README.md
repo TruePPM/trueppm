@@ -1012,10 +1012,10 @@ release it is scheduled for:
   ([#5043](https://gitlab.com/trueppm/trueppm/-/issues/5043)). Moving the
   project start later can still move a floored milestone's successors earlier
   ([#5055](https://gitlab.com/trueppm/trueppm/-/issues/5055)). An FF/SF link
-  into a parent still breaks recalculation when a backlog child becomes
-  committed through a path the TruePPM API does not yet check: a sprint close
-  returning tasks to the backlog, a task delete, a program-wide recalculation,
-  or a link from another project
+  into a parent with backlog, epic or recurring children can still be left
+  unrecalculable by paths the API does not yet check (sprint close returning
+  tasks to the backlog, task delete, program-wide recalculation, links from
+  another project)
   ([#5046](https://gitlab.com/trueppm/trueppm/-/issues/5046)).
 - **Monte Carlo** — sprint-horizon
   clamping truncates the slow tail of a velocity-driven P80/P95, so it reads
