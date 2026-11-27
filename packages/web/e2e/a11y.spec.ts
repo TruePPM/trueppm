@@ -198,7 +198,7 @@ async function setupShell(page: import('@playwright/test').Page): Promise<void> 
   await setupApiMocks(page, { projects: [PROJECT], projectId: PROJECT_ID, tasks: TASKS });
 
   // Programs list (paginated envelope) — read by the context switcher + settings.
-  await page.route('**/api/v1/programs/**', (route) =>
+  await page.route('**/api/v1/programs/', (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -1134,8 +1134,10 @@ test.describe('accessibility @a11y — expanded route coverage (#3482)', () => {
   });
 
   test('program Backlog has no critical/serious WCAG violations', async ({ page }, testInfo) => {
+    // Registers the program detail object the page header reads.
+    await setupProgramMembers(page);
     await page.route(`**/api/v1/programs/${PROGRAM_ID}/backlog-items/**`, (route) =>
-      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) }),
     );
 
     await page.goto(`/programs/${PROGRAM_ID}/backlog`);

@@ -97,7 +97,7 @@ async function setup(page: Page, { catalogFails = false } = {}) {
     r.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: pj({ results: [], count: 0, next: null, previous: null, due_today_count: 0 }),
+      body: pj({ results: [], count: 0, next: null, previous: null }),
     }),
   );
   await page.route('**/api/v1/programs/samples/', (r) =>

@@ -73,6 +73,8 @@ async function setupBothProjects(page: Page, projects: ProjectFixture[]) {
     const project = projects.find((p) => p.id === id) ?? projects[0];
     return route.fulfill(json(project));
   });
+  // `projects/*/` above also matches the bare-array health summary; win it back.
+  await page.route('**/api/v1/projects/health-summary/', (route) => route.fulfill(json([])));
   await page.route('**/api/v1/projects/*/overview/', (route) =>
     route.fulfill(
       json({

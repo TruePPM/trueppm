@@ -98,7 +98,7 @@ async function setup(page: Page, overrides: Record<string, unknown> = {}) {
     r.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: pj({ results: [], count: 0, next: null, previous: null, due_today_count: 0 }),
+      body: pj({ results: [], count: 0, next: null, previous: null }),
     }),
   );
   await page.route('**/api/v1/programs/samples/', (r) =>
@@ -260,7 +260,6 @@ test.describe('Load demo data', () => {
           count: sampleLoaded ? 1 : 0,
           next: null,
           previous: null,
-          due_today_count: 0,
         }),
       }),
     );

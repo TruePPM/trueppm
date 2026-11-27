@@ -105,7 +105,7 @@ async function setup(page: Page, opts: SetupOpts = {}) {
   await setupCatchAll(page);
 
   await page.route('**/api/v1/projects/', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: pj([FIXTURE_PROJECT]) }),
+    r.fulfill({ status: 200, contentType: 'application/json', body: pj({ count: 1, next: null, previous: null, results: [FIXTURE_PROJECT] }) }),
   );
   await page.route(`**/api/v1/projects/${PROJECT_ID}/`, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: pj(FIXTURE_PROJECT) }),

@@ -347,7 +347,7 @@ test.describe('context-bar status cluster overflow (#2533)', () => {
       members: [{ id: 'mem-admin', role: 300, user: 'e2e-user' }],
     });
     // A single program renders the static identity row — the uncapped branch.
-    await page.route('**/api/v1/programs/**', (route) =>
+    await page.route('**/api/v1/programs/', (route) =>
       route.fulfill({
         status: 200,
         contentType: 'application/json',
