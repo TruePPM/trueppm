@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { test, expect } from './fixtures/coverage';
 import { setupCatchAll } from './fixtures/api-mocks';
 
@@ -263,6 +264,65 @@ test.describe('Risk register — golden path', () => {
 
   test('Export CSV button is visible', async ({ page }) => {
     await expect(page.getByRole('button', { name: 'Export CSV' })).toBeVisible();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CSV download (#1200) — the file a person reads names the owner
+// ---------------------------------------------------------------------------
+
+const listBody = (results: unknown[]) =>
+  JSON.stringify({ count: results.length, next: null, previous: null, results });
+
+test.describe('Risk register — CSV download', () => {
+  test('downloads the register with the Owner id and the Owner Name', async ({ page }) => {
+    await setup(page);
+    const owned = {
+      ...FIXTURE_RISKS[0],
+      owner: 42,
+      owner_name: 'Marcus Lee',
+      owner_initials: 'ML',
+      qualified_id: 'W7-R-001',
+    };
+    // Registered after setup(), so it takes precedence over the default list.
+    await page.route('**/api/v1/projects/*/risks/', (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: listBody([owned, ...FIXTURE_RISKS.slice(1)]),
+      }),
+    );
+    await page.goto(`/projects/${PROJECT_ID}/risk`);
+    await expect(page.getByRole('heading', { name: 'Risk register' })).toBeVisible({
+      timeout: 10_000,
+    });
+
+    const downloadEvent = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Export CSV' }).click();
+    const download = await downloadEvent;
+    expect(download.suggestedFilename()).toMatch(/^risks-.+-\d{4}-\d{2}-\d{2}\.csv$/);
+    const text = readFileSync(await download.path(), 'utf-8');
+    const [header, ...rows] = text.split('\r\n');
+    const columns = header.split(',');
+    expect(columns.slice(8, 10)).toEqual(['Owner', 'Owner Name']);
+    // Fixture values carry no commas or quotes, so a plain split is exact here.
+    const row = rows.map((line) => line.split(',')).find((cells) => cells[0] === 'W7-R-001');
+    expect(row?.[columns.indexOf('Owner')]).toBe('42');
+    expect(row?.[columns.indexOf('Owner Name')]).toBe('Marcus Lee');
+    expect(rows).toHaveLength(FIXTURE_RISKS.length);
+  });
+
+  test('offers no Export CSV on an empty register', async ({ page }) => {
+    await setup(page);
+    await page.route('**/api/v1/projects/*/risks/', (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: listBody([]) }),
+    );
+    await page.goto(`/projects/${PROJECT_ID}/risk`);
+    await expect(page.getByRole('heading', { name: 'Risk register' })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByText('No risks yet')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Export CSV' })).toHaveCount(0);
   });
 });
 
