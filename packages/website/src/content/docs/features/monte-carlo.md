@@ -36,7 +36,7 @@ estimates and, for sprint-delivered work, team velocity; a risk's probability ×
 impact score never reaches the engine. See [Known
 constraints](#the-risk-register-does-not-feed-this-forecast) below for what
 that means in practice, and [Known
-Issues](/overview/known-issues/#the-risk-register-does-not-affect-the-forecast--planned-for-05)
+Issues](/overview/known-issues/#the-risk-register-does-not-affect-the-forecast--planned-for-06)
 for the open defect ([#3660](https://gitlab.com/trueppm/trueppm/-/issues/3660)).
 :::
 
@@ -760,9 +760,10 @@ becomes five independent spreads instead of one shared draw, which understates
 the tail rather than overstating it).
 
 This is a tracked, open gap, not an oversight — see [Known
-Issues](/overview/known-issues/#the-risk-register-does-not-affect-the-forecast--planned-for-05)
+Issues](/overview/known-issues/#the-risk-register-does-not-affect-the-forecast--planned-for-06)
 and [#3660](https://gitlab.com/trueppm/trueppm/-/issues/3660). Making risks a
-first-class simulation input is sequenced for 0.5, per
+first-class simulation input is sequenced for 0.6 as risk drivers
+([#4137](https://gitlab.com/trueppm/trueppm/-/issues/4137)), per
 [ADR-0711](/architecture/decisions/).
 
 ### Statistical precision at low run counts

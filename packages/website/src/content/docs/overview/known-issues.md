@@ -86,7 +86,7 @@ What remains after that is the API surface, which is why this entry is separate.
   combination manually — this understates joint risk and is not a substitute.
 - **Stretch goal for 0.5, not committed** — [#2467](https://gitlab.com/trueppm/trueppm/-/issues/2467). It lands only if there is time.
 
-### The risk register does not affect the forecast — planned for 0.5
+### The risk register does not affect the forecast — planned for 0.6
 
 The risk register and Monte Carlo are separate systems that do not exchange
 information. A risk's severity is the product of two 1–5 ordinals; a simulated
@@ -111,8 +111,10 @@ relationship for a human to read; it does not reach the engine.
   (nothing records which risk it was for, so it is never removed when the risk
   closes) and uncorrelated (one risk affecting five tasks becomes five independent
   spreads, which understates the tail rather than overstating it).
-- **Fix planned for 0.5** — [#3660](https://gitlab.com/trueppm/trueppm/-/issues/3660) tracks the build,
-  per [ADR-0711](/architecture/decisions/): risks become
+- **Fix planned for 0.6** — the engine work is risk drivers
+  ([#4137](https://gitlab.com/trueppm/trueppm/-/issues/4137)), milestoned for 0.6;
+  [#3660](https://gitlab.com/trueppm/trueppm/-/issues/3660) tracks the gap until it lands.
+  Per [ADR-0711](/architecture/decisions/), risks become
   first-class simulation inputs, with one shared draw per risk per iteration across
   every task it touches. The design closed as
   [#2556](https://gitlab.com/trueppm/trueppm/-/issues/2556) <!-- known-issues-ack:closed -->
