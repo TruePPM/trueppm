@@ -202,6 +202,28 @@ describe('offline cell writes (#1949)', () => {
     expect(postMock).toHaveBeenCalledWith('/tasks/task-a/time-entries/', { minutes: 90, entry_date: '2026-06-16' });
     await waitFor(() => expect(patchMock).toHaveBeenCalledWith('/me/time-entries/real-1/', { minutes: 120 }));
   });
+
+  it('a queued second edit creates instead of throwing when the first create is rejected', async () => {
+    const { qc, Wrapper } = wrapper();
+    postMock
+      .mockReset()
+      .mockRejectedValueOnce(new Error('network down'))
+      .mockResolvedValueOnce({ data: { id: 'real-2' } });
+    onlineManager.setOnline(false);
+    const { result } = renderHook(() => useTimesheetCell('2026-06-15'), { wrapper: Wrapper });
+    act(() => {
+      result.current.mutate({ meta: META, date: '2026-06-16', minutes: 90, entryId: null });
+    });
+    await waitFor(() => expect(cellEntryId(qc)).not.toBeNull());
+    const placeholder = cellEntryId(qc);
+    act(() => {
+      result.current.mutate({ meta: META, date: '2026-06-16', minutes: 120, entryId: placeholder });
+    });
+    act(() => onlineManager.setOnline(true));
+    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(2));
+    expect(postMock).toHaveBeenLastCalledWith('/tasks/task-a/time-entries/', { minutes: 120, entry_date: '2026-06-16' });
+    expect(patchMock.mock.calls.filter(([url]) => String(url).includes('optimistic-'))).toHaveLength(0);
+  });
 });
 
 describe('sequential fill-across writes through the real hook (#1950)', () => {

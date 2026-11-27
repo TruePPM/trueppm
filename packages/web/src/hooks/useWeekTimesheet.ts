@@ -98,7 +98,7 @@ export function useTimesheetCell(mondayIso: string) {
         // carries the client-side placeholder id from the optimistic cache. It is not a server
         // id, so wait for the create and use the id it returned; if there is none (the create
         // failed, or the response carried no id) fall back to creating, never PATCH the placeholder.
-        id = (await pendingCreates.get(cellKey)) ?? null;
+        id = (await pendingCreates.get(cellKey)?.catch(() => null)) ?? null;
       }
       if (id !== null) {
         if (minutes > 0) {
