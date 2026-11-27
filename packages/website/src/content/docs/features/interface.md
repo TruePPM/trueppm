@@ -64,7 +64,7 @@ different scopes:
 ## The command palette (⌘K)
 
 :::note[Ships in 0.5]
-On a phone there is no keyboard, so the top bar carries a **Search** icon that opens the same palette by tap. Results come from the data already loaded on the device, so projects and tasks you have visited stay searchable offline; searches that need the server (people, workspace-wide results) fill in once you reconnect.
+On a phone there is no keyboard, so the top bar carries a **Search** icon that opens the same palette by tap. Results come from the data already loaded in the open tab, so projects and tasks you have visited stay searchable offline until you reload the page. That cache is held in memory only, so a cold start while offline has an empty palette. Searches that need the server (people, workspace-wide results) fill in once you reconnect.
 :::
 
 Press **⌘K** (Ctrl+K on Windows/Linux) anywhere to open the command palette. It

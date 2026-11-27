@@ -116,7 +116,7 @@ you add rows with **Add project or task** and key every cell by hand.
 ### On a phone
 
 :::note[Ships in 0.5]
-On a phone-width screen the seven-column grid becomes a **single-day list**: one row per task with one hours field each, and the **‹ ›** buttons step between days (stepping past Monday or Sunday moves to the adjacent week). Hours use the same shorthand as the grid, a day over 8 hours is flagged, and read-only cells (several entries, a submitted week, a future date) explain why. When the phone is offline, hours you enter are held in the open tab and sent when the connection returns; they are not stored across a reload, so keep the page open until they sync.
+On a phone-width screen the seven-column grid becomes a **single-day list**: one row per task with one hours field each, and the **‹ ›** buttons step between days (stepping past Monday or Sunday moves to the adjacent week). Hours use the same shorthand as the grid, a day over 8 hours is flagged, and read-only cells (several entries, a submitted week, a future date) explain why. When the phone is offline, hours you enter are held in the open tab and sent when the connection returns; they are not stored across a reload, so keep the page open until they sync. A week you have not opened yet cannot load while offline, so a cold offline start shows no timesheet rows.
 :::
 
 ### Days with more than one entry
