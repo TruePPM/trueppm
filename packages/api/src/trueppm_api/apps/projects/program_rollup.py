@@ -1212,8 +1212,9 @@ def risk_counts_by_project(project_ids: Collection[Any]) -> dict[Any, tuple[int,
     Same semantics as ``ProjectViewSet.status_summary``: incomplete tasks only
     (``status`` != COMPLETE), leaf rows only. A phase's ``total_float`` and
     ``is_critical`` are rollups of its children
-    (``scheduling.services._rollup_one_summary``: ``total_float = min(child floats)``,
-    ``is_critical = any(child.is_critical)``) — not facts about the phase row itself
+    (``scheduling.services._rollup_one_summary``: both taken over the incomplete
+    children only, ``total_float = min(floats)``, ``is_critical = any(critical)``,
+    #5183) — not facts about the phase row itself
     (ADR-0024/ADR-0293) — so counting the phase on top of the leaf whose value it
     rolled up double-counts that leaf (#4250). See :func:`task_is_phase_expr`.
 
@@ -1564,7 +1565,7 @@ def _at_risk_task_total(project_ids: list[Any]) -> int:
     """Total open tasks with ≤ 5 working days of float across the program.
 
     Leaf rows only (#4276), same rollup reasoning as :func:`_critical_task_total`:
-    a phase's `total_float` is `min(child floats)` (ADR-0024/ADR-0293), not a fact
+    a phase's `total_float` is the min over its incomplete children (ADR-0024/ADR-0293), not a fact
     about the phase row itself.
     """
     if not project_ids:
