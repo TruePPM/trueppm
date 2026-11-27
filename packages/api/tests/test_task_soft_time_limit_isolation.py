@@ -58,6 +58,12 @@ _EXEMPT: dict[tuple[str, str], tuple[int, str]] = {
     ("apps/notifications/email_health.py", "_txt_records"): (2, "admin request path (DNS)"),
     ("apps/observability/otel/instrumentation.py", "reset_for_testing"): (1, "test helper"),
     ("apps/projects/services.py", "decide_scope_change_batch"): (1, "request path"),
+    ("apps/projects/commitment_risk.py", "detect_commitment_at_risk"): (
+        2,
+        "the per-sprint loop handles SoftTimeLimitExceeded itself (stops instead of re-raising: "
+        "the CPM results are already saved and a re-raise would dead-letter the run); the "
+        "other handler is the sprint lookup, outside any loop",
+    ),
     ("apps/sync/conflict.py", "_payload_changed_fields"): (2, "request path, no I/O"),
     ("apps/sync/consumers.py", "_presence_keepalive"): (1, "ASGI consumer, not a worker"),
     ("core/idempotent.py", "_run"): (1, "lock-extender thread; signal fires on main thread"),
