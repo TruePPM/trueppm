@@ -1,3 +1,4 @@
+import type { ComponentProps } from 'react';
 import { render, screen, within } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import { TimesheetDayList } from './TimesheetDayList';
@@ -23,7 +24,7 @@ const ROW: TimesheetRow = {
   cells: {},
 };
 
-function renderList(over: Partial<React.ComponentProps<typeof TimesheetDayList>> = {}) {
+function renderList(over: Partial<ComponentProps<typeof TimesheetDayList>> = {}) {
   const props = {
     rows: [ROW],
     day: DAY,
