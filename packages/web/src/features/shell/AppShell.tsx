@@ -12,6 +12,7 @@ import { OfflineBanner } from './OfflineBanner';
 import { DemoModeBar } from './DemoModeBar';
 import { RateLimitDisabledBanner } from './RateLimitDisabledBanner';
 import { PendingWritesGuard } from './PendingWritesGuard';
+import { PwaInstallPrompt } from '@/features/pwa/PwaInstallPrompt';
 import { StartExploringCallout } from './StartExploringCallout';
 import { CommandPalette } from './commandPalette/CommandPalette';
 import { LastTaskRecorder } from './commandPalette/LastTaskRecorder';
@@ -205,6 +206,10 @@ export function AppShell() {
       )}
 
       <SessionExpiredBanner />
+
+      {/* iOS Add-to-Home-Screen nudge (ADR-1523 §7) — a fixed, non-modal card; renders
+          only on iOS Safari outside the installed app, until dismissed. */}
+      <PwaInstallPrompt />
 
       {/* ⌘K command palette (v2 design system) — portaled overlay; renders only when open */}
       <CommandPalette />

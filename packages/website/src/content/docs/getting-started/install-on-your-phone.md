@@ -28,6 +28,11 @@ The TruePPM icon appears on your Home Screen. Open it from there: it launches
 full-screen, without Safari's address bar, and shows a short "restoring session" screen
 while it signs you back in.
 
+When you use TruePPM in Safari on an iPhone or iPad, a small **Install TruePPM** card
+offers these steps; tap **Show me how** to see them. Tap **Not now** and it stays away for
+30 days; tap it a second time and it does not come back. It never appears inside the
+installed app, on Android, or on a computer.
+
 Use Safari for these steps. Chrome, Firefox and the browsers built into other apps (for
 example, a link opened from a chat app) either lack **Add to Home Screen** or install the
 page into a different browser.
