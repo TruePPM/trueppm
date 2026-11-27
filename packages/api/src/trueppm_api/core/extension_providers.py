@@ -24,6 +24,7 @@ The guard is deliberately narrow, because the existing call patterns are legitim
 provider is a callable OSS does not review, so it gets the containment
 ``dispatch_extension_signal()`` gives a receiver: its exception is logged and replaced
 by a fallback the call site states, never propagated into the OSS request or task.
+``scripts/check-extension-points.py`` fails a slot that is called directly.
 """
 
 from __future__ import annotations

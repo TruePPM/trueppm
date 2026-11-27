@@ -18,6 +18,8 @@ freely override. trueppm-enterprise registers a provider in its
 ``AppConfig.ready()`` — the integrations-registry idiom (ADR-0029/0049), mirroring
 ``sharing_settings.register_sharing_enforcement_provider``. OSS never imports
 enterprise.
+
+Enterprise consumer of this seam: not built yet, tracked as EE#195.
 """
 
 from __future__ import annotations

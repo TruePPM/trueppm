@@ -16,6 +16,8 @@ enterprise appends more (per-resource, cross-program calendars) against the same
 signature. Because composition is AND-of-masks + union-of-exceptions, any added
 resolver is always additive and order-independent, so a new source can never be a
 breaking change to an existing project's schedule.
+
+Enterprise consumer of the resolver seam: tracked as EE#197.
 """
 
 from __future__ import annotations

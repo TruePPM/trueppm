@@ -22,6 +22,8 @@ capability. OSS ships the inert provider below and registers nothing, so
 ``ENFORCE`` degrades to ``SUGGEST`` (no lock). trueppm-enterprise registers a
 provider in its ``AppConfig.ready()`` — the integrations-registry idiom
 (ADR-0029/0049). OSS never imports enterprise.
+
+Enterprise consumer of this seam: not built yet, tracked as EE#195.
 """
 
 from __future__ import annotations

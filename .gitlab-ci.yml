@@ -1012,6 +1012,8 @@ lint:repo-static:
     - bash scripts/ci/step.sh api:request-body-guards bash scripts/check-request-body-guards.sh
     - bash scripts/ci/step.sh api:extension-signals bash scripts/check-extension-signals.sh --self-test
     - bash scripts/ci/step.sh api:extension-signals bash scripts/check-extension-signals.sh
+    - bash scripts/ci/step.sh api:extension-points python3 scripts/check-extension-points.py --self-test
+    - bash scripts/ci/step.sh api:extension-points python3 scripts/check-extension-points.py
     - bash scripts/ci/step.sh api:ci-api-tag bash scripts/check-ci-api-tag.sh --self-test
     - bash scripts/ci/step.sh api:ci-api-tag bash scripts/check-ci-api-tag.sh
     - bash scripts/ci/step.sh api:ci-api-tag bash scripts/check-ci-api-tag.sh --image scheduler

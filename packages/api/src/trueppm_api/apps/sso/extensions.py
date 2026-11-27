@@ -22,6 +22,8 @@ change (the one-way dependency holds: enterprise → OSS, never the reverse).
 Extension inputs are treated as **untrusted** even though enterprise is "ours"
 (threat model, Boundary 5): both seams have a typed, narrow signature and the
 callers fail safe on a raising provider.
+
+Enterprise consumer of the local-login policy seam: tracked as EE#196.
 """
 
 from __future__ import annotations
