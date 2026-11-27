@@ -27056,6 +27056,78 @@
                 }
             }
         },
+        "/api/v1/projects/{id}/schedule/bug-report-export/": {
+            "get": {
+                "operationId": "project_schedule_bug_report_export",
+                "description": "Download the redacted engine input and self-check verdict for a bug report.\n\nGated to the project's Scheduler role and above, like a manual recompute: the\nfile is the whole schedule network, which a Viewer or Member can read piecemeal\nbut should not be able to bulk-export for an external tracker. Archived projects\nstay exportable (it is a read). One full ``schedule()`` pass plus the self-check\nper call, so it shares the CPM-on-read throttle and slot pool.",
+                "summary": "Redacted engine input and self-check verdict for a bug report",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "scheduling"
+                ],
+                "security": [
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ScheduleBugReportExport"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "400": {
+                        "description": "The project's schedule input is invalid."
+                    },
+                    "403": {
+                        "description": "Caller is not Scheduler or above on the project."
+                    },
+                    "404": {
+                        "description": "Project not found."
+                    },
+                    "503": {
+                        "description": "No free CPM slot; retry after Retry-After."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/projects/{id}/schedule/derivation/": {
             "get": {
                 "operationId": "project_schedule_derivation",
@@ -87581,6 +87653,33 @@
                     "size_bytes",
                     "task_count",
                     "title"
+                ]
+            },
+            "ScheduleBugReportExport": {
+                "type": "object",
+                "properties": {
+                    "format_version": {
+                        "type": "integer"
+                    },
+                    "engine_version": {
+                        "type": "string"
+                    },
+                    "engine_input": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "description": "trueppm_scheduler.Project JSON with names, descriptions, assignees and attachments stripped."
+                    },
+                    "verdict": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "description": "Self-check result: engine_version, task_count, checks (name -> pass|fail|skipped|error), violations."
+                    }
+                },
+                "required": [
+                    "engine_input",
+                    "engine_version",
+                    "format_version",
+                    "verdict"
                 ]
             },
             "ScheduleCpmDerivation": {

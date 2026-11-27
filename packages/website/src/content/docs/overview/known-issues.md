@@ -1,6 +1,7 @@
 ---
 title: Known Issues
 description: The maintained list of defects and limitations in what 0.4 ships — each one naming its tracking issue and target release where one exists.
+documentedFor: "0.5"
 ---
 
 This page lists **defects and limitations in what TruePPM already ships**. It is the
@@ -392,6 +393,37 @@ have a **Report a bug** entry that opens the tracker with your version, edition,
 build SHA, and current route already filled in. It is a link, not a beacon — nothing
 is transmitted by rendering it, and you can read and edit the context before
 submitting.
+
+### How to report a scheduling bug
+
+:::note[Ships in 0.5]
+The schedule export below ships in 0.5. On 0.4, describe the dates you expected and
+the dates you got, and list the tasks and dependencies involved.
+:::
+
+If a date looks wrong, attach the project's **schedule export** to the issue. It turns
+"a date looks wrong" into a file a maintainer can run.
+
+1. You need the **Scheduler** role or higher on the project.
+2. Download the export from the API:
+
+   ```bash
+   curl -H "Authorization: Bearer $TOKEN" -o schedule-export.json \
+     https://trueppm.example.com/api/v1/projects/<project-id>/schedule/bug-report-export/
+   ```
+
+3. Attach `schedule-export.json` to the issue.
+
+The file holds the input the scheduling engine reads: task durations, dependencies,
+calendars, actuals and the data date. It is the same JSON that
+`trueppm_scheduler.Project.from_json` loads. The project is renamed `redacted` and each
+task `task-1`, `task-2` and so on. Task notes, assignees and attachments are never in
+the file. Task and project ids stay in, so you can say which task looks wrong. Open
+the file and check it before you attach it.
+
+The file also has a `verdict`: the result of the
+[scheduler self-check](/administration/observability/#scheduler-self-check) on this
+schedule, and the engine version. A check marked `fail` points at the likely bug.
 
 ---
 

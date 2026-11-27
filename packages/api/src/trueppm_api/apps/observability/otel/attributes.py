@@ -140,6 +140,9 @@ CELERY_TASK_OUTCOME = "trueppm.celery.outcome"
 ``retry`` | etc."""
 SCHEDULE_COALESCE_OUTCOME = "trueppm.schedule.coalesce_outcome"
 """Which redundant CPM run was avoided (#4095): ``dispatch_skipped`` | ``run_bailed``."""
+SCHEDULER_SELFCHECK_CHECK = "trueppm.scheduler.selfcheck.check"
+"""Which post-recompute invariant check a self-check count is for (#4689), e.g.
+``negative_float`` | ``recompute_not_idempotent`` | ``selfcheck_error``."""
 
 # --- Agent / MCP span attributes (OSS-owned, ADR-0112 RC1, #1805) ----------
 # Set on the request span when an MCP/agent token acts, so an operator can attribute
@@ -238,6 +241,7 @@ __all__ = [
     "RESOURCE_SERVICE_NAME",
     "RESOURCE_SERVICE_NAMESPACE",
     "RESOURCE_SERVICE_VERSION",
+    "SCHEDULER_SELFCHECK_CHECK",
     "SCHEDULE_COALESCE_OUTCOME",
     "SCHEDULE_CRITICAL_COUNT",
     "SCHEDULE_DEPENDENCY_COUNT",

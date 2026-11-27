@@ -1947,10 +1947,19 @@ def _run_schedule(
     # (#709) times the engine call and records the graph shape; it is a no-op span
     # unless OTel export is configured. Runs inside the enqueued Celery task span,
     # so the trace links the recompute back to the request that triggered it.
+    from time import perf_counter
+
     with cpm_span(project_id, dependency_count=len(sched_deps)) as _cpm_span:
+        _cpm_started = perf_counter()
         result = schedule(sched_project)
+        _cpm_seconds = perf_counter() - _cpm_started
         _cpm_span.set_attribute(attributes.SCHEDULE_TASK_COUNT, len(result.tasks))
         _cpm_span.set_attribute(attributes.SCHEDULE_CRITICAL_COUNT, len(result.critical_path))
+
+    # Invariant self-check (#4689): counts violations, never raises or blocks.
+    from trueppm_api.apps.scheduling.selfcheck import run_post_recompute_selfcheck
+
+    run_post_recompute_selfcheck(project_id, sched_project, result, cpm_seconds=_cpm_seconds)
 
     _update(80, "Writing results…")
 

@@ -110,6 +110,8 @@ WS_CONNECTIONS_ACTIVE = "trueppm.ws.connections.active"
 WS_BROADCAST_COUNT = "trueppm.ws.broadcast.count"
 TASK_DURATION_SECONDS = "trueppm.task.duration_seconds"
 SCHEDULE_RECALC_COALESCED = "trueppm.schedule.recalc.coalesced"
+SCHEDULER_SELFCHECK_VIOLATIONS = "trueppm.scheduler.selfcheck.violations"
+SCHEDULER_SELFCHECK_RUNS = "trueppm.scheduler.selfcheck.runs"
 RATELIMIT_ENABLED = "trueppm.ratelimit.enabled"
 
 # The gauges documented above as "Cluster-wide — aggregate with max/last, never
@@ -146,6 +148,10 @@ _installed = False
 _ws_connections: UpDownCounter | None = None
 _ws_broadcasts: Counter | None = None
 _recalc_coalesced: Counter | None = None
+# Post-recompute self-check (#4689): violations, and evaluations so a zero
+# violation count can be told apart from a check that never ran.
+_selfcheck_violations: Counter | None = None
+_selfcheck_runs: Counter | None = None
 
 # The task-duration instrument, unlike the observable gauges above, is a plain
 # (synchronous) Histogram: there is no "current value" a callback can sample —
@@ -173,7 +179,7 @@ def install_metrics(context: OTelBootstrapContext, *, meter_provider: Any = None
             a test overrides it to read from an in-memory metric reader.
     """
     global _installed, _ws_connections, _ws_broadcasts, _task_duration_histogram
-    global _recalc_coalesced
+    global _recalc_coalesced, _selfcheck_violations, _selfcheck_runs
     if _installed:
         return
     if not context.enabled or context.meter_provider is None:
@@ -230,6 +236,16 @@ def install_metrics(context: OTelBootstrapContext, *, meter_provider: Any = None
         SCHEDULE_RECALC_COALESCED,
         unit="{run}",
         description="Redundant CPM runs avoided: a dispatch skipped or a queued run bailed.",
+    )
+    _selfcheck_violations = meter.create_counter(
+        SCHEDULER_SELFCHECK_VIOLATIONS,
+        unit="{violation}",
+        description="Post-recompute self-check: CPM results that violated an engine invariant.",
+    )
+    _selfcheck_runs = meter.create_counter(
+        SCHEDULER_SELFCHECK_RUNS,
+        unit="{check}",
+        description="Post-recompute self-check: invariant checks evaluated, by check.",
     )
     _task_duration_histogram = meter.create_histogram(
         TASK_DURATION_SECONDS,
@@ -593,6 +609,30 @@ def record_recalc_coalesced(outcome: str) -> None:
         logger.debug("recalc coalesced metric skipped", exc_info=True)
 
 
+def record_selfcheck_violation(check: str) -> None:
+    """Count one post-recompute self-check violation (#4689).
+
+    Args:
+        check: The violated check, e.g. ``negative_float`` (see
+            ``apps.scheduling.selfcheck``).
+    """
+    _add_selfcheck(_selfcheck_violations, check)
+
+
+def record_selfcheck_run(check: str) -> None:
+    """Count one evaluation of a post-recompute self-check (#4689)."""
+    _add_selfcheck(_selfcheck_runs, check)
+
+
+def _add_selfcheck(counter: Counter | None, check: str) -> None:
+    if counter is None:
+        return
+    try:
+        counter.add(1, {attributes.SCHEDULER_SELFCHECK_CHECK: check})
+    except Exception:
+        logger.debug("scheduler self-check metric skipped", exc_info=True)
+
+
 def reset_for_testing() -> None:
     """Clear the idempotency guard so a test can re-register against a fresh reader.
 
@@ -604,9 +644,11 @@ def reset_for_testing() -> None:
     ``record_*`` helpers no-op in between).
     """
     global _installed, _ws_connections, _ws_broadcasts, _task_duration_histogram
-    global _recalc_coalesced
+    global _recalc_coalesced, _selfcheck_violations, _selfcheck_runs
     _installed = False
     _ws_connections = None
     _ws_broadcasts = None
     _task_duration_histogram = None
     _recalc_coalesced = None
+    _selfcheck_violations = None
+    _selfcheck_runs = None

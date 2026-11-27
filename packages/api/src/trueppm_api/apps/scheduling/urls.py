@@ -5,6 +5,7 @@ from __future__ import annotations
 from django.urls import URLPattern, URLResolver, include, path
 from rest_framework.routers import DefaultRouter
 
+from trueppm_api.apps.scheduling.bug_report import ScheduleBugReportExportView
 from trueppm_api.apps.scheduling.views import (
     FailedTaskViewSet,
     ForecastSnapshotListView,
@@ -37,6 +38,11 @@ urlpatterns: list[URLPattern | URLResolver] = [
         "projects/<str:pk>/schedule/driving-chain/",
         ScheduleDrivingChainView.as_view(),
         name="project-schedule-driving-chain",
+    ),
+    path(
+        "projects/<str:pk>/schedule/bug-report-export/",
+        ScheduleBugReportExportView.as_view(),
+        name="project-schedule-bug-report-export",
     ),
     path("projects/<str:pk>/monte-carlo/", run_monte_carlo, name="project-monte-carlo"),
     path(
