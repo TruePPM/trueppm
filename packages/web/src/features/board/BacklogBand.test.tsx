@@ -483,6 +483,15 @@ describe('BacklogBand (rail)', () => {
     expect(screen.getByText(/2d ago/)).toBeInTheDocument();
   });
 
+  it('full density leaves the "Phase" label on the inherited text color (contrast)', () => {
+    render(
+      <DndContext>
+        <BacklogBand {...BASE_PROPS} density="full" tasks={[makeTask({ parentId: 'phase-a' })]} />
+      </DndContext>,
+    );
+    expect(screen.getByText('Phase').style.color).toBe('');
+  });
+
   it('full density renders age in plain "Nd ago" form (no stalled label) and shows "Project" when ungrouped', () => {
     render(
       <DndContext>

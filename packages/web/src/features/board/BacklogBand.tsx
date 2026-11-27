@@ -578,7 +578,7 @@ export function BacklogCard({
 
         {density === 'full' && (
           <div className="flex items-center gap-2 text-xs text-neutral-text-secondary">
-            <span style={{ color: phaseColor }} className="font-semibold">
+            <span className="font-semibold">
               {/* Phase name is sourced via prop in future; for now show the WBS
                   root label since the rail is project-scoped. */}
               {task.parentId ? 'Phase' : 'Project'}
