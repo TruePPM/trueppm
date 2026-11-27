@@ -175,30 +175,43 @@ spec:
 {{- /*
   Large-body routes (#5124). ingress.annotations carries a TIGHT proxy-body-size
   (2m), so every route, anonymous ones included, is bounded at the edge before
-  ASGI spools the body. Only the routes that take more are raised, on a second
-  Ingress. The list mirrors LARGE_BODY_ROUTES in
-  packages/api/src/trueppm_api/core/request_body_limits.py, which the app already
-  enforces, so no request the application accepts is refused here;
-  tests/core/test_request_body_limits.py fails if the two drift. Same use-regex
-  and no-tls reasoning as the webhook Ingress above. Unlike that one it is
-  rendered for web-tier hosts too, because the main Ingress's 2m would cap an
-  upload before it reached the web tier's own per-route limits. Each host sends
-  these paths to the same Service as its longest path covering /api/v1/.
+  ASGI spools the body. Only the routes that take more are raised, each on an
+  Ingress sized to its own tier: <release>-large-body (ingress.largeBody.size,
+  110m) for attachments and file imports, <release>-bulk-body
+  (ingress.largeBody.bulkSize, 10m) for logo, seed import, bulk, sync and inbound
+  task push. The bulk routes must not inherit 110m: the app caps them at 10 MiB
+  but only after ASGI has spooled the body, and task-sync is reached before its
+  token is checked. The lists mirror LARGE_BODY_ROUTES in
+  packages/api/src/trueppm_api/core/request_body_limits.py, pattern for pattern;
+  tests/core/test_request_body_limits.py fails if a route, its tier or its size
+  drifts. Every path ends in `$`: with use-regex ingress-nginx renders
+  `location ~* "^<path>"`, so an unanchored path would also raise every route
+  beneath it. Same use-regex and no-tls reasoning as the webhook Ingress above.
+  Unlike that one these are rendered for web-tier hosts too, because the main
+  Ingress's 2m would cap an upload before it reached the web tier's own
+  per-route limits. Each host sends these paths to the same Service as its
+  longest path covering /api/v1/.
 */ -}}
 {{- $large := .Values.ingress.largeBody | default dict }}
 {{- if and $large.enabled (not .Values.demo.enabled) }}
-{{- $largePaths := list
-  "/api/v1/projects/[^/]+/tasks/[^/]+/attachments/"
-  "/api/v1/projects/[^/]+/import/msproject/"
-  "/api/v1/projects/import/msproject/"
-  "/api/v1/projects/[^/]+/import/jira/"
-  "/api/v1/projects/[^/]+/import/csv/"
-  "/api/v1/projects/[^/]+/risks/import/"
-  "/api/v1/workspace/logo/"
-  "/api/v1/programs/import/"
-  "/api/v1/projects/[^/]+/tasks/bulk/"
-  "/api/v1/projects/[^/]+/sync/"
-  "/api/v1/projects/[^/]+/task-sync/" }}
+{{- $uploadPaths := list
+  "/api/v1/projects/[^/]+/tasks/[^/]+/attachments/$"
+  "/api/v1/projects/[^/]+/import/msproject/$"
+  "/api/v1/projects/import/msproject/$"
+  "/api/v1/projects/[^/]+/import/jira/$"
+  "/api/v1/projects/[^/]+/import/csv/$"
+  "/api/v1/projects/[^/]+/import/csv/preview/$"
+  "/api/v1/projects/[^/]+/risks/import/$" }}
+{{- $bulkPaths := list
+  "/api/v1/workspace/logo/$"
+  "/api/v1/programs/import/$"
+  "/api/v1/programs/import/validate/$"
+  "/api/v1/projects/[^/]+/tasks/bulk/$"
+  "/api/v1/projects/[^/]+/sync/$"
+  "/api/v1/projects/[^/]+/task-sync/$" }}
+{{- $tiers := list
+  (dict "name" "large-body" "size" $large.size "paths" $uploadPaths)
+  (dict "name" "bulk-body" "size" ($large.bulkSize | default "10m") "paths" $bulkPaths) }}
 {{- $targets := list }}
 {{- range $h := .Values.ingress.hosts }}
 {{- $best := "" }}
@@ -214,31 +227,32 @@ spec:
 {{- end }}
 {{- end }}
 {{- if $targets }}
+{{- range $tier := $tiers }}
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "trueppm.fullname" . }}-large-body
+  name: {{ include "trueppm.fullname" $ }}-{{ $tier.name }}
   labels:
-    {{- include "trueppm.labels" . | nindent 4 }}
+    {{- include "trueppm.labels" $ | nindent 4 }}
   annotations:
-    {{- range $k, $v := .Values.ingress.annotations }}
+    {{- range $k, $v := $.Values.ingress.annotations }}
     {{- if ne $k "nginx.ingress.kubernetes.io/proxy-body-size" }}
     {{ $k | quote }}: {{ $v | quote }}
     {{- end }}
     {{- end }}
-    nginx.ingress.kubernetes.io/proxy-body-size: {{ $large.size | quote }}
+    nginx.ingress.kubernetes.io/proxy-body-size: {{ $tier.size | quote }}
     nginx.ingress.kubernetes.io/use-regex: "true"
 spec:
-  {{- if .Values.ingress.className }}
-  ingressClassName: {{ .Values.ingress.className }}
+  {{- if $.Values.ingress.className }}
+  ingressClassName: {{ $.Values.ingress.className }}
   {{- end }}
   rules:
     {{- range $t := $targets }}
     - host: {{ $t.host | quote }}
       http:
         paths:
-          {{- range $largePaths }}
+          {{- range $tier.paths }}
           - path: {{ . }}
             pathType: ImplementationSpecific
             backend:
@@ -254,6 +268,7 @@ spec:
                 {{- end }}
           {{- end }}
     {{- end }}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- end }}

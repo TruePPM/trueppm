@@ -283,15 +283,23 @@ ingress:
     size: "1m"
   # Higher body ceiling for the routes that legitimately take a large body
   # (#5124): attachments, file imports, risk import, program import, logo, task
-  # bulk, offline sync and inbound task push. Rendered as a second Ingress,
-  # <release>-large-body, so every other route, including the anonymous ones,
-  # stays at the tight proxy-body-size in `annotations` below. `size` is what
-  # binds on uploads: keep it >= the largest application upload cap (100 MB
-  # attachments, plus multipart framing). ingress-nginx only (use-regex).
-  # Disabling it caps uploads at the main proxy-body-size unless you raise that.
+  # bulk, offline sync and inbound task push. Rendered as two extra Ingresses, one
+  # per application tier, so every other route, including the anonymous ones,
+  # stays at the tight proxy-body-size in `annotations` below. Each path is
+  # anchored with `$`, so only the exact route is raised. ingress-nginx only
+  # (use-regex). Disabling it caps uploads at the main proxy-body-size unless you
+  # raise that.
   largeBody:
     enabled: true
+    # <release>-large-body: attachments and file imports. This is what binds on
+    # uploads: keep it >= the largest application upload cap (100 MB
+    # attachments, plus multipart framing).
     size: "110m"
+    # <release>-bulk-body: workspace logo, program seed import, task bulk,
+    # offline sync and inbound task push. The application caps these at 10 MiB,
+    # and task-sync is reached before its token is checked, so they do not get
+    # the upload ceiling. Keep it equal to the application's bulk tier.
+    bulkSize: "10m"
   # Controller / cert-manager annotations. Example for cert-manager:
   #   cert-manager.io/cluster-issuer: letsencrypt-prod
   #

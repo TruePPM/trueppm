@@ -248,6 +248,9 @@
             },
             "size": {
               "type": "string"
+            },
+            "bulkSize": {
+              "type": "string"
             }
           }
         },

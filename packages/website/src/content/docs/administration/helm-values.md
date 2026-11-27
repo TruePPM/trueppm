@@ -235,7 +235,7 @@ cluster-specific, so a default-on ingress would render a broken object.
 | `ingress.enabled` | `false` | Render a chart-managed Ingress + edge TLS. |
 | `ingress.className` | `""` | IngressClass to bind (`nginx`, `traefik`, …). Empty uses the cluster default. |
 | `ingress.annotations` | `nginx.ingress.kubernetes.io/proxy-body-size: "2m"` | Controller / cert-manager annotations. The shipped default caps every route that does not take a large body — see [Upload size limits](#upload-size-limits). Helm deep-merges this map, so your own keys are added alongside it. |
-| `ingress.largeBody.enabled` / `.size` | `true` / `"110m"` | Render a second Ingress, `<release>-large-body`, that raises the body ceiling for attachment, import, logo, bulk and sync routes only. See [Upload size limits](#upload-size-limits). |
+| `ingress.largeBody.enabled` / `.size` / `.bulkSize` | `true` / `"110m"` / `"10m"` | Render two more Ingresses that raise the body ceiling for exact routes only: `<release>-large-body` (`size`) for attachments and file imports, `<release>-bulk-body` (`bulkSize`) for logo, seed import, bulk, sync and inbound task push. See [Upload size limits](#upload-size-limits). |
 | `ingress.webhookBodyLimit.enabled` / `.size` | `true` / `"1m"` | Render a second Ingress, `<release>-git-webhook`, that caps the anonymous Git-event receiver (`/api/v1/integrations/projects/<id>/git-webhook/`) at 1 MB. See [Git-webhook body ceiling](#git-webhook-body-ceiling). |
 | `ingress.hosts` | one example host | Virtual hosts; each path routes to `web` or `api`. List `/api` and `/ws` **before** `/` so they win longest-prefix matching. With [`demo.enabled`](#public-read-only-demo-mode) the chart refuses to render unless **every** path uses `service: web`. |
 | `ingress.tls` | `[]` | TLS Secrets per host. Empty renders **HTTP-only** — dev/demo only, never production. |
@@ -248,7 +248,8 @@ application ever sees it.
 
 | Layer | Where | Default |
 |---|---|---|
-| Ingress controller — large-body routes | `ingress.largeBody.size` | `110m` |
+| Ingress controller — upload routes | `ingress.largeBody.size` | `110m` |
+| Ingress controller — bulk routes | `ingress.largeBody.bulkSize` | `10m` |
 | Ingress controller — everything else | `ingress.annotations` → `nginx.ingress.kubernetes.io/proxy-body-size` | `2m` |
 | Web-tier nginx — uploads | `web.maxBodySize` | `110M` |
 | Web-tier nginx — sync, bulk, seed, logo / everything else | fixed | `10M` / `2M` |
@@ -265,13 +266,17 @@ import.
 Since 0.5 the Ingress ceiling is split. The main Ingress carries a tight `2m`,
 the application's default [request body ceiling](/administration/configuration/limits/#request-body-ceilings),
 so an anonymous caller cannot push a large body at sign-in, password reset, SSO,
-invite or share routes. A second Ingress, `<release>-large-body`, raises only the
-routes the application accepts more on: task attachments, the MS Project, Jira,
-CSV/Excel and risk-CSV imports, program import, workspace logo, task bulk, offline
-sync and inbound task push. Those routes still accept `ingress.largeBody.size` at
-the edge before the caller is authenticated. The second Ingress sets
-`use-regex`, copies your other `ingress.annotations`, works only with
-ingress-nginx, and is never rendered with `demo.enabled`.
+invite or share routes. Two more Ingresses raise only the routes the application
+accepts more on, each to that route's own application tier.
+`<release>-large-body` carries `ingress.largeBody.size` (`110m`) for task
+attachments and the MS Project, Jira, CSV/Excel and risk-CSV imports.
+`<release>-bulk-body` carries `ingress.largeBody.bulkSize` (`10m`) for program
+import, workspace logo, task bulk, offline sync and inbound task push, which the
+application caps at 10 MiB. Those routes still accept their tier's size at the
+edge before the caller is authenticated. Every path ends in `$`, so only the exact
+route is raised. Both Ingresses set `use-regex`, copy your other
+`ingress.annotations`, work only with ingress-nginx, and are never rendered with
+`demo.enabled`.
 
 The largest cap is the **attachment** one at 100 MB, not the MS Project import at
 50 — which is what both transport limits were sized against before 0.4, so every

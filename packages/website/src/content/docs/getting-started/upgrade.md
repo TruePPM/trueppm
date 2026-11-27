@@ -137,9 +137,11 @@ beat processes. See [Networking](/administration/networking/#split-horizon-and-i
 On 0.4 the chart's Ingress allows `110m` on every route.
 :::
 
-The main Ingress `proxy-body-size` default drops from `110m` to `2m`, and a new
-`<release>-large-body` Ingress carries `110m` for attachments, imports, logo,
-bulk and sync routes. A chart-default install needs no change. Check two cases:
+The main Ingress `proxy-body-size` default drops from `110m` to `2m`. A new
+`<release>-large-body` Ingress carries `110m` for attachments and file imports,
+and a new `<release>-bulk-body` Ingress carries `10m` (`ingress.largeBody.bulkSize`)
+for logo, seed import, bulk, sync and inbound task push. A chart-default install
+needs no change. Check two cases:
 
 - Your values file sets `nginx.ingress.kubernetes.io/proxy-body-size`. Your value
   still wins on the main Ingress, so anonymous routes keep it. Remove it, or set

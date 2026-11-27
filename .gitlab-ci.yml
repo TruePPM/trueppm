@@ -2449,6 +2449,19 @@ helm:template:
         || { echo "PROD REGRESSION: ingress no longer clears the 100 MB attachment cap — a default install 413s every attachment >2 MB (#2604, #3189, #5124)"; exit 1; }
       grep -q 'nginx.ingress.kubernetes.io/proxy-body-size: 2m$' /tmp/rendered-large.yaml \
         || { echo "PROD REGRESSION: the main Ingress no longer bounds anonymous routes at 2m (#5124)"; exit 1; }
+      # The bulk tier (logo, seed import, bulk, sync, task-sync) is capped at 10 MiB
+      # by the app and gets its own 10m Ingress, never the 110m upload one; every
+      # path is `$`-anchored so it raises only that exact route (#5124).
+      awk '/name: .*-bulk-body$/{f=1} /^---/{f=0} f' /tmp/rendered-large.yaml > /tmp/rendered-bulk-only.yaml
+      grep -q 'proxy-body-size: "10m"' /tmp/rendered-bulk-only.yaml \
+        && grep -qF 'path: /api/v1/projects/[^/]+/task-sync/$' /tmp/rendered-bulk-only.yaml \
+        || { echo "PROD REGRESSION: the bulk-tier routes lost their 10m Ingress (#5124)"; exit 1; }
+      if grep -qE 'path: /api/v1/(workspace/logo|programs/import|projects/\[\^/\]\+/(tasks/bulk|sync|task-sync))/' /tmp/rendered-large-only.yaml; then
+        echo "PROD REGRESSION: a 10 MiB bulk-tier route is on the 110m large-body Ingress (#5124)"; exit 1
+      fi
+      if grep -hE '^ *- path: /api/v1/' /tmp/rendered-large-only.yaml /tmp/rendered-bulk-only.yaml | grep -vqE '\$$'; then
+        echo "PROD REGRESSION: an unanchored large/bulk-body path raises every route beneath it (#5124)"; exit 1
+      fi
     # A host whose /api/v1/ goes to the web tier must send the large-body paths
     # there too, or uploads bypass the web nginx it was routed through (#5124).
     - |
@@ -2457,7 +2470,7 @@ helm:template:
         --set 'ingress.hosts[0].paths[0].path=/' \
         --set 'ingress.hosts[0].paths[0].pathType=Prefix' \
         --set 'ingress.hosts[0].paths[0].service=web' > /tmp/rendered-large-web.yaml
-      backends="$(yq ea 'select(.kind == "Ingress" and (.metadata.name | test("-large-body$"))) | .spec.rules[].http.paths[].backend.service.name' /tmp/rendered-large-web.yaml | grep -vE '^(---)?$' || true)"
+      backends="$(yq ea 'select(.kind == "Ingress" and (.metadata.name | test("-(large|bulk)-body$"))) | .spec.rules[].http.paths[].backend.service.name' /tmp/rendered-large-web.yaml | grep -vE '^(---)?$' || true)"
       [ -n "$backends" ] || { echo "PROD REGRESSION: a web-tier host renders no large-body Ingress (#5124)"; exit 1; }
       if echo "$backends" | grep -qv -- '-web$'; then
         echo "PROD REGRESSION: a large-body backend for a service: web host is not the web Service: $backends (#5124)"; exit 1
