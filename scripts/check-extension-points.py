@@ -21,8 +21,10 @@ Each must be accounted for, not necessarily consumed: its module docstring names
 
 Second rule (#3866): a provider slot is never called directly. A slot is a name
 a ``register_*`` function rebinds with ``global`` or appends to; calling it, a
-local alias of it, or a loop variable over it fails unless a ``FAIL-CLOSED``
-comment sits within 12 lines above. Use ``invoke_extension_provider()``. A slot
+local alias of it, or a loop variable over it fails unless a ``# FAIL-CLOSED``
+comment is on the calling statement itself or in the comment block directly above
+it. The marker means only "this bare veto call is deliberate"; do not use it to
+describe a contained call's fallback. Use ``invoke_extension_provider()``. A slot
 handed to another function and called there is not followed.
 
 Blind spot: registries that are not a rebound or appended module name are not
@@ -109,9 +111,9 @@ def provider_slots(tree: ast.Module) -> set[str]:
     return slots
 
 
-def bare_calls(tree: ast.Module, slots: set[str]) -> list[tuple[str, int]]:
-    """``(slot, line)`` of every direct call of a slot, its alias or its items."""
-    found: set[tuple[str, int]] = set()
+def bare_calls(tree: ast.Module, slots: set[str]) -> list[tuple[str, ast.Call]]:
+    """``(slot, call)`` of every direct call of a slot, its alias or its items."""
+    found: dict[tuple[str, int], ast.Call] = {}
     functions = [
         n
         for n in ast.walk(tree)
@@ -134,8 +136,29 @@ def bare_calls(tree: ast.Module, slots: set[str]) -> list[tuple[str, int]]:
         for node in nodes:
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
                 if node.func.id in names:
-                    found.add((names[node.func.id], node.lineno))
-    return sorted(found, key=lambda item: item[1])
+                    found[(names[node.func.id], node.lineno)] = node
+    return [
+        (slot, call)
+        for (slot, _), call in sorted(found.items(), key=lambda item: item[0][1])
+    ]
+
+
+def _fail_closed(lines: list[str], statement: ast.stmt | None, call: ast.Call) -> bool:
+    """Whether ``# FAIL-CLOSED`` is on the calling statement or directly above it.
+
+    A compound statement (``if``, ``for``) is read only up to the call, so a marker
+    somewhere in its body cannot exempt a call in its header.
+    """
+    node: ast.stmt | ast.Call = statement or call
+    last = call.end_lineno if hasattr(node, "body") else node.end_lineno
+    if any("# FAIL-CLOSED" in text for text in lines[node.lineno - 1 : last]):
+        return True
+    index = node.lineno - 2
+    while index >= 0 and lines[index].lstrip().startswith("#"):
+        if "# FAIL-CLOSED" in lines[index]:
+            return True
+        index -= 1
+    return False
 
 
 def _marked_above(lines: list[str], first_line: int) -> bool:
@@ -158,11 +181,17 @@ def scan(root: Path) -> tuple[list[str], list[str], list[str]]:
         source = path.read_text(encoding="utf-8")
         tree = ast.parse(source, filename=str(path))
         lines = source.splitlines()
-        for slot, line in bare_calls(tree, provider_slots(tree)):
-            if not any(
-                "# FAIL-CLOSED" in text for text in lines[max(0, line - 13) : line]
-            ):
-                bare.append(f"{path.relative_to(root)}:{line} {slot}")
+        # ast.walk is breadth-first, so the innermost statement is assigned last.
+        statements = {
+            child: node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.stmt)
+            for child in ast.walk(node)
+            if isinstance(child, ast.Call)
+        }
+        for slot, call in bare_calls(tree, provider_slots(tree)):
+            if not _fail_closed(lines, statements.get(call), call):
+                bare.append(f"{path.relative_to(root)}:{call.lineno} {slot}")
         declared = seams(tree)
         if not declared:
             continue
@@ -222,6 +251,25 @@ _CASES: list[tuple[str, int, str]] = [
         "FAIL-CLOSED bare call",
         0,
         _SLOT + "def use():\n    # FAIL-CLOSED: veto\n    return _X_PROVIDER()\n",
+    ),
+    (
+        "FAIL-CLOSED on the calling statement",
+        0,
+        _SLOT + "def use():\n    return _X_PROVIDER()  # FAIL-CLOSED: veto\n",
+    ),
+    (
+        "a marker above a contained call does not cover a bare call below",
+        1,
+        _SLOT
+        + "def use():\n    # FAIL-CLOSED: veto\n    a = invoke(_X_PROVIDER)\n"
+        + "    b = a\n    return _X_PROVIDER()\n",
+    ),
+    (
+        "a marker in an if body does not cover its condition",
+        1,
+        _SLOT
+        + "def use():\n    if _X_PROVIDER():\n"
+        + "        # FAIL-CLOSED: veto\n        return 1\n",
     ),
     ("a tree with no seam is an error, not a pass", 2, "x = 1\n"),
 ]

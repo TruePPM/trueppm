@@ -75,7 +75,7 @@ def _provider_state() -> bool | None:
     """The registered provider's answer; ``None`` when it raised (unknown)."""
     if _ENFORCEMENT_PROVIDER is None:
         return False
-    # FAIL-CLOSED (#3866): "unknown" must stay distinct from "inactive" so the
+    # Fails closed (#3866): "unknown" must stay distinct from "inactive" so the
     # resolvers below can pick the stricter value instead of dropping the lock.
     answer = invoke_extension_provider(
         _ENFORCEMENT_PROVIDER, hook="forecast history enforcement", fallback=_RAISED
@@ -148,13 +148,13 @@ def _resolve_unknown_lock(key: str, unlocked: Any, locked: Any) -> Any:
     """Pick a value when the lock provider raised (#3866). Per key, because the harm differs.
 
     * attribution audience — who may see a run author's name, a read-authorization
-      decision: FAIL-CLOSED, the stricter of the two.
+      decision: fails closed, to the stricter of the two.
     * retention cap — the nightly purge deletes beyond it irreversibly: keep the
       larger of the two, so nothing is deleted on a guess.
     * enabled — plain configuration: fail open to the unlocked (OSS) value.
     """
     if key == "mc_history_attribution_audience":
-        # FAIL-CLOSED: never widen disclosure because a provider is broken.
+        # Fails closed: never widen disclosure because a provider is broken.
         return max(unlocked, locked, key=_AUDIENCE_STRICTNESS.index)
     if key == "mc_history_retention_cap":
         return max(unlocked, locked)

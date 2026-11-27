@@ -104,7 +104,7 @@ def _provider_state() -> bool | None:
     """The registered provider's answer; ``None`` when it raised (unknown)."""
     if _ENFORCEMENT_PROVIDER is None:
         return False
-    # FAIL-CLOSED (#3866): "unknown" must stay distinct from "inactive" so the
+    # Fails closed (#3866): "unknown" must stay distinct from "inactive" so the
     # resolvers below can pick the stricter value instead of dropping the lock.
     answer = invoke_extension_provider(
         _ENFORCEMENT_PROVIDER, hook="attachment policy enforcement", fallback=_RAISED
@@ -125,7 +125,7 @@ def _lock_state(workspace: Workspace) -> bool | None:
     """Whether the workspace value is a hard ceiling (Enterprise lock active).
 
     ``None`` means the policy is ``ENFORCE`` but the provider raised. This seam
-    decides which files may be uploaded, so it is FAIL-CLOSED: each resolver then
+    decides which files may be uploaded, so it fails closed: each resolver then
     allows only what both the locked and the unlocked answer allow.
     """
     from trueppm_api.apps.workspace.models import TermOverridePolicy
@@ -202,7 +202,7 @@ def resolve_attachments_enabled(
 
     own = obj.attachments_enabled  # nullable override
     value = bool(own) if own is not None else _parent_enabled(obj, workspace)
-    # FAIL-CLOSED (#3866): lock unknown → enabled only if both answers say so.
+    # Fails closed (#3866): lock unknown → enabled only if both answers say so.
     return value and bool(workspace.attachments_enabled) if lock is None else value
 
 
@@ -225,7 +225,7 @@ def resolve_inherited_attachments_enabled(
     if lock:
         return bool(workspace.attachments_enabled)
     value = _parent_enabled(obj, workspace)
-    # FAIL-CLOSED (#3866): lock unknown → enabled only if both answers say so.
+    # Fails closed (#3866): lock unknown → enabled only if both answers say so.
     return value and bool(workspace.attachments_enabled) if lock is None else value
 
 
@@ -264,7 +264,7 @@ def resolve_effective_attachment_types(
         own = obj.allowed_attachment_types
         base = own if own is not None else _parent_types(obj, workspace)
         if lock is None:
-            # FAIL-CLOSED (#3866): lock unknown → only types both lists allow.
+            # Fails closed (#3866): lock unknown → only types both lists allow.
             base = set(base) & set(workspace.allowed_attachment_types or [])
     return _apply_denylist(base)
 
@@ -285,7 +285,7 @@ def resolve_inherited_attachment_types(
         return _apply_denylist(workspace.allowed_attachment_types or [])
     base: Iterable[str] = _parent_types(obj, workspace)
     if lock is None:
-        # FAIL-CLOSED (#3866): lock unknown → only types both lists allow.
+        # Fails closed (#3866): lock unknown → only types both lists allow.
         base = set(base) & set(workspace.allowed_attachment_types or [])
     return _apply_denylist(base)
 

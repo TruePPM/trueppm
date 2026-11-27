@@ -77,7 +77,8 @@ def invoke_extension_provider(
     The fail direction belongs to the call site, not to this helper: ``fallback`` is
     what the caller does when the answer is unknown. Pass the OSS default for a
     configuration seam. For a seam that guards access or exposure, pass a sentinel
-    (``None``) and resolve it to the stricter outcome, marked ``FAIL-CLOSED``.
+    (``None``) and resolve it to the stricter outcome. (The ``# FAIL-CLOSED`` comment
+    marker is reserved for a deliberate bare veto call; do not put it here.)
 
     Inside a transaction (``ATOMIC_REQUESTS``) the provider runs in its own savepoint,
     for the reason ``dispatch_extension_signal()`` does (#4084): a ``DatabaseError``

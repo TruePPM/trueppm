@@ -65,7 +65,7 @@ def _provider_state() -> bool | None:
     """The registered provider's answer; ``None`` when it raised (unknown)."""
     if _ENFORCEMENT_PROVIDER is None:
         return False
-    # FAIL-CLOSED (#3866): "unknown" must stay distinct from "inactive" so the
+    # Fails closed (#3866): "unknown" must stay distinct from "inactive" so the
     # resolvers below can pick the stricter value instead of dropping the lock.
     answer = invoke_extension_provider(
         _ENFORCEMENT_PROVIDER, hook="sharing enforcement", fallback=_RAISED
@@ -124,7 +124,7 @@ def _lock_state(workspace: Workspace) -> bool | None:
     """Whether the workspace value is a hard ceiling (Enterprise lock active).
 
     ``None`` means the policy is ``ENFORCE`` but the provider raised. This seam
-    decides anonymous exposure, so it is FAIL-CLOSED: each resolver then returns
+    decides anonymous exposure, so it fails closed: each resolver then returns
     ``True`` only if both the locked and the unlocked answer are ``True``.
     """
     from trueppm_api.apps.workspace.models import TermOverridePolicy
@@ -158,7 +158,7 @@ def resolve_effective_sharing(
 
     own = getattr(obj, field)  # nullable override on Program/Project
     value = bool(own) if own is not None else _parent_value(obj, field, workspace=workspace)
-    # FAIL-CLOSED (#3866): lock unknown → never more open than either answer.
+    # Fails closed (#3866): lock unknown → never more open than either answer.
     return value and ws_value if lock is None else value
 
 
@@ -183,7 +183,7 @@ def resolve_inherited_sharing(
     if lock:
         return bool(getattr(workspace, field))
     value = _parent_value(obj, field, workspace=workspace)
-    # FAIL-CLOSED (#3866): lock unknown → never more open than either answer.
+    # Fails closed (#3866): lock unknown → never more open than either answer.
     return value and bool(getattr(workspace, field)) if lock is None else value
 
 
