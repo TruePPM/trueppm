@@ -42,11 +42,31 @@ page into a different browser.
 Open your TruePPM address in **Chrome** and sign in. Chrome offers **Install app** in its
 menu (⋮), and may show an install banner on its own. Tap it and confirm.
 
+## Without a signal
+
+The installed app starts with no connection. What works offline is deliberately narrow:
+
+- **My Work** shows the copy saved on this device the last time you opened it while
+  connected, with the time it was saved. It refreshes as soon as you reconnect.
+- **Boards** you opened while connected keep their last state, as in a browser tab.
+- **Every other page** says **This view isn't cached**, with a way back to My Work and a
+  **Retry connection** button. The full schedule needs a connection.
+
+A banner says when you are offline. When you reconnect with changes still waiting to be
+sent, it shows **Back online — syncing** with their count until they are sent.
+
+Changes made offline are not yet saved on the device: as in a browser tab, they wait in
+memory while the app stays open and are lost if you close it. Queuing time entries and
+status changes so they survive closing the app is planned (see
+[ADR-1523](https://gitlab.com/trueppm/trueppm-suite/-/blob/main/docs/adr/1523-installable-pwa-shell-caching-and-scoped-offline-surface.md)).
+
 ## What the installed app keeps on your device
 
 The installed app stores the application itself (its code, fonts and icons) so it can
-start without a connection. It does **not** store responses from your TruePPM server in
-the browser's cache, and it never stores your sign-in token.
+start without a connection, and the saved copy of your My Work list. It does **not** store
+responses from your TruePPM server in the browser's cache, and it never stores your
+sign-in token. Signing out deletes the saved My Work copy, and a copy older than seven
+days is not shown.
 
 ## For operators
 

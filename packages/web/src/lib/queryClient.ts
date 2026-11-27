@@ -1,4 +1,5 @@
 import { MutationCache, QueryClient } from '@tanstack/react-query';
+import { purgePwaUserData } from '@/lib/pwa/pwaStore';
 import axios from 'axios';
 import { useSyncStatusStore } from '@/stores/syncStatusStore';
 import { registerSessionBridge, useAuthStore } from '@/stores/authStore';
@@ -72,5 +73,9 @@ registerSessionBridge({
           !PUBLIC_QUERY_ROOTS.has(String(q.queryKey[0])),
       ),
   }),
-  clearCache: () => queryClient.clear(),
+  clearCache: () => {
+    queryClient.clear();
+    // The PWA's offline copy belongs to the session too (ADR-1523 §4).
+    void purgePwaUserData();
+  },
 });

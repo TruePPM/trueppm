@@ -4,14 +4,19 @@
 
 Accepted (2026-11-27)
 
-> **Implementation status (2026-11-27):** Decisions 1–3 (tooling, caching, manifest and
-> launch) are built in `packages/web` (`vite.config.ts`, `src/lib/pwa/`,
-> `src/features/pwa/PwaSplash.tsx`, `index.html`, `e2e/pwa-shell.spec.ts`). Decisions 4–7
-> are not built yet. Verified before this work, on `main` at `7241dbf54`: `packages/web` had
-> no manifest, no service worker and no `vite-plugin-pwa`; `index.html` pointed
+> **Implementation status (2026-11-27):** built in `packages/web`: Decisions 1–3 (tooling,
+> caching, manifest and launch: `vite.config.ts`, `src/lib/pwa/`,
+> `src/features/pwa/PwaSplash.tsx`, `index.html`), Decision 4 (the My Work snapshot:
+> `src/lib/pwa/pwaStore.ts`, `src/features/pwa/useMyWorkWithOfflineSnapshot.ts`, plus the
+> offline cold-launch fix in `api/client.ts` `bootstrapAccessToken`), Decision 5
+> (`src/features/pwa/OfflineMiss.tsx`), Decision 7 (`PwaInstallPrompt.tsx`) and the
+> banner's offline → syncing → cleared states, which count the existing in-memory
+> paused writes. **Decision 6, the persistent PWA outbox, is not built**: offline writes
+> still use the in-memory TanStack queue, and there is no per-item Pending → Synced
+> badge. Verified before this work, on `main` at `7241dbf54`: `packages/web` had no
+> manifest, no service worker and no `vite-plugin-pwa`; `index.html` pointed
 > `apple-touch-icon` at an SVG, which iOS ignores; the only offline UI was the static
-> `src/features/shell/OfflineBanner.tsx`. ADR-1463 (Web Push) and ADR-1465 (schedule
-> outbox) are Proposed and both assumed a service worker that did not exist.
+> `src/features/shell/OfflineBanner.tsx`.
 
 ## Context
 

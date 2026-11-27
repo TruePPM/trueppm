@@ -8,7 +8,8 @@ import { Sidebar } from './Sidebar';
 import { StatusBar } from './StatusBar';
 import { BottomNav } from './BottomNav';
 import { SessionExpiredBanner, SessionExpiredReadOnlyBar } from './SessionExpiredBanner';
-import { OfflineBanner } from './OfflineBanner';
+import { ConnectedOfflineBanner } from './OfflineBanner';
+import { OfflineRouteGate } from '@/features/pwa/OfflineMiss';
 import { DemoModeBar } from './DemoModeBar';
 import { RateLimitDisabledBanner } from './RateLimitDisabledBanner';
 import { PendingWritesGuard } from './PendingWritesGuard';
@@ -139,7 +140,7 @@ export function AppShell() {
         <DemoModeBar />
 
         {/* Proactive offline indicator (WCAG 4.1.3) — renders only when offline */}
-        <OfflineBanner />
+        <ConnectedOfflineBanner />
 
         {/* Admin-only operator warning (#2316): API rate limiting disabled via env.
             Always-mounted live region; renders text only for admins when the
@@ -172,7 +173,11 @@ export function AppShell() {
             {/* Non-blocking post-load guidance — renders only right after a
                 sample load (reads router state), dismissable (issue 1054). */}
             <StartExploringCallout />
-            <Outlet />
+            {/* Cold offline launch on a route with no offline copy → "This view isn't
+                cached" (ADR-1523 §5); otherwise the route as usual. */}
+            <OfflineRouteGate>
+              <Outlet />
+            </OfflineRouteGate>
           </main>
         </div>
 

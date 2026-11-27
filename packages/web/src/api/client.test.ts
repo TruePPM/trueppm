@@ -220,6 +220,20 @@ describe('apiClient', () => {
       expect(useAuthStore.getState().isAuthenticated).toBe(true);
     });
 
+    // ADR-1523 §4: the installed app opened with no signal. The session was not
+    // refused, it is unreachable, so the sign-in modal must not cover the offline shell.
+    it('leaves the session alone when the refresh fails because the device is offline', async () => {
+      const bootstrapAccessToken = await getBootstrap();
+      Object.defineProperty(navigator, 'onLine', { value: false, configurable: true });
+      try {
+        vi.spyOn(axios, 'post').mockRejectedValue(new AxiosError('Network Error', 'ERR_NETWORK'));
+        await expect(bootstrapAccessToken()).resolves.toBe(false);
+        expect(useAuthStore.getState().sessionExpired).toBe(false);
+      } finally {
+        Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
+      }
+    });
+
     // #4296: only the server's own refusal speaks for the shared cookie.
     it.each([
       [

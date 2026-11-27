@@ -67,6 +67,16 @@ function expireSession(confirmed: boolean): void {
   window.dispatchEvent(new CustomEvent('auth:sessionExpired'));
 }
 
+/** No HTTP response while the browser reports no network at all. */
+function isOfflineFailure(error: unknown): boolean {
+  return (
+    axios.isAxiosError(error) &&
+    error.response === undefined &&
+    typeof navigator !== 'undefined' &&
+    navigator.onLine === false
+  );
+}
+
 /** The server answered 401: the session itself was refused, not merely unreachable. */
 function isConfirmedRefusal(error: unknown): boolean {
   return axios.isAxiosError(error) && error.response?.status === 401;
@@ -270,6 +280,11 @@ export async function bootstrapAccessToken(): Promise<boolean> {
     await refreshPromise;
     return true;
   } catch (error: unknown) {
+    // Cold launch with no network (the installed app opened on a job site,
+    // ADR-1523 §4): the session was not refused, it is unreachable. Expiring it
+    // would put the sign-in modal over the offline shell. Leave it alone; the
+    // first request after reconnecting gets a 401 and refreshes as usual.
+    if (isOfflineFailure(error)) return false;
     expireSession(isConfirmedRefusal(error));
     return false;
   }
