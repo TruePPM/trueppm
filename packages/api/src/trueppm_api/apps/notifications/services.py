@@ -1138,6 +1138,7 @@ def create_event_notifications(
     body: str,
     project_id: uuid.UUID | str | None,
     task_id: uuid.UUID | str | None = None,
+    agent_token_id: uuid.UUID | str | None = None,
 ) -> int:
     """Create event-sourced Notification rows for an own-task event (#639).
 
@@ -1167,6 +1168,8 @@ def create_event_notifications(
             real project.
         task_id: Optional deep-link target — the task/milestone the inbox row
             should link to (#497/#861). ``None`` for events with no task anchor.
+        agent_token_id: The agent an ``agent.refused`` row is about (#5110), so the
+            inbox row can open that agent. ``None`` for every other event.
 
     Returns:
         The number of Notification rows created.
@@ -1189,6 +1192,7 @@ def create_event_notifications(
                 body=body,
                 project_id=project_id,
                 task_id=task_id,
+                agent_token_id=agent_token_id,
                 email_pending=_allows(user_id, NotificationChannel.EMAIL.value)
                 and not _dnd_silences(
                     event_type,
@@ -1205,7 +1209,7 @@ def create_event_notifications(
 
 #: Rows per INSERT for the event fan-outs below.
 #:
-#: ``Notification`` carries 17 concrete columns, so a single unbounded
+#: ``Notification`` carries 18 concrete columns, so a single unbounded
 #: ``bulk_create`` crosses Postgres's 65535 bind-parameter ceiling at ~3,850 rows and
 #: raises. That was unreachable while every fan-out was scoped to one project's
 #: recipients; batching a program-matrix apply across up to ``MAX_BULK_TARGETS``

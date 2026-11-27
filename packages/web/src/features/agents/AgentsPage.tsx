@@ -8,7 +8,7 @@
  * the disabled Write column is a description of that rule, not the rule.
  */
 import { useId, useState } from 'react';
-import { Link } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import type { AgentDetail, AgentRow, AgentScope, AgentScopeLevel } from '@/api/types';
 import { EmptyState } from '@/components/EmptyState';
 import { LoadingSkeleton } from '@/components/LoadingSkeleton';
@@ -411,7 +411,16 @@ export function AgentsPage() {
   const [selected, setSelected] = useState<string | null>(null);
   const agents = data?.agents ?? [];
   const areas = data?.areas ?? [];
-  const current = selected ?? agents[0]?.id ?? null;
+  // `?agent=<id>` is how a refused-agent Inbox item opens this page on its agent
+  // (#5110). A row the person picks wins over it. An id not on the list (the agent
+  // was revoked since, or is no longer visible to this person) shows a notice and
+  // falls back to the first agent, rather than silently opening a different one.
+  const [searchParams] = useSearchParams();
+  const requested = searchParams.get('agent');
+  const requestedListed = requested !== null && agents.some((row) => row.id === requested);
+  const current = selected ?? (requestedListed ? requested : null) ?? agents[0]?.id ?? null;
+  const requestedMissing =
+    requested !== null && !requestedListed && selected === null && !isLoading && !isError;
 
   return (
     <PageFrame
@@ -440,6 +449,12 @@ export function AgentsPage() {
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="flex flex-col gap-2">
+            {requestedMissing && (
+              <p role="status" className="text-sm text-neutral-text-secondary">
+                The agent from your Inbox item is no longer on this list. Its token may have been
+                revoked.
+              </p>
+            )}
             <p className="text-xs text-neutral-text-secondary">
               Refused: calls the server refused in the last 7 days, counting only actions you can
               see.

@@ -33,6 +33,7 @@ const rowFactory = (override = {}) => ({
   is_read: false,
   is_archived: false,
   snoozed_until: null,
+  agent_id: null,
   category: 'mentions',
   created_at: '2026-05-19T00:00:00Z',
   read_at: null,

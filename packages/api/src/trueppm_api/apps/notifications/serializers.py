@@ -298,6 +298,8 @@ class NotificationSerializer(serializers.ModelSerializer[Notification]):
     # project. Sourced from categories.category_for so the field and the
     # ?category= filter share one mapping and never drift.
     category = serializers.SerializerMethodField()
+    # The agent an ``agent.refused`` row is about (#5110); null on every other row.
+    agent_id = serializers.UUIDField(source="agent_token_id", read_only=True, allow_null=True)
 
     def get_category(self, obj: Notification) -> str:
         return category_for(obj)
@@ -502,6 +504,7 @@ class NotificationSerializer(serializers.ModelSerializer[Notification]):
             "read_at",
             "snippet",
             "task_id",
+            "agent_id",
         ]
         read_only_fields = [
             "id",
@@ -518,6 +521,7 @@ class NotificationSerializer(serializers.ModelSerializer[Notification]):
             "read_at",
             "snippet",
             "task_id",
+            "agent_id",
         ]
 
 

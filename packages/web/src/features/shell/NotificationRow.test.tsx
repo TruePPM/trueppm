@@ -45,6 +45,7 @@ function row(overrides = {}) {
     is_read: false,
     is_archived: false,
     snoozed_until: null,
+    agent_id: null,
     category: 'mentions',
     created_at: '2026-05-19T00:00:00Z',
     read_at: null,
@@ -75,6 +76,24 @@ describe('NotificationRow', () => {
     );
     fireEvent.click(screen.getByText('Refused: agent Claude (tppm_ab12cd34) is paused'));
     expect(navigateMock).toHaveBeenCalledWith('/agents');
+  });
+
+  it('opens the Agents page on the refused agent when the row names it (#5110)', () => {
+    renderWithRouter(
+      <NotificationRow
+        notification={row({
+          mention: null,
+          event_type: 'agent.refused',
+          subject: 'Refused: agent Claude (tppm_ab12cd34) is paused',
+          body: 'It is paused.\nNothing changed in the schedule.',
+          project: null,
+          task_id: null,
+          agent_id: '7d1c9b3e-0000-4000-8000-000000004814',
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByText('Refused: agent Claude (tppm_ab12cd34) is paused'));
+    expect(navigateMock).toHaveBeenCalledWith('/agents?agent=7d1c9b3e-0000-4000-8000-000000004814');
   });
 
   it('renders mention text and snippet for an individual mention', () => {

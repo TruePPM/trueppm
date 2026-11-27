@@ -263,4 +263,46 @@ describe('AgentsPage', () => {
     renderWithRouter(<AgentsPage />);
     expect(screen.getByText('Agents could not be loaded.')).toBeTruthy();
   });
+
+  describe('opened from a refused-agent Inbox item (#5110)', () => {
+    function twoAgents() {
+      m.agents.mockReturnValue({
+        data: {
+          agents: [row(), row({ id: 'ag2', name: 'Cursor', token_prefix: 'ff00ee11' })],
+          truncated: false,
+          areas: AREAS,
+          grantable_levels: ['none', 'read', 'propose'],
+          can_verify_log: true,
+        },
+        isLoading: false,
+        isError: false,
+      });
+    }
+
+    it('selects the agent the item names', () => {
+      twoAgents();
+      renderWithRouter(<AgentsPage />, { initialEntries: ['/agents?agent=ag2'] });
+      expect(m.agent).toHaveBeenLastCalledWith('ag2');
+      const list = screen.getByRole('list', { name: 'Agents' });
+      expect(within(list).getByRole('button', { current: true }).textContent).toMatch(/Cursor/);
+      expect(screen.queryByRole('status')).toBeNull();
+    });
+
+    it('lets the person pick another agent afterwards', () => {
+      twoAgents();
+      renderWithRouter(<AgentsPage />, { initialEntries: ['/agents?agent=ag2'] });
+      const list = screen.getByRole('list', { name: 'Agents' });
+      fireEvent.click(within(list).getByText('Claude'));
+      expect(m.agent).toHaveBeenLastCalledWith('ag1');
+    });
+
+    it('says so when the agent is no longer listed, and shows the first one', () => {
+      twoAgents();
+      renderWithRouter(<AgentsPage />, { initialEntries: ['/agents?agent=gone'] });
+      expect(screen.getByRole('status').textContent).toMatch(
+        /The agent from your Inbox item is no longer on this list/,
+      );
+      expect(m.agent).toHaveBeenLastCalledWith('ag1');
+    });
+  });
 });

@@ -70,7 +70,17 @@ function detail(paused: boolean) {
 const pj = (data: unknown) => JSON.stringify(data);
 const json = (body: unknown) => ({ status: 200, contentType: 'application/json', body: pj(body) });
 
-async function setup(page: Page, { agents = true }: { agents?: boolean } = {}) {
+const OTHER_ID = '7d1c9b3e-0000-4000-8000-000000005110';
+
+/** A second agent listed *first*, so selecting the refused one is not the default. */
+function other() {
+  return { ...agent(false), id: OTHER_ID, name: 'Cursor', token_prefix: 'ff00ee11' };
+}
+
+async function setup(
+  page: Page,
+  { agents = true, second = false }: { agents?: boolean; second?: boolean } = {},
+) {
   await page.addInitScript(() => {
     localStorage.setItem(
       'trueppm-auth',
@@ -92,7 +102,7 @@ async function setup(page: Page, { agents = true }: { agents?: boolean } = {}) {
     (r) =>
       r.fulfill(
         json({
-          agents: agents ? [agent(paused)] : [],
+          agents: agents ? [...(second ? [other()] : []), agent(paused)] : [],
           truncated: false,
           areas: AREAS,
           grantable_levels: ['none', 'read', 'propose'],
@@ -112,6 +122,9 @@ async function setup(page: Page, { agents = true }: { agents?: boolean } = {}) {
     ),
   );
   await page.route(`**/api/v1/agents/${AGENT_ID}/`, (r) => r.fulfill(json(detail(paused))));
+  await page.route(`**/api/v1/agents/${OTHER_ID}/`, (r) =>
+    r.fulfill(json({ ...other(), recent_actions: [] })),
+  );
   await page.route(`**/api/v1/agents/${AGENT_ID}/pause/`, (r) => {
     paused = true;
     return r.fulfill(json(detail(true)));
@@ -155,8 +168,8 @@ test.describe('Workspace Agents page', () => {
     await expect(page.getByText('No agents configured')).toBeVisible();
   });
 
-  test('a refused agent call appears in the Inbox and opens the Agents page', async ({ page }) => {
-    await setup(page);
+  test('a refused agent call appears in the Inbox and opens its agent', async ({ page }) => {
+    await setup(page, { second: true });
     const refusal = {
       id: '3b1c9b3e-0000-4000-8000-000000000001',
       recipient: 1,
@@ -177,6 +190,7 @@ test.describe('Workspace Agents page', () => {
       read_at: null,
       snippet: '',
       task_id: null,
+      agent_id: AGENT_ID,
     };
     await page.route(
       (url) => url.pathname === '/api/v1/me/notifications/',
@@ -195,6 +209,20 @@ test.describe('Workspace Agents page', () => {
     await item
       .getByRole('button', { name: /Refused: agent Claude \(tppm_ab12cd34\) is paused/ })
       .click();
-    await expect(page).toHaveURL(/\/agents$/);
+    await expect(page).toHaveURL(new RegExp(`/agents\\?agent=${AGENT_ID}$`));
+    // The refused agent is selected, not the first one on the list (#5110).
+    await expect(page.getByRole('region', { name: 'Claude' })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Cursor' })).toHaveCount(0);
+  });
+
+  test('an Inbox link to an agent no longer listed says so', async ({ page }) => {
+    await setup(page);
+    await page.goto('/agents?agent=00000000-0000-4000-8000-000000000000');
+    await expect(
+      page.getByRole('status').filter({
+        hasText: 'The agent from your Inbox item is no longer on this list',
+      }),
+    ).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Claude' })).toBeVisible();
   });
 });

@@ -470,12 +470,17 @@ def notify_refusal(action: AgentAction) -> None:
         existing.body = body
         existing.is_read = False
         existing.read_at = None
-        existing.save(update_fields=["subject", "body", "is_read", "read_at"])
+        # Backfills a row created before #5110 carried the agent, within its window.
+        existing.agent_token_id = token.pk
+        existing.save(update_fields=["subject", "body", "is_read", "read_at", "agent_token"])
         return
+    # The agent's id rides the row (#5110) so opening it selects this agent on the
+    # Agents page. The recipient is the agent's own principal, who can see it there.
     create_event_notifications(
         event_type=AGENT_REFUSED_EVENT,
         recipient_ids=[action.principal_id],
         subject=subject,
         body=body,
         project_id=None,
+        agent_token_id=token.pk,
     )

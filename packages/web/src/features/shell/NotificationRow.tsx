@@ -75,8 +75,14 @@ export function NotificationRow({ notification, onNavigate }: Props) {
     }
     if (isEvent && notification.event_type === 'agent.refused') {
       // A refused or paused agent call (#4814) is about the person's own agent, not
-      // a project: open the Agents page, where Pause / Edit scope / Revoke live.
-      void navigate('/agents');
+      // a project: open the Agents page, where Pause / Edit scope / Revoke live, with
+      // that agent selected (#5110). A row from before the id was carried opens the
+      // page with nothing chosen.
+      void navigate(
+        notification.agent_id
+          ? `/agents?agent=${encodeURIComponent(notification.agent_id)}`
+          : '/agents',
+      );
     } else if (!notification.project) {
       // No project to link to: either an ADR-0663 account-scoped digest row, or
       // (since #3510) a row whose subject/body/project were redacted because

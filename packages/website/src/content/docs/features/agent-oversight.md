@@ -191,7 +191,9 @@ and the agent, and ends with "Nothing changed in the schedule." The title names 
 agent and its token prefix, such as "Refused: agent Claude (tppm_ab12cd34) is paused",
 so two agents with the same name get separate items. Repeats from the
 same agent for the same reason within 15 minutes update one item with a count, so a
-looping agent cannot fill your Inbox. Opening the item takes you to the Agents page.
+looping agent cannot fill your Inbox. Opening the item takes you to the Agents page
+with that agent selected. If the agent is no longer on your list, for example because
+its token was revoked since, the page says so and shows the first agent instead.
 You can turn these items off with **When one of your agents is refused** in your
 notification settings.
 

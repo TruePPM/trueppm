@@ -471,6 +471,53 @@ def test_refusal_inbox_item_is_coalesced(world: dict[str, Any]) -> None:
 
 
 @pytest.mark.django_db
+def test_refusal_inbox_item_carries_the_agent_id(world: dict[str, Any]) -> None:
+    """The row names its agent by id, so opening it selects that agent (#5110)."""
+    from django.utils import timezone
+
+    from trueppm_api.apps.agents.control import notify_refusal
+
+    world["token"].agent_paused_at = timezone.now()
+    world["token"].save(update_fields=["agent_paused_at"])
+    payload = {
+        "actor_token": world["token"],
+        "principal": world["principal"],
+        "action": "projects:project-overview",
+        "method": "GET",
+        "capability_used": SCOPE_MCP_READ,
+        "verdict": AgentActionVerdict.REFUSED,
+        "refusal_reason": "policy",
+        "refusal_constraint": RefusalConstraint.AGENT_PAUSED,
+        "payload_hash": "0" * 64,
+    }
+    notify_refusal(record_agent_action(**payload))
+    item = Notification.objects.get(recipient=world["principal"], event_type="agent.refused")
+    assert item.agent_token_id == world["token"].pk
+
+    # A row from before #5110 carries no agent; the next coalesced refusal fills it in.
+    Notification.objects.filter(pk=item.pk).update(agent_token=None)
+    notify_refusal(record_agent_action(**payload))
+    item.refresh_from_db()
+    assert item.agent_token_id == world["token"].pk
+
+    resp = _as(world["principal"]).get("/api/v1/me/notifications/")
+    assert resp.status_code == 200
+    rows = resp.data["results"] if isinstance(resp.data, dict) else resp.data
+    [row] = [r for r in rows if r["event_type"] == "agent.refused"]
+    assert row["agent_id"] == str(world["token"].pk)
+
+
+@pytest.mark.django_db
+def test_non_agent_notification_has_no_agent_id(world: dict[str, Any]) -> None:
+    Notification.objects.create(
+        recipient=world["principal"], event_type="task.assigned", subject="s", body="b"
+    )
+    rows = _as(world["principal"]).get("/api/v1/me/notifications/").data
+    rows = rows["results"] if isinstance(rows, dict) else rows
+    assert [r["agent_id"] for r in rows] == [None]
+
+
+@pytest.mark.django_db
 def test_live_pause_refusal_reaches_the_inbox(
     world: dict[str, Any], django_capture_on_commit_callbacks: Any
 ) -> None:
