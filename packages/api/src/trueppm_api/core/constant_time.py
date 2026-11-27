@@ -34,7 +34,7 @@ from __future__ import annotations
 import hmac
 
 
-def constant_time_equal(provided: str, expected: str) -> bool:
+def constant_time_equal(provided: str | bytes, expected: str | bytes) -> bool:
     """Constant-time compare caller-controlled ``provided`` against ``expected``.
 
     Never raises on non-ASCII input. Both arguments may be attacker-controlled:
@@ -44,7 +44,9 @@ def constant_time_equal(provided: str, expected: str) -> bool:
     return hmac.compare_digest(_to_bytes(provided), _to_bytes(expected))
 
 
-def _to_bytes(value: str) -> bytes:
+def _to_bytes(value: str | bytes) -> bytes:
+    if isinstance(value, bytes):
+        return value
     try:
         return value.encode("latin-1")
     except UnicodeEncodeError:

@@ -55,6 +55,8 @@ from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
+from trueppm_api.core.constant_time import constant_time_equal
+
 logger = logging.getLogger(__name__)
 
 MODE_NONE = "none"
@@ -438,7 +440,7 @@ def _decrypt_stream(src: IO[bytes], dst: IO[bytes], passphrase: str) -> None:
     stanzas, text, mac = _read_header(src)
     file_key = _unwrap(stanzas, passphrase)
     expected = hmac.new(_hkdf(file_key, b"", b"header"), text, sha256).digest()
-    if not hmac.compare_digest(expected, mac):
+    if not constant_time_equal(mac, expected):
         raise ExportCryptoError("Wrong passphrase, or the file is damaged.")
     nonce = src.read(16)
     if len(nonce) != 16:

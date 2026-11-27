@@ -123,11 +123,17 @@ def _responses_dict_codes(call: ast.Call) -> set[str]:
 
 
 def _stacked_declared_codes(node: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str] | None:
-    """Declared codes from a stacked ``@extend_schema(...)`` on the method itself."""
+    """Declared codes from every stacked ``@extend_schema(...)`` on the method itself.
+
+    A ``methods=["GET", "POST"]`` action stacks one decorator per HTTP method, so the
+    union is what the method declares; reading only the first would report a 409 declared
+    on the POST decorator as missing.
+    """
+    codes: set[str] | None = None
     for d in node.decorator_list:
         if isinstance(d, ast.Call) and _call_name(d) == "extend_schema":
-            return _responses_dict_codes(d)
-    return None
+            codes = (codes or set()) | _responses_dict_codes(d)
+    return codes
 
 
 def _class_view_declared_codes(cls: ast.ClassDef) -> dict[str, set[str]]:
