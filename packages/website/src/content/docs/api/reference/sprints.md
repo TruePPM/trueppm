@@ -162,7 +162,9 @@ Admin-and-up routes above. The operation is published `x-experimental`: see
 - Detection also runs after every recalculation: a task that has just become at risk
   sends the `sprint.commitment_at_risk` webhook once (see
   [Webhooks](/features/webhooks/)) and notifies the people who can accept the change.
-  A task that recovers and slips again is announced again.
+  A task that recovers and slips again is announced again. Delivery is at least once:
+  a run interrupted between the notice and the webhook is announced again by the next
+  recalculation.
 
 ## Sprint and task duration changes
 

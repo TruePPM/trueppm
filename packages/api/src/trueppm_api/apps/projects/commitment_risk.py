@@ -22,6 +22,7 @@ derivation sentence from :func:`~trueppm_api.apps.scheduling.derivation_summary.
 from __future__ import annotations
 
 import logging
+from functools import partial
 from typing import Any
 
 from celery.exceptions import SoftTimeLimitExceeded
@@ -150,17 +151,21 @@ def _notice_names(names: list[str]) -> str:
 def detect_commitment_at_risk(project_id: Any) -> int:
     """Announce committed tasks that a recalculation has just pushed past a sprint's end.
 
-    Called once after a successful recalculation. For each ACTIVE sprint it diffs the
-    current at-risk set with :class:`SprintCommitmentRisk` (the ones already
-    announced): tasks newly at risk are recorded and announced once, tasks no longer
-    at risk are forgotten so a later relapse is announced again. The rows, the
-    notices and the diff share one transaction, so a rollback announces nothing and
-    a retry announces everything. The webhook is dispatched on commit through the
-    webhook delivery outbox (ADR-1485 D6): its payload is ids and working-day deltas
-    only.
+    Called once after every successful recalculation, single-project or program. For
+    each ACTIVE sprint it diffs the current at-risk set with
+    :class:`SprintCommitmentRisk` (the ones already announced): tasks newly at risk
+    are announced once, tasks no longer at risk are forgotten so a later relapse is
+    announced again. The in-app notices commit with the diff. The dedupe rows for
+    the newly flagged tasks are written in the ``on_commit`` callback, in one
+    transaction with the webhook's delivery rows (ADR-1485 D6, ids and working-day
+    deltas only), so the two land together or not at all: a crash after the notices
+    commit and before the callback leaves no dedupe row, and the next recalculation
+    announces again. Delivery is therefore at least once; the cost of that window is
+    a repeated notice, never a lost one.
 
-    Never raises: the caller is a recalculation, and neither a notice nor a webhook
-    is worth failing or retrying one over. Returns the number of tasks announced.
+    Never raises, and each sprint is isolated from the others: the caller is a
+    recalculation that has already persisted, and neither a notice nor a webhook is
+    worth failing or retrying one over. Returns the number of tasks announced.
     """
     from trueppm_api.apps.projects.models import Sprint, SprintState
 
@@ -171,14 +176,30 @@ def detect_commitment_at_risk(project_id: Any) -> int:
                 project_id=project_id, state=SprintState.ACTIVE, is_deleted=False
             ).select_related("project")
         )
-        for sprint in sprints:
-            announced += _detect_for_sprint(sprint)
-    except SoftTimeLimitExceeded:
-        raise
     except Exception:
         logger.warning(
             "commitment at-risk detection failed for project %s", project_id, exc_info=True
         )
+        return 0
+    for sprint in sprints:
+        try:
+            announced += _detect_for_sprint(sprint)
+        except SoftTimeLimitExceeded:
+            # The soft limit fired after the CPM results persisted. Re-raising would
+            # land in the recalculation's timeout handler, which dead-letters the run
+            # and broadcasts cpm_error for a schedule that was in fact saved. Stop
+            # here instead and let the task return inside the grace period before
+            # the hard limit; the sprints left unchecked are checked by the next
+            # recalculation, since nothing was recorded for them.
+            logger.warning(
+                "commitment at-risk detection for project %s stopped at the soft time limit",
+                project_id,
+            )
+            break
+        except Exception:
+            logger.warning(
+                "commitment at-risk detection failed for sprint %s", sprint.pk, exc_info=True
+            )
     return announced
 
 
@@ -187,7 +208,6 @@ def _detect_for_sprint(sprint: Any) -> int:
     from trueppm_api.apps.notifications.services import create_event_notifications
     from trueppm_api.apps.projects.models import Sprint, SprintCommitmentRisk
     from trueppm_api.apps.projects.services import _sprint_lead_recipient_ids
-    from trueppm_api.apps.projects.views import _dispatch_webhooks
 
     with transaction.atomic():
         # Serialize concurrent detections of one sprint on its row, so two runs
@@ -208,9 +228,6 @@ def _detect_for_sprint(sprint: Any) -> int:
         new = [t for t in tasks if t.pk not in flagged]
         if not new:
             return 0
-        SprintCommitmentRisk.objects.bulk_create(
-            [SprintCommitmentRisk(sprint=sprint, task=t, finish=t.early_finish) for t in new]
-        )
         late = _working_days_late(sprint, new)
         pid = str(sprint.project_id)
         payload = {
@@ -245,8 +262,34 @@ def _detect_for_sprint(sprint: Any) -> int:
             ),
             task_id=new[0].pk if count == 1 else None,
         )
-        transaction.on_commit(lambda: _dispatch_webhooks(pid, "sprint.commitment_at_risk", payload))
+        flags = [(t.pk, t.early_finish) for t in new]
+        transaction.on_commit(partial(_record_and_dispatch, sprint.pk, pid, flags, payload))
     return len(new)
+
+
+def _record_and_dispatch(
+    sprint_id: Any, project_id: str, flags: list[tuple[Any, Any]], payload: dict[str, Any]
+) -> None:
+    """Write the dedupe rows and the webhook's delivery rows in one transaction.
+
+    Runs on commit of the detection. The rows are what stop the next recalculation
+    from announcing these tasks again, so they must not exist unless the delivery
+    rows do. ``ignore_conflicts`` covers a concurrent detection that recorded the
+    same task first; the webhook then still goes out from both, which is the same
+    at-least-once delivery a retry gives.
+    """
+    from trueppm_api.apps.projects.models import SprintCommitmentRisk
+    from trueppm_api.apps.projects.views import _dispatch_webhooks
+
+    with transaction.atomic():
+        SprintCommitmentRisk.objects.bulk_create(
+            [
+                SprintCommitmentRisk(sprint_id=sprint_id, task_id=task_id, finish=finish)
+                for task_id, finish in flags
+            ],
+            ignore_conflicts=True,
+        )
+        _dispatch_webhooks(project_id, "sprint.commitment_at_risk", payload)
 
 
 def notify_scope_change_requested(row: Any) -> None:

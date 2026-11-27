@@ -2921,11 +2921,13 @@ def _run_program_schedule(program_id: str, task: object | None = None) -> None:
     )
 
     # schedule.recalculated webhook per member project, after commit.
+    from trueppm_api.apps.projects.commitment_risk import detect_commitment_at_risk
     from trueppm_api.apps.scheduling.headline_forecast import note_headline_forecast_kind
 
     for p in graph.member_projects:
         pid = str(p.id)
         note_headline_forecast_kind(pid)
+        detect_commitment_at_risk(pid)
         project_tasks = by_project.get(p.id, [])
         project_finish = max(
             (t.early_finish for t in project_tasks if t.early_finish is not None),

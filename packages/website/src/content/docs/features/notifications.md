@@ -246,11 +246,13 @@ one needs them, so a commitment change cannot pass silently:
 - **Committed tasks are now expected to finish after the sprint ends**
   (`sprint.commitment_at_risk`): after a recalculation, a task that has just become
   at risk. A task is announced once, and again only if it recovers and slips again.
+  If the server stops after saving the notice and before queuing the webhook, the
+  next recalculation announces the task again: a repeat is possible, a lost notice is not.
 
 Both reach everyone who holds the scope accept authority (Admin and up, plus the
 Scrum Master and Product Owner facet holders), except the person who made the
-request. **The in-app row cannot be muted**: the matrix cell stays on, the settings
-refuse to turn it off, and the inbox does not offer *Mute notifications like this*
+request. **The in-app row cannot be muted**: the matrix cell reads *Always on* and is
+not a switch, the settings refuse to turn it off, and the inbox does not offer *Mute notifications like this*
 for them. **Email and other channels follow your preferences** and are off by
 default; Do Not Disturb still holds back email. Everyone else follows their own
 preferences.

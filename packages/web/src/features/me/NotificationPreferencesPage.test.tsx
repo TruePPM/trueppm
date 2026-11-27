@@ -139,6 +139,47 @@ describe('NotificationPreferencesPage', () => {
     expect(screen.getAllByText('When a task you own goes stale').length).toBeGreaterThan(0);
   });
 
+  it('renders the unmutable sprint-commitment in-app rows as disabled "Always on" cells', () => {
+    useNotificationPreferences.mockReturnValue({
+      preferences: [
+        ...PREFERENCES,
+        pref(20, 'sprint.scope_change_requested', 'in_app', true),
+        pref(21, 'sprint.scope_change_requested', 'email', false),
+        pref(22, 'sprint.commitment_at_risk', 'in_app', true),
+      ],
+      isLoading: false,
+      error: null,
+    });
+    render(
+      <MemoryRouter>
+        <NotificationPreferencesPage />
+      </MemoryRouter>,
+    );
+    const locked = screen.getAllByRole('switch', {
+      name: /^In-app notifications for .*, always on$/,
+    });
+    // Two events, each rendered once in the desktop table and once in the mobile stack.
+    expect(locked).toHaveLength(4);
+    for (const cell of locked) {
+      expect(cell).toBeDisabled();
+      expect(cell).toHaveAttribute('aria-checked', 'true');
+      fireEvent.click(cell);
+    }
+    expect(screen.getAllByText('Always on')).toHaveLength(4);
+    expect(mutate).not.toHaveBeenCalled();
+    // Email for the same event stays a live switch.
+    const email = screen.getAllByRole('switch', {
+      name: 'Email notifications for When a change to a sprint commitment awaits your decision',
+    });
+    expect(email[0]).toBeEnabled();
+    // Ordinary in-app rows are untouched.
+    expect(
+      screen.getAllByRole('switch', {
+        name: "In-app notifications for When you're @-mentioned individually",
+      })[0],
+    ).toBeEnabled();
+  });
+
   it('toggling a channel switch calls the update mutation (after debounce)', async () => {
     useNotificationPreferences.mockReturnValue({
       preferences: PREFERENCES,

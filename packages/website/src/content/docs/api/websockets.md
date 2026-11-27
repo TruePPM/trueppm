@@ -606,8 +606,8 @@ The OSS webhook event set is capped at 19 events: `task.created`,
 `risk.escalated`, `risk.closed`, `baseline.captured`, and `comment.created`. The
 agile trio (`sprint.*`) was added in ADR-0147, raising the cap from 11 to 14; the
 risk/baseline/comment domain events were added in ADR-0206, raising it from 14 to
-19. In 0.5, ADR-1485 will add `schedule.finish_changed`, `schedule.change_undone` and
-`sprint.scope_change_requested` and `sprint.commitment_at_risk`, and ADR-1477 `changeset.opened`, `changeset.entry_added`,
-`changeset.entry_reasoned` and `baseline.kept`, raising it to 26, and `sprint.commitment_at_risk` makes 27. Adding
-a 28th event requires its own ADR — the cap is the gate against per-customer
+19. In 0.5, ADR-1485 will add `schedule.finish_changed`, `schedule.change_undone`,
+`sprint.scope_change_requested` and `sprint.commitment_at_risk`, and ADR-1477
+`changeset.opened`, `changeset.entry_added`, `changeset.entry_reasoned` and
+`baseline.kept`, raising it to 27. Adding a 28th event requires its own ADR — the cap is the gate against per-customer
 event proliferation.

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from datetime import date
-from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 import pytest
+from celery.exceptions import SoftTimeLimitExceeded
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
@@ -25,6 +26,8 @@ from trueppm_api.apps.projects.commitment_risk import (
 )
 from trueppm_api.apps.projects.models import (
     Calendar,
+    Dependency,
+    Program,
     Project,
     ScopeChangeKind,
     ScopeChangeStatus,
@@ -251,19 +254,210 @@ def test_detection_announces_once_then_again_after_recovery(
         assert detect_commitment_at_risk(project.pk) == 1
 
 
-def test_detection_after_predecessor_slip_through_the_recalc_hook(
-    project: Project, sprint: Sprint, admin: Any
-) -> None:
-    """The hook in recalculate_schedule calls the detector once after a successful run."""
-    _task(project, sprint, "Late", LATE)
-    with patch("django.db.transaction.on_commit", side_effect=lambda f: f()):
-        from trueppm_api.apps.scheduling import tasks as sched_tasks
+def _chain(pred_project: Project, succ_project: Project, sprint: Sprint) -> tuple[Task, Task]:
+    """A predecessor and a successor committed to ``sprint``, joined FS (accepted)."""
+    pred = Task.objects.create(project=pred_project, name="Pred", duration=3)
+    succ = Task.objects.create(project=succ_project, name="Succ", duration=2, sprint=sprint)
+    Dependency.objects.create(
+        predecessor=pred, successor=succ, dep_type="FS", lag=0, accepted_at=timezone.now()
+    )
+    return pred, succ
 
-        assert "detect_commitment_at_risk" in Path(sched_tasks.__file__).read_text()
-        detect_commitment_at_risk(project.pk)
+
+def _end_sprint_at_successor_finish(sprint: Sprint, succ: Task, hook: Any) -> None:
+    """Put the sprint end exactly on the successor's recalculated finish (not at risk).
+
+    Read from the first real recalculation rather than hard-coded, so the test does
+    not depend on where the engine's data date floors unstarted work.
+    """
+    succ.refresh_from_db()
+    assert succ.early_finish is not None
+    Sprint.objects.filter(pk=sprint.pk).update(
+        start_date=min(sprint.start_date, succ.early_finish), finish_date=succ.early_finish
+    )
+    SprintCommitmentRisk.objects.all().delete()
+    Notification.objects.all().delete()
+    hook.reset_mock()
+
+
+def _slip(pred: Task) -> None:
+    Task.objects.filter(pk=pred.pk).update(duration=pred.duration + 10)
+
+
+def _risk_webhooks(hook: Any) -> list[dict[str, Any]]:
+    return [c.args[2] for c in hook.call_args_list if c.args[1] == "sprint.commitment_at_risk"]
+
+
+def test_predecessor_slip_is_announced_by_the_real_recalculation(
+    project: Project,
+    sprint: Sprint,
+    admin: Any,
+    _no_broker: Any,
+    django_capture_on_commit_callbacks: Any,
+) -> None:
+    from trueppm_api.apps.scheduling.tasks import recalculate_schedule
+
+    pred, succ = _chain(project, project, sprint)
+    with django_capture_on_commit_callbacks(execute=True):
+        assert recalculate_schedule.apply(args=[str(project.pk)]).successful()
+    _end_sprint_at_successor_finish(sprint, succ, _no_broker)
+
+    _slip(pred)
+    with django_capture_on_commit_callbacks(execute=True):
+        assert recalculate_schedule.apply(args=[str(project.pk)]).successful()
+
+    (payload,) = _risk_webhooks(_no_broker)
+    assert [t["task"] for t in payload["tasks"]] == [str(succ.pk)]
+    assert payload["tasks"][0]["working_days_after_sprint_end"] == 10
+    assert SprintCommitmentRisk.objects.filter(sprint=sprint, task=succ).exists()
     assert Notification.objects.filter(
         recipient=admin, event_type=NotificationEventType.SPRINT_COMMITMENT_AT_RISK
     ).exists()
+
+
+def test_read_carries_the_engine_cause_after_a_real_recalculation(
+    project: Project,
+    sprint: Sprint,
+    member: Any,
+    _no_broker: Any,
+    django_capture_on_commit_callbacks: Any,
+) -> None:
+    """D10: a non-null cause and derivation_ref, from the same pass that stored the finish."""
+    from trueppm_api.apps.scheduling.tasks import recalculate_schedule
+
+    pred, succ = _chain(project, project, sprint)
+    with django_capture_on_commit_callbacks(execute=True):
+        recalculate_schedule.apply(args=[str(project.pk)])
+    _end_sprint_at_successor_finish(sprint, succ, _no_broker)
+    _slip(pred)
+    with django_capture_on_commit_callbacks(execute=True):
+        recalculate_schedule.apply(args=[str(project.pk)])
+
+    (row,) = _client(member).get(_url(sprint)).json()["at_risk"]
+    assert row["task_id"] == str(succ.pk)
+    assert isinstance(row["cause"], str) and row["cause"].strip()
+    assert row["derivation_ref"] == {"task_id": str(succ.pk), "quantity": "early_finish"}
+
+
+def test_an_escalated_program_recalculation_announces_at_risk(
+    project: Project, _no_broker: Any, django_capture_on_commit_callbacks: Any
+) -> None:
+    """A member project with an accepted cross-project edge hands off to the program pass.
+
+    The single-project task returns early on escalation, so the program pass is the
+    only place detection can run for these projects.
+    """
+    from trueppm_api.apps.scheduling.tasks import recalculate_program_schedule, recalculate_schedule
+
+    program = Program.objects.create(name="Program")
+    other = Project.objects.create(
+        name="Other", start_date=project.start_date, calendar=project.calendar, program=program
+    )
+    Project.objects.filter(pk=project.pk).update(program=program)
+    lead = _user(other, "cs_other_admin", Role.ADMIN)
+    other_sprint = Sprint.objects.create(
+        project=other,
+        name="Sprint 9",
+        start_date=SPRINT_START,
+        finish_date=SPRINT_END,
+        state=SprintState.ACTIVE,
+    )
+    pred, succ = _chain(project, other, other_sprint)
+    with django_capture_on_commit_callbacks(execute=True):
+        assert recalculate_program_schedule.apply(args=[str(program.pk)]).successful()
+    _end_sprint_at_successor_finish(other_sprint, succ, _no_broker)
+
+    _slip(pred)
+    with (
+        patch.object(
+            recalculate_program_schedule,
+            "delay",
+            side_effect=lambda pid: recalculate_program_schedule.apply(args=[pid]),
+        ) as escalate,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        assert recalculate_schedule.apply(args=[str(project.pk)]).successful()
+
+    escalate.assert_called_once_with(str(program.pk))
+    (payload,) = _risk_webhooks(_no_broker)
+    assert payload["project"] == str(other.pk)
+    assert [t["task"] for t in payload["tasks"]] == [str(succ.pk)]
+    assert Notification.objects.filter(
+        recipient=lead, event_type=NotificationEventType.SPRINT_COMMITMENT_AT_RISK
+    ).exists()
+
+
+@pytest.mark.parametrize("failure", [RuntimeError("boom"), SoftTimeLimitExceeded()])
+def test_a_failing_detector_cannot_break_the_recalculation(
+    project: Project,
+    sprint: Sprint,
+    failure: BaseException,
+    django_capture_on_commit_callbacks: Any,
+) -> None:
+    """The CPM run has persisted; a detector failure, even the soft limit, is not its failure."""
+    from trueppm_api.apps.scheduling import tasks as sched_tasks
+
+    _pred, succ = _chain(project, project, sprint)
+    with (
+        patch(
+            "trueppm_api.apps.projects.commitment_risk._detect_for_sprint", side_effect=failure
+        ) as detector,
+        patch.object(sched_tasks, "_dead_letter_current") as dead_letter,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        assert sched_tasks.recalculate_schedule.apply(args=[str(project.pk)]).successful()
+
+    assert detector.called
+    dead_letter.assert_not_called()
+    succ.refresh_from_db()
+    assert succ.early_finish is not None
+    project.refresh_from_db()
+    assert project.recalculated_at is not None
+
+
+def test_one_sprint_failing_does_not_skip_the_others(project: Project, admin: Any) -> None:
+    from trueppm_api.apps.projects import commitment_risk
+
+    for n in (1, 2):
+        sp = Sprint.objects.create(
+            project=project,
+            name=f"Sprint {n}",
+            start_date=SPRINT_START,
+            finish_date=SPRINT_END,
+            state=SprintState.ACTIVE,
+        )
+        _task(project, sp, f"Late {n}", LATE)
+    real = commitment_risk._detect_for_sprint
+    calls: list[Any] = []
+
+    def _first_fails(sp: Sprint) -> int:
+        calls.append(sp.pk)
+        if len(calls) == 1:
+            raise RuntimeError("boom")
+        return real(sp)
+
+    with (
+        patch.object(commitment_risk, "_detect_for_sprint", side_effect=_first_fails),
+        patch("django.db.transaction.on_commit", side_effect=lambda f: f()),
+    ):
+        assert detect_commitment_at_risk(project.pk) == 1
+    assert len(calls) == 2
+    assert SprintCommitmentRisk.objects.filter(sprint_id=calls[1]).count() == 1
+
+
+def test_no_dedupe_row_survives_a_lost_dispatch(
+    project: Project, sprint: Sprint, admin: Any, _no_broker: Any
+) -> None:
+    """A crash between the notice commit and the webhook leaves nothing marked announced."""
+    _task(project, sprint, "Late", LATE)
+    # The on_commit callback never runs: the process died after the commit.
+    with patch("django.db.transaction.on_commit"):
+        assert detect_commitment_at_risk(project.pk) == 1
+    assert not SprintCommitmentRisk.objects.exists()
+    with patch("django.db.transaction.on_commit", side_effect=lambda f: f()):
+        assert detect_commitment_at_risk(project.pk) == 1
+    assert len(_risk_webhooks(_no_broker)) == 1
+    assert SprintCommitmentRisk.objects.count() == 1
 
 
 def test_detection_never_raises(project: Project, sprint: Sprint) -> None:
@@ -382,3 +576,47 @@ def test_injection_notifies_through_the_write_path(
     assert Notification.objects.filter(
         recipient=admin, event_type=NotificationEventType.SPRINT_SCOPE_CHANGE_REQUESTED
     ).exists()
+
+
+def _committed_for(project: Project, sprint: Sprint, name: str, member: Any) -> Task:
+    return Task.objects.create(
+        project=project,
+        name=name,
+        planned_start=SPRINT_START,
+        duration=3,
+        sprint=sprint,
+        assignee=member,
+    )
+
+
+def test_a_deferred_slip_notifies_through_the_409_write_path(
+    project: Project, sprint: Sprint, admin: Any, member: Any
+) -> None:
+    task = _committed_for(project, sprint, "Slips", member)
+    res = _client(member).patch(f"/api/v1/tasks/{task.pk}/", {"duration": 15}, format="json")
+    assert res.status_code == 409, res.data
+    note = Notification.objects.get(
+        recipient=admin, event_type=NotificationEventType.SPRINT_SCOPE_CHANGE_REQUESTED
+    )
+    assert "Slips" in note.body
+    assert not Notification.objects.filter(recipient=member).exists()
+
+
+def test_a_bulk_slip_makes_one_batched_notice_through_the_write_path(
+    project: Project, sprint: Sprint, admin: Any, member: Any
+) -> None:
+    tasks = [_committed_for(project, sprint, name, member) for name in ("A", "B")]
+    ops = [{"op": "update", "id": str(t.pk), "data": {"duration": 20}} for t in tasks]
+    res = _client(member).post(
+        f"/api/v1/projects/{project.pk}/tasks/bulk/", {"operations": ops}, format="json"
+    )
+    assert res.status_code in (200, 207), res.data
+    batch = SprintScopeChange.objects.filter(kind=ScopeChangeKind.SLIP).values_list(
+        "batch_id", flat=True
+    )
+    (batch_id,) = set(batch)
+    note = Notification.objects.get(
+        recipient=admin, event_type=NotificationEventType.SPRINT_SCOPE_CHANGE_REQUESTED
+    )
+    assert note.group_key == f"batch:{batch_id}"
+    assert "2 tasks" in note.body
