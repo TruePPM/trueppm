@@ -6,8 +6,9 @@
  * user it belongs to and the time it was saved, and read back only when the
  * network is unreachable. A 4xx/5xx is a real answer and never replaced by it.
  *
- * Bound to the user: purged on logout (via the session bridge's cache clear), on
- * user switch (the signed-in id differs from the snapshot's), and when read after
+ * Bound to the user: purged whenever a session ends or is replaced (`clearTokens`
+ * and `clearUserData`, which every sign-out and sign-in path calls), on user switch
+ * (the signed-in id differs from the snapshot's), and when read after
  * {@link SNAPSHOT_TTL_MS} (deleted on that read). A cold offline launch cannot confirm identity, so it
  * shows the snapshot on the persisted `isAuthenticated` hint alone — the same
  * trust the shell already places in that hint — and the logout purge is what

@@ -34,6 +34,31 @@ function serviceWorkerContainer(): ServiceWorkerContainer | null {
   return navigator.serviceWorker;
 }
 
+/**
+ * The kill switch outlives the page that saw it. Without this, every load would
+ * register (and download the whole precache) before its first API response could
+ * say "disable" again. Cleared by the first response that arrives WITHOUT the
+ * header, so a removed header re-enables the worker on the following load.
+ */
+export const KILL_SWITCH_STORAGE_KEY = 'trueppm.sw-disabled';
+
+function readPersistedDisable(): boolean {
+  try {
+    return localStorage.getItem(KILL_SWITCH_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writePersistedDisable(on: boolean): void {
+  try {
+    if (on) localStorage.setItem(KILL_SWITCH_STORAGE_KEY, '1');
+    else localStorage.removeItem(KILL_SWITCH_STORAGE_KEY);
+  } catch {
+    // Storage blocked: the header still fires on every load, just later in it.
+  }
+}
+
 let disabled = false;
 
 /** Vite's dev flag, read defensively: this module is also type-checked by the e2e
@@ -46,15 +71,23 @@ function isDevServer(): boolean {
  * Register `/sw.js` once the page has loaded, and keep it fresh: check for an
  * update hourly and whenever the app returns to the foreground. Returns the
  * registration, or null when the environment has no worker support, the build is
- * the dev server, or the kill switch fired this page load.
+ * the dev server, or the kill switch fired (this load, or a previous one whose
+ * header no response has yet withdrawn).
  */
 export async function registerServiceWorker({
   isDev = isDevServer(),
 }: { isDev?: boolean } = {}): Promise<ServiceWorkerRegistration | null> {
   const container = serviceWorkerContainer();
-  if (!container || isDev || disabled) return null;
+  if (!container || isDev || disabled || readPersistedDisable()) return null;
   try {
     const registration = await container.register(SERVICE_WORKER_URL, { scope: '/' });
+    // The kill switch can land while `register()` is in flight (the first API
+    // response races the page's load event). Undo the registration rather than
+    // leave a worker installed after the operator said no.
+    if (disabled) {
+      await disableServiceWorker();
+      return null;
+    }
     const check = () => {
       if (disabled) return;
       // A failed update check (offline, a pod mid-rollout) keeps the current worker.
@@ -78,6 +111,7 @@ export async function registerServiceWorker({
  */
 export async function disableServiceWorker(): Promise<void> {
   disabled = true;
+  writePersistedDisable(true);
   const container = serviceWorkerContainer();
   if (container) {
     try {
@@ -103,7 +137,7 @@ export async function disableServiceWorker(): Promise<void> {
  * itself is unaffected.
  */
 export function honorKillSwitch(headers: unknown): void {
-  if (disabled || !headers) return;
+  if (!headers) return;
   let value: unknown;
   if (typeof (headers as Headers).get === 'function') {
     value = (headers as Headers).get(KILL_SWITCH_HEADER);
@@ -111,11 +145,16 @@ export function honorKillSwitch(headers: unknown): void {
     value = (headers as Record<string, unknown>)[KILL_SWITCH_HEADER];
   }
   if (typeof value === 'string' && value.trim().toLowerCase() === KILL_SWITCH_VALUE) {
-    void disableServiceWorker();
+    if (!disabled) void disableServiceWorker();
+  } else if (readPersistedDisable()) {
+    // The operator removed the header: register again from the next load on.
+    // This page load stays worker-free, so nothing flips under the open tab.
+    writePersistedDisable(false);
   }
 }
 
 /** Test seam: forget a kill-switch firing. */
 export function resetServiceWorkerStateForTests(): void {
   disabled = false;
+  writePersistedDisable(false);
 }

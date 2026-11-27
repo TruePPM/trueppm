@@ -154,12 +154,17 @@ fix for a client that never fetches the new `sw.js`. ADR-1463 and ADR-1465 refer
 - When the query fails with a **network error** (no HTTP response) the page renders the
   snapshot under the offline banner, with the time it was saved. A 4xx/5xx response is a
   real answer and is never replaced by the snapshot.
-- **Bound to the user.** The snapshot is purged on logout (the user-menu sign-out and
-  the session bridge's cache clear, which covers a sign-out in another tab and leaving
-  read-only viewing), and on user switch (the `/auth/me/` id differs from the snapshot's
+- **Bound to the user.** The snapshot is purged whenever a session ends or is replaced:
+  every sign-out goes through `clearTokens` (user menu, the session-expired **Sign in**,
+  workspace deletion, a sign-out in another tab), every sign-in through `clearUserData`
+  (password and demo login, SSO completion, adopting another tab's sign-in as a different
+  user), and leaving read-only viewing through the session bridge's cache clear. A purge
+  on sign-in runs before the new user's first `/me/work/` read can land, so it never
+  deletes that user's own copy, and it never throws, so a failing IndexedDB cannot block
+  the sign-in. It is also purged on user switch (the `/auth/me/` id differs from the snapshot's
   `userId`). It has a **7-day TTL**: a snapshot older than that is never shown, and is
   deleted from IndexedDB when a read finds it expired. An expired snapshot that is never
-  read again (My Work is not opened) stays on disk until that read, the next logout, or
+  read again (My Work is not opened) stays on disk until that read, the next sign-out or sign-in, or
   the next successful save overwrites it. A cold offline launch shows it only when the
   persisted `isAuthenticated` hint is true — the same trust the shell already places in
   that hint — because no identity can be confirmed without a network.

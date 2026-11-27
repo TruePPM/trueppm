@@ -107,6 +107,26 @@ server {
         add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws:; font-src 'self'; frame-ancestors 'none'" always;
     }
 
+    # The PWA worker and manifest (ADR-1523) revalidate like the shell: a
+    # heuristically-fresh /sw.js delays every update and the kill switch's
+    # reach. Without these they fall through to `location /` with no
+    # Cache-Control at all. Full header set repeated (replace-not-merge, #2849).
+    location = /sw.js {
+        add_header Cache-Control "no-cache" always;
+        add_header X-Frame-Options        "DENY" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy        "strict-origin-when-cross-origin" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws:; font-src 'self'; frame-ancestors 'none'" always;
+    }
+
+    location = /manifest.webmanifest {
+        add_header Cache-Control "no-cache" always;
+        add_header X-Frame-Options        "DENY" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy        "strict-origin-when-cross-origin" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws:; font-src 'self'; frame-ancestors 'none'" always;
+    }
+
     # Build-specific readiness sentinel (#4359): `=404`, never the SPA
     # fallback below — a build missing its manifest must fail a probe, not
     # answer 200 with index.html. Parity with the Helm configmap (#4392).

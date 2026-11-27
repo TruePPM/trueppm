@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import { useLastTaskStore } from './lastTaskStore';
 import { clearDemoSessionMarker } from '@/features/auth/demoMarker';
 import { postAuthMessage } from '@/lib/authBroadcast';
+import { purgePwaUserData } from '@/lib/pwa/pwaStore';
 
 /**
  * What the data layer knows at the instant a session ends. The store cannot import
@@ -158,6 +159,12 @@ export const useAuthStore = create<AuthState>()(
         // unmounts the shell on sign-out and a component-held guard would reset.
         useLastTaskStore.setState({ opened: null });
         clearDemoSessionMarker();
+        // The installed app's offline My Work copy is the same kind of leftover, and
+        // it outlives the page: a snapshot is only ever READ offline, where the next
+        // user's identity cannot be checked, so it must go at the moment the session
+        // ends, not when someone next opens My Work (ADR-1523 §4). Fire-and-forget:
+        // the purge swallows its own failures and must never hold up a sign-out.
+        void purgePwaUserData();
         // An explicit sign-out in a healthy session signs out every tab. Leaving an
         // already-expired session for /login must NOT: the sibling tabs should stay
         // put and recover when the restored message arrives (#4296).

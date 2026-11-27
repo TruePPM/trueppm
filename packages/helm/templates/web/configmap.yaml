@@ -163,6 +163,28 @@ data:
             add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
         }
 
+        # The PWA worker and manifest (ADR-1523) revalidate like the shell: a
+        # heuristically-fresh /sw.js delays every update and the kill switch's
+        # reach. Without these they fall through to `location /` with no
+        # Cache-Control at all. Full header set repeated (replace-not-merge, #2849).
+        location = /sw.js {
+            add_header Cache-Control "no-cache" always;
+            add_header X-Robots-Tag           "noindex, nofollow, noarchive" always;
+            add_header X-Frame-Options        "DENY" always;
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header Referrer-Policy        "strict-origin-when-cross-origin" always;
+            add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
+        }
+
+        location = /manifest.webmanifest {
+            add_header Cache-Control "no-cache" always;
+            add_header X-Robots-Tag           "noindex, nofollow, noarchive" always;
+            add_header X-Frame-Options        "DENY" always;
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header Referrer-Policy        "strict-origin-when-cross-origin" always;
+            add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
+        }
+
         # Build-specific readiness sentinel (#4359) — same reasoning and the
         # same `=404` (never a fallback to index.html) as the production
         # block below.
@@ -400,6 +422,28 @@ data:
         # ETag/Last-Modified — a heuristically-fresh cached shell is exactly what
         # names a chunk no pod has any more (#4341, #4350).
         location = /index.html {
+            add_header Cache-Control "no-cache" always;
+            add_header X-Robots-Tag           "noindex, nofollow, noarchive" always;
+            add_header X-Frame-Options        "DENY" always;
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header Referrer-Policy        "strict-origin-when-cross-origin" always;
+            add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
+        }
+
+        # The PWA worker and manifest (ADR-1523) revalidate like the shell: a
+        # heuristically-fresh /sw.js delays every update and the kill switch's
+        # reach. Without these they fall through to `location /` with no
+        # Cache-Control at all. Full header set repeated (replace-not-merge, #2849).
+        location = /sw.js {
+            add_header Cache-Control "no-cache" always;
+            add_header X-Robots-Tag           "noindex, nofollow, noarchive" always;
+            add_header X-Frame-Options        "DENY" always;
+            add_header X-Content-Type-Options "nosniff" always;
+            add_header Referrer-Policy        "strict-origin-when-cross-origin" always;
+            add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'" always;
+        }
+
+        location = /manifest.webmanifest {
             add_header Cache-Control "no-cache" always;
             add_header X-Robots-Tag           "noindex, nofollow, noarchive" always;
             add_header X-Frame-Options        "DENY" always;
@@ -684,6 +728,24 @@ data:
         # ETag/Last-Modified — a heuristically-fresh cached shell is exactly what
         # names a chunk no pod has any more (#4341, #4350).
         location = /index.html {
+            add_header Cache-Control "no-cache" always;
+            {{- with (include "trueppm.webSecurityHeaderAddLines" $ | trimSuffix "\n") }}
+            {{- . | nindent 12 }}
+            {{- end }}
+        }
+
+        # The PWA worker and manifest (ADR-1523) revalidate like the shell: a
+        # heuristically-fresh /sw.js delays every update and the kill switch's
+        # reach. Without these they fall through to `location /` with no
+        # Cache-Control at all. Full header set repeated (replace-not-merge, #2849).
+        location = /sw.js {
+            add_header Cache-Control "no-cache" always;
+            {{- with (include "trueppm.webSecurityHeaderAddLines" $ | trimSuffix "\n") }}
+            {{- . | nindent 12 }}
+            {{- end }}
+        }
+
+        location = /manifest.webmanifest {
             add_header Cache-Control "no-cache" always;
             {{- with (include "trueppm.webSecurityHeaderAddLines" $ | trimSuffix "\n") }}
             {{- . | nindent 12 }}

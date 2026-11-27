@@ -18,6 +18,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router';
 import { SessionExpiredBanner, SessionExpiredReadOnlyBar } from './SessionExpiredBanner';
 import { READ_ONLY_VIEW_WINDOW_MS, registerSessionBridge, useAuthStore } from '@/stores/authStore';
+import { purgePwaUserData } from '@/lib/pwa/pwaStore';
+
+vi.mock('@/lib/pwa/pwaStore', () => ({ purgePwaUserData: vi.fn(() => Promise.resolve()) }));
 
 // Exposes the login route's full path + search so tests can assert the ?next=
 // param the re-auth handlers carry (#2052).
@@ -90,6 +93,32 @@ describe('SessionExpiredBanner', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
     expect(useAuthStore.getState().sessionExpired).toBe(false);
     expect(screen.getByTestId('login-screen')).toBeInTheDocument();
+  });
+
+  // The next person to sign in may not be this user, and the snapshot is read only
+  // offline, where nobody's identity can be checked (ADR-1523 §4).
+  it("Sign in purges the previous user's offline My Work copy", () => {
+    renderWithLoginRoute();
+    act(() => {
+      useAuthStore.getState().markSessionExpired();
+    });
+    vi.mocked(purgePwaUserData).mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    expect(purgePwaUserData).toHaveBeenCalledOnce();
+  });
+
+  it("read-only bar's Sign in again purges the offline copy too", () => {
+    registerSessionBridge({
+      inspect: () => ({ interrupted: false, hasContent: true }),
+      clearCache: () => undefined,
+    });
+    renderWithLoginRoute();
+    act(() => {
+      useAuthStore.getState().markSessionExpired();
+    });
+    vi.mocked(purgePwaUserData).mockClear();
+    fireEvent.click(screen.getByRole('button', { name: /Sign in again/ }));
+    expect(purgePwaUserData).toHaveBeenCalledOnce();
   });
 
   it('Sign in carries the current location as ?next= so re-auth returns the user (#2052)', () => {

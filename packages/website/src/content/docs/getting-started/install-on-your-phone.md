@@ -62,25 +62,44 @@ offline as described above.
 A banner says when you are offline. When you reconnect with changes still waiting to be
 sent, it shows **Back online — syncing** with their count until they are sent.
 
-Changes made offline are not yet saved on the device: as in a browser tab, they wait in
-memory while the app stays open and are lost if you close it. Queuing time entries and
-status changes so they survive closing the app is planned (see
+Most changes made offline are not yet saved on the device: as in a browser tab, they wait
+in memory while the app stays open and are lost if you close it. Two are the exception, in
+the installed app and a browser tab alike: moving a card on a board and flagging a task
+blocked are saved on the device and sent when you reconnect, even if you close the app
+first. Queuing time entries and other changes so they survive closing the app is planned (see
 [ADR-1523](https://gitlab.com/trueppm/trueppm-suite/-/blob/main/docs/adr/1523-installable-pwa-shell-caching-and-scoped-offline-surface.md)).
 
 ## What the installed app keeps on your device
 
 The installed app stores the application itself (its code, fonts and icons) so it can
-start without a connection, and the saved copy of your My Work list. It does **not** store
-responses from your TruePPM server in the browser's cache, and it never stores your
-sign-in token. Signing out deletes the saved My Work copy. A copy older than seven days
-is never shown, and is deleted the next time the app opens My Work; until then, or until
-you sign out, it stays on the device.
+start without a connection. In the browser's on-device database (IndexedDB) TruePPM also
+keeps, in the installed app and a browser tab alike:
+
+- the saved copy of your My Work list;
+- the last state of each board you opened while connected;
+- board card moves and blocker flags made offline that have not been sent yet.
+
+It does **not** store responses from your TruePPM server in the browser's cache, and it
+never stores your sign-in token.
+
+Signing out, and anyone signing in on this device, deletes the saved My Work copy. A copy
+older than seven days is never shown, and is deleted the next time the app opens My Work;
+until then, or until the next sign-out or sign-in, it stays on the device.
+
+The saved boards and unsent board and blocker changes are **not** deleted when you sign
+out. An unsent change is removed once it is sent; a saved board stays until the next time
+that board loads while connected replaces it. On a shared device, clear TruePPM's site
+data in the browser's settings to remove them.
 
 ## For operators
 
 The installable app needs no configuration. The web image serves `manifest.webmanifest`
 and a service worker at `/sw.js`, both from the same origin as the app, and the existing
-content security policy already permits them.
+content security policy already permits them. Every nginx configuration TruePPM ships
+(the web image, the Helm chart and the Docker Compose templates) serves both with
+`Cache-Control: no-cache`, like `index.html`, so browsers check for a new copy each time.
+If a CDN or proxy sits in front, do not let it cache them longer, or updates and the off
+switch below reach browsers late.
 
 **Updates.** Each release ships a new service worker. An open app picks it up on its next
 page load and checks for one hourly. It never reloads a page on its own, so an update
@@ -115,5 +134,7 @@ Where you add it depends on what serves `/api/` in your install:
   ```
 
 The next time a signed-in browser reaches the API, it unregisters the worker and deletes
-its caches. Browsers that still serve the header register no worker. Remove the header to
-allow the worker again.
+its caches. From then on that browser registers no worker when a page loads, even before
+its first API call, until an API response arrives without the header. Remove the header
+to allow the worker again: each browser registers it on the page load after its first
+response without the header.

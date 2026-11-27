@@ -39,7 +39,6 @@ export function PwaInstallPrompt({ eligible }: { eligible?: boolean }) {
   const [visible, setVisible] = useState(() => eligible ?? shouldShowInstallNudge());
   const [expanded, setExpanded] = useState(false);
   const titleId = useId();
-  const stepsId = useId();
   const stepsRef = useRef<HTMLOListElement>(null);
 
   // "Show me how" unmounts itself, so move focus to the steps it revealed rather
@@ -83,7 +82,6 @@ export function PwaInstallPrompt({ eligible }: { eligible?: boolean }) {
 
       {expanded && (
         <ol
-          id={stepsId}
           ref={stepsRef}
           tabIndex={-1}
           aria-label="How to install"
@@ -122,8 +120,9 @@ export function PwaInstallPrompt({ eligible }: { eligible?: boolean }) {
             variant="primary"
             size="lg"
             className="min-h-[44px]"
-            aria-expanded={expanded}
-            aria-controls={stepsId}
+            // No aria-expanded/aria-controls: the button unmounts once the steps
+            // open, so it could only ever report "collapsed". Focus moves to the
+            // revealed steps instead (the effect above).
             onClick={() => setExpanded(true)}
           >
             Show me how

@@ -69,6 +69,8 @@
 #        - the named location `/assets/`'s `try_files` falls back to on a
 #          miss (never a bare `=404` — nginx cannot attach a header to that):
 #          `Cache-Control: no-store`, and it must still `return 404`.
+#        - `location = /sw.js` and `location = /manifest.webmanifest` (the
+#          PWA worker and manifest, ADR-1523): `Cache-Control: no-cache`
 #   E. X-Forwarded-Proto overwrite guard (#4426 — reopens #3191 finding #4). A
 #      plain-HTTP listener (no `listen … ssl`) in every config this script checks
 #      ships behind SOME TLS-terminating upstream the operator controls (a compose
@@ -394,6 +396,18 @@ check_config() {
       assert_location_header_set "$label" "$idx" "location = /index.html" "$idxhtml" "$has_tls"
     fi
 
+    # (D, ADR-1523) The PWA worker and manifest revalidate like the shell.
+    local pwa_path pwa_body
+    for pwa_path in /sw.js /manifest.webmanifest; do
+      pwa_body="$(printf '%s\n' "$body" | location_body "$pwa_path" || true)"
+      if [ -z "$pwa_body" ]; then
+        viol "$label" "SPA server block #$idx has no \`location = $pwa_path\` — the installed app's worker/manifest falls through to \`location /\` with no Cache-Control, so a browser can apply heuristic freshness and delay updates and the kill switch (ADR-1523)."
+      else
+        assert_cache_control "$label" "$idx" "location = $pwa_path" "$pwa_body" 'no-cache'
+        assert_location_header_set "$label" "$idx" "location = $pwa_path" "$pwa_body" "$has_tls"
+      fi
+    done
+
     assets="$(printf '%s\n' "$body" | location_body "/assets/" || true)"
     if [ -z "$assets" ]; then
       viol "$label" "SPA server block #$idx has no \`location /assets/\` — hashed build output has no explicit caching policy (#4350)."
@@ -600,7 +614,7 @@ self_test() {
   cache_locations() {
     local headers="$1"
     # shellcheck disable=SC2016  # $uri is nginx syntax, not a shell expansion.
-    printf '    location /assets/ {\n        try_files $uri @assets_404;\n        add_header Cache-Control "public, max-age=31536000, immutable" always;\n%s\n    }\n\n    location @assets_404 {\n        add_header Cache-Control "no-store" always;\n%s\n        return 404;\n    }\n\n    location = /index.html {\n        add_header Cache-Control "no-cache" always;\n%s\n    }\n' "$headers" "$headers" "$headers"
+    printf '    location /assets/ {\n        try_files $uri @assets_404;\n        add_header Cache-Control "public, max-age=31536000, immutable" always;\n%s\n    }\n\n    location @assets_404 {\n        add_header Cache-Control "no-store" always;\n%s\n        return 404;\n    }\n\n    location = /index.html {\n        add_header Cache-Control "no-cache" always;\n%s\n    }\n\n    location = /sw.js {\n        add_header Cache-Control "no-cache" always;\n%s\n    }\n\n    location = /manifest.webmanifest {\n        add_header Cache-Control "no-cache" always;\n%s\n    }\n' "$headers" "$headers" "$headers" "$headers" "$headers"
   }
 
   local hsts_line='        add_header Strict-Transport-Security "max-age=63072000" always;'

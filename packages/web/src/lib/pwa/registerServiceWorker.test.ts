@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   disableServiceWorker,
   honorKillSwitch,
+  KILL_SWITCH_STORAGE_KEY,
   registerServiceWorker,
   resetServiceWorkerStateForTests,
   SERVICE_WORKER_URL,
@@ -32,6 +33,13 @@ function stubCaches() {
 beforeEach(() => {
   resetServiceWorkerStateForTests();
 });
+
+/** Simulate a fresh page load: module memory resets, localStorage survives. */
+function resetModuleStateKeepingStorage() {
+  const saved = localStorage.getItem(KILL_SWITCH_STORAGE_KEY);
+  resetServiceWorkerStateForTests();
+  if (saved !== null) localStorage.setItem(KILL_SWITCH_STORAGE_KEY, saved);
+}
 
 afterEach(() => {
   vi.useRealTimers();
@@ -73,6 +81,35 @@ describe('registerServiceWorker', () => {
 });
 
 describe('kill switch', () => {
+  it('undoes a registration the header beat to completion', async () => {
+    const { container, unregister } = stubContainer();
+    stubCaches();
+    let finish: (r: unknown) => void = () => undefined;
+    container.register.mockReturnValueOnce(new Promise((res) => (finish = res)));
+    const pending = registerServiceWorker({ isDev: false });
+    honorKillSwitch({ 'x-trueppm-service-worker': 'disable' });
+    finish({ update: vi.fn(), unregister });
+    await expect(pending).resolves.toBeNull();
+    expect(unregister).toHaveBeenCalled();
+  });
+
+  it('persists across loads until a response arrives without the header', async () => {
+    const { container } = stubContainer();
+    stubCaches();
+    honorKillSwitch({ 'x-trueppm-service-worker': 'disable' });
+    await vi.waitFor(() => expect(localStorage.getItem(KILL_SWITCH_STORAGE_KEY)).toBe('1'));
+
+    // A new page load: in-memory state is gone, the persisted flag is not.
+    resetModuleStateKeepingStorage();
+    await expect(registerServiceWorker({ isDev: false })).resolves.toBeNull();
+    expect(container.register).not.toHaveBeenCalled();
+
+    honorKillSwitch({ 'content-type': 'application/json' });
+    expect(localStorage.getItem(KILL_SWITCH_STORAGE_KEY)).toBeNull();
+    resetModuleStateKeepingStorage();
+    await expect(registerServiceWorker({ isDev: false })).resolves.not.toBeNull();
+  });
+
   it('unregisters every worker and deletes every cache', async () => {
     const { unregister } = stubContainer();
     const store = stubCaches();

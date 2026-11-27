@@ -3,7 +3,7 @@ import { AxiosError } from 'axios';
 import { createElement, type ReactNode } from 'react';
 import { QueryClientProvider, useMutation } from '@tanstack/react-query';
 import { renderHook, waitFor } from '@testing-library/react';
-import { queryClient } from './queryClient';
+import { clearUserData, queryClient } from './queryClient';
 import { useAuthStore } from '@/stores/authStore';
 import { useToastStore } from '@/components/Toast/toastStore';
 import { clearSessionCache } from '@/stores/authStore';
@@ -200,6 +200,14 @@ describe('queryClient — session bridge clearCache (ADR-1523 §4)', () => {
     vi.mocked(purgePwaUserData).mockClear();
     queryClient.setQueryData(['tasks', 'p1'], [{ id: 't1' }]);
     clearSessionCache();
+    expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
+    expect(purgePwaUserData).toHaveBeenCalledOnce();
+  });
+
+  it('clearUserData (every sign-in path) purges the offline copy too', () => {
+    vi.mocked(purgePwaUserData).mockClear();
+    queryClient.setQueryData(['tasks', 'p1'], [{ id: 't1' }]);
+    clearUserData();
     expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
     expect(purgePwaUserData).toHaveBeenCalledOnce();
   });

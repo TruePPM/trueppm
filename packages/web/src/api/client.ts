@@ -7,7 +7,7 @@ import { clearSessionCache, useAuthStore } from '@/stores/authStore';
 // happen.
 import { toast } from '@/components/Toast/toast';
 import { subscribeAuthMessages } from '@/lib/authBroadcast';
-import { queryClient } from '@/lib/queryClient';
+import { clearUserData, queryClient } from '@/lib/queryClient';
 import { isSameUser } from '@/lib/userId';
 import type { CurrentUser } from '@/hooks/useCurrentUser';
 import { DEMO_REFUSAL_TOAST, isDemoReadOnlyRefusal } from '@/lib/demoReadOnly';
@@ -249,7 +249,8 @@ async function adoptSiblingSession(): Promise<string> {
       sameUser = false;
     }
   }
-  if (!sameUser) queryClient.clear();
+  // The offline My Work copy goes too: it is read only where identity cannot be checked.
+  if (!sameUser) clearUserData();
   // The sibling already announced the sign-in; do not echo it back.
   useAuthStore.getState().setAccessToken(token, { broadcast: false });
   return token;

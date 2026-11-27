@@ -5,6 +5,12 @@ import { useToastStore } from '@/components/Toast/toastStore';
 import { queryClient } from '@/lib/queryClient';
 import * as authBroadcast from '@/lib/authBroadcast';
 import { resetServiceWorkerStateForTests } from '@/lib/pwa/registerServiceWorker';
+import { purgePwaUserData } from '@/lib/pwa/pwaStore';
+
+vi.mock('@/lib/pwa/pwaStore', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/pwa/pwaStore')>()),
+  purgePwaUserData: vi.fn(() => Promise.resolve()),
+}));
 
 // Re-import every time so each test gets the module-level interceptors registered
 // by client.ts. Module caching means the same apiClient instance is reused within
@@ -506,6 +512,7 @@ describe('apiClient', () => {
             accessToken: null,
             sessionExpired: true,
           });
+          vi.mocked(purgePwaUserData).mockClear();
           sibling.postMessage({ type: 'restored' });
           await vi.waitFor(() => expect(useAuthStore.getState().accessToken).toBe('minted-here'));
           return get;
@@ -518,11 +525,14 @@ describe('apiClient', () => {
             expect.objectContaining({ headers: { Authorization: 'Bearer minted-here' } }),
           );
           expect(queryClient.getQueryData(['projects'])).toBeUndefined();
+          // The offline My Work copy is the previous user's too (ADR-1523 §4).
+          expect(purgePwaUserData).toHaveBeenCalledOnce();
         });
 
         it('keeps the cache when the same user signed back in', async () => {
           await restoreWith(() => Promise.resolve({ data: { id: '7' } }));
           expect(queryClient.getQueryData(['projects'])).toEqual([{ id: 'p1' }]);
+          expect(purgePwaUserData).not.toHaveBeenCalled();
         });
 
         it('clears the cache when there is no cached identity to compare against', async () => {
