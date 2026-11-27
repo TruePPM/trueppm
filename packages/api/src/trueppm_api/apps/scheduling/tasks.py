@@ -2754,6 +2754,21 @@ def _run_program_schedule(program_id: str, task: object | None = None) -> None:
         _end_refused_program_run(task, program_id, member_ids, claimed_ids, exc)
         return
 
+    if graph.result is not None and graph.engine_project is not None:
+        # Invariant self-check (#4689) on the persisted program pass, the one whose
+        # floats and criticality are written back. Counts violations, never raises.
+        # The on-read program view schedules the same merge but persists nothing,
+        # so it is not checked.
+        from trueppm_api.apps.scheduling.selfcheck import run_post_recompute_selfcheck
+
+        run_post_recompute_selfcheck(
+            program_id,
+            graph.engine_project,
+            graph.result,
+            cpm_seconds=graph.cpm_seconds,
+            scope="program",
+        )
+
     now = timezone.now()
     tasks_to_update: list[Task] = []
     # The subset of tasks_to_update whose CPM fields actually moved — what the

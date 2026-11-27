@@ -1462,10 +1462,11 @@ MC_TASK_CAP: int | None = _optional_cap("TRUEPPM_MC_TASK_CAP", 5_000)
 # engine must hold and counts violations on trueppm.scheduler.selfcheck.violations.
 # It never blocks or fails a recompute. MAX_TASKS is the documented sizing envelope
 # (administration/sizing: ~2,000 tasks per project); above it the check is skipped,
-# "0" or "" removes the ceiling. BUDGET_SHARE bounds the check's long-run cost to that
-# fraction of the CPM time this process spends; the two expensive checks (a second
-# schedule() and a zero-variance Monte Carlo) only run when the accrued budget
-# covers them, which is what samples them on larger projects.
+# "0" or "" removes the ceiling. BUDGET_SHARE is the fraction of this process's CPM
+# time the two expensive checks (a second schedule() and a zero-variance Monte Carlo)
+# may spend, split between them; each runs only when its half covers its predicted
+# cost, which is what samples them on larger projects. A check predicted under 2 ms
+# runs on every pass regardless, so small projects check every recalculation.
 SCHEDULER_SELFCHECK_ENABLED: bool = env.bool("TRUEPPM_SCHEDULER_SELFCHECK_ENABLED", default=True)
 SCHEDULER_SELFCHECK_MAX_TASKS: int | None = _optional_cap(
     "TRUEPPM_SCHEDULER_SELFCHECK_MAX_TASKS", 2_000

@@ -414,9 +414,10 @@ If a date looks wrong, attach the project's **schedule export** to the issue. It
 
 3. Attach `schedule-export.json` to the issue.
 
-The file holds the input the scheduling engine reads: task durations, dependencies,
-calendars, actuals and the data date. It is the same JSON that
-`trueppm_scheduler.Project.from_json` loads. The project is renamed `redacted` and each
+The file's `engine_input` key holds the input the scheduling engine reads: task
+durations, dependencies, calendars, actuals and the data date. That key, not the whole
+file, is the JSON that `trueppm_scheduler.Project.from_json` loads. The project is
+renamed `redacted` and each
 task `task-1`, `task-2` and so on. Task notes, assignees and attachments are never in
 the file. Task and project ids stay in, so you can say which task looks wrong. Open
 the file and check it before you attach it.

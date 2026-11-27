@@ -28,6 +28,7 @@ import re
 from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
 from datetime import timedelta
+from time import perf_counter
 from typing import TYPE_CHECKING, Any, NoReturn
 
 from rest_framework.exceptions import APIException
@@ -150,6 +151,11 @@ class ProgramScheduleGraph:
     # write-back needs it to express each summary's rolled-up span in that
     # project's own working days (#3530); the on-read endpoint ignores it.
     calendars: dict[str, Any] = field(default_factory=dict)
+    # The merged engine input and the wall-clock time of its CPM pass, kept for the
+    # persisted pass's invariant self-check (#4689). ``None`` / 0.0 when nothing
+    # was scheduled.
+    engine_project: Any | None = None
+    cpm_seconds: float = 0.0
 
     @property
     def summary_ids(self) -> set[str]:
@@ -473,7 +479,9 @@ def gather_program_schedule(
             # a null status_date), not a data-date floor.
             status_date=None,
         )
+        cpm_started = perf_counter()
         result = schedule(merged)
+        cpm_seconds = perf_counter() - cpm_started
     except SchedulerError as exc:
         # Only the on-read HTTP path (``enforce_max``) converts a degenerate-data
         # failure into a structured response. The persisted background pass
@@ -504,6 +512,8 @@ def gather_program_schedule(
         result_map=result_map,
         leaf_ids=leaf_ids,
         calendars=calendars,
+        engine_project=merged,
+        cpm_seconds=cpm_seconds,
     )
 
 
