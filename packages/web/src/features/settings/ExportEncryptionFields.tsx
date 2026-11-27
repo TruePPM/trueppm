@@ -76,7 +76,7 @@ export function ExportEncryptionFields({
               onChange={(e) => set({ confirm: e.target.value })}
             />
           </label>
-          <div className="rounded-control border border-semantic-warning/40 bg-semantic-warning/10 p-2">
+          <div className="rounded-control border border-semantic-warning/40 bg-semantic-warning-bg p-2">
             <p className="text-[11px] text-neutral-text-primary leading-relaxed">
               TruePPM doesn’t keep this passphrase. If you lose it, nobody can open this bundle —
               you’d build a new one instead. You’ll need it again to import the bundle.
