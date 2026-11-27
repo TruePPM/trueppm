@@ -242,7 +242,7 @@ describe('offline cell writes (#1949)', () => {
       const cur = qc.getQueryData<WeeklyResponse>(weekTimesheetKey('2026-06-15'));
       expect(cur?.results.find((e) => e.id === placeholder)?.minutes).toBe(120);
     });
-    await act(async () => {
+    act(() => {
       rejectFirst(new Error('network down'));
     });
     await waitFor(() => expect(secondOutcome).not.toBeNull());
