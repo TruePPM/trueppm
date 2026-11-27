@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 from celery.exceptions import SoftTimeLimitExceeded
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection, transaction
 from rest_framework.test import APIClient
 
@@ -32,10 +33,13 @@ from trueppm_api.apps.projects import (
 from trueppm_api.apps.projects.models import (
     Calendar,
     Methodology,
+    Program,
     Project,
     SignalAudience,
     Task,
+    TaskAttachment,
 )
+from trueppm_api.apps.projects.throttles import TaskAttachmentUploadThrottle
 from trueppm_api.apps.scheduling import calendars, forecast_history_settings
 from trueppm_api.apps.scheduling.models import MCAttributionAudience
 from trueppm_api.apps.taskruns.models import TaskRun, TaskRunStatus
@@ -433,6 +437,64 @@ def test_cpm_recalculation_completes_with_a_raising_calendar_resolver(
     assert events, "the broadcast spy saw nothing, so the next line would prove nothing"
     assert not any("cpm_error" in event for event in events)
     assert "calendar layer resolver provider raised" in caplog.text
+
+
+def test_bulk_settings_post_survives_a_raising_provider(
+    raising: Any, project: Project, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The settings-matrix write asks the methodology lock once per row."""
+    program = Program.objects.create(name="Bulk")
+    workspace = Workspace.load()
+    workspace.methodology_override_policy = TermOverridePolicy.ENFORCE
+    workspace.save()
+    client = _admin_client(project)
+    raising(methodology.register_methodology_enforcement_provider)
+    value = next(m for m in Methodology.values if m != program.methodology)
+
+    with caplog.at_level(logging.ERROR):
+        resp = client.post(
+            "/api/v1/programs/bulk-fields/",
+            {"ids": [str(program.pk)], "fields": {"methodology": value}},
+            format="json",
+        )
+
+    assert resp.status_code == 200, resp.content
+    program.refresh_from_db()
+    assert program.methodology == value
+    assert "methodology enforcement provider raised" in caplog.text
+
+
+def test_attachment_upload_is_refused_with_a_raising_policy_provider(
+    raising: Any,
+    project: Project,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Lock unknown: a type only the project override allows is refused, not a 500."""
+    monkeypatch.setattr(TaskAttachmentUploadThrottle, "allow_request", lambda *_args: True)
+    workspace = Workspace.load()
+    workspace.attachments_override_policy = TermOverridePolicy.ENFORCE
+    workspace.allowed_attachment_types = ["application/pdf"]
+    workspace.save()
+    project.allowed_attachment_types = ["image/png"]
+    project.save()
+    task = Task.objects.create(project=project, name="T", duration=1)
+    client = _admin_client(project)
+    raising(attachment_policy.register_attachment_policy_enforcement_provider)
+    png = SimpleUploadedFile(
+        "real.png", b"\x89PNG\r\n\x1a\n" + b"\x00" * 16, content_type="image/png"
+    )
+
+    with caplog.at_level(logging.ERROR):
+        resp = client.post(
+            f"/api/v1/projects/{project.pk}/tasks/{task.pk}/attachments/",
+            {"file": png},
+            format="multipart",
+        )
+
+    assert resp.status_code == 415, resp.content
+    assert not TaskAttachment.objects.filter(task=task).exists()
+    assert "attachment policy enforcement provider raised" in caplog.text
 
 
 def test_raising_portfolio_provider_denies_access_and_me_still_answers(
