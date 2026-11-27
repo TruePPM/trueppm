@@ -168,7 +168,8 @@ beside the agent's calls — and names the person who made the change.
 
 A revoke is written to the chain on every revoke path, not only on this page. Revoking
 an agent's token under **Settings › API tokens**, or a project's or program's agent
-token in its settings, records who revoked it and from where. So does a sweep that
+token in its settings, records who revoked it and from where (those settings revokes take no
+reason, so the row's `via` wording stands in for one). So does a sweep that
 revokes all of a person's tokens at once, a password reset or an Admin's off-boarding,
 which records the reason (`password_reset`, `offboarding`). An operator running
 `manage.py revoke_api_tokens` is recorded as a server operator, with the reason

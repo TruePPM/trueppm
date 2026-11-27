@@ -31,6 +31,9 @@ from django.dispatch import Signal
 #: ``agent.resume`` / ``agent.scope_edit`` / ``agent.revoke``, and the acting person is
 #: named only in the hashed ``summary``. ``SCHEMA_VERSION`` is unchanged; a receiver must
 #: branch on ``actor_kind`` rather than read every row as an agent's own action.
+#: Revoke rows written without a request (the account-wide sweep, the ``revoke_api_tokens``
+#: command) reach receivers with ``method=""`` and a ``payload_hash`` computed from a
+#: revoke-facts dict rather than from a request.
 agent_action_recorded = Signal()
 
 #: The OSS legal-hold seam for chain-aware pruning (ADR-0361). Dispatched with plain

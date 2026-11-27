@@ -14,7 +14,9 @@ from __future__ import annotations
 import secrets
 from datetime import date, timedelta
 from io import StringIO
+from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -251,4 +253,53 @@ def test_agents_page_revoke_still_writes_exactly_one_row(chain: None) -> None:
         " Reason: done"
     )
     assert row.method == "POST"
+    assert verify_chain().ok
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("via", ["patch", "delete"])
+def test_workspace_offboarding_view_chains_the_row_naming_the_acting_admin(
+    chain: None, via: str
+) -> None:
+    """Both off-boarding views pass ``actor``; dropping it would name nobody on the row."""
+    admin = User.objects.create_user(username="ws_owner", password="pw", is_superuser=True)
+    alice = _user("Alice")
+    agent = _mint(owner=alice, created_by=alice)
+    client = _as(admin)
+    url = f"/api/v1/workspace/members/{alice.pk}/"
+
+    if via == "patch":
+        resp = client.patch(url, {"status": "deactivated"}, format="json")
+        assert resp.status_code == 200
+    else:
+        assert client.delete(url).status_code == 204
+
+    [row] = _revoke_rows(agent)
+    assert f"revoked by {admin.username} (user {admin.pk}) via an account-wide revoke." in (
+        row.summary
+    )
+    assert row.summary.endswith("Reason: offboarding")
+    assert verify_chain().ok
+
+
+@pytest.mark.django_db
+def test_create_admin_promotion_chains_the_row_as_a_server_operator(
+    chain: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bootstrap command has no user account, and the row says so with its reason."""
+    monkeypatch.setenv("TRUEPPM_ADMIN_PROMOTE_EXISTING", "1")
+    existing = User.objects.create_user(username="someone", email="admin@example.com", password="x")
+    agent = _mint(owner=existing, created_by=existing)
+
+    with patch(
+        "trueppm_api.apps.access.management.commands.create_admin._PASSWORD_FILE",
+        str(tmp_path / "pw"),
+    ):
+        call_command("create_admin", stdout=StringIO())
+
+    [row] = _revoke_rows(agent)
+    assert "revoked by a server operator (no user account) via an account-wide revoke." in (
+        row.summary
+    )
+    assert row.summary.endswith("Reason: bootstrap_promotion")
     assert verify_chain().ok
