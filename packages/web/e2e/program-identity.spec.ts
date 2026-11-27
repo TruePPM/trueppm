@@ -81,6 +81,11 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/api/v1/projects/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: paginated(PROJECTS) }),
   );
+  // The projects glob above also matches health-summary, which is a bare array,
+  // not a page. Registered after it so this route wins.
+  await page.route('**/api/v1/projects/health-summary/', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
   await page.route('**/api/v1/programs/**', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: paginated(PROGRAMS) }),
   );

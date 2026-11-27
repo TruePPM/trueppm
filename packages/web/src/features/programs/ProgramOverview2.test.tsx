@@ -5,6 +5,8 @@ import {
   budgetBurnMissing,
   overAllocatedFigure,
   partialRollupLine,
+  percentileNotes,
+  staleForecastLine,
 } from './ProgramOverview2';
 import { buildAxis } from './programAxis';
 import type { ProgramRollupRow } from './ProgramOverviewPage';
@@ -54,6 +56,46 @@ describe('partialRollupLine', () => {
         forecast: { available: true, value: null, projects_without_forecast_ids: ['b', 'zz'] },
       }),
     ).toContain('(2 projects)');
+  });
+});
+
+describe('staleForecastLine (#2408)', () => {
+  const projects = [row('a', 'Alpha'), row('b', 'Beta')];
+
+  it('names the stale forecast the program P80 still counts', () => {
+    expect(
+      staleForecastLine({
+        projects,
+        forecast: { available: true, value: '2027-01-01', projects_with_stale_forecast_ids: ['b'] },
+      }),
+    ).toBe('1 forecast is out of date (Beta); the program P80 still counts it until it is rerun.');
+  });
+
+  it('pluralizes and falls back to a count when an id has no row', () => {
+    expect(
+      staleForecastLine({
+        projects,
+        forecast: {
+          available: true,
+          value: '2027-01-01',
+          projects_with_stale_forecast_ids: ['a', 'zz'],
+        },
+      }),
+    ).toBe(
+      '2 forecasts are out of date (2 projects); the program P80 still counts them until they are rerun.',
+    );
+  });
+
+  it('is null when no forecast is stale, or from a server that does not send the field', () => {
+    expect(
+      staleForecastLine({
+        projects,
+        forecast: { available: true, value: '2027-01-01', projects_with_stale_forecast_ids: [] },
+      }),
+    ).toBeNull();
+    expect(
+      staleForecastLine({ projects, forecast: { available: true, value: '2027-01-01' } }),
+    ).toBeNull();
   });
 });
 
@@ -177,5 +219,53 @@ describe('overAllocatedFigure', () => {
   it('is not computable on an error or a malformed payload', () => {
     expect(overAllocatedFigure(undefined, true).kind).toBe('missing');
     expect(overAllocatedFigure({ count: 0 } as never, false).kind).toBe('missing');
+  });
+});
+
+describe('percentileNotes (#2408)', () => {
+  const projects = [row('a', 'Alpha'), row('b', 'Beta'), row('c', 'Gamma')];
+  const p = (value: string | null, driver: string | null, without: string[]) => ({
+    value,
+    driver_project_id: driver,
+    projects_without: without.length,
+    projects_without_ids: without,
+  });
+
+  it('names a different driver and the projects a percentile leaves out beyond the P80', () => {
+    expect(
+      percentileNotes({
+        projects,
+        forecast: {
+          available: true,
+          value: '2027-05-01',
+          percentiles: {
+            p50: p('2027-03-01', 'a', ['c']),
+            p80: p('2027-05-01', 'a', ['c']),
+            p95: p('2027-08-01', 'b', ['a', 'c']),
+          },
+        },
+      }),
+    ).toEqual({
+      drivers: 'P95 set by Beta',
+      gaps: ['The P95 leaves out Alpha: its forecast has no P95.'],
+    });
+  });
+
+  it('says nothing when the range agrees with the P80, or the server sends none', () => {
+    const same = p('2027-05-01', 'a', []);
+    expect(
+      percentileNotes({
+        projects,
+        forecast: {
+          available: true,
+          value: '2027-05-01',
+          percentiles: { p50: same, p80: same, p95: same },
+        },
+      }),
+    ).toEqual({ drivers: null, gaps: [] });
+    expect(percentileNotes({ projects, forecast: { available: true, value: null } })).toEqual({
+      drivers: null,
+      gaps: [],
+    });
   });
 });

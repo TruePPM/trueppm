@@ -116,8 +116,11 @@ async function setup(page: Page, o: Opts) {
             as_of: '2026-11-20T10:00:00Z',
             driver_project_id: PJ,
             projects_without_forecast: 0,
+            projects_with_stale_forecast: 1,
+            projects_with_stale_forecast_ids: [PJ],
           },
         },
+        projects: [{ id: PJ, name: 'Atlas Migration' }],
         definitions: { p80_completion: 'The date 4 in 5 runs finish by, from the server.' },
       }),
     ),
@@ -228,6 +231,12 @@ test.describe('shell v2 role homes: content and states', () => {
     await page.goto('/home');
     await expect(page.getByRole('heading', { name: 'Forecast · Atlas Program' })).toBeVisible();
     await expect(page.getByText('P80 is 2 working days past commitment.')).toBeVisible();
+    // The program P80 rests on a stale forecast, and the hero names it (#2408).
+    await expect(
+      page.getByText(
+        /1 forecast is out of date \(Atlas Migration\); the program P80 still counts it/,
+      ),
+    ).toBeVisible();
     await expect(page.getByText('2 blocked in Atlas Migration')).toBeVisible();
     await expect(page.getByText('Longest waiting: Waiting on vendor sandbox')).toBeVisible();
     await expect(page.getByText('Approve vendor sandbox extension')).toBeVisible();

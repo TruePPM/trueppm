@@ -7,7 +7,7 @@ import { PageTitle, SectionHeading } from '@/components/page2/PageTitle';
 import { HealthBandChip, StatusChip } from '@/components/page2/StatusChip';
 import { TYPE } from '@/components/page2/typeScale';
 import { QueryErrorState } from '@/components/QueryErrorState';
-import { commitmentChip } from '@/features/project/ProjectOverview2';
+import { commitmentChip, Peer } from '@/features/project/ProjectOverview2';
 import { CallChip } from '@/features/project/statusUpdates/StatusUpdatesSection';
 import { useMinWidth } from '@/features/shell2/useMinWidth';
 import { useProgram } from '@/hooks/useProgram';
@@ -46,6 +46,64 @@ export function partialRollupLine(
   const subject = names.length === ids.length ? names.join(', ') : `${ids.length} projects`;
   const pronoun = ids.length === 1 ? 'it' : 'them';
   return `${ids.length} of ${rows.length} projects didn’t report (${subject}); the program P80 excludes ${pronoun} until ${ids.length === 1 ? 'it reports' : 'they report'}.`;
+}
+
+/**
+ * The stale-forecast line (#2408): which forecasts the program P80 read no longer
+ * describe their project's plan, by name. They stay in the figure (dropping one would
+ * move the date silently), so the line says the P80 rests on them. The ids and the
+ * staleness rule are the server's (`forecast.projects_with_stale_forecast_ids`, the
+ * same classification `monte-carlo/latest/` ships). Null when none is stale.
+ */
+export function staleForecastLine(
+  rollup: Pick<ProgramRollup, 'forecast' | 'projects'>,
+): string | null {
+  const ids = rollup.forecast?.projects_with_stale_forecast_ids ?? [];
+  if (ids.length === 0) return null;
+  const rows = rollup.projects ?? [];
+  const names = ids.map((id) => rows.find((r) => r.id === id)?.name).filter(Boolean) as string[];
+  const subject = names.length === ids.length ? names.join(', ') : `${ids.length} projects`;
+  const one = ids.length === 1;
+  return `${one ? '1 forecast is' : `${ids.length} forecasts are`} out of date (${subject}); the program P80 still counts ${one ? 'it' : 'them'} until ${one ? 'it is' : 'they are'} rerun.`;
+}
+
+/**
+ * What the P50 and P95 beside the program P80 rest on, when it differs from the P80
+ * (#2408): the project each is set by, and the projects each leaves out beyond the
+ * P80's own exclusions, by name. The three percentiles are each the latest of the
+ * projects' own (the server's `forecast.percentiles`), so two of them can come from
+ * different projects or different project sets; saying so keeps the three from being
+ * read as one program distribution. Empty when they agree with the P80.
+ */
+export function percentileNotes(rollup: Pick<ProgramRollup, 'forecast' | 'projects'>): {
+  drivers: string | null;
+  gaps: string[];
+} {
+  const pct = rollup.forecast?.percentiles;
+  if (!pct) return { drivers: null, gaps: [] };
+  const rows = rollup.projects ?? [];
+  const nameOf = (id: string | null) => rows.find((r) => r.id === id)?.name ?? null;
+  const p80Driver = pct.p80.driver_project_id;
+  const base = new Set(pct.p80.projects_without_ids);
+  const drivers: string[] = [];
+  const gaps: string[] = [];
+  for (const q of ['p50', 'p95'] as const) {
+    const label = q.toUpperCase();
+    const entry = pct[q];
+    const name = nameOf(entry.driver_project_id);
+    if (entry.driver_project_id && entry.driver_project_id !== p80Driver && name) {
+      drivers.push(`${label} set by ${name}`);
+    }
+    const extra = entry.projects_without_ids.filter((id) => !base.has(id));
+    if (extra.length > 0) {
+      const names = extra.map(nameOf).filter((n): n is string => n !== null);
+      const subject = names.length === extra.length ? names.join(', ') : `${extra.length} projects`;
+      gaps.push(
+        `The ${label} leaves out ${subject}: ${extra.length === 1 ? 'its forecast has' : 'their forecasts have'} no ${label}.`,
+      );
+    }
+  }
+  return { drivers: drivers.length > 0 ? drivers.join(' · ') : null, gaps };
 }
 
 /**
@@ -326,6 +384,9 @@ export function ProgramOverview2({ programId }: { programId: string }) {
   const p80 = typeof forecast?.value === 'string' ? forecast.value : null;
   const driver = rows.find((r) => r.id === forecast?.driver_project_id);
   const partial = rollup ? partialRollupLine(rollup) : null;
+  const staleForecasts = rollup ? staleForecastLine(rollup) : null;
+  const percentiles = forecast?.percentiles;
+  const pctNotes = rollup ? percentileNotes(rollup) : { drivers: null, gaps: [] };
   const budgetMissing = rollup ? budgetBurnMissing(rollup) : null;
   // Nothing while the load query is in flight: a not-computable line that flashes and
   // then becomes a tile reads as the figure changing its mind.
@@ -405,6 +466,45 @@ export function ProgramOverview2({ programId }: { programId: string }) {
                 </p>
               )}
               {driver && <p className="text-xs text-p1-text-2">Set by {driver.name}</p>}
+              {p80 && percentiles && (
+                <div
+                  className="mt-3 flex flex-wrap gap-x-6 gap-y-2"
+                  data-testid="program-overview2-range"
+                >
+                  {/* These peers wrap instead of gridding three across, so they keep the wide date type. */}
+                  <Peer
+                    label="P50"
+                    date={percentiles.p50.value}
+                    definition={rollup.definitions?.p50_completion}
+                    phone={false}
+                  />
+                  <Peer
+                    label="P95"
+                    date={percentiles.p95.value}
+                    definition={rollup.definitions?.p95_completion}
+                    phone={false}
+                  />
+                </div>
+              )}
+              {p80 && pctNotes.drivers && (
+                <p
+                  className="mt-1 text-xs text-p1-text-2"
+                  data-testid="program-overview2-range-drivers"
+                >
+                  {pctNotes.drivers}
+                </p>
+              )}
+              {p80 &&
+                pctNotes.gaps.map((gap) => (
+                  <p
+                    key={gap}
+                    className="mt-2 text-xs text-p1-risk-text"
+                    data-testid="program-overview2-range-gap"
+                  >
+                    <span aria-hidden="true">◆ </span>
+                    {gap}
+                  </p>
+                ))}
               {partial && (
                 <p
                   className="mt-2 text-xs text-p1-risk-text"
@@ -412,6 +512,15 @@ export function ProgramOverview2({ programId }: { programId: string }) {
                 >
                   <span aria-hidden="true">◆ </span>
                   {partial}
+                </p>
+              )}
+              {p80 && staleForecasts && (
+                <p
+                  className="mt-2 text-xs text-p1-risk-text"
+                  data-testid="program-overview2-stale-forecasts"
+                >
+                  <span aria-hidden="true">◆ </span>
+                  {staleForecasts}
                 </p>
               )}
             </section>

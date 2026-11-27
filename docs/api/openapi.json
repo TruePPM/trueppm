@@ -79525,6 +79525,16 @@
                         "readOnly": true,
                         "description": "The latest P80 finish among the contributing projects' own Monte Carlo forecasts. Not a joint simulation of the program, whose P80 would be this date or later."
                     },
+                    "p50_completion": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "The latest P50 finish among the contributing projects' own Monte Carlo forecasts, read from the same runs as the program P80. Each project's P50 is its own; the latest of them is not a joint probability, so the program's P50 would be this date or later."
+                    },
+                    "p95_completion": {
+                        "type": "string",
+                        "readOnly": true,
+                        "description": "The latest P95 finish among the contributing projects' own Monte Carlo forecasts, read from the same runs as the program P80. Each project's P95 is its own; the latest of them is not a joint probability, so the program's P95 would be this date or later."
+                    },
                     "projects": {
                         "type": "string",
                         "readOnly": true,
@@ -79555,7 +79565,9 @@
                     "cross_project_link_count",
                     "milestone_health",
                     "open_risk_count",
+                    "p50_completion",
                     "p80_completion",
+                    "p95_completion",
                     "program_health",
                     "projects",
                     "projects_on_track",
@@ -79635,6 +79647,29 @@
                         },
                         "readOnly": true,
                         "description": "p80_completion only: which contributing projects projects_without_forecast counts, so a client can name the project the program P80 leaves out (#4799)."
+                    },
+                    "projects_with_stale_forecast": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "description": "p80_completion only: contributing forecasts the value read that no longer describe their project's plan (forecast_staleness aged, project_changed or engine_superseded, the classification monte-carlo/latest/ ships). They stay in the value; the count lets a client say it rests on out-of-date forecasts."
+                    },
+                    "projects_with_stale_forecast_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "readOnly": true,
+                        "description": "p80_completion only: which projects projects_with_stale_forecast counts, so a client can name the forecasts to rerun."
+                    },
+                    "percentiles": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProgramRollupPercentiles"
+                            }
+                        ],
+                        "readOnly": true,
+                        "description": "p80_completion only: the program P50, P80 and P95, each the latest of that percentile across the projects' newest results, with its own driver and left-out projects. None is a joint probability (latest of per-project marginals); p80 repeats value."
                     }
                 },
                 "required": [
@@ -79642,6 +79677,9 @@
                     "available",
                     "driver_project_id",
                     "missing_rate_count",
+                    "percentiles",
+                    "projects_with_stale_forecast",
+                    "projects_with_stale_forecast_ids",
                     "projects_without_budget",
                     "projects_without_budget_ids",
                     "projects_without_forecast",
@@ -79702,6 +79740,81 @@
                     "posted_at",
                     "rag",
                     "seq"
+                ]
+            },
+            "ProgramRollupPercentile": {
+                "type": "object",
+                "description": "One program forecast percentile (#2408): the latest of it across the projects' runs.\n\nNot a joint probability (ADR-0088 amendment 2026-11-27): each project's percentile\nis its own marginal, and the latest of them is a lower bound on the program's.",
+                "properties": {
+                    "value": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "The latest of this percentile among the contributing projects' newest Monte Carlo results; null when none carries it."
+                    },
+                    "driver_project_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "The project whose percentile is the latest; null when value is null."
+                    },
+                    "projects_without": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "description": "Contributing projects this percentile leaves out: no forecast, or a newest result that carries no value for this percentile."
+                    },
+                    "projects_without_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "readOnly": true,
+                        "description": "Which projects projects_without counts."
+                    }
+                },
+                "required": [
+                    "driver_project_id",
+                    "projects_without",
+                    "projects_without_ids",
+                    "value"
+                ]
+            },
+            "ProgramRollupPercentiles": {
+                "type": "object",
+                "description": "The program forecast range: P50, P80 and P95 by the same reducer (#2408).",
+                "properties": {
+                    "p50": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProgramRollupPercentile"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "p80": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProgramRollupPercentile"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "p95": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProgramRollupPercentile"
+                            }
+                        ],
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "p50",
+                    "p80",
+                    "p95"
                 ]
             },
             "ProgramRollupProjectRow": {

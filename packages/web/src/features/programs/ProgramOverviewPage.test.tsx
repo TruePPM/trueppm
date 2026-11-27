@@ -2,7 +2,13 @@ import { render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ProgramOverviewPage, kpiDrillTarget } from './ProgramOverviewPage';
+import {
+  ProgramOverviewPage,
+  kpiDrillTarget,
+  percentileRange,
+  renderKpi,
+  type ProgramForecastPercentiles,
+} from './ProgramOverviewPage';
 
 // Hoisted so the vi.mock factory can reference it without a value-level
 // reference to apiClient.get (which the unbound-method lint rule rejects).
@@ -264,7 +270,52 @@ describe('ProgramOverviewPage (#713)', () => {
     // A formatted calendar date, not the raw ISO string.
     expect(screen.queryByText('2027-05-01')).not.toBeInTheDocument();
     expect(screen.getByText(/2027/)).toBeInTheDocument();
-    expect(screen.getByText('excludes 2 projects without a forecast')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'excludes 2 projects without a forecast · latest project P80, not a joint forecast',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('says a p80_completion rests on stale forecasts it still counts (#2408)', async () => {
+    mockApi(
+      rollup({
+        kpis: {
+          p80_completion: {
+            available: true,
+            unit: 'date',
+            value: '2027-05-01',
+            projects_without_forecast: 1,
+            projects_with_stale_forecast: 2,
+            projects_with_stale_forecast_ids: ['proj-1', 'proj-2'],
+          },
+        },
+      }),
+    );
+    renderPage();
+    expect(
+      await screen.findByText(
+        'excludes 1 project without a forecast · 2 forecasts out of date · latest project P80, not a joint forecast',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('says a complete p80_completion is the latest project P80, not a joint forecast (#2408)', async () => {
+    mockApi(
+      rollup({
+        kpis: {
+          p80_completion: {
+            available: true,
+            unit: 'date',
+            value: '2027-05-01',
+            projects_without_forecast: 0,
+            projects_with_stale_forecast: 0,
+          },
+        },
+      }),
+    );
+    renderPage();
+    expect(await screen.findByText('latest project P80, not a joint forecast')).toBeInTheDocument();
   });
 
   it('says why a p80_completion with no forecast has no date (#4779)', async () => {
@@ -461,5 +512,65 @@ describe('ProgramOverviewPage sample banner owner wiring (#3875)', () => {
     renderPage();
     expect(await screen.findByText('Program One')).toBeInTheDocument();
     expect(membersFetched()).toBe(false);
+  });
+});
+
+describe('the program P50 · P95 range on the v1 P80 card (#2408)', () => {
+  const pct = (
+    p50: string | null,
+    p95: string | null,
+    without: [number, number, number] = [0, 0, 0],
+  ): ProgramForecastPercentiles => ({
+    p50: {
+      value: p50,
+      driver_project_id: null,
+      projects_without: without[0],
+      projects_without_ids: [],
+    },
+    p80: {
+      value: '2027-05-01',
+      driver_project_id: null,
+      projects_without: without[1],
+      projects_without_ids: [],
+    },
+    p95: {
+      value: p95,
+      driver_project_id: null,
+      projects_without: without[2],
+      projects_without_ids: [],
+    },
+  });
+
+  it('shows the range and says the percentiles are not a joint forecast', () => {
+    const k = renderKpi('p80_completion', {
+      available: true,
+      unit: 'date',
+      value: '2027-05-01',
+      projects_without_forecast: 0,
+      percentiles: pct('2027-03-20', '2027-07-12'),
+    });
+    expect(k.sub).toMatch(
+      /^P50 .*2027 · P95 .*2027 · latest project percentiles, not a joint forecast$/,
+    );
+  });
+
+  it('names a percentile that leaves out more projects than the P80, and a missing one', () => {
+    const r = percentileRange(pct('2027-03-20', null, [1, 1, 2]));
+    expect(r?.range).toMatch(/^P50 .*2027 · P95 not computed$/);
+    expect(r?.gaps).toEqual(['P95 leaves out 1 more project']);
+    const k = renderKpi('p80_completion', {
+      available: true,
+      unit: 'date',
+      value: '2027-05-01',
+      projects_without_forecast: 1,
+      percentiles: pct('2027-03-20', null, [1, 1, 2]),
+    });
+    expect(k.sub).toMatch(
+      / · excludes 1 project without a forecast · P95 leaves out 1 more project · latest project percentiles, not a joint forecast$/,
+    );
+  });
+
+  it('is null from a server that does not send the range', () => {
+    expect(percentileRange(undefined)).toBeNull();
   });
 });

@@ -42,7 +42,13 @@ async function setup(page: import('@playwright/test').Page, kpis: Record<string,
     r.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: pj({ id: 'user-alice', username: 'alice', display_name: 'Alice', initials: 'AL', email: 'alice@example.com' }),
+      body: pj({
+        id: 'user-alice',
+        username: 'alice',
+        display_name: 'Alice',
+        initials: 'AL',
+        email: 'alice@example.com',
+      }),
     }),
   );
   await page.route('**/api/v1/edition/', (r) =>
@@ -100,7 +106,11 @@ test.describe('Program Overview rollup empty state (#4506)', () => {
       schedule_health: { available: true, value: 'unknown', reason: 'no_planned_work' },
     });
     const kpis = page.getByRole('region', { name: 'Program KPIs' });
-    await expect(kpis.getByText('excludes 1 project without a forecast')).toBeVisible();
+    await expect(
+      kpis.getByText(
+        'excludes 1 project without a forecast · latest project P80, not a joint forecast',
+      ),
+    ).toBeVisible();
     await expect(kpis.getByText('2027-05-01')).toHaveCount(0);
     await expect(kpis.getByText('No work planned yet')).toBeVisible();
   });

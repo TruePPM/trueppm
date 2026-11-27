@@ -50,6 +50,8 @@ const ready = {
     definition: 'Server sentence.',
     driverProjectId: 'p1',
     projectsWithoutForecast: 0,
+    projectsWithStaleForecast: 0,
+    staleLine: null,
   },
   rollup: { refetch: vi.fn() },
   driverId: 'p1',
@@ -101,6 +103,19 @@ describe('PmHome', () => {
     expect(screen.getByText('Longest waiting: Waiting on vendor')).toBeInTheDocument();
     expect(screen.getByRole('table', { name: 'Projects in this program' })).toBeInTheDocument();
     expect(screen.getByText('Nothing is waiting on a decision.')).toBeInTheDocument();
+  });
+
+  it('says the program P80 rests on a stale forecast (#2408)', () => {
+    h.forecast = {
+      ...ready,
+      hero: {
+        ...ready.hero,
+        projectsWithStaleForecast: 1,
+        staleLine: '1 forecast is out of date.',
+      },
+    };
+    renderWithRouter(<PmHome />);
+    expect(screen.getByText('1 forecast is out of date.')).toBeInTheDocument();
   });
 
   it('shows the rollup reason instead of a date when the program has no forecast', () => {

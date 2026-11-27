@@ -77,7 +77,13 @@ schedule performance band. In 0.4 the response carries `aggregation_policy`,
     "p80_completion": {
       "available": true, "unit": "date", "value": "2027-05-01",
       "as_of": "2026-11-04T09:12:00+00:00",
-      "driver_project_id": "8c1e…", "projects_without_forecast": 1
+      "driver_project_id": "8c1e…", "projects_without_forecast": 1,
+      "projects_with_stale_forecast": 1, "projects_with_stale_forecast_ids": ["4f2a…"],
+      "percentiles": {
+        "p50": {"value": "2027-03-20", "driver_project_id": "8c1e…", "projects_without": 1, "projects_without_ids": ["d07b…"]},
+        "p80": {"value": "2027-05-01", "driver_project_id": "8c1e…", "projects_without": 1, "projects_without_ids": ["d07b…"]},
+        "p95": {"value": "2027-07-12", "driver_project_id": "4f2a…", "projects_without": 1, "projects_without_ids": ["d07b…"]}
+      }
     }
   },
   "as_of": "2026-11-07T14:03:11+00:00",
@@ -102,7 +108,27 @@ schedule performance band. In 0.4 the response carries `aggregation_policy`,
   `reason`: `no_projects`, `no_planned_work`, `no_milestones`, `no_baseline`,
   `no_completed_work`, or `no_forecast`.
 - `p80_completion` carries its own `as_of` (the oldest forecast it read),
-  `driver_project_id`, and `projects_without_forecast`.
+  `driver_project_id`, `projects_without_forecast`, and
+  `projects_with_stale_forecast` with its `projects_with_stale_forecast_ids`: the
+  forecasts it read whose `forecast_staleness` on
+  `GET /projects/{id}/monte-carlo/latest/` is `aged`, `project_changed` or
+  `engine_superseded`. Those forecasts stay in the value. The value is the latest
+  of the per-project P80s, not a joint simulation of the program, whose P80 would
+  be that date or later.
+- `p80_completion.percentiles` (and `forecast.percentiles`) carries the program
+  `p50`, `p80` and `p95`: each the latest of that percentile across the same runs,
+  with its own `driver_project_id` and its own `projects_without` /
+  `projects_without_ids` (every contributing project it leaves out, including a
+  project whose newest result has no value for that percentile; an older run is
+  never substituted). `p80` repeats the top-level value. None of the three is a
+  joint probability: each is the latest of per-project marginals, so the program's
+  own percentile would be that date or later, and the three can rest on different
+  project sets. `definitions` carries `p50_completion` and `p95_completion` beside
+  `p80_completion`.
+- Every program member sees `projects_without_forecast_ids`,
+  `projects_with_stale_forecast_ids` and the per-percentile `projects_without_ids`
+  for every contributing project. Unlike the `summary` counts, they disclose no
+  project figure.
 
 The sentences in `definitions` are listed on the
 [metric vocabulary](/features/metric-vocabulary/#program-rollup) page.
