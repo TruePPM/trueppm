@@ -496,3 +496,20 @@ See [Workspace Settings](/administration/workspace-settings/) for invite token s
 | DELETE | `/api/v1/workspace/groups/{id}/members/{user_id}/` | Admin+ | Remove a member (triggers cascade). |
 | POST | `/api/v1/workspace/groups/{id}/projects/` | Admin+ | Link group to a project with a conferred role (triggers cascade). |
 | DELETE | `/api/v1/workspace/groups/{id}/projects/{project_id}/` | Admin+ | Unlink group from a project (removes group-conferred memberships). |
+
+## Risk register export
+
+:::note[Ships in 0.5]
+This endpoint ships in 0.5. In the current release the risk CSV is built in the browser from the Risks view.
+:::
+
+```http
+GET /api/v1/projects/{project_pk}/risks/export/
+```
+
+Returns the project's whole live risk register as `text/csv`
+(`risks-<CODE>-<YYYY-MM-DD>.csv`), highest severity first, in the
+[data-interchange CSV dialect](/features/csv-import-export/). Any project member
+(Viewer and above) can call it. The columns are those of the Risks view's **Export
+CSV** plus **Owner Name**; the file round-trips through the risk import. See
+[Risk Register](/features/risk-register/).

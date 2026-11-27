@@ -61,7 +61,7 @@ vi.mock('@/hooks/useProgramSeedIo', async (orig) => {
 });
 
 const startMutate =
-  vi.fn<(vars: void, opts?: { onSuccess?: (job: ProgramExportJob) => void }) => void>();
+  vi.fn<(vars: unknown, opts?: { onSuccess?: (job: ProgramExportJob) => void }) => void>();
 const startState: { mutate: typeof startMutate; isPending: boolean; error: unknown } = {
   mutate: startMutate,
   isPending: false,
@@ -97,6 +97,7 @@ function makeJob(over: Partial<ProgramExportJob> = {}): ProgramExportJob {
     startedAt: null,
     completedAt: null,
     downloadUrl: null,
+    encryptionMode: 'none',
     ...over,
   };
 }
@@ -1057,6 +1058,73 @@ describe('ProgramGeneralPage (settings)', () => {
     useProgram.mockReturnValue({ data: makeProgram() });
     renderPage();
     expect(screen.getByRole('alert')).toHaveTextContent('Export queue is unavailable');
+  });
+
+  // ----- Opt-in bundle encryption (#2400) ------------------------------------
+
+  it('queues a plain bundle with an empty body when encryption is left off', async () => {
+    const user = userEvent.setup();
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+    expect(screen.getByRole('radio', { name: 'Don’t encrypt' })).toBeChecked();
+    await user.click(screen.getByRole('button', { name: /Export program bundle/ }));
+    expect(startMutate).toHaveBeenCalledWith({}, expect.anything());
+  });
+
+  it('queues a passphrase bundle only once the passphrase is confirmed and acknowledged', async () => {
+    const user = userEvent.setup();
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+    await user.click(screen.getByRole('radio', { name: 'Passphrase' }));
+    const start = screen.getByRole('button', { name: /Export program bundle/ });
+    expect(start).toBeDisabled();
+    await user.type(screen.getByLabelText(/Choose a passphrase/), 'correct horse battery');
+    await user.type(screen.getByLabelText('Confirm passphrase'), 'correct horse battery');
+    expect(start).toBeDisabled();
+    await user.click(screen.getByRole('checkbox', { name: /lost passphrase can’t be recovered/ }));
+    expect(start).toBeEnabled();
+    await user.click(start);
+    expect(startMutate).toHaveBeenCalledWith(
+      { encryption: { mode: 'passphrase', passphrase: 'correct horse battery' } },
+      expect.anything(),
+    );
+  });
+
+  it('refuses an age secret key and queues a bundle to a public key', async () => {
+    const user = userEvent.setup();
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+    await user.click(screen.getByRole('radio', { name: 'age public key' }));
+    const field = screen.getByRole('textbox', { name: /age public key/ });
+    const start = screen.getByRole('button', { name: /Export program bundle/ });
+    await user.type(field, 'AGE-SECRET-KEY-1QQQQ');
+    expect(start).toBeDisabled();
+    expect(screen.getByText(/That’s a secret key/)).toBeInTheDocument();
+    // The age spec's example public key: not a secret.
+    const AGE_RECIPIENT = 'age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p';
+    await user.clear(field);
+    await user.type(field, AGE_RECIPIENT);
+    expect(start).toBeEnabled();
+    await user.click(start);
+    expect(startMutate).toHaveBeenCalledWith(
+      { encryption: { mode: 'recipient', recipient: AGE_RECIPIENT } },
+      expect.anything(),
+    );
+  });
+
+  it('says a finished program bundle is encrypted', async () => {
+    const user = userEvent.setup();
+    jobState.data = makeJob({
+      status: 'success',
+      downloadUrl: '/dl/job-1',
+      encryptionMode: 'passphrase',
+    });
+    useProgram.mockReturnValue({ data: makeProgram() });
+    renderPage();
+    await user.click(screen.getByRole('button', { name: /Export program bundle/ }));
+    expect(screen.getByTestId('export-encryption-state')).toHaveTextContent(
+      'Encrypted with a passphrase',
+    );
   });
 });
 

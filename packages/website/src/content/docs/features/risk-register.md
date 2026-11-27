@@ -1,6 +1,7 @@
 ---
 title: Risk Register
 description: Standards-aligned risk tracking with probability × impact scoring, task links, and real-time board integration.
+documentedFor: "0.5"
 ---
 
 :::note[0.1]
@@ -112,6 +113,22 @@ Every risk receives a project-scoped short ID (e.g. `R-00000003`) that shares th
 ## Import and export
 
 Export the full register to CSV from the **Export CSV** toolbar action. The file carries every column shown in the table: ID, title, status, category, response, probability, impact, severity, owner, mitigation due date, trigger, contingency, and description.
+
+:::note[Ships in 0.5]
+The **Owner Name** column and the `GET …/risks/export/` endpoint below ship in 0.5. So does the import change below. In the current release the export's **Owner** column holds the member's id only, the CSV is built in the browser from the rows on screen, and import keeps the `'` the export puts in front of a cell that starts with `=`, `+`, `-` or `@`. The status update PDF named at the end of this section ships in 0.5 as well; the current release has no PDF of a status update.
+:::
+
+From 0.5 the file adds an **Owner Name** column beside **Owner**: **Owner** keeps the member id that import matches on, and **Owner Name** is the person's name for whoever reads the file. Import ignores **Owner Name**. The toolbar's file holds the rows on screen, in the table's current order; the API file below holds the whole register, highest severity (probability × impact) first.
+
+A cell that starts with `=`, `+`, `-` or `@` (a description that opens with a `- ` bullet, say) is written with a leading `'`, so a spreadsheet shows it as text instead of running it as a formula. From 0.5, import removes exactly that one quote again, so an exported file round-trips with its values unchanged and no warnings.
+
+The same file is available from the API for the whole register, whatever the table is filtered to. Any project member (Viewer and above) can download it, the same people who can read the register. That departs on purpose from ADR-0634 §6, which places a CSV export at the same role tier as the equivalent seed export (Admin and above). The register CSV follows the tier its issue asked for, project membership, because a risk row carries no field the seed export withholds (no email address, no team-private signal) and every value in it is already readable by a Viewer in the register itself.
+
+```http
+GET /api/v1/projects/{project_id}/risks/export/     # text/csv, risks-<CODE>-<YYYY-MM-DD>.csv
+```
+
+The one-page project summary PDF is the [status update PDF](/features/status-updates/): post an update, then choose **PDF (Letter)** or **PDF (A4)** on it.
 
 The risk register is the one surface where CSV export and import are true counterparts — see [CSV import & export](/features/csv-import-export/) for the file format, the limits, and the Excel gotchas that apply to every TruePPM CSV.
 

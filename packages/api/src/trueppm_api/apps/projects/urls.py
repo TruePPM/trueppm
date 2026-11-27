@@ -379,6 +379,12 @@ urlpatterns = [
         RiskViewSet.as_view({"post": "import_csv"}),
         name="project-risks-import",
     ),
+    # Literal "export" before <pk> for the same reason as "import" above (#1200).
+    path(
+        "projects/<project_pk>/risks/export/",
+        RiskViewSet.as_view({"get": "export_csv"}),
+        name="project-risks-export",
+    ),
     path(
         "projects/<project_pk>/risks/<pk>/",
         RiskViewSet.as_view(

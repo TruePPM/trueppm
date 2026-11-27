@@ -39,6 +39,7 @@ from trueppm_api.apps.agents.models import (
 )
 from trueppm_api.apps.agents.signals import agent_action_prune_requested, agent_action_recorded
 from trueppm_api.core.extension_signals import dispatch_extension_signal
+from trueppm_api.core.request_secrets import redact_secret_fields
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -107,6 +108,9 @@ def hash_request_payload(request: Request) -> str:
         parts["body_sha256"] = "unavailable"
         body = b""
     if body:
+        # The chain is immutable: a passphrase in the body must never be hashed into
+        # it (#2400), so secret fields are removed first.
+        body = redact_secret_fields(body, request.META.get("CONTENT_TYPE", ""))
         parts["body_sha256"] = hashlib.sha256(body).hexdigest()
     canonical = json.dumps(parts, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(canonical.encode()).hexdigest()

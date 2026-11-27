@@ -246,3 +246,62 @@ user-facing docs both state 0.4's tier explicitly per surface, and the words
   (ADR-0109 §Durable Execution); the async bundle path stays on the export-job pattern
   (ADR-0219). The follow-ups (#2399, #2400) both act inside the existing bundle-build
   task and add no new dispatch.
+
+## Amendment (2026-11-27, #2400, #1200): how §5's encryption was built, and where the risk CSV departs from §6
+
+### (a) Passphrase mode is a custom stanza over an X25519 key derived from the passphrase
+
+§5 named "optional passphrase- or recipient-based encryption, age/OpenPGP-shaped". #2400
+builds both modes on the **age v1** file format (`age-encryption.org/v1`), written
+from the `cryptography` primitives the API already depends on.
+
+- **Recipient mode is standard age.** The caller supplies an `age1…` public key; the
+  bundle carries an ordinary X25519 stanza and opens with `age -d -i <identity>`. The
+  server only ever holds the public key.
+- **Passphrase mode is not age's `scrypt` stanza.** The bundle is built by a Celery
+  worker long after the request returns. age's `scrypt` stanza wraps the file key with
+  a key derived from the passphrase *at encryption time*, so the worker would need the
+  passphrase or that derived key, which means putting it in the broker message and the
+  job row. That is the retention §5 forbids. Instead the request thread runs scrypt
+  over a fresh random salt, turns the output into an **X25519 private key**, keeps only
+  the **public** half, and discards the passphrase and the private key before it
+  responds. The worker encrypts to that public key like any recipient and writes a
+  custom `trueppm-scrypt <salt> <log2 N>` stanza beside the X25519 stanza so the file
+  records how to re-derive the key. The header HMAC covers that stanza. Decryption
+  re-derives the private key from the passphrase and unwraps the X25519 stanza.
+
+Trade-offs accepted with that design:
+
+1. **Confidentiality only, not authenticity.** Anyone who holds the public key can
+   produce a file that the passphrase opens. The integrity manifest (#2399) is unkeyed,
+   so it does not prove origin either. The out-of-band check is the job's
+   `file_sha256` as the API reports it.
+2. **A forgery window while the bundle builds.** The job row holds the public key, the
+   salt and the work factor until the build ends. Someone with database read access in
+   that window can forge a bundle that opens under the passphrase, or test guesses
+   offline. The worker clears those values when the job succeeds or fails, and the
+   export drain fails and clears any job still pending or running after two hours, so
+   that is the longest the window lasts.
+3. **`age -d` cannot open a passphrase-mode file**, because the age CLI does not know the
+   `trueppm-scrypt` stanza. TruePPM's program import (passphrase sent with the upload)
+   opens it, and so does `export_crypto.decrypt_stream`. A user who needs a file
+   standard tooling can open uses recipient mode.
+4. **Offline guessing costs one scrypt at 2^17 (about 128 MiB) per guess.** The file
+   carries the salt and work factor, as every passphrase format must, so anyone who
+   holds the file can make that attempt. The import refuses a header that asks for a
+   heavier work factor than TruePPM writes, before deriving any key. The documented
+   mitigation is a long passphrase, with a 12-character minimum enforced.
+
+### (b) The risk register CSV is exported at Viewer+, a deliberate departure from §6
+
+§6 says a CSV export "sits at the same RBAC tier as the equivalent seed export"
+(Admin+). The server-side risk register CSV (#1200, `GET …/risks/export/`) is
+implemented at **Viewer+** (any project member), the tier #1200's test plan specifies.
+The reasoning: a risk row carries no field the seed exporter gates (no email address,
+no ADR-0104 team-private signal), and every value in the file is already served to a
+Viewer by the register's `list` endpoint, so Admin+ would withhold nothing a Viewer
+cannot already read. §6's rule is otherwise unchanged for every other CSV export.
+
+**Status: awaiting maintainer confirmation.** This departure was made in implementation,
+not ruled on in review. If it is rejected, the fix is to give the export action the
+same permission as the seed export; the permission is not changed by this amendment.

@@ -1,4 +1,12 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { ExportEncryptionFields } from '../ExportEncryptionFields';
+import {
+  EMPTY_ENCRYPTION_DRAFT,
+  type EncryptionDraft,
+  encryptionLabel,
+  encryptionProblem,
+  exportStartBody,
+} from '../exportEncryption';
 import { SettingsPageTitle, FieldRow } from '../SettingsShell';
 import { FieldHelp } from '@/components/FieldHelp';
 import { DateFormatEcho } from '@/components/DateFormatEcho';
@@ -123,9 +131,20 @@ function ExportProgramBundle({ programId, code }: { programId: string; code?: st
     startError,
   });
 
+  // Opt-in encryption (issue 2400). The passphrase is cleared once the job is
+  // queued: the server keeps only a derived public key, and so does this card.
+  const [encryption, setEncryption] = useState<EncryptionDraft>(EMPTY_ENCRYPTION_DRAFT);
+  const blocked = encryptionProblem(encryption) != null;
+  const encrypted = encryptionLabel(job?.encryptionMode);
+
   const onStart = () => {
     setDownloadError(null);
-    start.mutate(undefined as void, { onSuccess: (j) => setJobId(j.id) });
+    start.mutate(exportStartBody(encryption), {
+      onSuccess: (j) => {
+        setJobId(j.id);
+        setEncryption((d) => ({ ...d, passphrase: '', confirm: '' }));
+      },
+    });
   };
 
   const onDownload = () => {
@@ -138,11 +157,12 @@ function ExportProgramBundle({ programId, code }: { programId: string; code?: st
 
   return (
     <div>
+      <ExportEncryptionFields draft={encryption} onChange={setEncryption} disabled={busy} />
       <div className="flex items-center gap-2">
         <button
           type="button"
           onClick={ready ? onDownload : onStart}
-          disabled={busy}
+          disabled={busy || (!ready && blocked)}
           className="h-9 rounded-control border border-neutral-border px-4 text-[13px] font-medium text-neutral-text-primary
           hover:bg-neutral-surface-raised
           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
@@ -155,10 +175,19 @@ function ExportProgramBundle({ programId, code }: { programId: string; code?: st
             {statusLabel}
           </span>
         ) : null}
+        {encrypted && job ? (
+          <span
+            className="text-[12px] text-neutral-text-secondary"
+            data-testid="export-encryption-state"
+          >
+            {encrypted}
+          </span>
+        ) : null}
         {ready ? (
           <button
             type="button"
             onClick={onStart}
+            disabled={blocked}
             className="text-[12px] text-neutral-text-secondary underline hover:text-neutral-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary rounded-control"
           >
             Rebuild

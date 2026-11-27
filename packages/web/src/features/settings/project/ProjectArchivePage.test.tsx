@@ -45,7 +45,9 @@ vi.mock('@/hooks/useProjectMutations', () => ({
   useDeleteProject: () => h.remove as Mutation,
   useTransferProject: () => h.transfer as Mutation,
 }));
-vi.mock('@/hooks/useProgramSeedIo', () => ({ useExportProjectSeed: () => h.exportSeed as Mutation }));
+vi.mock('@/hooks/useProgramSeedIo', () => ({
+  useExportProjectSeed: () => h.exportSeed as Mutation,
+}));
 vi.mock('../hooks/useProjectExport', () => ({
   useStartProjectExport: () => h.startBundle as Mutation,
   useProjectExportJob: () => h.exportJob,
@@ -182,9 +184,7 @@ describe('ProjectArchivePage archive toggle', () => {
     renderPage();
     expect(screen.getByRole('heading', { name: 'Unarchive project' })).toBeInTheDocument();
     // Copy reflects the restore path, not the freeze path
-    expect(
-      screen.getByText(/Restore writes to this project/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Restore writes to this project/i)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Unarchive Atlas Migration…' }));
     expect(h.unarchive.mutate).toHaveBeenCalledWith(undefined);
     expect(h.archive.mutate).not.toHaveBeenCalled();
@@ -240,8 +240,8 @@ describe('ProjectArchivePage permanent delete', () => {
     h.archive.mutate.mockImplementation((_v: unknown, opts?: { onSuccess?: () => void }) =>
       opts?.onSuccess?.(),
     );
-    h.remove.mutate.mockImplementation(
-      (_v: unknown, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.(),
+    h.remove.mutate.mockImplementation((_v: unknown, opts?: { onSuccess?: () => void }) =>
+      opts?.onSuccess?.(),
     );
     renderPage();
 
@@ -262,8 +262,8 @@ describe('ProjectArchivePage permanent delete', () => {
   it('deletes directly (no archive) when the project is already archived', async () => {
     const user = userEvent.setup();
     h.project = { ...h.project, is_archived: true };
-    h.remove.mutate.mockImplementation(
-      (_v: unknown, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.(),
+    h.remove.mutate.mockImplementation((_v: unknown, opts?: { onSuccess?: () => void }) =>
+      opts?.onSuccess?.(),
     );
     renderPage();
 
@@ -309,8 +309,8 @@ describe('ProjectArchivePage permanent delete', () => {
 describe('ProjectArchivePage move to Trash', () => {
   it('soft-deletes, fires an Undo toast, and navigates home', async () => {
     const user = userEvent.setup();
-    h.remove.mutate.mockImplementation(
-      (_v: unknown, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.(),
+    h.remove.mutate.mockImplementation((_v: unknown, opts?: { onSuccess?: () => void }) =>
+      opts?.onSuccess?.(),
     );
     renderPage();
 
@@ -329,8 +329,8 @@ describe('ProjectArchivePage move to Trash', () => {
 
   it('restores via the Undo action, invalidates caches, and navigates to the project', async () => {
     const user = userEvent.setup();
-    h.remove.mutate.mockImplementation(
-      (_v: unknown, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.(),
+    h.remove.mutate.mockImplementation((_v: unknown, opts?: { onSuccess?: () => void }) =>
+      opts?.onSuccess?.(),
     );
     renderPage();
     await user.click(screen.getByRole('button', { name: 'Move to Trash…' }));
@@ -347,8 +347,8 @@ describe('ProjectArchivePage move to Trash', () => {
 
   it('shows an error toast when the Undo restore call fails', async () => {
     const user = userEvent.setup();
-    h.remove.mutate.mockImplementation(
-      (_v: unknown, opts?: { onSuccess?: () => void }) => opts?.onSuccess?.(),
+    h.remove.mutate.mockImplementation((_v: unknown, opts?: { onSuccess?: () => void }) =>
+      opts?.onSuccess?.(),
     );
     h.apiPost.mockRejectedValue(new Error('restore failed'));
     renderPage();
@@ -377,7 +377,9 @@ describe('ProjectArchivePage docs links (#2266)', () => {
     expect(hrefs).toHaveLength(6);
     expect(hrefs.some((h) => h.includes('administration/project-settings/#lifecycle'))).toBe(true);
     expect(hrefs.some((h) => h.includes('administration/rbac'))).toBe(true);
-    expect(hrefs.some((h) => h.includes('administration/data-export/#export-a-project'))).toBe(true);
+    expect(hrefs.some((h) => h.includes('administration/data-export/#export-a-project'))).toBe(
+      true,
+    );
     expect(
       hrefs.some((h) => h.includes('administration/data-export/#export-a-project-bundle-async')),
     ).toBe(true);
@@ -411,6 +413,39 @@ describe('ProjectArchivePage export bundle', () => {
     const actionBtn = card.querySelector('button')!;
     expect(actionBtn).toBeDisabled();
     expect(actionBtn.textContent).toBe('Working…');
+  });
+
+  it('queues an encrypted bundle only after the passphrase is confirmed and acknowledged (issue 2400)', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole('radio', { name: 'Passphrase' }));
+    const start = screen.getByRole('button', { name: 'Export bundle…' });
+    expect(start).toBeDisabled();
+    await user.type(screen.getByLabelText(/Choose a passphrase/), 'correct horse battery');
+    await user.type(screen.getByLabelText('Confirm passphrase'), 'correct horse battery');
+    expect(start).toBeDisabled();
+    await user.click(screen.getByRole('checkbox', { name: /lost passphrase can’t be recovered/ }));
+    expect(start).toBeEnabled();
+    await user.click(start);
+    expect(h.startBundle.mutate).toHaveBeenCalledWith(
+      { encryption: { mode: 'passphrase', passphrase: 'correct horse battery' } },
+      expect.anything(),
+    );
+  });
+
+  it('says a finished bundle is encrypted', () => {
+    h.exportJob = {
+      data: {
+        id: 'job-9',
+        status: 'success',
+        downloadUrl: '/dl/job-9',
+        encryptionMode: 'recipient',
+      },
+    };
+    renderPage();
+    expect(screen.getByTestId('export-encryption-state')).toHaveTextContent(
+      'Encrypted to an age public key',
+    );
   });
 
   it('shows the queued status label for a pending job', () => {

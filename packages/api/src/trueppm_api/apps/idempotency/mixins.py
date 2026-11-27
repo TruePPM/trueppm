@@ -21,6 +21,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from trueppm_api.apps.idempotency.models import IdempotencyKey
+from trueppm_api.core.request_secrets import redact_secret_fields
 
 logger = logging.getLogger(__name__)
 
@@ -222,6 +223,9 @@ class IdempotencyMixin:
         length and content type. Two different files of identical size under one key
         then replay rather than conflict; reading the whole file to tell them apart
         would cost the memory the ceiling exists to save.
+
+        Secret fields (an export or import passphrase) are removed from the body
+        before it is hashed — see ``core.request_secrets``.
         """
         try:
             body = request.body
@@ -229,6 +233,9 @@ class IdempotencyMixin:
             body = "unbuffered:{}:{}".format(
                 request.META.get("CONTENT_LENGTH", ""), request.META.get("CONTENT_TYPE", "")
             ).encode("utf-8")
+        else:
+            # A passphrase in the body must not reach a stored, unsalted digest (#2400).
+            body = redact_secret_fields(body, request.META.get("CONTENT_TYPE", ""))
         hasher = hashlib.sha256()
         hasher.update((request.method or "").encode("utf-8"))
         hasher.update(b"\n")

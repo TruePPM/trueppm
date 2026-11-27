@@ -529,6 +529,23 @@ describe('RiskRegisterView', () => {
 
   // ── Export CSV ────────────────────────────────────────────────────────────
 
+  // #1200: export is a read (Viewer+, like GET .../risks/export/), so every role
+  // that can see the register gets it; only Import is write-gated.
+  it.each([
+    ['Viewer', 1, false],
+    ['Member', 100, true],
+    ['Scheduler', 200, true],
+    ['Admin', 300, true],
+    ['Owner', 400, true],
+  ])('shows Export CSV to a %s (role %i; Import CSV shown: %s)', (_label, role, canImport) => {
+    roleState.value = role;
+    renderWithProviders(<RiskRegisterView />);
+    expect(screen.getByRole('button', { name: 'Export CSV' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Import CSV' }) !== null).toBe(canImport);
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    expect(screen.getByRole('menuitem', { name: 'Export CSV' })).toBeInTheDocument();
+  });
+
   it('exports the displayed rows with a name-derived slug from the desktop button', () => {
     useRisksState.risks = [FIXTURE_RISK];
     renderWithProviders(<RiskRegisterView />);

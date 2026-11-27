@@ -2487,6 +2487,53 @@ class ProgramProjectRowSerializer(ProjectSerializer):
         return False if role is None else role_can_undo_batch_operation(role)
 
 
+class ExportEncryptionSerializer(serializers.Serializer[Any]):
+    """Opt-in encryption for one async export bundle (#2400, ADR-0634 §5).
+
+    ``validate`` checks the choice cheaply (passphrase length, age key syntax) and
+    returns an in-memory ``EncryptionRequest`` under ``encryption``. The scrypt
+    derivation is deferred to the enqueue service, after its in-flight de-dupe, so
+    a request about to be refused with a 409 spends no scrypt; only the derived
+    public key ever reaches the job row, the outbox or the broker. The passphrase
+    field is write-only and never echoed, logged, or included in an error message.
+    """
+
+    mode = serializers.ChoiceField(choices=["passphrase", "recipient"])
+    passphrase = serializers.CharField(
+        required=False, write_only=True, trim_whitespace=False, max_length=1024
+    )
+    recipient = serializers.CharField(required=False, max_length=256)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        from trueppm_api.apps.projects.export_crypto import (
+            ExportCryptoError,
+            encryption_request,
+        )
+
+        mode = attrs["mode"]
+        field = "passphrase" if mode == "passphrase" else "recipient"
+        value = attrs.get(field)
+        if not value:
+            message = (
+                "Enter a passphrase."
+                if mode == "passphrase"
+                else "Paste an age public key (it starts with age1)."
+            )
+            raise serializers.ValidationError({field: [message]})
+        try:
+            attrs["encryption"] = encryption_request(mode, **{field: value})
+        except ExportCryptoError as exc:
+            raise serializers.ValidationError({field: [str(exc)]}) from exc
+        attrs.pop("passphrase", None)
+        return attrs
+
+
+class ExportStartSerializer(serializers.Serializer[Any]):
+    """Optional body of ``POST .../export/``. An empty body queues a plaintext bundle."""
+
+    encryption = ExportEncryptionSerializer(required=False, allow_null=True)
+
+
 class ProjectExportJobSerializer(serializers.ModelSerializer[ProjectExportJob]):
     """Read serializer for an async project export job's status + download (ADR-0219).
 
@@ -2506,6 +2553,7 @@ class ProjectExportJobSerializer(serializers.ModelSerializer[ProjectExportJob]):
             "status",
             "file_size",
             "file_sha256",
+            "encryption_mode",
             "error_detail",
             "expires_at",
             "created_at",
@@ -2540,6 +2588,7 @@ class ProgramExportJobSerializer(serializers.ModelSerializer[ProgramExportJob]):
             "status",
             "file_size",
             "file_sha256",
+            "encryption_mode",
             "error_detail",
             "expires_at",
             "created_at",

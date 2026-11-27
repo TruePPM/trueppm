@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
+import { bundleFilename, type EncryptionChoice, type ExportStartBody } from '../exportEncryption';
 
 /**
  * Async project export bundle hooks (issue 1266, ADR-0219). Mirrors the workspace
@@ -23,6 +24,8 @@ export interface ProjectExportJob {
   completedAt: string | null;
   /** Non-null only once the archive is ready; presence = "downloadable". */
   downloadUrl: string | null;
+  /** Opt-in encryption at rest (issue 2400); `none` for a plain `.tar.gz`. */
+  encryptionMode: EncryptionChoice;
 }
 
 interface ProjectExportJobRaw {
@@ -35,6 +38,7 @@ interface ProjectExportJobRaw {
   started_at: string | null;
   completed_at: string | null;
   download_url: string | null;
+  encryption_mode?: EncryptionChoice;
 }
 
 function mapJob(raw: ProjectExportJobRaw): ProjectExportJob {
@@ -48,6 +52,8 @@ function mapJob(raw: ProjectExportJobRaw): ProjectExportJob {
     startedAt: raw.started_at,
     completedAt: raw.completed_at,
     downloadUrl: raw.download_url,
+    // Older servers omit the field; their bundles are never encrypted.
+    encryptionMode: raw.encryption_mode ?? 'none',
   };
 }
 
@@ -55,8 +61,8 @@ function mapJob(raw: ProjectExportJobRaw): ProjectExportJob {
 export function useStartProjectExport(projectId: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async () => {
-      const res = await apiClient.post<ProjectExportJobRaw>(`/projects/${projectId}/export/`);
+    mutationFn: async (body: ExportStartBody = {}) => {
+      const res = await apiClient.post<ProjectExportJobRaw>(`/projects/${projectId}/export/`, body);
       return mapJob(res.data);
     },
     onSuccess: (job) => {
@@ -104,7 +110,10 @@ export async function downloadProjectExport(
   const url = URL.createObjectURL(res.data);
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.download = `project-${(code || projectId).trim() || projectId}.tar.gz`;
+  anchor.download = bundleFilename(
+    `project-${(code || projectId).trim() || projectId}`,
+    job.encryptionMode,
+  );
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();

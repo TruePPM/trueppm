@@ -78,6 +78,7 @@ from trueppm_api.apps.projects.bulk_settings import (
     apply_bulk_fields,
     build_bulk_response,
 )
+from trueppm_api.apps.projects.export_crypto import AGE_MAGIC, is_encrypted
 from trueppm_api.apps.projects.lifecycle import not_draft_q, visible_projects
 from trueppm_api.apps.projects.models import (
     Baseline,
@@ -97,6 +98,7 @@ from trueppm_api.apps.projects.models import (
 )
 from trueppm_api.apps.projects.program_rollup import drift_counts_by_project
 from trueppm_api.apps.projects.serializers import (
+    ExportStartSerializer,
     LoadSampleBodySerializer,
     ProgramExportJobSerializer,
     ProgramImportJobSerializer,
@@ -460,6 +462,27 @@ def _read_seed_json_body(
     return data, None
 
 
+def _decrypt_upload(upload: Any, passphrase: Any) -> tuple[Any, _SeedPayloadProblem | None]:
+    """Decrypt a passphrase-encrypted export bundle (#2400) into a temp file."""
+    import tempfile
+
+    from trueppm_api.apps.projects.export_crypto import ExportCryptoError, decrypt_stream
+
+    if not isinstance(passphrase, str) or not passphrase:
+        return None, _SeedPayloadProblem(
+            detail="This bundle is encrypted. Enter its passphrase to import it.",
+            is_document_level=False,
+        )
+    plain = tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024)  # noqa: SIM115
+    try:
+        decrypt_stream(upload, plain, passphrase)
+    except ExportCryptoError as exc:
+        plain.close()
+        return None, _SeedPayloadProblem(detail=str(exc), is_document_level=False)
+    plain.seek(0)
+    return plain, None
+
+
 def _read_seed_multipart(
     request: Request, max_bytes: int, too_large: _SeedPayloadProblem
 ) -> tuple[Any, _SeedPayloadProblem | None]:
@@ -472,6 +495,17 @@ def _read_seed_multipart(
     # to exhaust memory with a giant upload (mirrors the MSP importer).
     if upload.size is not None and upload.size > max_bytes:
         return None, too_large
+    # An encrypted bundle (#2400) is decrypted with the passphrase sent beside it, into
+    # a temp file that is discarded with the request; the passphrase is not stored.
+    # Ciphertext is bounded by the upload cap, so the plaintext is too.
+    head = upload.read(len(AGE_MAGIC))
+    upload.seek(0)
+    if is_encrypted(head):
+        fields = request.data
+        passphrase = fields.get("passphrase") if isinstance(fields, dict) else None
+        upload, problem = _decrypt_upload(upload, passphrase)
+        if problem is not None:
+            return None, problem
     # An export bundle (.tar.gz, gzip magic) is verified against its integrity
     # manifest before anything is read from it (#2399): a mismatch is a 400 at file
     # level, so nothing is persisted. A bundle without digests still imports.
@@ -1733,8 +1767,19 @@ class ProgramViewSet(
     @extend_schema(
         methods=["POST"],
         summary="Queue a richer asynchronous program export bundle",
-        request=None,
+        request=ExportStartSerializer,
         responses={
+            400: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description="Invalid encryption options (passphrase too short, bad age key).",
+            ),
+            409: OpenApiResponse(
+                response=OpenApiTypes.OBJECT,
+                description=(
+                    "An export this caller requested is still being built with different "
+                    "encryption settings (#2400)."
+                ),
+            ),
             202: OpenApiResponse(
                 response=ProgramExportJobSerializer,
                 description=(
@@ -1762,9 +1807,24 @@ class ProgramViewSet(
         program = self.get_object()
 
         if request.method == "POST":
-            from trueppm_api.apps.projects.services import enqueue_program_export
+            from trueppm_api.apps.projects.services import (
+                ExportInFlightConflict,
+                enqueue_program_export,
+            )
 
-            job = enqueue_program_export(program=program, requested_by=request.user)
+            # Opt-in encryption (#2400). Validation is cheap; the enqueue service
+            # derives the public key only after its in-flight de-dupe, and the
+            # passphrase never reaches the job row.
+            start = ExportStartSerializer(data=request.data or {})
+            start.is_valid(raise_exception=True)
+            options = start.validated_data.get("encryption")
+            encryption = options["encryption"] if options else None
+            try:
+                job = enqueue_program_export(
+                    program=program, requested_by=request.user, encryption=encryption
+                )
+            except ExportInFlightConflict as exc:
+                return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
             return Response(
                 ProgramExportJobSerializer(job, context={"request": request}).data,
                 status=status.HTTP_202_ACCEPTED,
@@ -1842,6 +1902,14 @@ class ProgramViewSet(
                     "The program export .tar.gz as a file attachment. The `X-Export-SHA256` "
                     "header carries the archive's lowercase hex SHA-256 (absent for "
                     "exports built before digests existed)."
+                ),
+            ),
+            (200, "application/octet-stream"): OpenApiResponse(
+                response=OpenApiTypes.BINARY,
+                description=(
+                    "An encrypted bundle (#2400): age v1 ciphertext named `.tar.gz.age`, "
+                    "with `X-Export-Encryption: passphrase|recipient`. `X-Export-SHA256` "
+                    "is then the digest of the decrypted .tar.gz."
                 ),
             ),
             409: OpenApiResponse(

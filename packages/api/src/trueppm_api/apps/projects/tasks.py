@@ -29,6 +29,14 @@ logger = logging.getLogger(__name__)
 EXPORT_MAX_RETRIES = 3  # ADR-0219 §Durable Execution item 8
 EXPORT_ORPHAN_WINDOW_MINUTES = 5  # ADR-0219 §Durable Execution item 3
 EXPORT_DRAIN_BATCH_SIZE = 10
+# A pending or running export job older than this is failed by the drain (#2400).
+# One attempt is hard-killed at 660 s, and a job gets EXPORT_MAX_RETRIES + 1
+# attempts with 10/20/40 s backoff: about 46 minutes in the worst case. Two hours
+# is well past that, so a job this old has no worker left that will finish it
+# (a lost worker, a broker that dropped the message). Failing it clears the
+# encryption params it holds and stops it answering every later encrypted
+# request for the same export with a 409.
+EXPORT_STALE_JOB_MINUTES = 120
 DEFAULT_EXPORT_RETENTION_DAYS = 7  # ADR-0219 §Durable Execution item 6 (shared with ADR-0174)
 
 # Rows one purge run may reap, shared by the export and import purges (#2615).
@@ -1469,13 +1477,19 @@ def run_project_export(self: object, job_id: str) -> None:
             status=ExportJobStatus.FAILED,
             error_detail=str(exc)[:2000],
             completed_at=timezone.now(),
+            encryption_params={},
         )
         return
 
     retention = _export_retention_days()
     expires_at = timezone.now() + timedelta(days=retention) if retention is not None else None
+    # The encryption params (public key, salt, work factor) are needed only to build
+    # the file (#2400). Kept after it, they let anyone with database read access test
+    # passphrase guesses offline and forge a bundle that opens under the passphrase,
+    # so a finished job keeps the mode alone.
     ProjectExportJob.objects.filter(pk=job_id).update(
         status=ExportJobStatus.SUCCESS,
+        encryption_params={},
         file_path=storage_path,
         file_size=size,
         file_sha256=sha256,
@@ -1496,7 +1510,7 @@ def run_project_export(self: object, job_id: str) -> None:
     name="projects.drain_project_exports",
 )
 def drain_project_exports(self: object) -> None:
-    """Re-dispatch project export jobs stuck in ``pending`` (broker down at on_commit)."""
+    """Re-dispatch project export jobs stuck in ``pending``; fail ones past the stale bound."""
     _do_drain_project_exports()
 
 
@@ -1521,8 +1535,42 @@ def _export_retention_days() -> int | None:
     return getattr(settings, "TRUEPPM_EXPORT_RETENTION_DAYS", DEFAULT_EXPORT_RETENTION_DAYS)
 
 
+def _fail_stale_export_jobs(model: Any, label: str) -> int:
+    """Fail pending/running export jobs older than ``EXPORT_STALE_JOB_MINUTES``.
+
+    The worker clears ``encryption_params`` only when it finishes. A job whose worker
+    was lost (hard kill, dropped message) never finishes, so without this the row
+    keeps the public key and salt forever and its in-flight status refuses every
+    later request with different encryption settings. ``started_at`` is reset on
+    every attempt, so an old one means no attempt has run for the whole bound. The
+    status filter on the UPDATE keeps a job that finished in the meantime untouched.
+    """
+    from django.db.models import Q
+
+    from trueppm_api.apps.projects.models import ExportJobStatus
+
+    cutoff = timezone.now() - timedelta(minutes=EXPORT_STALE_JOB_MINUTES)
+    reaped = int(
+        model.objects.filter(
+            Q(status=ExportJobStatus.PENDING, created_at__lt=cutoff)
+            | Q(status=ExportJobStatus.RUNNING, started_at__lt=cutoff)
+            | Q(status=ExportJobStatus.RUNNING, started_at__isnull=True, created_at__lt=cutoff)
+        ).update(
+            status=ExportJobStatus.FAILED,
+            error_detail="The export did not finish. Request a new export.",
+            completed_at=timezone.now(),
+            encryption_params={},
+        )
+    )
+    if reaped:
+        logger.warning("%s: failed %d stale export job(s)", label, reaped)
+    return reaped
+
+
 def _do_drain_project_exports() -> None:
     from trueppm_api.apps.projects.models import ExportJobStatus, ProjectExportJob
+
+    _fail_stale_export_jobs(ProjectExportJob, "drain_project_exports")
 
     orphan_cutoff = timezone.now() - timedelta(minutes=EXPORT_ORPHAN_WINDOW_MINUTES)
     stuck = list(
@@ -1620,13 +1668,19 @@ def run_program_export(self: object, job_id: str) -> None:
             status=ExportJobStatus.FAILED,
             error_detail=str(exc)[:2000],
             completed_at=timezone.now(),
+            encryption_params={},
         )
         return
 
     retention = _export_retention_days()
     expires_at = timezone.now() + timedelta(days=retention) if retention is not None else None
+    # The encryption params (public key, salt, work factor) are needed only to build
+    # the file (#2400). Kept after it, they let anyone with database read access test
+    # passphrase guesses offline and forge a bundle that opens under the passphrase,
+    # so a finished job keeps the mode alone.
     ProgramExportJob.objects.filter(pk=job_id).update(
         status=ExportJobStatus.SUCCESS,
+        encryption_params={},
         file_path=storage_path,
         file_size=size,
         file_sha256=sha256,
@@ -1647,7 +1701,7 @@ def run_program_export(self: object, job_id: str) -> None:
     name="projects.drain_program_exports",
 )
 def drain_program_exports(self: object) -> None:
-    """Re-dispatch program export jobs stuck in ``pending`` (broker down at on_commit)."""
+    """Re-dispatch program export jobs stuck in ``pending``; fail ones past the stale bound."""
     _do_drain_program_exports()
 
 
@@ -1668,6 +1722,8 @@ def purge_expired_program_exports(self: object) -> None:
 
 def _do_drain_program_exports() -> None:
     from trueppm_api.apps.projects.models import ExportJobStatus, ProgramExportJob
+
+    _fail_stale_export_jobs(ProgramExportJob, "drain_program_exports")
 
     orphan_cutoff = timezone.now() - timedelta(minutes=EXPORT_ORPHAN_WINDOW_MINUTES)
     stuck = list(

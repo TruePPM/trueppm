@@ -10022,6 +10022,14 @@ class ExportJobStatus(models.TextChoices):
     FAILED = "failed", "Failed"
 
 
+class ExportEncryptionMode(models.TextChoices):
+    """How an export bundle is encrypted at rest (#2400). Values match ``export_crypto``."""
+
+    NONE = "none", "None"
+    PASSPHRASE = "passphrase", "Passphrase"
+    RECIPIENT = "recipient", "Recipient public key"
+
+
 class ProjectExportJob(models.Model):
     """Tracks one asynchronous *project* export bundle (ADR-0219, #1266).
 
@@ -10066,6 +10074,19 @@ class ProjectExportJob(models.Model):
     # Lowercase hex SHA-256 of the finished .tar.gz (#2399); "" for jobs built before
     # digests existed. Verifiable client-side with ``sha256sum``.
     file_sha256 = models.CharField(max_length=64, blank=True, default="")
+    # Opt-in encryption at rest (#2400, ADR-0634 §5): "none", "passphrase" or
+    # "recipient". ``encryption_params`` holds only PUBLIC values (the age public key
+    # and, for a passphrase, the scrypt salt and work factor); the passphrase itself
+    # is never stored, so nothing on this row can decrypt the file. They are still
+    # enough to test passphrase guesses offline, so the worker clears them when the
+    # job finishes (success or failure), and the export drain fails and clears a
+    # pending/running job its worker abandoned once it is older than
+    # ``tasks.EXPORT_STALE_JOB_MINUTES`` (two hours). Only a row younger than that
+    # bound, still pending or running, holds them.
+    encryption_mode = models.CharField(
+        max_length=12, choices=ExportEncryptionMode.choices, default=ExportEncryptionMode.NONE
+    )
+    encryption_params = models.JSONField(default=dict, blank=True)
     error_detail = models.TextField(blank=True, default="")
     # Download-link validity; past this the purge deletes the row + file (410 Gone).
     expires_at = models.DateTimeField(null=True, blank=True)
@@ -10137,6 +10158,19 @@ class ProgramExportJob(models.Model):
     # Lowercase hex SHA-256 of the finished .tar.gz (#2399); "" for jobs built before
     # digests existed. Verifiable client-side with ``sha256sum``.
     file_sha256 = models.CharField(max_length=64, blank=True, default="")
+    # Opt-in encryption at rest (#2400, ADR-0634 §5): "none", "passphrase" or
+    # "recipient". ``encryption_params`` holds only PUBLIC values (the age public key
+    # and, for a passphrase, the scrypt salt and work factor); the passphrase itself
+    # is never stored, so nothing on this row can decrypt the file. They are still
+    # enough to test passphrase guesses offline, so the worker clears them when the
+    # job finishes (success or failure), and the export drain fails and clears a
+    # pending/running job its worker abandoned once it is older than
+    # ``tasks.EXPORT_STALE_JOB_MINUTES`` (two hours). Only a row younger than that
+    # bound, still pending or running, holds them.
+    encryption_mode = models.CharField(
+        max_length=12, choices=ExportEncryptionMode.choices, default=ExportEncryptionMode.NONE
+    )
+    encryption_params = models.JSONField(default=dict, blank=True)
     error_detail = models.TextField(blank=True, default="")
     # Download-link validity; past this the purge deletes the row + file (410 Gone).
     expires_at = models.DateTimeField(null=True, blank=True)
