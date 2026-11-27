@@ -168,26 +168,13 @@ function PreferenceToggle({ pref, onChange }: ToggleProps) {
   if (pref.channel === 'in_app' && UNMUTABLE_IN_APP_EVENTS.has(pref.event_type)) {
     // Not a switch the user can move: the state is said in text, not color alone.
     return (
-      <span className="inline-flex items-center justify-center gap-2 min-h-11">
-        <button
-          type="button"
-          role="switch"
-          aria-checked={true}
-          disabled
-          aria-label={`${channelLabel} notifications for ${eventLabel}, always on`}
-          className="inline-flex items-center justify-center w-11 h-11 rounded-full cursor-not-allowed"
-        >
-          <span
-            aria-hidden="true"
-            className="relative inline-flex items-center w-11 h-6 rounded-full bg-neutral-border"
-          >
-            <span className="absolute w-4 h-4 rounded-full bg-white translate-x-6" />
-          </span>
-        </button>
-        <span aria-hidden="true" className="text-xs text-neutral-text-secondary">
-          Always on
-        </span>
-      </span>
+      <Toggle
+        on
+        onChange={() => {}}
+        disabled
+        onLabel="Always on"
+        ariaLabel={`${channelLabel} notifications for ${eventLabel}, always on`}
+      />
     );
   }
   // 44×44 outer hit zone (rule 5); inner visual 44×24 switch unchanged.
