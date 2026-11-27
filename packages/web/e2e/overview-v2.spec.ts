@@ -183,7 +183,7 @@ async function open(page: Page, forecast: Forecast) {
   );
   await page.route(`**/api/v1/projects/${PID}/visit/`, (r) => r.fulfill(json({ recorded: true })));
   await page.route('**/api/v1/workspace/', (r) =>
-    r.fulfill(json({ name: 'E2E', subdomain: 'e2e', public_sharing_enabled: false })),
+    r.fulfill(json({ name: 'E2E', subdomain: 'e2e', public_sharing: false })),
   );
   await page.goto(`/projects/${PID}/overview?ff=shell_v2`);
   await expect(page.getByTestId('overview2')).toBeVisible({ timeout: 10_000 });
