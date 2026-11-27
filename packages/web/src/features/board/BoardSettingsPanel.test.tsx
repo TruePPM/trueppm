@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { BoardSettingsPanel } from './BoardSettingsPanel';
+import { PHASE_SWATCHES } from '@/lib/identityColors';
 import type { BoardColumnDef } from '@/hooks/useBoardConfig';
 
 const COLUMNS: BoardColumnDef[] = [
@@ -55,10 +56,17 @@ describe('BoardSettingsPanel', () => {
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
   });
 
+  it('offers every shared phase swatch on each column', () => {
+    render(<BoardSettingsPanel columns={COLUMNS} onSave={vi.fn()} onClose={vi.fn()} />);
+    for (const { name } of PHASE_SWATCHES) {
+      expect(screen.getAllByRole('button', { name })).toHaveLength(COLUMNS.length);
+    }
+  });
+
   it('updates color via swatch click', () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     render(<BoardSettingsPanel columns={COLUMNS} onSave={onSave} onClose={vi.fn()} />);
-    const [firstGreen] = screen.getAllByRole('button', { name: 'Green' });
+    const [firstGreen] = screen.getAllByRole('button', { name: 'Bright green' });
     fireEvent.click(firstGreen);
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     return waitFor(() => {
@@ -275,11 +283,11 @@ describe('BoardSettingsPanel', () => {
         },
       ];
       render(<BoardSettingsPanel columns={lower} onSave={vi.fn()} onClose={vi.fn()} />);
-      expect(screen.getByRole('button', { name: 'Green' })).toHaveAttribute(
+      expect(screen.getByRole('button', { name: 'Bright green' })).toHaveAttribute(
         'aria-pressed',
         'true',
       );
-      expect(screen.getByRole('button', { name: 'Slate' })).toHaveAttribute(
+      expect(screen.getByRole('button', { name: 'Cool gray' })).toHaveAttribute(
         'aria-pressed',
         'false',
       );
@@ -411,7 +419,7 @@ describe('BoardSettingsPanel', () => {
       render(<BoardSettingsPanel columns={COLUMNS} onSave={vi.fn()} onClose={vi.fn()} readOnly />);
       expect(screen.getAllByLabelText<HTMLInputElement>('Custom hex')[0]).toBeDisabled();
       expect(screen.getAllByLabelText<HTMLInputElement>(/WIP limit/)[0]).toBeDisabled();
-      expect(screen.getAllByRole('button', { name: 'Green' })[0]).toBeDisabled();
+      expect(screen.getAllByRole('button', { name: 'Bright green' })[0]).toBeDisabled();
       expect(screen.getAllByRole('button', { name: 'No color' })[0]).toBeDisabled();
       expect(screen.getAllByRole('switch', { name: 'Show on board' })[0]).toBeDisabled();
       // Even the column that has a limit cannot be cleared.

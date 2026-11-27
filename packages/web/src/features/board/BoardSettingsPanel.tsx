@@ -5,6 +5,7 @@ import { Toggle } from '../settings/components/Toggle';
 import type { BoardColumnDef } from '@/hooks/useBoardConfig';
 import type { TaskStatus } from '@/types';
 import { CloseIcon } from '@/components/Icons';
+import { PHASE_SWATCHES } from '@/lib/identityColors';
 
 interface Props {
   columns: BoardColumnDef[];
@@ -20,17 +21,6 @@ interface Props {
   showCustomFieldsOnCards?: boolean;
   onToggleCustomFieldsOnCards?: (value: boolean) => void;
 }
-
-const SWATCHES: { hex: string; label: string }[] = [
-  { hex: '#94A3B8', label: 'Slate' },
-  { hex: '#64748B', label: 'Steel' },
-  { hex: '#3B82F6', label: 'Blue' },
-  { hex: '#A855F7', label: 'Purple' },
-  { hex: '#22C55E', label: 'Green' },
-  { hex: '#F59E0B', label: 'Amber' },
-  { hex: '#EF4444', label: 'Red' },
-  { hex: '#0EA5E9', label: 'Sky' },
-];
 
 const HEX_RE = /^#[0-9A-Fa-f]{6}$/;
 const LABEL_MAX = 32;
@@ -312,24 +302,24 @@ function ColumnRow({ col, err, readOnly, onChange }: RowProps) {
           role="group"
           aria-label={`${col.label} color`}
         >
-          {SWATCHES.map((s) => {
-            const selected = col.color?.toUpperCase() === s.hex.toUpperCase();
+          {PHASE_SWATCHES.map((s) => {
+            const selected = col.color?.toUpperCase() === s.value.toUpperCase();
             return (
               <button
-                key={s.hex}
+                key={s.value}
                 type="button"
                 disabled={readOnly}
-                onClick={() => onChange({ color: s.hex })}
+                onClick={() => onChange({ color: s.value })}
                 aria-pressed={selected}
-                aria-label={s.label}
-                title={s.label}
+                aria-label={s.name}
+                title={s.name}
                 className={[
                   'w-11 h-11 rounded-control border-2',
                   selected ? 'border-brand-primary' : 'border-neutral-border',
                   'disabled:opacity-50 disabled:cursor-not-allowed',
                   'focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1 focus-visible:outline-none',
                 ].join(' ')}
-                style={{ backgroundColor: s.hex }}
+                style={{ backgroundColor: s.value }}
               />
             );
           })}

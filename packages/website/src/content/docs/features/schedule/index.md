@@ -153,7 +153,7 @@ drag-to-plan stay on the desktop canvas.
 This section describes the redesigned Schedule page that ships in 0.5 behind the `shell_v2` preview flag (add `?ff=shell_v2` to the URL). The current release uses the toolbar described in [Schedule toolbar](/features/schedule-toolbar/), with a show/hide **Legend** button and a forecast strip docked under the chart.
 :::
 
-In 0.5 the redesigned Schedule page will put a smaller set of controls in its toolbar. It does not yet offer every action the current toolbar has; the ones it leaves out are listed under [Not in the redesigned Schedule page yet](#not-in-the-redesigned-schedule-page-yet). With the preview flag on, those actions are not reachable from the Schedule page at all. The redesigned toolbar will hold:
+In 0.5 the redesigned Schedule page will put a smaller set of controls in its toolbar. It does not offer every action the current toolbar has: some are listed under [Not in the redesigned Schedule page yet](#not-in-the-redesigned-schedule-page-yet), and some view toggles are listed under [Removed from the redesigned Schedule page on purpose](#removed-from-the-redesigned-schedule-page-on-purpose). With the preview flag on, none of them is reachable from the Schedule page. The redesigned toolbar will hold:
 
 - **Filter**, **Zoom** and **Add task** will always stay in the bar.
 - **Today**, **Baseline** and **Critical only** will sit in the bar when the window has room, and move into the **More** menu as it narrows. **Baseline** will only appear when the project has an active baseline.

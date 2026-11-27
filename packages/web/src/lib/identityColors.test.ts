@@ -7,6 +7,7 @@ import {
   tintedChipStyle,
   PHASE_SWATCHES,
 } from './identityColors';
+import { DEFAULT_COLUMNS } from '@/hooks/useBoardConfig';
 
 describe('identityColors', () => {
   it('tintedChipStyle returns a 10% wash background behind solid accent text', () => {
@@ -52,6 +53,21 @@ describe('PHASE_SWATCHES', () => {
       '#16A34A',
       '#6B6965',
       '#94A3B8',
+      '#64748B',
+      '#3B82F6',
+      '#A855F7',
+      '#22C55E',
+      '#F59E0B',
+      '#EF4444',
     ]);
+  });
+
+  it('names every swatch uniquely', () => {
+    expect(new Set(PHASE_SWATCHES.map((s) => s.name)).size).toBe(PHASE_SWATCHES.length);
+  });
+
+  it('covers every default board column color', () => {
+    const values: string[] = PHASE_SWATCHES.map((s) => s.value);
+    for (const column of DEFAULT_COLUMNS) expect(values).toContain(column.color);
   });
 });

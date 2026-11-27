@@ -33,11 +33,13 @@ export const IDENTITY_SWATCHES = [
 ] as const;
 
 /**
- * The phase / status color set (#1783): the swatches the project workflow
- * settings offer and the board's hash-derived phase rail draws from. These hex
- * values are persisted (a phase's `color`, a board column's `color`), so a value
- * may be added but never changed or removed — a saved color must keep matching a
- * swatch. Names are what the swatch buttons announce (WCAG 1.4.1 / 4.1.2).
+ * The phase / status color set (#1783): the swatches offered by both the project
+ * workflow settings and the board column settings. These hex values are persisted
+ * (a phase's `color`, a board column's `color`, including the board's default
+ * columns), so a value may be added but never changed or removed — a saved color
+ * must keep matching a swatch. Names are what the swatch buttons announce, so
+ * they are unique (WCAG 1.4.1 / 4.1.2). The board's phase rail does not hash over
+ * this set; see `features/board/phaseColors.ts`.
  */
 export const PHASE_SWATCHES = [
   { value: IDENTITY_SAGE, name: 'Sage' },
@@ -48,6 +50,12 @@ export const PHASE_SWATCHES = [
   { value: '#16A34A', name: 'Green' },
   { value: '#6B6965', name: 'Slate gray' },
   { value: '#94A3B8', name: 'Cool gray' },
+  { value: '#64748B', name: 'Steel gray' },
+  { value: '#3B82F6', name: 'Blue' },
+  { value: '#A855F7', name: 'Purple' },
+  { value: '#22C55E', name: 'Bright green' },
+  { value: '#F59E0B', name: 'Bright amber' },
+  { value: '#EF4444', name: 'Bright red' },
 ] as const;
 
 /**

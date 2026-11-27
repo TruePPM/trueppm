@@ -464,12 +464,13 @@ function SwatchPicker({
   onClear: () => void;
 }) {
   return (
-    <div className="mt-2 flex items-center gap-1.5 pl-[56px]">
+    <div className="mt-2 flex flex-wrap items-center gap-1.5 pl-[56px]">
       {PHASE_SWATCHES.map(({ value: c, name }) => (
         <button
           key={c}
           type="button"
           aria-label={`Set ${noun} color to ${name}`}
+          title={name}
           onClick={() => onPick(c)}
           className={`w-5 h-5 ${shape} border border-neutral-border/55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary`}
           style={{ background: c }}

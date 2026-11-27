@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ProjectWorkflowPage } from './ProjectWorkflowPage';
+import { PHASE_SWATCHES } from '@/lib/identityColors';
 import { ROLE_ADMIN, ROLE_MEMBER, ROLE_SCHEDULER } from '@/lib/roles';
 import type { ProjectPhase } from '@/hooks/useProjectPhases';
 import type {
@@ -621,6 +622,15 @@ describe('ProjectWorkflowPage — Board cadence failed GET (#3542)', () => {
 // ---------------------------------------------------------------------------
 
 describe('ProjectWorkflowPage — PhaseRow interactions', () => {
+  it('offers every shared phase swatch', async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(screen.getByRole('button', { name: /Change color for Engineering/i }));
+    for (const { name } of PHASE_SWATCHES) {
+      expect(screen.getByRole('button', { name: `Set phase color to ${name}` })).toBeVisible();
+    }
+  });
+
   it('recolors a phase through the swatch picker', async () => {
     const user = userEvent.setup();
     renderPage();
