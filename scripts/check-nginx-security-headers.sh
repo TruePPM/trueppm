@@ -29,6 +29,10 @@
 #
 # Invariants, asserted on every config above:
 #
+#   (#3851) Every SPA server block, and every location that adds a header, sends
+#      a `Permissions-Policy` whose value denies camera, microphone, geolocation,
+#      payment and usb with `()`.
+#
 #   A. Every server block that serves the SPA (identified by a `try_files …
 #      /index.html` fallback — the ACME/redirect listener is correctly exempt)
 #      sets all four of:
@@ -96,6 +100,15 @@
 #      polices presence). The Helm production branch and the baked web image
 #      omitted it entirely.
 #
+#   H. Share-token pages (#5155). The `/share/*` URL path is the token, so every
+#      SPA server block has a `location ^~ /share/` that serves index.html from
+#      THAT location (`try_files /index.html =404` — a final-argument fallback
+#      would redirect internally and take `= /index.html`'s headers) with exactly
+#      one Referrer-Policy, `no-referrer`, plus the full header set and
+#      `Cache-Control: no-cache`. And every server block, including a redirect-only
+#      listener, logs with the `trueppm_redacted` format so the token in the
+#      request line is not written to the access log.
+#
 # The Helm renders (all THREE branches — production, demo share-link, demo
 # interactive, #4426) are included by shelling out to `helm template`. If helm
 # is not on PATH the static configs are still checked and the Helm renders are
@@ -148,6 +161,18 @@ split_server_blocks() {
         depth += o - c
         if (opened && depth <= 0) inblk = 0
       }
+    }
+  '
+}
+
+# Lines at depth 1 of a server block: its own directives, no nested block's.
+server_level_lines() {
+  awk '
+    {
+      tmp = $0
+      o = gsub(/\{/, "{", tmp); c = gsub(/\}/, "}", tmp)
+      if (depth == 1 && o == 0) print
+      depth += o - c
     }
   '
 }
@@ -217,6 +242,7 @@ assert_location_header_set() {
     || viol "$label" "SPA server block #$idx's \`$where\` sets its own add_header but drops X-Content-Type-Options (#2849, #4350)."
   grep -qE 'add_header[ \t]+Referrer-Policy[ \t]+"?(no-referrer|same-origin|strict-origin|origin|strict-origin-when-cross-origin)"?[ \t]+always' <<<"$body" \
     || viol "$label" "SPA server block #$idx's \`$where\` sets its own add_header but drops (or weakens) Referrer-Policy (#2849, #4350)."
+  assert_permissions_policy "$label" "$idx" "\`$where\`" "$body"
   grep -qE 'add_header[ \t]+Content-Security-Policy' <<<"$body" \
     || viol "$label" "SPA server block #$idx's \`$where\` sets its own add_header but drops Content-Security-Policy (#2849, #4350)."
   if [ "$has_tls" = "1" ]; then
@@ -297,6 +323,129 @@ assert_proxy_forwards_proto() {
   return 0
 }
 
+# (H, #5155) Share pages. $3 is the location body, $4 is has_tls.
+assert_share_location() {
+  local label="$1" idx="$2" share="$3" has_tls="$4" policies
+  if [ -z "$share" ]; then
+    viol "$label" "SPA server block #$idx has no \`location ^~ /share/\` — share pages inherit the site-wide Referrer-Policy, so the token in the path reaches the Referer header (#5155)."
+    return 0
+  fi
+  grep -qE '(^|[ \t{])try_files[ \t]+/index\.html[ \t]+=404[ \t]*;' <<<"$share" \
+    || viol "$label" "SPA server block #$idx's \`/share/\` must \`try_files /index.html =404;\` — any other form can redirect internally and drop this location's headers (#5155)."
+  policies="$(grep -E 'add_header[ \t]+Referrer-Policy' <<<"$share" || true)"
+  if [ "$(grep -c . <<<"$policies")" != "1" ] \
+    || ! grep -qE 'Referrer-Policy[ \t]+"no-referrer"[ \t]+always[ \t]*;' <<<"$policies"; then
+    viol "$label" "SPA server block #$idx's \`/share/\` must set exactly one \`Referrer-Policy \"no-referrer\" always\` (#5155)."
+  fi
+  assert_cache_control "$label" "$idx" "location /share/" "$share" 'no-cache'
+  assert_location_header_set "$label" "$idx" "location /share/" "$share" "$has_tls"
+  return 0
+}
+
+# (A, #3851) Permissions-Policy: assert the VALUE. Each feature the app never
+# uses must be denied to every origin — `camera=*` or `camera=(self)` is a header
+# that is present and grants the thing it exists to refuse.
+assert_permissions_policy() {
+  local label="$1" idx="$2" where="$3" body="$4" line feature
+  line="$(grep -E 'add_header[ \t]+Permissions-Policy' <<<"$body" || true)"
+  if [ -z "$line" ]; then
+    viol "$label" "SPA server block #$idx $where sets no Permissions-Policy (#3851)."
+    return 0
+  fi
+  grep -qE '"[ \t]+always[ \t]*;' <<<"$line" \
+    || viol "$label" "SPA server block #$idx $where sets Permissions-Policy without \`always\` (#3851)."
+  for feature in camera microphone geolocation payment usb; do
+    grep -qE "[\" ]$feature=\(\)[,\"]" <<<"$line" \
+      || viol "$label" "SPA server block #$idx $where Permissions-Policy does not deny $feature with \`$feature=()\` (#3851)."
+  done
+  return 0
+}
+
+# (I, #3852) Edge rate limits. Run over the real configs only (check_file /
+# check_helm), with its own self-test fixtures. A server block that proxies /api/
+# must limit the unauthenticated auth endpoints — either the nested auth regex
+# location, or each of the interactive demo's three exact carve-outs — and one
+# that proxies /ws/ must limit the handshake. Every proxying `location /api/` and
+# share-link location must also carry the coarse `trueppm_api` limit on its OWN
+# level (a limit only in a nested location covers nothing else). Refusals are 429,
+# not nginx's 503.
+#
+# Only where nginx can see the real client (#3852 audit): a zone keyed on
+# $binary_remote_addr behind a load balancer, ingress or tunnel puts every user
+# in ONE bucket, so one anonymous client can lock everybody out of sign-in. A
+# `trueppm_` zone may therefore key on the peer address only when the rendering
+# is directly exposed (the caller passes "direct") or declares a trusted proxy
+# with `set_real_ip_from`. Otherwise it must key on `$trueppm_rl_key`, a map that
+# is empty (nginx does not account an empty key) unless the peer is a trusted
+# proxy — or declare no edge limits at all, which leaves the DRF throttles.
+# A rendering that can see the client must carry the full set.
+AUTH_LOCATION='^/api/v1/(auth/(token|logout|password/reset|oidc)|workspace/invites/accept)/'
+
+assert_limited() {
+  local label="$1" where="$2" zone="$3" body="$4"
+  grep -qE "(^|[ {])limit_req +zone=$zone +burst=[0-9]+ +nodelay *;" <<<"$body" \
+    || viol "$label" "$where has no \`limit_req zone=$zone burst=… nodelay\` (#3852)."
+  grep -qE '(^|[ {])limit_req_status +429 *;' <<<"$body" \
+    || viol "$label" "$where does not set \`limit_req_status 429\` (#3852)."
+  return 0
+}
+
+assert_edge_rate_limits() {
+  local label="$1" text="$2" exposure="${3:-}" blocks idx body api ws exact path zone
+  local peer_ok=0 gated=0
+  if [ "$exposure" = direct ] \
+    || grep -qE '^[[:space:]]*set_real_ip_from[[:space:]]+[^[:space:];]+[[:space:]]*;' <<<"$text"; then
+    peer_ok=1
+  fi
+  if grep -qE '^ *limit_req_zone +\$trueppm_rl_key +zone=trueppm_' <<<"$text"; then
+    gated=1
+    grep -qE '^ *map +[^ ]+ +\$trueppm_rl_key *\{' <<<"$text" \
+      || viol "$label" "keys a zone on \$trueppm_rl_key but no \`map\` defines it (#3852)."
+  fi
+  if [ "$peer_ok" = 0 ] && grep -qE '^ *limit_req_zone +\$binary_remote_addr +zone=trueppm_' <<<"$text"; then
+    viol "$label" "keys a trueppm_ zone on \$binary_remote_addr with no trusted proxy (set_real_ip_from) and is not directly exposed: behind a proxy every client shares one bucket, so one client can lock out sign-in for all (#3852)."
+  fi
+  if [ "$peer_ok" = 0 ] && [ "$gated" = 0 ] && ! grep -qE 'limit_req +zone=trueppm_' <<<"$text"; then
+    return 0 # edge limits off by design: nginx cannot see the client here
+  fi
+  blocks="$(printf '%s\n' "$text" | split_server_blocks)"
+  for idx in $(printf '%s\n' "$blocks" | cut -f1 | sort -un); do
+    body="$(printf '%s\n' "$blocks" | awk -F'\t' -v b="$idx" '$1 == b { sub(/^[^\t]*\t/, ""); print }')"
+    for path in /api/ /api/v1/share/; do
+      api="$(printf '%s\n' "$body" | location_body "$path")"
+      if grep -q 'proxy_pass' <<<"$api"; then
+        assert_limited "$label" "location $path (its own level)" trueppm_api \
+          "$(printf '%s\n' "$api" | server_level_lines)"
+      fi
+    done
+    api="$(printf '%s\n' "$body" | location_body "/api/")"
+    ws="$(printf '%s\n' "$body" | location_body "/ws/")"
+    if grep -q 'proxy_pass' <<<"$api"; then
+      exact="$(printf '%s\n' "$body" | location_body "/api/v1/auth/token/")"
+      if [ -n "$exact" ]; then
+        for path in /api/v1/auth/token/ /api/v1/auth/token/refresh/ /api/v1/auth/logout/; do
+          assert_limited "$label" "location = $path" trueppm_auth \
+            "$(printf '%s\n' "$body" | location_body "$path")"
+        done
+      else
+        # Nested: drop /api/'s opening line so location_body sees the inner block.
+        assert_limited "$label" "the auth location under /api/" trueppm_auth \
+          "$(sed 1d <<<"$api" | location_body "$AUTH_LOCATION")"
+      fi
+    fi
+    if grep -q 'proxy_pass' <<<"$ws"; then
+      assert_limited "$label" "location /ws/" trueppm_ws "$ws"
+    fi
+  done
+  for zone in trueppm_auth trueppm_ws trueppm_api; do
+    if grep -qE "limit_req +zone=$zone " <<<"$text" \
+      && ! grep -qE "^ *limit_req_zone +\\\$(binary_remote_addr|trueppm_rl_key) +zone=$zone:" <<<"$text"; then
+      viol "$label" "uses zone $zone but declares no \`limit_req_zone\` for it (#3852)."
+    fi
+  done
+  return 0
+}
+
 # ── Per-config assertions ────────────────────────────────────────────────────
 # Every assertion feeds grep with a here-string, never `printf "$x" | grep -q`.
 # Under `set -o pipefail` the pipe form reports a PRESENT line as missing: grep
@@ -337,6 +486,11 @@ check_config() {
       fi
     fi
 
+    # (H, #5155) Every listener logs share tokens redacted, redirect-only ones too:
+    # the plain-HTTP 301 listener receives the full share URL.
+    grep -qE '(^|[ \t{])access_log +[^ ;]+ +trueppm_redacted *;' <<<"$body" \
+      || viol "$label" "server block #$idx does not \`access_log … trueppm_redacted\` — share tokens are written to its access log (#5155)."
+
     # (A) Only blocks that actually serve the SPA document need the header set.
     #     The compose :80 ACME/redirect listener serves no document and is exempt.
     grep -q 'try_files.*index\.html' <<<"$body" || continue
@@ -346,6 +500,11 @@ check_config() {
       || viol "$label" "SPA server block #$idx does not set \`add_header X-Frame-Options \"DENY\" always\` — the document is framable for clickjacking."
     grep -qE 'add_header[ \t]+X-Content-Type-Options[ \t]+"?nosniff"?[ \t]+always' <<<"$body" \
       || viol "$label" "SPA server block #$idx does not set \`add_header X-Content-Type-Options \"nosniff\" always\`."
+
+    # Permissions-Policy (#3851), on the SERVER level only: a copy inside one
+    # location must not satisfy the check for every other response.
+    assert_permissions_policy "$label" "$idx" "at server level" \
+      "$(printf '%s\n' "$body" | server_level_lines)"
 
     # Referrer-Policy (#3553). The value matters, not just the presence: a policy
     # that discloses the path cross-origin is the leak this header exists to stop.
@@ -383,6 +542,10 @@ check_config() {
 
     # (E, #4426) X-Forwarded-Proto must not be overwritten on a plain-HTTP block.
     assert_forwarded_proto_not_overwritten "$label" "$idx" "$body" "$has_tls"
+
+    # (H, #5155) Share pages.
+    assert_share_location "$label" "$idx" \
+      "$(printf '%s\n' "$body" | location_body "/share/" || true)" "$has_tls"
 
     # (D, #4350) Caching parity, checked per location — see the header comment.
     local idxhtml assets fallback assets404
@@ -433,6 +596,7 @@ check_file() {
   fi
   local before="$violations"
   check_config "$label" "$(cat "$path")"
+  assert_edge_rate_limits "$label" "$(cat "$path")" "${3:-}"
   if [ "$violations" -gt "$before" ]; then
     file_provenance "$label" "$path"
   fi
@@ -503,7 +667,11 @@ check_helm() {
     return 2
   fi
   local before="$violations"
-  check_config "$label" "$conf"
+  # LIMITS_ONLY: a render made only to prove the edge limits appear (#3852).
+  # check_config's $forwarded_proto test reads the no-realIpFrom map shape; the
+  # realIpFrom shape is nginx -t-checked by check-helm-nginx-syntax.sh.
+  [ -n "${LIMITS_ONLY:-}" ] || check_config "$label" "$conf"
+  assert_edge_rate_limits "$label" "$conf"
   # Dump provenance for THIS render, with THIS render's args, next to the
   # violation it explains. Handing over the checked bytes is what lets the
   # verdict decide "the gate read something else" rather than only "helm is
@@ -522,13 +690,17 @@ run_check() {
   echo "nginx hardening parity — checking every deployment path's rendered config"
   echo ""
 
-  check_file "compose prod (TLS)"  "nginx/app.conf.template"
+  # The TLS template terminates the client's own connection on published ports
+  # 80/443, so it is the one compose rendering nginx sees the client on.
+  check_file "compose prod (TLS)"  "nginx/app.conf.template" direct
   check_file "compose prod (HTTP)" "nginx/app-http.conf.template"
   check_file "compose demo"        "nginx/demo.conf.template"
   check_file "baked web image"     "packages/web/nginx.conf"
 
   if command -v helm >/dev/null 2>&1; then
     check_helm "helm production"
+    # With a trusted proxy the edge limits must render in full (#3852).
+    LIMITS_ONLY=1 check_helm "helm production (realIpFrom)" --set 'web.realIpFrom={10.0.0.0/8}'
     check_helm "helm demo (share-link)" \
       -f "$CHART/values-demo.yaml" \
       --set demo.baseUrl=https://demo.example.com \
@@ -591,6 +763,7 @@ self_test() {
   local good_headers='        add_header X-Frame-Options        "DENY" always;
         add_header X-Content-Type-Options "nosniff" always;
         add_header Referrer-Policy        "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy     "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
         add_header Content-Security-Policy "default-src '"'"'self'"'"'; frame-ancestors '"'"'none'"'"'" always;'
 
   # (D, #4350) The three Cache-Control-bearing locations every SPA server
@@ -598,7 +771,10 @@ self_test() {
   # add_header is replace-not-merge per location, so a fixture that gets this
   # right has to look exactly like the real configs do.
   cache_locations() {
-    local headers="$1"
+    local headers="$1" share_headers
+    share_headers="$(sed -E 's/(Referrer-Policy +)"[^"]+"/\1"no-referrer"/' <<<"$headers")"
+    # shellcheck disable=SC2016  # $remote_addr-free nginx syntax, not shell.
+    printf '    access_log /dev/stdout trueppm_redacted;\n    location ^~ /share/ {\n        try_files /index.html =404;\n        add_header Cache-Control "no-cache" always;\n%s\n    }\n' "$share_headers"
     # shellcheck disable=SC2016  # $uri is nginx syntax, not a shell expansion.
     printf '    location /assets/ {\n        try_files $uri @assets_404;\n        add_header Cache-Control "public, max-age=31536000, immutable" always;\n%s\n    }\n\n    location @assets_404 {\n        add_header Cache-Control "no-store" always;\n%s\n        return 404;\n    }\n\n    location = /index.html {\n        add_header Cache-Control "no-cache" always;\n%s\n    }\n' "$headers" "$headers" "$headers"
   }
@@ -610,6 +786,7 @@ self_test() {
   cat >"$tmp/good.conf" <<CONF
 server {
     listen 80;
+    access_log /dev/stdout trueppm_redacted;
     location / { return 301 https://\$host\$request_uri; }
 }
 server {
@@ -767,6 +944,7 @@ CONF
   local noreferrer_headers='    add_header X-Frame-Options        "DENY" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy        "no-referrer" always;
+    add_header Permissions-Policy     "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
     add_header Content-Security-Policy "default-src '"'"'self'"'"'; frame-ancestors '"'"'none'"'"'" always;'
   cat >"$tmp/good_noreferrer.conf" <<CONF
 server {
@@ -1059,6 +1237,84 @@ CONF
       rc=1
     fi
   }
+
+  # (H, #5155) Each defect is one mutation of the accepted good_404 fixture.
+  sed 's/location ^~ \/share\/ {/location ^~ \/other\/ {/' "$tmp/good_404.conf" >"$tmp/bad_noshare.conf"
+  sed '/location ^~ \/share\//,/}/ s/"no-referrer"/"strict-origin-when-cross-origin"/' \
+    "$tmp/good_404.conf" >"$tmp/bad_share_policy.conf"
+  sed 's/try_files \/index\.html =404;/try_files $uri \/index.html;/' \
+    "$tmp/good_404.conf" >"$tmp/bad_share_redirect.conf"
+  sed '/access_log/d' "$tmp/good_404.conf" >"$tmp/bad_share_log.conf"
+  # (A, #3851) value, not presence: a grant, a dropped feature, a missing
+  # `always`, and a header that survives only inside locations.
+  sed 's/camera=()/camera=*/' "$tmp/good_404.conf" >"$tmp/bad_pp_grant.conf"
+  sed 's/, usb=()//' "$tmp/good_404.conf" >"$tmp/bad_pp_missing.conf"
+  sed 's/\(usb=()"\) always/\1/' "$tmp/good_404.conf" >"$tmp/bad_pp_notalways.conf"
+  awk '!done && /^        add_header Permissions-Policy/ { done = 1; next } { print }' \
+    "$tmp/good_404.conf" >"$tmp/bad_pp_noserver.conf"
+  probe bad_pp_grant.conf       1 "Permissions-Policy granting a feature rejected (#3851)"
+  probe bad_pp_missing.conf     1 "Permissions-Policy omitting a feature rejected (#3851)"
+  probe bad_pp_notalways.conf   1 "Permissions-Policy without \`always\` rejected (#3851)"
+  probe bad_pp_noserver.conf    1 "Permissions-Policy only inside locations rejected (#3851)"
+  # (I, #3852)
+  local lim='        limit_req zone=trueppm_ws burst=5 nodelay;
+        limit_req_status 429;'
+  local zones='set_real_ip_from 10.0.0.0/8;
+limit_req_zone $binary_remote_addr zone=trueppm_auth:1m rate=1r/s;
+limit_req_zone $binary_remote_addr zone=trueppm_ws:1m rate=1r/s;
+limit_req_zone $binary_remote_addr zone=trueppm_api:1m rate=1r/s;'
+  local apilim="${lim//trueppm_ws/trueppm_api}"
+  printf '%s\nserver {\n    location ^~ /api/v1/share/ {\n%s\n        proxy_pass http://api;\n    }\n    location /api/ {\n%s\n        proxy_pass http://api;\n        location ~ %s {\n%s\n            proxy_pass http://api;\n        }\n    }\n    location /ws/ {\n%s\n        proxy_pass http://api;\n    }\n}\n' \
+    "$zones" "$apilim" "$apilim" "$AUTH_LOCATION" "${lim//trueppm_ws/trueppm_auth}" "$lim" >"$tmp/good_limits.conf"
+  sed '/limit_req zone=trueppm_auth/d' "$tmp/good_limits.conf" >"$tmp/bad_limit_auth.conf"
+  sed '/limit_req zone=trueppm_ws/d' "$tmp/good_limits.conf" >"$tmp/bad_limit_ws.conf"
+  sed 's/limit_req_status 429/limit_req_status 503/' "$tmp/good_limits.conf" >"$tmp/bad_limit_status.conf"
+  sed '/^limit_req_zone/d' "$tmp/good_limits.conf" >"$tmp/bad_limit_zone.conf"
+  # Drop the coarse limit from one location at a time: the first occurrence is the
+  # share location's, the second /api/'s. The nested auth limit stays in both.
+  awk '/limit_req zone=trueppm_api/ && ++n == 1 { next } { print }' \
+    "$tmp/good_limits.conf" >"$tmp/bad_limit_share.conf"
+  awk '/limit_req zone=trueppm_api/ && ++n == 2 { next } { print }' \
+    "$tmp/good_limits.conf" >"$tmp/bad_limit_api.conf"
+  # Trust (#3852 audit): the fixtures above declare a trusted proxy.
+  sed '/^set_real_ip_from/d' "$tmp/good_limits.conf" >"$tmp/bad_limit_untrusted.conf"
+  { echo 'map $remote_addr $trueppm_rl_key { default ""; }'
+    sed 's/limit_req_zone \$binary_remote_addr/limit_req_zone $trueppm_rl_key/' "$tmp/bad_limit_untrusted.conf"
+  } >"$tmp/good_limit_gated.conf"
+  sed '/^map /d' "$tmp/good_limit_gated.conf" >"$tmp/bad_limit_gated_nomap.conf"
+  sed '/limit_req/d' "$tmp/bad_limit_untrusted.conf" >"$tmp/good_limit_off.conf"
+  sed '/limit_req/d' "$tmp/good_limits.conf" >"$tmp/bad_limit_off_trusted.conf"
+  limit_probe() {
+    violations=0
+    assert_edge_rate_limits "$1" "$(cat "$tmp/$1")" "${4:-}" >/dev/null 2>&1
+    local got=0
+    [ "$violations" -gt 0 ] && got=1
+    if [ "$got" = "$2" ]; then
+      echo "SELF-TEST OK: $3"
+    else
+      echo "SELF-TEST FAILED: $3 (expected violation=$2, got $got)" >&2
+      rc=1
+    fi
+  }
+  limit_probe good_limits.conf      0 "rate-limited /api/ auth and /ws/ accepted (#3852)"
+  limit_probe bad_limit_auth.conf   1 "unthrottled auth location rejected (#3852)"
+  limit_probe bad_limit_ws.conf     1 "unthrottled /ws/ rejected (#3852)"
+  limit_probe bad_limit_status.conf 1 "503 refusals rejected (#3852)"
+  limit_probe bad_limit_zone.conf   1 "undeclared zone rejected (#3852)"
+  limit_probe bad_limit_api.conf    1 "unlimited proxying /api/ rejected even with a limited nested location (#3852)"
+  limit_probe bad_limit_share.conf  1 "unlimited proxying share location rejected (#3852)"
+  limit_probe bad_limit_untrusted.conf 1 "peer-keyed zone with no trusted proxy rejected (#3852)"
+  limit_probe bad_limit_untrusted.conf 0 "peer-keyed zone on a directly exposed config accepted (#3852)" direct
+  limit_probe good_limit_gated.conf    0 "zone keyed on the gated \$trueppm_rl_key accepted (#3852)"
+  limit_probe bad_limit_gated_nomap.conf 1 "\$trueppm_rl_key with no map rejected (#3852)"
+  limit_probe good_limit_off.conf      0 "no edge limits where nginx cannot see the client accepted (#3852)"
+  limit_probe bad_limit_off_trusted.conf 1 "no edge limits despite a trusted proxy rejected (#3852)"
+  limit_probe good_limit_off.conf      1 "no edge limits on a directly exposed config rejected (#3852)" direct
+
+  probe bad_noshare.conf        1 "SPA with no /share/ location rejected (#5155)"
+  probe bad_share_policy.conf   1 "/share/ with the site-wide Referrer-Policy rejected (#5155)"
+  probe bad_share_redirect.conf 1 "/share/ falling back by internal redirect rejected (#5155)"
+  probe bad_share_log.conf      1 "listener without redacted access logging rejected (#5155)"
 
   probe good.conf          0 "hardened config with a redirect-only listener accepted"
   probe good_404.conf      0 "plain-HTTP config with /admin/ closed accepted"
