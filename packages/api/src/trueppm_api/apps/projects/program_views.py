@@ -1812,8 +1812,9 @@ class ProgramViewSet(
                 enqueue_program_export,
             )
 
-            # Opt-in encryption (#2400). Validation derives the public key in this
-            # thread; the passphrase is dropped before the job row is written.
+            # Opt-in encryption (#2400). Validation is cheap; the enqueue service
+            # derives the public key only after its in-flight de-dupe, and the
+            # passphrase never reaches the job row.
             start = ExportStartSerializer(data=request.data or {})
             start.is_valid(raise_exception=True)
             options = start.validated_data.get("encryption")

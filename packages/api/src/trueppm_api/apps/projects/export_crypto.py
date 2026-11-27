@@ -24,8 +24,15 @@ Two modes, and why the passphrase one is not age's own ``scrypt`` stanza:
   passphrase-mode file is opened by TruePPM's program import (passphrase at
   upload) or :func:`decrypt_stream`, not by ``age -d``.
 
-What the server retains for an encrypted job: the mode, the public key and, for a
-passphrase, the salt and work factor. None of it decrypts anything.
+What the server retains for an encrypted job while it builds: the mode, the public
+key and, for a passphrase, the salt and work factor. None of it decrypts anything,
+but together they let someone with database read access test passphrase guesses
+offline (at scrypt 2**17 per guess) and encrypt a forged bundle that opens under
+the passphrase, so the worker clears them when the job finishes. Passphrase mode
+therefore gives confidentiality, not authenticity: anyone who learns the public
+key can produce a file the passphrase opens. The bundle's integrity manifest
+(#2399) is unkeyed, so it does not prove origin either; the job's ``file_sha256``,
+read from the API, is the out-of-band check.
 """
 
 from __future__ import annotations
@@ -34,7 +41,7 @@ import base64
 import hmac
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from hashlib import sha256
 from typing import IO, Any
 
@@ -57,13 +64,17 @@ ENCRYPTED_SUFFIX = ".age"
 
 #: scrypt work factor for passphrase mode: N = 2**17, r = 8, p = 1 is about 128 MiB
 #: and a few hundred ms, the OWASP floor for scrypt. It runs in the request thread,
-#: behind the Admin gate and the per-requester in-flight 409, so it cannot be
-#: stacked by one caller.
+#: behind the Admin gate, and only after the per-requester in-flight check: a caller
+#: who already has an export building is refused with the 409 before any scrypt runs
+#: (see :class:`EncryptionRequest`), so one caller can hold at most one derivation
+#: per request and cannot queue them up behind a pending build.
 SCRYPT_LOG_N = 17
-#: The largest work factor a decryptor accepts from a file header (256 MiB at r=8).
-#: The header is untrusted input at import time; without a cap a crafted file could
-#: demand an arbitrarily large scrypt allocation from the API pod.
-MAX_SCRYPT_LOG_N = 18
+#: The largest work factor a decryptor accepts from a file header. The header is
+#: untrusted input at import time, and program import is open to any authenticated
+#: account (rate-limited, not role-gated), so a crafted file could otherwise demand
+#: an arbitrarily large scrypt allocation from the API pod. It is pinned to the work
+#: factor this server writes: nothing legitimate asks for more.
+MAX_SCRYPT_LOG_N = SCRYPT_LOG_N
 MIN_PASSPHRASE_LENGTH = 12
 
 _CHUNK = 64 * 1024
@@ -189,6 +200,43 @@ def recipient_encryption(recipient: str) -> ExportEncryption:
     """Describe an export encrypted to an operator-managed age public key."""
     key = parse_recipient(recipient)
     return ExportEncryption(MODE_RECIPIENT, {"recipient": bech32_encode("age", key)})
+
+
+@dataclass(frozen=True)
+class EncryptionRequest:
+    """A validated, not-yet-derived encryption choice from an export request.
+
+    Shape checks (passphrase length, age key syntax) are cheap and run in the
+    serializer. The scrypt derivation is not: :meth:`resolve` runs it, and the
+    enqueue services call it only after the in-flight de-dupe, so a request that is
+    going to be refused with a 409 never spends 128 MiB of scrypt first. The
+    passphrase lives only on this in-memory object and is never persisted.
+    """
+
+    mode: str
+    recipient: str = ""
+    passphrase: str = field(default="", repr=False)
+
+    def resolve(self) -> ExportEncryption:
+        """Return the public, retainable :class:`ExportEncryption` for this choice."""
+        if self.mode == MODE_PASSPHRASE:
+            return passphrase_encryption(self.passphrase)
+        return ExportEncryption(MODE_RECIPIENT, {"recipient": self.recipient})
+
+
+def encryption_request(
+    mode: str, *, passphrase: str = "", recipient: str = ""
+) -> EncryptionRequest:
+    """Validate an encryption choice without deriving any key (cheap)."""
+    if mode == MODE_PASSPHRASE:
+        if len(passphrase) < MIN_PASSPHRASE_LENGTH:
+            raise ExportCryptoError(
+                f"Use a passphrase of at least {MIN_PASSPHRASE_LENGTH} characters."
+            )
+        return EncryptionRequest(MODE_PASSPHRASE, passphrase=passphrase)
+    return EncryptionRequest(
+        MODE_RECIPIENT, recipient=recipient_encryption(recipient).params["recipient"]
+    )
 
 
 def _derive_private_key(passphrase: str, salt: bytes, log_n: int) -> X25519PrivateKey:

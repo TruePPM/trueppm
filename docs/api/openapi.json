@@ -68166,7 +68166,7 @@
             },
             "ExportEncryptionRequest": {
                 "type": "object",
-                "description": "Opt-in encryption for one async export bundle (#2400, ADR-0634 §5).\n\n``validate`` turns the request into the PUBLIC ``ExportEncryption`` the job row\nkeeps: a recipient is parsed to its age public key, and a passphrase is run\nthrough scrypt here, in the request thread, so only the derived public key\never reaches the job row, the outbox or the broker. The passphrase field is\nwrite-only and never echoed, logged, or included in an error message.",
+                "description": "Opt-in encryption for one async export bundle (#2400, ADR-0634 §5).\n\n``validate`` checks the choice cheaply (passphrase length, age key syntax) and\nreturns an in-memory ``EncryptionRequest`` under ``encryption``. The scrypt\nderivation is deferred to the enqueue service, after its in-flight de-dupe, so\na request about to be refused with a 409 spends no scrypt; only the derived\npublic key ever reaches the job row, the outbox or the broker. The passphrase\nfield is write-only and never echoed, logged, or included in an error message.",
                 "properties": {
                     "mode": {
                         "$ref": "#/components/schemas/ExportEncryptionModeEnum"

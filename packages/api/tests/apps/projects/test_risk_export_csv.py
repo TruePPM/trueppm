@@ -76,8 +76,10 @@ def test_register_rows_fields_and_order(owner: Any, project: Project) -> None:
     rows = _rows(resp)
     assert tuple(rows[0]) == HEADERS
     body = [dict(zip(rows[0], r, strict=True)) for r in rows[1:]]
-    # Live risks only, highest severity (P x I) first.
+    # Live risks only (the soft-deleted severity-25 risk is absent; risks have no
+    # draft state), highest severity (P x I) first.
     assert [r["Severity"] for r in body] == ["20", "2"]
+    assert "Deleted" not in {r["Title"] for r in body}
     top = body[0]
     assert top["Title"] == "'=HYPERLINK(evil)"  # formula neutralized
     assert top["Status"] == "OPEN"
@@ -93,9 +95,32 @@ def test_register_rows_fields_and_order(owner: Any, project: Project) -> None:
 def test_register_round_trips_through_the_importer_without_warnings(
     owner: Any, project: Project
 ) -> None:
+    Risk.objects.create(
+        project=project,
+        title="+44 supplier line",
+        probability=1,
+        impact=1,
+        description="- first point\n- second point",
+        trigger="@ops paged",
+        created_by=owner,
+    )
     plan = parse_risk_csv(_get(owner, project).content, build_owner_index(str(project.pk)))
     assert plan.errors == [] and plan.warnings == []
-    assert [d.owner for d in plan.drafts] == [owner, None]
+    assert [d.owner for d in plan.drafts] == [owner, None, None]
+    # The export's formula guard is undone on import: values come back as written.
+    by_title = {d.title: d for d in plan.drafts}
+    assert set(by_title) == {"=HYPERLINK(evil)", "Low", "+44 supplier line"}
+    guarded = by_title["+44 supplier line"]
+    assert guarded.description == "- first point\n- second point"
+    assert guarded.trigger == "@ops paged"
+
+
+def test_a_quote_not_guarding_a_formula_character_is_kept() -> None:
+    raw = b"Title,Description\r\n'quoted title,'- guarded\r\n"
+    plan = parse_risk_csv(raw, {})
+    assert plan.errors == []
+    assert plan.drafts[0].title == "'quoted title"
+    assert plan.drafts[0].description == "- guarded"
 
 
 @pytest.mark.parametrize("role", [Role.VIEWER, Role.MEMBER])

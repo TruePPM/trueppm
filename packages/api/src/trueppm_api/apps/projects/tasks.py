@@ -1469,13 +1469,19 @@ def run_project_export(self: object, job_id: str) -> None:
             status=ExportJobStatus.FAILED,
             error_detail=str(exc)[:2000],
             completed_at=timezone.now(),
+            encryption_params={},
         )
         return
 
     retention = _export_retention_days()
     expires_at = timezone.now() + timedelta(days=retention) if retention is not None else None
+    # The encryption params (public key, salt, work factor) are needed only to build
+    # the file (#2400). Kept after it, they let anyone with database read access test
+    # passphrase guesses offline and forge a bundle that opens under the passphrase,
+    # so a finished job keeps the mode alone.
     ProjectExportJob.objects.filter(pk=job_id).update(
         status=ExportJobStatus.SUCCESS,
+        encryption_params={},
         file_path=storage_path,
         file_size=size,
         file_sha256=sha256,
@@ -1620,13 +1626,19 @@ def run_program_export(self: object, job_id: str) -> None:
             status=ExportJobStatus.FAILED,
             error_detail=str(exc)[:2000],
             completed_at=timezone.now(),
+            encryption_params={},
         )
         return
 
     retention = _export_retention_days()
     expires_at = timezone.now() + timedelta(days=retention) if retention is not None else None
+    # The encryption params (public key, salt, work factor) are needed only to build
+    # the file (#2400). Kept after it, they let anyone with database read access test
+    # passphrase guesses offline and forge a bundle that opens under the passphrase,
+    # so a finished job keeps the mode alone.
     ProgramExportJob.objects.filter(pk=job_id).update(
         status=ExportJobStatus.SUCCESS,
+        encryption_params={},
         file_path=storage_path,
         file_size=size,
         file_sha256=sha256,

@@ -35,7 +35,7 @@ from django.utils import timezone
 from trueppm_api.apps.projects.export_crypto import (
     MODE_NONE,
     MODE_RECIPIENT,
-    ExportEncryption,
+    EncryptionRequest,
 )
 from trueppm_api.apps.projects.keys import KeyAssignmentError as KeyAssignmentError
 
@@ -7783,13 +7783,19 @@ class ExportInFlightConflict(Exception):
     """An export with different encryption settings is already being built (#2400)."""
 
 
-def _encryption_fields(encryption: ExportEncryption | None) -> dict[str, Any]:
+def _encryption_fields(encryption: EncryptionRequest | None) -> dict[str, Any]:
+    """Derive the job row's PUBLIC encryption fields. Passphrase mode runs scrypt here.
+
+    Called only after the in-flight de-dupe has decided a new job is created, so a
+    request the de-dupe refuses never pays for the derivation.
+    """
     if encryption is None:
         return {}
-    return {"encryption_mode": encryption.mode, "encryption_params": dict(encryption.params)}
+    resolved = encryption.resolve()
+    return {"encryption_mode": resolved.mode, "encryption_params": dict(resolved.params)}
 
 
-def _reuse_in_flight_export(existing: Any, encryption: ExportEncryption | None) -> Any:
+def _reuse_in_flight_export(existing: Any, encryption: EncryptionRequest | None) -> Any:
     """Return the requester's in-flight job only if it matches what they asked for.
 
     The in-flight de-dupe (#4370) used to hand back any pending job. With opt-in
@@ -7797,12 +7803,16 @@ def _reuse_in_flight_export(existing: Any, encryption: ExportEncryption | None) 
     must never be answered with a plaintext build, and a passphrase request cannot
     reuse a build keyed to an earlier passphrase (a fresh salt makes every
     passphrase key distinct, so a passphrase request never matches). A recipient
-    request matches a build to the same public key.
+    request matches a build to the same public key. Nothing here derives a key.
     """
     mode = encryption.mode if encryption is not None else MODE_NONE
-    params = dict(encryption.params) if encryption is not None else {}
     if existing.encryption_mode == mode and (
-        mode == MODE_NONE or (mode == MODE_RECIPIENT and existing.encryption_params == params)
+        mode == MODE_NONE
+        or (
+            mode == MODE_RECIPIENT
+            and encryption is not None
+            and existing.encryption_params == {"recipient": encryption.recipient}
+        )
     ):
         return existing
     raise ExportInFlightConflict(
@@ -7812,7 +7822,7 @@ def _reuse_in_flight_export(existing: Any, encryption: ExportEncryption | None) 
 
 
 def enqueue_project_export(
-    *, project: Any, requested_by: Any, encryption: ExportEncryption | None = None
+    *, project: Any, requested_by: Any, encryption: EncryptionRequest | None = None
 ) -> Any:
     """Create a project export job row and best-effort dispatch the Celery task.
 
@@ -7866,7 +7876,7 @@ def enqueue_project_export(
 
 
 def enqueue_program_export(
-    *, program: Any, requested_by: Any, encryption: ExportEncryption | None = None
+    *, program: Any, requested_by: Any, encryption: EncryptionRequest | None = None
 ) -> Any:
     """Create a program export job row and best-effort dispatch the Celery task.
 

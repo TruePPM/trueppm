@@ -3487,8 +3487,9 @@ class ProjectViewSet(
                 enqueue_project_export,
             )
 
-            # Opt-in encryption (#2400). Validation derives the public key in this
-            # thread; the passphrase is dropped before the job row is written.
+            # Opt-in encryption (#2400). Validation is cheap; the enqueue service
+            # derives the public key only after its in-flight de-dupe, and the
+            # passphrase never reaches the job row.
             start = ExportStartSerializer(data=request.data or {})
             start.is_valid(raise_exception=True)
             options = start.validated_data.get("encryption")
@@ -9133,12 +9134,6 @@ class BaselineViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.Model
     def _rbac_permissions(self) -> list[BasePermission]:
         if self.action in ("list", "retrieve"):
             return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
-        if self.action == "export_csv":
-            # Same tier as the list it mirrors (ADR-0634 §6): a risk carries no
-            # ADR-0104 team-private signal and no email. No archived-project guard:
-            # like the seed export, getting one's register out stays available on an
-            # archived project.
-            return [IsAuthenticated(), IsProjectMember()]
         if self.action == "destroy":
             return [IsAuthenticated(), IsProjectOwner(), IsProjectNotArchived()]
         return [IsAuthenticated(), IsProjectAdmin(), IsProjectNotArchived()]
@@ -12288,10 +12283,15 @@ class RiskViewSet(
         if self.action in ("list", "retrieve"):
             return [IsAuthenticated(), IsProjectMember(), IsProjectNotArchived()]
         if self.action == "export_csv":
-            # Same tier as the list it mirrors (ADR-0634 §6): a risk carries no
-            # ADR-0104 team-private signal and no email. No archived-project guard:
-            # like the seed export, getting one's register out stays available on an
-            # archived project.
+            # Viewer+, the same people who can already read this register through
+            # ``list`` — the tier #1200's test plan asks for (project membership).
+            # This deliberately departs from ADR-0634 §6, which says a CSV export sits
+            # at the same RBAC tier as the equivalent seed export (Admin+). The
+            # rationale for the departure: a risk row carries no field the seed
+            # exporter gates (no email, no ADR-0104 team-private signal), so Admin+
+            # would only withhold what ``list`` already serves to a Viewer.
+            # No archived-project guard: like the seed export, getting one's register
+            # out stays available on an archived project.
             return [IsAuthenticated(), IsProjectMember()]
         if self.action == "destroy":
             return [IsAuthenticated(), IsProjectOwner(), IsProjectNotArchived()]

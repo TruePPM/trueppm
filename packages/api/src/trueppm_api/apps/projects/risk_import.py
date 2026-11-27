@@ -212,9 +212,29 @@ def _read_header(reader: Iterator[list[str]]) -> dict[int, str]:
     return col_keys
 
 
+#: Characters the export's formula guard protects (``risk_export._FORMULA_PREFIXES``,
+#: ``escapeField`` in the web's ``exportCsv.ts``).
+_GUARDED_LEADS = frozenset("=+-@\t\r")
+
+
+def _unguard(text: str) -> str:
+    """Undo the export's formula guard so an exported file round-trips unchanged.
+
+    The export writes a cell that starts with ``= + - @`` (or a tab/CR) as ``'`` plus
+    the value, so a spreadsheet shows it as text (#1200). Without this, a description
+    like ``- first point`` would come back as ``'- first point``. Exactly one quote
+    is removed, and only when it precedes a guarded character, so any other value
+    that happens to start with a quote is kept as written. The stored value is plain
+    text and the export re-guards it, so this reopens no injection path.
+    """
+    if len(text) > 1 and text[0] == "'" and text[1] in _GUARDED_LEADS:
+        return text[1:].strip()
+    return text
+
+
 def _row_values(cells: list[str], col_keys: dict[int, str]) -> dict[str, str]:
     """Project one CSV line onto its canonical keys, tolerating short rows."""
-    return {key: cells[idx].strip() for idx, key in col_keys.items() if idx < len(cells)}
+    return {key: _unguard(cells[idx].strip()) for idx, key in col_keys.items() if idx < len(cells)}
 
 
 def _lookup_choice(

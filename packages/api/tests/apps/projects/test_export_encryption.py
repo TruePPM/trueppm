@@ -41,6 +41,7 @@ from trueppm_api.apps.projects.models import (
 )
 from trueppm_api.apps.projects.tasks import run_project_export
 
+from . import age_reference
 from .seed.test_importer import _seed
 
 User = get_user_model()
@@ -86,7 +87,8 @@ def test_wrong_passphrase_and_damage_read_the_same() -> None:
     blob = _encrypt(b"payload" * 1000, passphrase_encryption(PASSPHRASE))
     with pytest.raises(ExportCryptoError, match="Wrong passphrase"):
         _decrypt(blob, "not the passphrase at all")
-    # Flipping a byte of the salt is caught by the header MAC, not silently accepted.
+    # Flipping a byte of the salt derives a different key, so the X25519 stanza no
+    # longer unwraps (the MAC is never reached; the MAC-only case is tested below).
     salt_at = blob.index(b"trueppm-scrypt ") + len(b"trueppm-scrypt ")
     flipped = blob[:salt_at] + (b"B" if blob[salt_at : salt_at + 1] != b"B" else b"C")
     flipped += blob[salt_at + 1 :]
@@ -105,6 +107,80 @@ def test_header_work_factor_is_capped_on_read() -> None:
     crafted = blob.replace(b" 10\n", b" 30\n", 1)
     with pytest.raises(ExportCryptoError, match="damaged"):
         _decrypt(crafted)
+
+
+# Exactly three full chunks, so a cut between chunks lands on a chunk boundary.
+_THREE_CHUNKS = b"A" * (64 * 1024 * 3)
+_SEALED_CHUNK = 64 * 1024 + 16
+
+
+def _split(blob: bytes) -> tuple[bytes, bytes, list[bytes]]:
+    """Return (header incl. MAC line, payload nonce, sealed chunks)."""
+    mac_end = blob.index(b"\n", blob.index(b"\n--- ") + 1) + 1
+    nonce, rest = blob[mac_end : mac_end + 16], blob[mac_end + 16 :]
+    chunks = [rest[i : i + _SEALED_CHUNK] for i in range(0, len(rest), _SEALED_CHUNK)]
+    return blob[:mac_end], nonce, chunks
+
+
+def test_header_mac_alone_catches_an_added_stanza() -> None:
+    # An extra stanza leaves both real stanzas intact, so the file key still
+    # unwraps: only the header MAC can notice the header changed.
+    blob = _encrypt(b"payload", passphrase_encryption(PASSPHRASE))
+    at = blob.index(b"\n---") + 1
+    tampered = blob[:at] + b"-> grease x\n\n" + blob[at:]
+    with pytest.raises(ExportCryptoError, match="Wrong passphrase, or the file is damaged"):
+        _decrypt(tampered)
+
+
+def test_truncation_exactly_at_a_chunk_boundary_is_refused() -> None:
+    header, nonce, chunks = _split(_encrypt(_THREE_CHUNKS, passphrase_encryption(PASSPHRASE)))
+    assert len(chunks) == 3
+    # Chunk 2 was sealed as "not last", so it cannot pass for the final chunk.
+    with pytest.raises(ExportCryptoError, match="truncated"):
+        _decrypt(header + nonce + chunks[0] + chunks[1])
+
+
+def test_reordered_chunks_are_refused() -> None:
+    header, nonce, chunks = _split(_encrypt(_THREE_CHUNKS, passphrase_encryption(PASSPHRASE)))
+    with pytest.raises(ExportCryptoError, match="damaged"):
+        _decrypt(header + nonce + chunks[1] + chunks[0] + chunks[2])
+
+
+@pytest.mark.parametrize("size", [10, 64 * 1024])
+def test_trailing_bytes_are_refused(size: int) -> None:
+    blob = _encrypt(b"t" * size, passphrase_encryption(PASSPHRASE))
+    with pytest.raises(ExportCryptoError, match="damaged"):
+        _decrypt(blob + b"\x00")
+
+
+def test_payload_bit_flip_is_refused() -> None:
+    blob = _encrypt(_THREE_CHUNKS, passphrase_encryption(PASSPHRASE))
+    flipped = blob[:-5] + bytes([blob[-5] ^ 1]) + blob[-4:]
+    with pytest.raises(ExportCryptoError, match="damaged"):
+        _decrypt(flipped)
+
+
+@pytest.mark.parametrize("log_n", [18, 19])
+def test_work_factor_above_what_we_write_is_refused_before_scrypt(
+    monkeypatch: pytest.MonkeyPatch, log_n: int
+) -> None:
+    blob = _encrypt(b"data", passphrase_encryption(PASSPHRASE))
+    crafted = blob.replace(b" 10\n", f" {log_n}\n".encode(), 1)
+
+    def _no_scrypt(*args: object, **kwargs: object) -> None:
+        raise AssertionError("scrypt ran for a header work factor above the cap")
+
+    monkeypatch.setattr(export_crypto, "_derive_private_key", _no_scrypt)
+    with pytest.raises(ExportCryptoError, match="damaged"):
+        _decrypt(crafted)
+
+
+@pytest.mark.parametrize("size", [0, 5, 64 * 1024, 64 * 1024 * 2 + 3])
+def test_recipient_mode_opens_with_an_independent_age_decryptor(size: int) -> None:
+    key, recipient = _recipient()
+    data = bytes(range(256)) * (size // 256) + b"r" * (size % 256)
+    blob = _encrypt(data, recipient_encryption(recipient))
+    assert age_reference.decrypt(blob, key) == data
 
 
 def test_recipient_mode_decrypts_with_the_private_key_only() -> None:
@@ -305,3 +381,126 @@ def test_import_refuses_missing_or_wrong_passphrase(
     assert resp.status_code == 400
     assert message in json.dumps(resp.json())
     assert not Program.objects.filter(code="atlas").exists()
+
+
+# ---- what is retained (passphrase never reaches a stored digest) ------------------
+
+
+def _key_row(user: Any, key: str) -> Any:
+    from trueppm_api.apps.idempotency.models import IdempotencyKey
+
+    return IdempotencyKey.objects.get(user=user, key=key)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("grain", ["project", "program"])
+def test_no_stored_digest_depends_on_the_passphrase(
+    owner: Any, project: Project, grain: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Vary only the passphrase: every stored digest and row must come out the same."""
+    from trueppm_api.apps.access.models import ProgramMembership
+    from trueppm_api.apps.projects.models import Program, ProgramExportJob
+
+    if grain == "program":
+        program = Program.objects.create(name="Sealed P", code="SEALP")
+        ProgramMembership.objects.create(program=program, user=owner, role=Role.OWNER)
+        url, jobs = f"/api/v1/programs/{program.pk}/export/", ProgramExportJob.objects
+    else:
+        url, jobs = f"/api/v1/projects/{project.pk}/export/", ProjectExportJob.objects
+    client = _client(owner)
+    other = "a different passphrase entirely"
+    for key, phrase in (("k-one", PASSPHRASE), ("k-two", other)):
+        resp = client.post(
+            url,
+            {"encryption": {"mode": "passphrase", "passphrase": phrase}},
+            format="json",
+            HTTP_IDEMPOTENCY_KEY=key,
+        )
+        assert resp.status_code == 202, resp.content
+        # Finish the build so the second request is not refused as in-flight.
+        jobs.filter(pk=resp.json()["id"]).update(status=ExportJobStatus.SUCCESS)
+
+    first, second = _key_row(owner, "k-one"), _key_row(owner, "k-two")
+    assert first.request_hash == second.request_hash
+    for row in (first, second):
+        dumped = json.dumps(
+            [row.request_hash, row.response_body, row.response_headers], default=str
+        )
+        assert PASSPHRASE not in dumped and other not in dumped
+    assert PASSPHRASE not in caplog.text and other not in caplog.text
+
+
+def _multipart_request(passphrase: str) -> Any:
+    from rest_framework.request import Request
+    from rest_framework.test import APIRequestFactory
+
+    upload = SimpleUploadedFile("b.tar.gz.age", b"age-encryption.org/v1\nsame bytes")
+    raw = APIRequestFactory().post(
+        "/api/v1/programs/import/", {"file": upload, "passphrase": passphrase}
+    )
+    return Request(raw)
+
+
+def _json_request(body: dict[str, Any]) -> Any:
+    from rest_framework.request import Request
+    from rest_framework.test import APIRequestFactory
+
+    return Request(APIRequestFactory().post("/api/v1/projects/x/export/", body, format="json"))
+
+
+@pytest.mark.parametrize("build", ["json", "multipart"])
+def test_request_digests_ignore_the_passphrase(build: str) -> None:
+    """The idempotency hash and the agent-chain payload hash both drop the passphrase."""
+    from trueppm_api.apps.agents.services import hash_request_payload
+    from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
+
+    def make(phrase: str) -> Any:
+        if build == "json":
+            return _json_request({"encryption": {"mode": "passphrase", "passphrase": phrase}})
+        return _multipart_request(phrase)
+
+    for digest in (IdempotencyMixin._compute_request_hash, hash_request_payload):
+        assert digest(make(PASSPHRASE)) == digest(make("another passphrase here"))
+    # The rest of the body still counts: a different mode is a different request.
+    if build == "json":
+        assert IdempotencyMixin._compute_request_hash(
+            _json_request({"encryption": {"mode": "recipient", "recipient": "age1x"}})
+        ) != IdempotencyMixin._compute_request_hash(make(PASSPHRASE))
+
+
+def test_a_body_without_a_secret_is_hashed_byte_for_byte() -> None:
+    from trueppm_api.core.request_secrets import redact_secret_fields
+
+    body = b'{"b": 1,  "a": [2]}'
+    assert redact_secret_fields(body, "application/json") is body
+    assert redact_secret_fields(b"a=1&b=2", "application/x-www-form-urlencoded") == b"a=1&b=2"
+    assert (
+        redact_secret_fields(b"a=1&passphrase=hunter2", "application/x-www-form-urlencoded")
+        == b"a=1"
+    )
+
+
+@pytest.mark.django_db
+def test_finished_job_drops_its_encryption_params(owner: Any, project: Project) -> None:
+    resp = _start(owner, project, {"encryption": {"mode": "passphrase", "passphrase": PASSPHRASE}})
+    job = ProjectExportJob.objects.get(pk=resp.json()["id"])
+    assert set(job.encryption_params) == {"recipient", "salt", "log_n"}
+    run_project_export.apply(args=[str(job.id)], throw=True)
+    job.refresh_from_db()
+    assert job.status == ExportJobStatus.SUCCESS
+    assert job.encryption_mode == "passphrase"
+    assert job.encryption_params == {}
+
+
+@pytest.mark.django_db
+def test_in_flight_conflict_is_refused_before_any_scrypt(
+    owner: Any, project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert _start(owner, project).status_code == 202  # a plaintext build is now in flight
+
+    def _no_scrypt(*args: object, **kwargs: object) -> None:
+        raise AssertionError("scrypt ran for a request the in-flight check refuses")
+
+    monkeypatch.setattr(export_crypto, "_derive_private_key", _no_scrypt)
+    resp = _start(owner, project, {"encryption": {"mode": "passphrase", "passphrase": PASSPHRASE}})
+    assert resp.status_code == 409

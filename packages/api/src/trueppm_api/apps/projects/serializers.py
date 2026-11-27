@@ -2490,11 +2490,12 @@ class ProgramProjectRowSerializer(ProjectSerializer):
 class ExportEncryptionSerializer(serializers.Serializer[Any]):
     """Opt-in encryption for one async export bundle (#2400, ADR-0634 §5).
 
-    ``validate`` turns the request into the PUBLIC ``ExportEncryption`` the job row
-    keeps: a recipient is parsed to its age public key, and a passphrase is run
-    through scrypt here, in the request thread, so only the derived public key
-    ever reaches the job row, the outbox or the broker. The passphrase field is
-    write-only and never echoed, logged, or included in an error message.
+    ``validate`` checks the choice cheaply (passphrase length, age key syntax) and
+    returns an in-memory ``EncryptionRequest`` under ``encryption``. The scrypt
+    derivation is deferred to the enqueue service, after its in-flight de-dupe, so
+    a request about to be refused with a 409 spends no scrypt; only the derived
+    public key ever reaches the job row, the outbox or the broker. The passphrase
+    field is write-only and never echoed, logged, or included in an error message.
     """
 
     mode = serializers.ChoiceField(choices=["passphrase", "recipient"])
@@ -2506,25 +2507,22 @@ class ExportEncryptionSerializer(serializers.Serializer[Any]):
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         from trueppm_api.apps.projects.export_crypto import (
             ExportCryptoError,
-            passphrase_encryption,
-            recipient_encryption,
+            encryption_request,
         )
 
+        mode = attrs["mode"]
+        field = "passphrase" if mode == "passphrase" else "recipient"
+        value = attrs.get(field)
+        if not value:
+            message = (
+                "Enter a passphrase."
+                if mode == "passphrase"
+                else "Paste an age public key (it starts with age1)."
+            )
+            raise serializers.ValidationError({field: [message]})
         try:
-            if attrs["mode"] == "passphrase":
-                passphrase = attrs.get("passphrase")
-                if not passphrase:
-                    raise serializers.ValidationError({"passphrase": ["Enter a passphrase."]})
-                attrs["encryption"] = passphrase_encryption(passphrase)
-            else:
-                recipient = attrs.get("recipient")
-                if not recipient:
-                    raise serializers.ValidationError(
-                        {"recipient": ["Paste an age public key (it starts with age1)."]}
-                    )
-                attrs["encryption"] = recipient_encryption(recipient)
+            attrs["encryption"] = encryption_request(mode, **{field: value})
         except ExportCryptoError as exc:
-            field = "passphrase" if attrs["mode"] == "passphrase" else "recipient"
             raise serializers.ValidationError({field: [str(exc)]}) from exc
         attrs.pop("passphrase", None)
         return attrs

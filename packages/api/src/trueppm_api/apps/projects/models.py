@@ -10077,7 +10077,9 @@ class ProjectExportJob(models.Model):
     # Opt-in encryption at rest (#2400, ADR-0634 §5): "none", "passphrase" or
     # "recipient". ``encryption_params`` holds only PUBLIC values (the age public key
     # and, for a passphrase, the scrypt salt and work factor); the passphrase itself
-    # is never stored, so nothing on this row can decrypt the file.
+    # is never stored, so nothing on this row can decrypt the file. They are still
+    # enough to test passphrase guesses offline, so the worker clears them when the
+    # job finishes (success or failure); only a pending/running row holds them.
     encryption_mode = models.CharField(
         max_length=12, choices=ExportEncryptionMode.choices, default=ExportEncryptionMode.NONE
     )
@@ -10156,7 +10158,9 @@ class ProgramExportJob(models.Model):
     # Opt-in encryption at rest (#2400, ADR-0634 §5): "none", "passphrase" or
     # "recipient". ``encryption_params`` holds only PUBLIC values (the age public key
     # and, for a passphrase, the scrypt salt and work factor); the passphrase itself
-    # is never stored, so nothing on this row can decrypt the file.
+    # is never stored, so nothing on this row can decrypt the file. They are still
+    # enough to test passphrase guesses offline, so the worker clears them when the
+    # job finishes (success or failure); only a pending/running row holds them.
     encryption_mode = models.CharField(
         max_length=12, choices=ExportEncryptionMode.choices, default=ExportEncryptionMode.NONE
     )

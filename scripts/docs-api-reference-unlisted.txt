@@ -203,6 +203,10 @@ GET /api/v1/projects/{project_pk}/risks/
 POST /api/v1/projects/{project_pk}/risks/
 POST /api/v1/projects/{project_pk}/risks/import/
 DELETE /api/v1/projects/{project_pk}/risks/{id}/
+# GET .../risks/{id}/ is NOT documented, but its line was removed because the checker
+# reads the newly documented `GET .../risks/export/` as a match for it (the literal
+# `export` segment matches the `{id}` placeholder), so keeping it fails the ratchet as
+# "now documented". A checker defect, not a docs fix; --update-baseline drops this note.
 PATCH /api/v1/projects/{project_pk}/risks/{id}/
 PUT /api/v1/projects/{project_pk}/risks/{id}/
 GET /api/v1/projects/{project_pk}/risks/{risk_pk}/comments/

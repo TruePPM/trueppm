@@ -301,13 +301,36 @@ open is worse than a plain one you chose. Two ways to encrypt:
 | **Passphrase** | A passphrase of at least 12 characters, typed twice | Send it to the program import API with the same passphrase (below) |
 | **age public key** | An [age](https://age-encryption.org) public key (`age1…`) you already manage | `age -d -i <your key file> project-APOLLO.tar.gz.age > project-APOLLO.tar.gz` |
 
-**TruePPM never keeps the passphrase.** The server turns it into a public key
-while it handles your request and stores only that public key, a random salt and
-the work factor. None of them can open the bundle. **If you lose the passphrase,
-nobody can open the bundle** — build a new one instead. The card asks you to
-confirm you understand that before it starts. For an offsite archive where nobody
-wants to hold a passphrase, use an age public key; TruePPM only ever sees the
-public half.
+**TruePPM never keeps the passphrase**, nor anything computed from it alone. The
+server turns it into a public key while it handles your request and, while the
+bundle is being built, stores only that public key, a random salt and the work
+factor. None of them can open the bundle. The passphrase is also removed from a
+request before TruePPM hashes it for an `Idempotency-Key` or the agent audit
+trail, so no stored digest depends on it. **If you lose the passphrase, nobody
+can open the bundle** — build a new one instead. The card asks you to confirm you
+understand that before it starts. For an offsite archive where nobody wants to
+hold a passphrase, use an age public key; TruePPM only ever sees the public half.
+
+Know what passphrase mode does and does not protect against:
+
+- **It gives confidentiality, not authenticity.** Anyone who has the public key
+  can build a file that your passphrase opens, and the integrity manifest inside
+  is not a signature, so a forger can rewrite it too. To check that a bundle is
+  the one TruePPM built, compare the digest of the decrypted `.tar.gz` with the
+  job's `file_sha256` as the API reports it (below), not with anything inside the
+  file, and not on the strength of it having decrypted.
+- **While a bundle is being built, its job row holds the public key, salt and
+  work factor.** Someone who can read the database in that window can test
+  passphrase guesses offline, at the cost of one scrypt (2<sup>17</sup>, about
+  128 MiB) per guess, and could build a forged bundle that opens under your
+  passphrase. TruePPM clears those values as soon as the build finishes or
+  fails; a finished job keeps only `encryption_mode`. The file itself carries the
+  salt and work factor, as every passphrase-encrypted format must, so anyone who
+  holds the file can attempt the same offline guessing. Choose a long passphrase.
+- **Retrying with an `Idempotency-Key`**: two requests that differ only in the
+  passphrase count as the same request, so a retry under the same key replays
+  the first response instead of returning `422`. Use a fresh key for a new
+  passphrase.
 
 An encrypted bundle is easy to tell apart from a plain one:
 
@@ -322,7 +345,11 @@ An encrypted bundle is easy to tell apart from a plain one:
 so they describe the content, not one ciphertext. Check them after you decrypt.
 
 The file is in the age v1 format (X25519, ChaCha20-Poly1305). A key-encrypted
-bundle opens with any age tool. A passphrase bundle carries an extra
+bundle is meant to open with any age tool. CI checks it against an independent
+decoder written from the age v1 specification, not against the `age` or `rage`
+programs themselves; it was checked by hand once with `rage` (through its
+`pyrage` Python bindings) while this feature was built. Try one bundle with your
+own age tool before you rely on it for an archive. A passphrase bundle carries an extra
 `trueppm-scrypt` header line, which standard age tools do not read, so open it
 through the program import API rather than `age -d`. The web **Import program**
 button takes a JSON seed only, for plain and encrypted bundles alike.
@@ -341,6 +368,9 @@ rather than handing you a build that does not match; a passphrase request never
 reuses an in-flight build. To import a passphrase bundle, send its passphrase
 beside the file: `POST /api/v1/programs/import/` with multipart fields `file` and
 `passphrase`. A wrong passphrase and a damaged file both return the same `400`.
+A file whose header asks for a heavier scrypt work factor than TruePPM writes
+(2<sup>17</sup>) is refused as damaged before any key is derived, so an upload
+cannot make the server spend more memory than an export of its own would.
 TruePPM cannot decrypt a key-encrypted bundle, since it never has your secret key:
 decrypt it with `age` first and upload the `.tar.gz`.
 
