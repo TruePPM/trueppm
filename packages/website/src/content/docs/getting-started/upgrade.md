@@ -319,6 +319,17 @@ Two windows cannot understand the new name, because a 0.4 API pod only knows
   scope stops working until you re-mint it on 0.4. Tokens minted with
   `{"scopes": ["legacy:full"]}` are unaffected.
 
+### A deleted dependency can be added again (`projects.0188`)
+
+From 0.5, the uniqueness rule on dependencies will apply to live links only, so a link
+that was deleted can be drawn again. The migration will drop the old constraint and build
+a partial unique index over live rows. It will change no data, and no stored row can
+violate the new rule.
+
+Reversing it will fail once any deleted link and a live link share the same predecessor,
+successor and type, because the old constraint also counted deleted rows. To go back
+past this migration, restore the pre-upgrade backup.
+
 ---
 
 ## Upgrading to 0.4
