@@ -134,7 +134,8 @@ The download endpoint is authenticated (the archive is never served from a raw
 storage URL); it returns `409` while the job is still building and `410 Gone`
 once the link has expired. A bundle already `pending`/`running` for the project
 **for the same requester** is reused rather than queuing a duplicate build — a
-second Admin's `POST` always gets a job of their own.
+second Admin's `POST` always gets a job of their own. A job still `pending` or
+`running` after two hours is marked `failed`, so a new request can start.
 
 The jobs list, the poll endpoint, and the download endpoint are all scoped to the
 admin who requested the job, in addition to the project: another project Admin's
@@ -195,7 +196,9 @@ GET  /api/v1/programs/{id}/export/jobs/{job_id}/download/  # download when ready
 job endpoint until `status` is `success` (or `failed`), then fetch `download_url`.
 The download endpoint is authenticated, returns `409` while the job is still
 building and `410 Gone` once the link has expired, and reuses a bundle already
-`pending`/`running` for the program rather than queuing a duplicate build.
+`pending`/`running` for the program rather than queuing a duplicate build. A job
+still `pending` or `running` after two hours is marked `failed`, so a new request
+can start.
 
 Inside the archive, each member project's contents are nested under
 `projects/<project-id>/` (its `msproject.xml`, `attachments/…`,

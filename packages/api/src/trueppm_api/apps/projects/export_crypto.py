@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import base64
 import hmac
+import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -53,6 +54,8 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
+
+logger = logging.getLogger(__name__)
 
 MODE_NONE = "none"
 MODE_PASSPHRASE = "passphrase"
@@ -425,6 +428,9 @@ def decrypt_stream(src: IO[bytes], dst: IO[bytes], passphrase: str) -> None:
     except ExportCryptoError:
         raise
     except (ValueError, TypeError, IndexError, KeyError, OverflowError) as exc:
+        logger.warning(
+            "decrypt_stream: %s mapped to ExportCryptoError", type(exc).__name__, exc_info=True
+        )
         raise ExportCryptoError("Wrong passphrase, or the file is damaged.") from exc
 
 
