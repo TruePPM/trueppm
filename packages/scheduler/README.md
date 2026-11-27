@@ -1064,7 +1064,9 @@ they will ship with 0.5 or that release will slip:
   phase 2 brings the engine itself into scope
   ([#2468](https://gitlab.com/trueppm/trueppm/-/issues/2468)).
 - **Monte Carlo correctness** — the sprint-horizon clamp bug above will be
-  fixed ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)).
+  fixed ([#2469](https://gitlab.com/trueppm/trueppm/-/issues/2469)), and so
+  will the zero-duration back-solve that can put a Monte Carlo P50 before the
+  CPM date ([#4822](https://gitlab.com/trueppm/trueppm/-/issues/4822)).
 - **Progress and actuals correctness** — the CPM defects above that move a
   date, float, or percentile on a project with recorded actuals or a
   milestone: closing a milestone ahead of an open
@@ -1079,10 +1081,7 @@ they will ship with 0.5 or that release will slip:
   [#744](https://gitlab.com/trueppm/trueppm/-/issues/744)).
 
 May also land in 0.5, but not yet committed (reserve, stretch, or not yet
-triaged): the zero-duration back-solve that can put a Monte Carlo P50 before
-the CPM date
-([#4822](https://gitlab.com/trueppm/trueppm/-/issues/4822)), the remaining
-MS-Project-parity gaps
+triaged): the remaining MS-Project-parity gaps
 ([#4327](https://gitlab.com/trueppm/trueppm/-/issues/4327),
 [#4319](https://gitlab.com/trueppm/trueppm/-/issues/4319)).
 
