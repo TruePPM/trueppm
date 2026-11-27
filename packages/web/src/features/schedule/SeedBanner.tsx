@@ -3,6 +3,7 @@ import { formatChord } from '@/lib/platform';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/Button';
 import { toast } from '@/components/Toast/toast';
+import { describeUndo } from '@/hooks/useBatchOperations';
 import { useProject } from '@/hooks/useProject';
 import {
   useDeleteUntouchedSeededTasks,
@@ -60,11 +61,7 @@ export function SeedBanner({
   const handleUndo = useCallback(() => {
     undoMutation.mutate(applicationId, {
       onSuccess: (data) => {
-        toast.success(
-          data.undo.kept > 0
-            ? `Undone — removed ${data.undo.deleted}, kept ${data.undo.kept} row${data.undo.kept === 1 ? '' : 's'} (changed since, or above a row that stays).`
-            : `Undone — removed ${data.undo.deleted} row${data.undo.deleted === 1 ? '' : 's'}.`,
-        );
+        toast.success(describeUndo(data.undo));
         void queryClient.invalidateQueries({ queryKey: ['tasks', projectId] });
         void queryClient.invalidateQueries({ queryKey: ['dependencies', projectId] });
         onDismiss();

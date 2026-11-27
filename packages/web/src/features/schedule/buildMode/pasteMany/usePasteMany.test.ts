@@ -1,6 +1,7 @@
 import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ProjectResource, Task } from '@/types';
+import { toast } from '@/components/Toast';
 import { usePasteMany } from './usePasteMany';
 
 // ADR-0810 (#2756): usePasteMany's undo() now routes through the server-recorded
@@ -20,7 +21,8 @@ vi.mock('@/hooks/useTaskMutations', () => ({
   useBulkDeleteTasks: () => h.bulkDelete,
 }));
 
-vi.mock('@/hooks/useBatchOperations', () => ({
+vi.mock('@/hooks/useBatchOperations', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/hooks/useBatchOperations')>()),
   useUndoPasteManyOperation: () => h.undoOperation,
 }));
 
@@ -92,6 +94,20 @@ describe('usePasteMany undo (ADR-0810, #2756)', () => {
 
     expect(h.undoOperation.mutate).toHaveBeenCalledWith('op-1', expect.anything());
     expect(h.bulkDelete.mutate).not.toHaveBeenCalled();
+  });
+
+  it('reports kept rows with the shared delete-undo copy (#4897)', () => {
+    h.undoOperation.mutate = vi.fn(
+      (_id, opts?: { onSuccess?: (d: { undo: { deleted: number; kept: number } }) => void }) => {
+        opts?.onSuccess?.({ undo: { deleted: 2, kept: 1 } });
+      },
+    );
+    const { result } = setup();
+    paste(result, 'op-1');
+    act(() => result.current.undo());
+    expect(toast.info).toHaveBeenCalledWith(
+      'Undone — removed 2 rows, kept 1 row (changed since, or above a row that stays).',
+    );
   });
 
   it('clears the receipt once the server undo succeeds', () => {

@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { ProjectResource, Task } from '@/types';
 import { toast } from '@/components/Toast';
-import { useUndoPasteManyOperation } from '@/hooks/useBatchOperations';
+import { describeUndo, useUndoPasteManyOperation } from '@/hooks/useBatchOperations';
 import { useBulkCreateTasks, useBulkDeleteTasks } from '@/hooks/useTaskMutations';
 import { useWbsStore } from '@/stores/wbsStore';
 import { buildPasteOperations, type PasteSummary } from './buildPasteOperations';
@@ -174,9 +174,7 @@ export function usePasteMany({
           setIsUndoing(false);
           setReceipt(null);
           if (data.undo.kept > 0) {
-            toast.info(
-              `Undid the paste — kept ${data.undo.kept} row(s) (changed since, or above a row that stays).`,
-            );
+            toast.info(describeUndo(data.undo));
           }
         },
         onError: () => {
