@@ -56,7 +56,10 @@ from trueppm_api.apps.profiles.models import (
     RoleContext,
     UserProfile,
 )
-from trueppm_api.core.extension_providers import guard_single_provider
+from trueppm_api.core.extension_providers import (
+    guard_single_provider,
+    invoke_extension_provider,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -112,21 +115,21 @@ def has_portfolio_access(user: Any) -> bool:
 
     if settings.TRUEPPM_EDITION != "enterprise" or _portfolio_access_provider is None:
         return False
-    try:
-        return bool(_portfolio_access_provider(user))
-    except Exception:  # pragma: no cover - defensive: a bad provider must not 500 /me
-        logger.exception("portfolio access provider raised; treating as no access")
-        return False
+    # A bad provider must not 500 /me; no access is the fallback.
+    return bool(
+        invoke_extension_provider(
+            _portfolio_access_provider, user, hook="portfolio access", fallback=False
+        )
+    )
 
 
 def _portfolio_path(user: Any) -> str | None:
     if _portfolio_path_provider is None:
         return None
-    try:
-        return _portfolio_path_provider(user)
-    except Exception:  # pragma: no cover - defensive
-        logger.exception("portfolio path provider raised")
-        return None
+    path: str | None = invoke_extension_provider(
+        _portfolio_path_provider, user, hook="portfolio path", fallback=None
+    )
+    return path
 
 
 # --- Helpers ---------------------------------------------------------------

@@ -28,7 +28,10 @@ from typing import TYPE_CHECKING
 
 from django.conf import settings
 
-from trueppm_api.core.extension_providers import guard_single_provider
+from trueppm_api.core.extension_providers import (
+    guard_single_provider,
+    invoke_extension_provider,
+)
 
 if TYPE_CHECKING:
     from trueppm_api.apps.projects.models import Program, Project
@@ -53,13 +56,30 @@ def register_sharing_enforcement_provider(provider: Callable[[], bool] | None) -
     )
 
 
+# What the helper hands back when the provider raised. Not ``None``: a provider that
+# *returns* ``None`` answered "inactive" and must not take the fail-closed path.
+_RAISED: object = object()
+
+
+def _provider_state() -> bool | None:
+    """The registered provider's answer; ``None`` when it raised (unknown)."""
+    if _ENFORCEMENT_PROVIDER is None:
+        return False
+    # Fails closed (#3866): "unknown" must stay distinct from "inactive" so the
+    # resolvers below can pick the stricter value instead of dropping the lock.
+    answer = invoke_extension_provider(
+        _ENFORCEMENT_PROVIDER, hook="sharing enforcement", fallback=_RAISED
+    )
+    return None if answer is _RAISED else bool(answer)
+
+
 def sharing_enforcement_active() -> bool:
     """True only when an enterprise provider is registered AND reports active.
 
     OSS has no provider → always False, so a workspace ``ENFORCE`` policy never
     locks downstream sharing overrides in the community edition.
     """
-    return _ENFORCEMENT_PROVIDER is not None and bool(_ENFORCEMENT_PROVIDER())
+    return _provider_state() is True
 
 
 def public_sharing_instance_enabled() -> bool:
@@ -100,14 +120,18 @@ def default_share_link_expiry_days() -> int:
     return int(getattr(settings, "TRUEPPM_SHARE_LINK_DEFAULT_EXPIRY_DAYS", 90))
 
 
-def _enforced(workspace: Workspace) -> bool:
-    """Whether the workspace value is a hard ceiling (Enterprise lock active)."""
+def _lock_state(workspace: Workspace) -> bool | None:
+    """Whether the workspace value is a hard ceiling (Enterprise lock active).
+
+    ``None`` means the policy is ``ENFORCE`` but the provider raised. This seam
+    decides anonymous exposure, so it fails closed: each resolver then returns
+    ``True`` only if both the locked and the unlocked answer are ``True``.
+    """
     from trueppm_api.apps.workspace.models import TermOverridePolicy
 
-    return (
-        workspace.public_sharing_override_policy == TermOverridePolicy.ENFORCE
-        and sharing_enforcement_active()
-    )
+    if workspace.public_sharing_override_policy != TermOverridePolicy.ENFORCE:
+        return False
+    return _provider_state()
 
 
 def resolve_effective_sharing(
@@ -127,14 +151,15 @@ def resolve_effective_sharing(
         workspace = Workspace.load()
 
     ws_value = bool(getattr(workspace, field))
-    if _enforced(workspace):
+    lock = _lock_state(workspace)
+    if lock:
         # Enterprise lock: the workspace value wins regardless of lower overrides.
         return ws_value
 
     own = getattr(obj, field)  # nullable override on Program/Project
-    if own is not None:
-        return bool(own)
-    return _parent_value(obj, field, workspace=workspace)
+    value = bool(own) if own is not None else _parent_value(obj, field, workspace=workspace)
+    # Fails closed (#3866): lock unknown → never more open than either answer.
+    return value and ws_value if lock is None else value
 
 
 def resolve_inherited_sharing(
@@ -154,9 +179,12 @@ def resolve_inherited_sharing(
     if workspace is None:
         workspace = Workspace.load()
 
-    if _enforced(workspace):
+    lock = _lock_state(workspace)
+    if lock:
         return bool(getattr(workspace, field))
-    return _parent_value(obj, field, workspace=workspace)
+    value = _parent_value(obj, field, workspace=workspace)
+    # Fails closed (#3866): lock unknown → never more open than either answer.
+    return value and bool(getattr(workspace, field)) if lock is None else value
 
 
 def _parent_value(

@@ -22,6 +22,8 @@ change (the one-way dependency holds: enterprise → OSS, never the reverse).
 Extension inputs are treated as **untrusted** even though enterprise is "ours"
 (threat model, Boundary 5): both seams have a typed, narrow signature and the
 callers fail safe on a raising provider.
+
+Enterprise consumer of the local-login policy seam: tracked as EE#196.
 """
 
 from __future__ import annotations
@@ -31,7 +33,10 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from trueppm_api.apps.workspace.models import WorkspaceRole
-from trueppm_api.core.extension_providers import guard_single_provider
+from trueppm_api.core.extension_providers import (
+    guard_single_provider,
+    invoke_extension_provider,
+)
 
 if TYPE_CHECKING:
     from trueppm_api.apps.sso.models import SsoProviderPolicy
@@ -76,11 +81,13 @@ def oidc_role_for(claims: dict[str, Any], config: SsoProviderPolicy) -> int:
     """
     if _IDENTITY_MAPPER is None:
         return int(config.default_role)
-    try:
-        role = _IDENTITY_MAPPER(claims, config)
-    except Exception:
-        logger.exception("oidc identity mapper raised; falling back to default_role")
-        return int(config.default_role)
+    role = invoke_extension_provider(
+        _IDENTITY_MAPPER,
+        claims,
+        config,
+        hook="oidc identity mapper",
+        fallback=int(config.default_role),
+    )
     if not isinstance(role, int):
         logger.error("oidc identity mapper returned non-int %r; using default_role", role)
         return int(config.default_role)
@@ -123,8 +130,8 @@ def local_login_allowed(user: Any) -> bool:
     """
     if _LOCAL_LOGIN_POLICY is None:
         return True
-    try:
-        return bool(_LOCAL_LOGIN_POLICY(user))
-    except Exception:
-        logger.exception("local login policy provider raised; allowing password login")
-        return True
+    return bool(
+        invoke_extension_provider(
+            _LOCAL_LOGIN_POLICY, user, hook="local login policy", fallback=True
+        )
+    )

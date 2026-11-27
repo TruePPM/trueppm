@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from datetime import date
 from io import StringIO
 from typing import Any
@@ -18,7 +19,10 @@ from trueppm_api.apps.projects.management.commands.create_demo_share_link import
     DEMO_LABEL_BOARD,
 )
 from trueppm_api.apps.projects.models import Project, ShareContentKind, ShareLink
-from trueppm_api.apps.projects.sharing_settings import resolve_effective_sharing
+from trueppm_api.apps.projects.sharing_settings import (
+    register_sharing_enforcement_provider,
+    resolve_effective_sharing,
+)
 from trueppm_api.apps.workspace.models import Workspace
 
 
@@ -381,7 +385,7 @@ def test_reports_the_instance_kill_switch_instead_of_printing_a_dead_url(
 
 
 @pytest.fixture
-def enforced_sharing_off(monkeypatch: pytest.MonkeyPatch) -> None:
+def enforced_sharing_off() -> Iterator[None]:
     """Enterprise ENFORCE lock active with the workspace value off: the project-scope
     override the command writes is ignored, so the effective policy stays off."""
     from trueppm_api.apps.workspace.models import TermOverridePolicy
@@ -390,10 +394,9 @@ def enforced_sharing_off(monkeypatch: pytest.MonkeyPatch) -> None:
     ws.public_sharing = False
     ws.public_sharing_override_policy = TermOverridePolicy.ENFORCE
     ws.save()
-    monkeypatch.setattr(
-        "trueppm_api.apps.projects.sharing_settings.sharing_enforcement_active",
-        lambda: True,
-    )
+    register_sharing_enforcement_provider(lambda: True)
+    yield
+    register_sharing_enforcement_provider(None)
 
 
 @pytest.mark.django_db

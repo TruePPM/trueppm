@@ -482,6 +482,12 @@ extension-signals-check: ## Fail if an OSS→Enterprise extension signal uses pl
 	@bash scripts/check-extension-signals.sh --self-test
 	@bash scripts/check-extension-signals.sh
 
+extension-points-check: ## Fail on an unowned extension point or a bare provider call (#3199, #3866)
+	@# A seam nobody consumes is green in both repos, and a provider called
+	@# directly lets Enterprise code break an OSS request. AST walk, ~1s.
+	@python3 scripts/check-extension-points.py --self-test
+	@python3 scripts/check-extension-points.py
+
 pypi-id-tokens-check: ## Fail if a job outside the known publish jobs can mint a PyPI OIDC token (#3993)
 	@# id_tokens: is issued to ANY job on ANY ref — unlike a Masked+Protected
 	@# variable, branch protection does not gate it. A new job copying
@@ -914,6 +920,7 @@ pre-push-checks: curl-hardening-check
 pre-push-checks: request-body-guards-check
 pre-push-checks: summary-duration-units-check
 pre-push-checks: extension-signals-check
+pre-push-checks: extension-points-check
 pre-push-checks: migration-imports-check
 pre-push-checks: pypi-id-tokens-check
 pre-push-checks: artifact-assertions-check
