@@ -75,7 +75,10 @@ oldest forecast it read. Projects without a forecast will be left out and counte
 Forecasts that are out of date against their project's plan will stay in the
 date and be counted, so the card can say the date rests on them. The date is the
 latest of the projects' own P80s, not a joint forecast of the program, whose P80
-would be that date or later.
+would be that date or later. The card will also show the P50 and P95 range, by
+the same rule: the latest P50 and the latest P95 among the same forecasts, again
+not joint probabilities. A mean of the projects' finish dates was considered for
+the `average` policy and rejected: it is a date on which nothing finishes.
 In the current release it is locked with the reason `no_montecarlo_store`
 ("needs stored Monte Carlo runs").
 :::

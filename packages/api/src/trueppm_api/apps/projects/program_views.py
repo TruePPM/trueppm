@@ -3380,6 +3380,9 @@ class ProgramViewSet(
         )
         # The lead P80 and the rows are defined whether or not the KPI is enabled.
         payload["definitions"]["p80_completion"] = METRIC_DEFINITIONS["rollup.p80_completion"]
+        # The range beside it (#2408): the lead figure carries P50 and P95 too.
+        for key in ("p50_completion", "p95_completion"):
+            payload["definitions"][key] = METRIC_DEFINITIONS[f"rollup.{key}"]
         payload["definitions"]["projects"] = METRIC_DEFINITIONS["rollup.project_row"]
         for key in ("projects_on_track", "open_risk_count", "cross_project_link_count"):
             payload["definitions"][key] = METRIC_DEFINITIONS[f"rollup.{key}"]

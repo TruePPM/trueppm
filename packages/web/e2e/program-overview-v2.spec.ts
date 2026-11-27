@@ -298,4 +298,35 @@ test.describe('shell v2 program overview', () => {
     );
     await expectNoA11yViolationsBothThemes(page, testInfo);
   });
+
+  test('shows the program P50 and P95 beside the P80, naming a gap (#2408)', async ({
+    page,
+  }, testInfo) => {
+    const body = rollup(ROWS, [C]);
+    const pct = (value: string | null, driver: string | null, without: string[]) => ({
+      value,
+      driver_project_id: driver,
+      projects_without: without.length,
+      projects_without_ids: without,
+    });
+    Object.assign(body.forecast, {
+      percentiles: {
+        p50: pct('2027-01-30', A, [C]),
+        p80: pct('2027-02-20', A, [C]),
+        p95: pct('2027-04-02', A, [B, C]),
+      },
+    });
+    Object.assign(body.definitions, {
+      p50_completion: 'Server program P50 sentence.',
+      p95_completion: 'Server program P95 sentence.',
+    });
+    await open(page, body);
+    const range = page.getByTestId('program-overview2-range');
+    await expect(range).toContainText('P50');
+    await expect(range).toContainText('P95');
+    await expect(page.getByTestId('program-overview2-range-gap')).toHaveText(
+      /The P95 leaves out Portal: its forecast has no P95\./,
+    );
+    await expectNoA11yViolationsBothThemes(page, testInfo);
+  });
 });

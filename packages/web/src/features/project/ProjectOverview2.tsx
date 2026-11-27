@@ -91,7 +91,7 @@ export function stalenessCaveat(
   return out;
 }
 
-function Peer({
+export function Peer({
   label,
   date,
   definition,

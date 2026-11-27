@@ -10,7 +10,7 @@ import { useProgramMembers } from './hooks/useProgramMembers';
 import { ROLE_ADMIN, ROLE_OWNER } from '@/lib/roles';
 import { HEALTH_BAND_LABEL, type HealthBand as SharedHealthBand } from '@/lib/healthBand';
 import { useProgramId } from '@/hooks/useProgramId';
-import { fmtUtcLong } from '@/lib/formatUtcDate';
+import { fmtUtcLong, fmtUtcMedium } from '@/lib/formatUtcDate';
 import { useFeatureFlag } from '@/lib/featureFlags';
 import { SHELL_V2_FLAG } from '@/features/shell2/ShellGate';
 import { ProgramOverview2 } from './ProgramOverview2';
@@ -55,6 +55,49 @@ interface AvailableKpi {
   projects_with_stale_forecast?: number;
   /** Which projects `projects_with_stale_forecast` counts (#2408). */
   projects_with_stale_forecast_ids?: string[];
+  /** The program P50 / P80 / P95, each the latest of that percentile (#2408). */
+  percentiles?: ProgramForecastPercentiles;
+}
+
+/**
+ * One program percentile (#2408): the latest of it across the projects' newest
+ * forecasts, with its own driver and the projects it leaves out. Not a joint
+ * probability — the program's own percentile would be this date or later.
+ */
+export interface ProgramForecastPercentile {
+  value: string | null;
+  driver_project_id: string | null;
+  projects_without: number;
+  projects_without_ids: string[];
+}
+
+export interface ProgramForecastPercentiles {
+  p50: ProgramForecastPercentile;
+  p80: ProgramForecastPercentile;
+  p95: ProgramForecastPercentile;
+}
+
+/**
+ * The P50 · P95 range beside the program P80, as one line, and the projects each of
+ * the two leaves out beyond the P80's own exclusions (#2408). The server decides
+ * every date and every gap; this only words them.
+ */
+export function percentileRange(
+  percentiles: ProgramForecastPercentiles | undefined,
+): { range: string; gaps: string[] } | null {
+  if (!percentiles) return null;
+  const base = percentiles.p80.projects_without;
+  const part = (label: string, p: ProgramForecastPercentile) =>
+    `${label} ${p.value ? fmtUtcMedium(p.value) : 'not computed'}`;
+  const gaps = (['p50', 'p95'] as const)
+    .map((q) => {
+      const extra = percentiles[q].projects_without - base;
+      return extra > 0
+        ? `${q.toUpperCase()} leaves out ${extra} more ${extra === 1 ? 'project' : 'projects'}`
+        : null;
+    })
+    .filter((g): g is string => g !== null);
+  return { range: `${part('P50', percentiles.p50)} · ${part('P95', percentiles.p95)}`, gaps };
 }
 
 /**
@@ -135,7 +178,10 @@ export interface ProgramRollup {
   kpis: Record<string, RollupKpiEntry>;
   /** When the server computed the payload; `p80_completion` carries its own. */
   as_of?: string;
-  /** One server sentence per figure, keyed by `program_health` and KPI name. */
+  /**
+   * One server sentence per figure, keyed by `program_health` and KPI name, plus
+   * `p50_completion` / `p95_completion` for the lead figure's range (#2408).
+   */
   definitions?: Record<string, string>;
   /** One row per contributing project, sorted by slip (#4799). */
   projects?: ProgramRollupRow[];
@@ -422,12 +468,19 @@ export function renderKpi(key: string, entry: RollupKpiEntry): RenderedKpi {
     const date = typeof entry.value === 'string' ? fmtUtcLong(entry.value) : null;
     const skipped = entry.projects_without_forecast ?? 0;
     const stale = entry.projects_with_stale_forecast ?? 0;
+    // The P50 · P95 range by the same rule (#2408); a server without it falls back
+    // to the P80-only wording.
+    const range = percentileRange(entry.percentiles);
     const notes = [
       skipped > 0
         ? `excludes ${skipped} ${skipped === 1 ? 'project' : 'projects'} without a forecast`
         : null,
       stale > 0 ? `${stale} ${stale === 1 ? 'forecast' : 'forecasts'} out of date` : null,
+      ...(range?.gaps ?? []),
     ].filter((n): n is string => n !== null);
+    const caveat = range
+      ? 'latest project percentiles, not a joint forecast'
+      : 'latest project P80, not a joint forecast';
     return {
       key,
       label,
@@ -435,9 +488,9 @@ export function renderKpi(key: string, entry: RollupKpiEntry): RenderedKpi {
       sub:
         date === null
           ? noValueReason(entry.reason)
-          : notes.length > 0
-            ? notes.join(' · ')
-            : 'latest project P80, not a joint forecast',
+          : [range?.range, ...(notes.length > 0 ? notes : [caveat])]
+              .filter((n): n is string => Boolean(n))
+              .join(' · '),
       variant: 'neutral',
       muted: false,
     };

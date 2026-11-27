@@ -210,7 +210,12 @@ In 0.4 the program overview is the KPI tiles described above.
 
 The new overview leads with one figure: the **program finish (P80)**, the latest
 P80 among the projects' own forecasts, with the project that sets it named under
-it. Below it, each project is one row, sorted by slip (the latest past its
+it. Beside it are the program **P50** and **P95**, the latest P50 and latest P95
+among the same forecasts, each naming its own project when that differs from the
+P80's. None of the three is a joint probability for the program: each is the
+latest of the projects' own percentiles, so the program's real P50, P80 or P95
+would be that date or later. If a project's forecast has no P95, the overview
+says the P95 leaves it out. Below it, each project is one row, sorted by slip (the latest past its
 commitment first):
 
 - the project manager's call from the latest [status update](/features/status-updates/),
@@ -245,8 +250,8 @@ for **Program budget burn** when the budget-utilization KPI is on and you may se
 cost ("Identity Consolidation has no budget baseline").
 
 The rows come from `GET /programs/{id}/rollup/`, which now carries `projects`
-(one row per project), `forecast` (the program P80, served whether or not the
-P80 KPI is enabled), and `summary` (the three tile counts), and names the
+(one row per project), `forecast` (the program P80 with its P50 and P95 in `forecast.percentiles`,
+served whether or not the P80 KPI is enabled), and `summary` (the three tile counts), and names the
 projects without a forecast in `projects_without_forecast_ids`, the projects whose
 forecast is out of date against its plan in `projects_with_stale_forecast_ids`
 (the overview names them: "1 forecast is out of date (Data Migration); the

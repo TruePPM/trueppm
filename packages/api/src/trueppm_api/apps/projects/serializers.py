@@ -3548,6 +3548,48 @@ class ProgramRollupConfigSerializer(serializers.ModelSerializer[Program]):
         return deduped
 
 
+class ProgramRollupPercentileSerializer(serializers.Serializer[dict[str, Any]]):
+    """One program forecast percentile (#2408): the latest of it across the projects' runs.
+
+    Not a joint probability (ADR-0088 amendment 2026-11-27): each project's percentile
+    is its own marginal, and the latest of them is a lower bound on the program's.
+    """
+
+    value = serializers.DateField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "The latest of this percentile among the contributing projects' newest "
+            "Monte Carlo results; null when none carries it."
+        ),
+    )
+    driver_project_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="The project whose percentile is the latest; null when value is null.",
+    )
+    projects_without = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Contributing projects this percentile leaves out: no forecast, or a newest "
+            "result that carries no value for this percentile."
+        ),
+    )
+    projects_without_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        read_only=True,
+        help_text="Which projects projects_without counts.",
+    )
+
+
+class ProgramRollupPercentilesSerializer(serializers.Serializer[dict[str, Any]]):
+    """The program forecast range: P50, P80 and P95 by the same reducer (#2408)."""
+
+    p50 = ProgramRollupPercentileSerializer(read_only=True)
+    p80 = ProgramRollupPercentileSerializer(read_only=True)
+    p95 = ProgramRollupPercentileSerializer(read_only=True)
+
+
 class ProgramRollupKpiEntrySerializer(serializers.Serializer[dict[str, Any]]):
     """One entry of the ``kpis`` map in :func:`compute_program_rollup` (ADR-0088, #3652).
 
@@ -3663,6 +3705,16 @@ class ProgramRollupKpiEntrySerializer(serializers.Serializer[dict[str, Any]]):
             "client can name the forecasts to rerun."
         ),
     )
+    percentiles = ProgramRollupPercentilesSerializer(
+        read_only=True,
+        required=False,
+        help_text=(
+            "p80_completion only: the program P50, P80 and P95, each the latest of that "
+            "percentile across the projects' newest results, with its own driver and "
+            "left-out projects. None is a joint probability (latest of per-project "
+            "marginals); p80 repeats value."
+        ),
+    )
 
 
 class ProgramRollupLatestUpdateSerializer(serializers.Serializer[dict[str, Any]]):
@@ -3756,6 +3808,12 @@ class ProgramRollupDefinitionsSerializer(serializers.Serializer[dict[str, str]])
     )
     p80_completion = serializers.CharField(
         read_only=True, required=False, help_text=METRIC_DEFINITIONS["rollup.p80_completion"]
+    )
+    p50_completion = serializers.CharField(
+        read_only=True, required=False, help_text=METRIC_DEFINITIONS["rollup.p50_completion"]
+    )
+    p95_completion = serializers.CharField(
+        read_only=True, required=False, help_text=METRIC_DEFINITIONS["rollup.p95_completion"]
     )
     projects = serializers.CharField(
         read_only=True, required=False, help_text=METRIC_DEFINITIONS["rollup.project_row"]

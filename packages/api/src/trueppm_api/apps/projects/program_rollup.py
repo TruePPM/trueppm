@@ -25,7 +25,8 @@ Design (ADR-0088, amended by ADR-1314 for #4779):
   cache entry, else the newest persisted run). Policy-independent: a program
   finishes when its last project does, and a mean of finish dates is no date. It
   counts the projects it leaves out (no forecast) and the forecasts it read that are
-  stale against their plan (ADR-0088 amendment 2026-11-27, #2408).
+  stale against their plan, and carries the P50 and P95 beside it by the same
+  reducer (ADR-0088 amendment 2026-11-27, #2408). None is a joint probability.
 - **Cost KPIs (ADR-1324, #754).** ``cost_variance`` / ``budget_utilization`` come from
   :func:`~trueppm_api.apps.projects.cost.project_cost_facts` as program totals (Σ CV,
   ΣAC / ΣBAC). They are unavailable with an actionable reason (``no_budget`` /
@@ -368,13 +369,19 @@ def p80_completion_entry(project_ids: list[Any]) -> dict[str, Any]:
     that cannot be placed against its plan (``unknown``) is not counted — that is not
     evidence it is stale.
 
+    ``percentiles`` carries the program P50, P80 and P95 (#2408): the latest of each
+    percentile over the same runs, each with its own driver and its own left-out
+    projects (:func:`_percentile_entry`). ``percentiles.p80`` repeats the top-level
+    figure so a client can render the range from one shape. No extra query: the reader
+    already returns all three.
+
     The per-project read is :func:`metric_provenance.latest_forecast_by_project`,
     the batched reader My Work's ship date also uses, so the rollup cannot read the
     owner's order differently from it. Fixed cost: one ``get_many`` cache read, at
     most one ``DISTINCT ON`` query, and one project-row read for the staleness inputs.
     """
     from trueppm_api.apps.projects.metric_provenance import latest_forecast_by_project
-    from trueppm_api.apps.scheduling.forecast_staleness import forecast_staleness_facts
+    from trueppm_api.apps.scheduling.forecast_staleness import forecast_staleness_for_payload
 
     entry: dict[str, Any] = {
         "available": True,
@@ -386,6 +393,7 @@ def p80_completion_entry(project_ids: list[Any]) -> dict[str, Any]:
         "projects_without_forecast_ids": sorted(str(pid) for pid in project_ids),
         "projects_with_stale_forecast": 0,
         "projects_with_stale_forecast_ids": [],
+        "percentiles": {q: _percentile_entry(q, {}, project_ids) for q in _PERCENTILES},
     }
     if not project_ids:
         entry["reason"] = REASON_NO_PROJECTS
@@ -409,15 +417,17 @@ def p80_completion_entry(project_ids: list[Any]) -> dict[str, Any]:
         }
         today = timezone.localdate()
         stale_ids = []
-        for (_, taken_at, pid), row in zip(dated, latest.values(), strict=True):
+        for pid, row in latest.items():
             version_now, recalculated_at = plans.get(pid, (None, None))
-            state = forecast_staleness_facts(
-                plan_version=row.get("plan_version"),
+            # The payload form, as ``monte-carlo/latest/`` uses: it ``_parse_int``s the
+            # run's plan_version / engine_epoch, so a malformed cache value reads as
+            # ``unknown`` on both pages instead of being compared here (a bool is an
+            # int to Python, and ``True != 7`` would call the forecast stale).
+            state = forecast_staleness_for_payload(
+                row,
                 plan_version_current=version_now,
-                taken_at=taken_at,
                 recalculated_at=recalculated_at,
                 today=today,
-                engine_epoch=row.get("engine_epoch"),
             )["forecast_staleness"]
             if state in _STALE_FORECAST_STATES:
                 stale_ids.append(pid)
@@ -437,7 +447,41 @@ def p80_completion_entry(project_ids: list[Any]) -> dict[str, Any]:
     entry["value"] = p80.isoformat()
     entry["driver_project_id"] = driver
     entry["as_of"] = min(run_at for _, run_at, _ in dated).isoformat()
+    entry["percentiles"] = {q: _percentile_entry(q, latest, project_ids) for q in _PERCENTILES}
     return entry
+
+
+#: The percentiles the program forecast range carries, low to high (#2408).
+_PERCENTILES = ("p50", "p80", "p95")
+
+
+def _percentile_entry(
+    quantile: str, latest: dict[str, dict[str, Any]], project_ids: list[Any]
+) -> dict[str, Any]:
+    """One program percentile: the latest of that percentile across the projects' runs.
+
+    The same reducer as the P80, over the same runs (each project's newest result), and
+    policy-independent for the same reason. Each percentile carries its own driver and
+    its own coverage because they can differ: the project with the latest P50 need not
+    be the one with the latest P95, and a persisted run whose P95 column is null counts
+    toward the P80 but not the P95. ``projects_without_ids`` is every contributing
+    project this percentile leaves out, so a reader can see when the three figures rest
+    on different project sets instead of reading them as one distribution.
+
+    None of the three is a joint probability: each is the latest of per-project
+    marginals, a lower bound on the program's own percentile (ADR-0088 amendment
+    2026-11-27). Visibility matches ``projects_without_forecast_ids``: every program
+    member sees every contributing project's id.
+    """
+    dated = [(row[quantile], pid) for pid, row in latest.items() if row.get(quantile) is not None]
+    without = sorted(str(pid) for pid in project_ids if str(pid) not in {p for _, p in dated})
+    value, driver = max(dated) if dated else (None, None)
+    return {
+        "value": value.isoformat() if value is not None else None,
+        "driver_project_id": driver,
+        "projects_without": len(without),
+        "projects_without_ids": without,
+    }
 
 
 def program_summary(project_ids: list[Any], schedule_bands: dict[Any, str]) -> dict[str, int]:

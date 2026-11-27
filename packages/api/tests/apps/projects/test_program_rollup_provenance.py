@@ -146,6 +146,9 @@ def test_carries_as_of_and_a_definition_per_figure(member: Any, program: Program
         "program_health": METRIC_DEFINITIONS["program_health"],
         "critical_tasks": METRIC_DEFINITIONS["rollup.critical_tasks"],
         "p80_completion": METRIC_DEFINITIONS["rollup.p80_completion"],
+        # The lead figure's P50/P95 range is always served beside it (#2408).
+        "p50_completion": METRIC_DEFINITIONS["rollup.p50_completion"],
+        "p95_completion": METRIC_DEFINITIONS["rollup.p95_completion"],
         # The overview's rows are always served, so their definition always is.
         "projects": METRIC_DEFINITIONS["rollup.project_row"],
         # So are the supporting tiles' counts.
@@ -160,7 +163,8 @@ def test_every_kpi_has_a_definition(member: Any, program: Program) -> None:
     _configure(program, ALL_KPIS)
     defs = _get(member, program)["definitions"]
     tiles = {"projects_on_track", "open_risk_count", "cross_project_link_count"}
-    assert set(defs) == {"program_health", "projects", *tiles, *ALL_KPIS}
+    range_ = ("p50_completion", "p95_completion")  # the lead figure's range (#2408)
+    assert set(defs) == {"program_health", "projects", *tiles, *range_, *ALL_KPIS}
     assert all(defs[k] == METRIC_DEFINITIONS[ROLLUP_DEFINITION_KEY[k]] for k in ALL_KPIS)
 
 
@@ -453,6 +457,104 @@ def test_p80_completion_reads_staleness_inputs_from_the_cache_entry(
     _configure(program, [RollupKpi.P80_COMPLETION.value])
     entry = _get(member, program)["kpis"]["p80_completion"]
     assert entry["projects_with_stale_forecast_ids"] == [str(a.pk)]
+
+
+@pytest.mark.django_db
+def test_p80_completion_ignores_a_malformed_cached_plan_version(
+    member: Any, program: Program, calendar: Calendar
+) -> None:
+    """``True`` is an int to Python; the payload parser reads it as unknown, as
+    ``monte-carlo/latest/`` does, so the two pages cannot disagree about it."""
+    a = _project(program, calendar, "A")
+    cache.set(
+        mc_latest_cache_key(a.pk),
+        {"p80": "2027-02-15", "last_run_at": timezone.now().isoformat(), "plan_version": True},
+        timeout=60,
+    )
+    _configure(program, [RollupKpi.P80_COMPLETION.value])
+    entry = _get(member, program)["kpis"]["p80_completion"]
+    assert entry["value"] == "2027-02-15"
+    assert entry["projects_with_stale_forecast_ids"] == []
+
+
+@pytest.mark.django_db
+def test_p80_completion_counts_a_recalc_after_the_run_as_stale(
+    member: Any, program: Program, calendar: Calendar
+) -> None:
+    """The plan version matches, but the CPM output moved after the run (#3140)."""
+    a = _project(program, calendar, "A")
+    a.refresh_from_db()
+    taken_at = timezone.now() - datetime.timedelta(hours=2)
+    run = MonteCarloRun.objects.create(
+        project=a,
+        n_simulations=100,
+        p80=datetime.date(2027, 3, 1),
+        plan_version=a.last_sync_version,
+    )
+    MonteCarloRun.objects.filter(pk=run.pk).update(taken_at=taken_at)
+    Project.objects.filter(pk=a.pk).update(recalculated_at=taken_at + datetime.timedelta(hours=1))
+    _configure(program, [RollupKpi.P80_COMPLETION.value])
+    entry = _get(member, program)["kpis"]["p80_completion"]
+    assert entry["projects_with_stale_forecast_ids"] == [str(a.pk)]
+
+
+@pytest.mark.django_db
+def test_p80_completion_carries_the_p50_p95_range_with_drivers_per_percentile(
+    member: Any, program: Program, calendar: Calendar
+) -> None:
+    """#2408: each percentile is the latest of its own, with its own driver and gaps."""
+    a = _project(program, calendar, "A")
+    b = _project(program, calendar, "B")
+    no_p95 = _project(program, calendar, "No P95")
+    none = _project(program, calendar, "No forecast")
+    for project, p50, p80, p95 in (
+        # A has the latest P50 and P80; B's wide tail gives it the latest P95.
+        (a, datetime.date(2027, 4, 1), datetime.date(2027, 5, 1), datetime.date(2027, 6, 1)),
+        (b, datetime.date(2027, 2, 1), datetime.date(2027, 4, 1), datetime.date(2027, 8, 1)),
+        # A persisted run with no P95 counts toward P50/P80 and is named for P95.
+        (no_p95, datetime.date(2027, 1, 1), datetime.date(2027, 2, 1), None),
+    ):
+        MonteCarloRun.objects.create(project=project, n_simulations=100, p50=p50, p80=p80, p95=p95)
+    _configure(program, [RollupKpi.P80_COMPLETION.value])
+
+    entry = _get(member, program)["kpis"]["p80_completion"]
+    pct = entry["percentiles"]
+    assert (pct["p50"]["value"], pct["p50"]["driver_project_id"]) == ("2027-04-01", str(a.pk))
+    assert (pct["p80"]["value"], pct["p80"]["driver_project_id"]) == (
+        entry["value"],
+        entry["driver_project_id"],
+    )
+    assert (pct["p95"]["value"], pct["p95"]["driver_project_id"]) == ("2027-08-01", str(b.pk))
+    assert pct["p50"]["projects_without_ids"] == [str(none.pk)]
+    assert pct["p80"]["projects_without_ids"] == entry["projects_without_forecast_ids"]
+    assert pct["p95"]["projects_without"] == 2
+    assert pct["p95"]["projects_without_ids"] == sorted([str(no_p95.pk), str(none.pk)])
+    # The lead figure on the overview carries the same range.
+    assert _get(member, program)["forecast"]["percentiles"] == pct
+
+
+@pytest.mark.django_db
+def test_p95_from_a_cache_entry_without_the_key_is_named_not_invented(
+    member: Any, program: Program, calendar: Calendar
+) -> None:
+    """An entry lacking p95 leaves the project out of the P95; no older run fills it."""
+    a = _project(program, calendar, "A")
+    _run(a, datetime.date(2027, 1, 1), timezone.now() - datetime.timedelta(days=2))
+    MonteCarloRun.objects.filter(project=a).update(p95=datetime.date(2027, 12, 1))
+    cache.set(
+        mc_latest_cache_key(a.pk),
+        {"p50": "2027-02-01", "p80": "2027-02-15", "last_run_at": timezone.now().isoformat()},
+        timeout=60,
+    )
+    _configure(program, [RollupKpi.P80_COMPLETION.value])
+    pct = _get(member, program)["kpis"]["p80_completion"]["percentiles"]
+    assert pct["p50"]["value"] == "2027-02-01"
+    assert pct["p95"] == {
+        "value": None,
+        "driver_project_id": None,
+        "projects_without": 1,
+        "projects_without_ids": [str(a.pk)],
+    }
 
 
 @pytest.mark.django_db

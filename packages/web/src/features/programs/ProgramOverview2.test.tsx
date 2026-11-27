@@ -5,6 +5,7 @@ import {
   budgetBurnMissing,
   overAllocatedFigure,
   partialRollupLine,
+  percentileNotes,
   staleForecastLine,
 } from './ProgramOverview2';
 import { buildAxis } from './programAxis';
@@ -218,5 +219,53 @@ describe('overAllocatedFigure', () => {
   it('is not computable on an error or a malformed payload', () => {
     expect(overAllocatedFigure(undefined, true).kind).toBe('missing');
     expect(overAllocatedFigure({ count: 0 } as never, false).kind).toBe('missing');
+  });
+});
+
+describe('percentileNotes (#2408)', () => {
+  const projects = [row('a', 'Alpha'), row('b', 'Beta'), row('c', 'Gamma')];
+  const p = (value: string | null, driver: string | null, without: string[]) => ({
+    value,
+    driver_project_id: driver,
+    projects_without: without.length,
+    projects_without_ids: without,
+  });
+
+  it('names a different driver and the projects a percentile leaves out beyond the P80', () => {
+    expect(
+      percentileNotes({
+        projects,
+        forecast: {
+          available: true,
+          value: '2027-05-01',
+          percentiles: {
+            p50: p('2027-03-01', 'a', ['c']),
+            p80: p('2027-05-01', 'a', ['c']),
+            p95: p('2027-08-01', 'b', ['a', 'c']),
+          },
+        },
+      }),
+    ).toEqual({
+      drivers: 'P95 set by Beta',
+      gaps: ['The P95 leaves out Alpha: its forecast has no P95.'],
+    });
+  });
+
+  it('says nothing when the range agrees with the P80, or the server sends none', () => {
+    const same = p('2027-05-01', 'a', []);
+    expect(
+      percentileNotes({
+        projects,
+        forecast: {
+          available: true,
+          value: '2027-05-01',
+          percentiles: { p50: same, p80: same, p95: same },
+        },
+      }),
+    ).toEqual({ drivers: null, gaps: [] });
+    expect(percentileNotes({ projects, forecast: { available: true, value: null } })).toEqual({
+      drivers: null,
+      gaps: [],
+    });
   });
 });
