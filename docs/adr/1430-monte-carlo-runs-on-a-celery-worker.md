@@ -25,10 +25,16 @@ connections the waiting requests hold.
    `{queued: true, task_run_id, status: "pending", n_simulations}` (the `queued` marker
    is the api/stability.md `202` contract). The `monte_carlo` throttle still gates the
    `POST`.
+
+   > **Superseded in part (2026-11-27, #5181):** a Member's or Viewer's run no longer refreshes the shared `mc_latest` cache; only a Scheduler+ run of at least 100 simulations does. Item 2's cache refresh below records the earlier decision.
+
 2. `scheduling.run_monte_carlo_simulation` runs on a worker, adopting that `TaskRun`
    (`TaskRunTracker(task_run_id=...)`) so the id the client polls is the one that
    finishes. It runs the same body the view ran: admission, the engine, the
    `mc_latest` cache refresh, and the attributed `MonteCarloRun` row.
+
+   > **Superseded in part (2026-11-27, #5181):** a Member's or Viewer's run no longer refreshes the shared `mc_latest` cache; only a Scheduler+ run of at least 100 simulations does. Item 3 below records the earlier decision.
+
 3. **The attributed-row decision is made in the request, and re-checked on the
    worker.** A Member's run refreshes the forecast but records no history row (#1502);
    the worker has no request to read a role from, so the view passes `persist`. A run
@@ -47,11 +53,19 @@ connections the waiting requests hold.
    The static run cap is now checked first, in the request: an explicit `n_simulations`
    above `MC_SIMULATION_CAP` answers 402 even where the project is also over the task or
    dependency cap, or where runs x tasks exceeds `MC_CELL_CAP` (formerly 400).
+
+   > **Amended (2026-11-27, #5181):** the persisted `result_summary` now also carries
+   > `stored_as_latest` and, for a run that was not stored as the latest forecast
+   > (below Scheduler, or under the minimum run count), `result`: the caller's own
+   > forecast, read through the task-run GET. The WebSocket `task_run_completed`
+   > broadcast still carries only `{run_id, n_simulations, last_run_at}` plus the
+   > flags; `result` is withheld from it.
+
+   > **Superseded in part (2026-11-27, #5181):** a Member's or Viewer's run no longer refreshes the shared `mc_latest` cache; only a Scheduler+ run of at least 100 simulations does. Item 5 below records the earlier decision.
+
 5. **The result is read from `latest/`,** which already derives the per-response facts
    (risk premium, staleness, commitment). The task run's `result_summary` carries only
    `{run_id, n_simulations, last_run_at}`, so the forecast has one read path.
-
-   > **Superseded in part (2026-11-27, #5181):** a Member's or Viewer's run no longer refreshes the shared `mc_latest` cache; only a Scheduler+ run of at least 100 simulations does. The text below records the earlier decision.
 
 ## Alternatives considered
 
@@ -90,6 +104,9 @@ connections the waiting requests hold.
   and the indicator already counts imports the same way. Terminal `task_run_*` events
   now carry `task_name` (additive), so the program schedule page, which refetches the
   merged CPM on `task_run_completed`, skips `scheduling.monte_carlo`.
+
+> **Superseded in part (2026-11-27, #5181):** a Member's or Viewer's run no longer refreshes the shared `mc_latest` cache; only a Scheduler+ run of at least 100 simulations does. The bullet below records the earlier decision.
+
 - **Last writer wins.** Two runs of one project are not serialized (the lock is per
   task run); whichever finishes last owns the `mc_latest` cache. A Member's forecast
   lives only in that 24-hour cache, so once it expires `latest/` falls back to the

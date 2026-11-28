@@ -235,9 +235,9 @@ def backfill_tombstone_floors(
 def bump_cached_forecast_plan_versions(project_model: Any) -> int:
     """Move cached Monte Carlo entries along with the backfill's head bump (#2474).
 
-    A run triggered by a Member refreshes the 24-hour ``monte-carlo/latest/``
-    cache entry and persists no row (#1502), so its ``plan_version`` exists only
-    there. An entry recorded at the old head (``last_sync_version - 1`` once the
+    The 24-hour ``monte-carlo/latest/`` cache entry carries its own
+    ``plan_version``, which a Scheduler+ run writes alongside its persisted row (#5181).
+    An entry recorded at the old head (``last_sync_version - 1`` once the
     backfill committed) is bumped to the new head so it keeps reading ``current``.
     Best effort by design: the cache is not transactional, and an unreachable
     cache must not fail ``migrate`` — the cost of a miss is one forecast reading

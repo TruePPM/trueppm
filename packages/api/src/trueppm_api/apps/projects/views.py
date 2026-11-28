@@ -4476,8 +4476,8 @@ class ProjectViewSet(
         # The same "latest result" GET /monte-carlo/latest/ serves — the cache entry
         # first, the persisted run after its TTL — so this echo cannot disagree with
         # the figure's owner (ADR-1314). Reading only the persisted row made the two
-        # differ for a whole day after a Member-triggered run, which refreshes the
-        # cache but persists no attributed row (#1502).
+        # differ whenever the cache entry is fresher than the persisted row (#5181:
+        # only a Scheduler+ run of at least the minimum writes either).
         cached_mc, latest_mc_run = latest_forecast_result(
             project.pk, MonteCarloRun.objects.only("p80")
         )
@@ -14673,10 +14673,9 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
         from trueppm_api.apps.scheduling.calendars import compose_project_calendar
 
         # The same "latest result" GET /monte-carlo/latest/ serves (ADR-1314): the
-        # cache entry first, the persisted run after its TTL. A Member-triggered run
-        # refreshes the cache and persists no row (#1502), so reading the row alone
-        # left this card — and MCP `get_project`, which reads it — a day behind the
-        # forecast endpoint for the same project.
+        # cache entry first, the persisted run after its TTL. Reading the row
+        # alone left this card — and MCP `get_project`, which reads it — behind the
+        # forecast endpoint for the same project whenever the cache was fresher.
         from trueppm_api.apps.scheduling.forecast_staleness import (
             forecast_staleness_for_payload,
             forecast_staleness_from_run,

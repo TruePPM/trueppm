@@ -167,19 +167,14 @@ MC_LATEST_CACHE_VERSION = 4
 MC_LATEST_MIN_RUNS = 100
 
 
-def mc_latest_min_runs(n_tasks: int | None = None) -> int:
+def mc_latest_min_runs(n_tasks: int) -> int:
     """Effective minimum run count for a result to become the shared latest forecast.
 
-    ``MC_LATEST_MIN_RUNS``, lowered to the most runs the server admits (computed by
-    the helper that clamps ``n_simulations``) so an operator cap below the minimum
-    cannot make every run unstorable. ``n_tasks=None`` applies only the
-    simulation cap, for read paths that do not know the network size.
+    ``MC_LATEST_MIN_RUNS``, lowered to the most runs the server admits for a network
+    of ``n_tasks`` (computed by the helper that clamps ``n_simulations``) so an
+    operator cap below the minimum cannot make every run unstorable.
     """
-    if n_tasks is None:
-        sim_cap: int | None = settings.MC_SIMULATION_CAP
-        admitted = sim_cap
-    else:
-        admitted = max_runs_for(n_tasks)
+    admitted = max_runs_for(n_tasks)
     return MC_LATEST_MIN_RUNS if admitted is None else min(MC_LATEST_MIN_RUNS, admitted)
 
 
@@ -1322,15 +1317,16 @@ def simulate_and_record_monte_carlo(
         "last_run_at": run_at.isoformat(),
         # The plan version this run was computed against (#3140), captured above
         # before the task set was read. Carried on the cache entry — not only on
-        # the persisted row below — because a run triggered by a *Member* refreshes
-        # the cache but persists no attributed row (#1502), so for those runs the
-        # cache entry is the only place this observation exists. Unlike the
-        # risk-premium family, this is not derivable at read time from anything.
+        # the persisted row below — because the cache entry is what readers serve
+        # for the first 24 hours and the row is only the fallback after it expires.
+        # Only a Scheduler+ run of at least the minimum writes either one (#5181).
+        # Unlike the risk-premium family, this is not derivable at read time from
+        # anything.
         "plan_version": plan_version,
         # The correctness epoch this run was computed under (#5064), carried on the
-        # cache entry for the same reason as `plan_version`: a Member's run exists only
-        # here. An entry written before #5064 has no key and reads as unknown on this
-        # axis, never as superseded.
+        # cache entry for the same reason as `plan_version`: it is the entry readers
+        # serve until the TTL. An entry written before #5064 has no key and reads as
+        # unknown on this axis, never as superseded.
         "engine_epoch": MC_ENGINE_EPOCH,
         # The data date this run was actually computed against (ADR-0132, #2638):
         # the project's explicit status_date, or today when unset. Carried on the
@@ -3262,9 +3258,9 @@ class ScheduleDerivationView(McpReadableViewMixin, APIView):
 
         Reads the shared ``mc_latest`` cache first, falling back to the most recent
         persisted ``MonteCarloRun`` — the same order as ``MonteCarloLatestView``.
-        The cache-first read matters since #1502: a Member/Viewer-triggered run
-        refreshes the cache but persists no attributed row, and the derivation is
-        part of the open read surface, so it must see cache-only forecasts.
+        The cache-first read keeps the derivation on the same value the owner serves
+        for the first 24 hours; only a Scheduler+ run of at least the minimum writes
+        the cache or the row (#5181), so a lower role's result is never cited here.
         """
         # This endpoint exists so an agent can cite the *why* beside the value
         # (ADR-0218). A percentile whose run predates the current plan is a stale

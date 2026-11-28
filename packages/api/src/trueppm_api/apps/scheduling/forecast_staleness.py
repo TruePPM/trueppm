@@ -54,9 +54,9 @@ caller already holds the project row — no extra query.
 *observation* made at run time, so it rides both the ``mc_latest`` cache entry and the
 persisted ``MonteCarloRun`` row — it cannot be recovered later from either the project or
 the clock. Only ``plan_version_current`` and the classification itself are derived per
-response. Carrying it on the cache entry is not belt-and-braces: a run triggered by a
-**Member** refreshes the cache but persists no attributed row (#1502), so the cache is the
-*only* place that run's plan version exists.
+response. Carrying it on the cache entry is not belt-and-braces: the cache is what is
+served for the first 24 hours, and the persisted row is only the fallback after it
+expires. Only a Scheduler+ run of at least the minimum writes either (#5181).
 
 Publishing ``plan_version_current`` is not new disclosure. ``Project.last_sync_version``
 is already returned verbatim to the same Viewer+ audience as the ``timestamp`` cursor of

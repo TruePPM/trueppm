@@ -1927,9 +1927,9 @@ def _forecast_signal(member_project_ids: list[Any]) -> dict[str, Any] | None:
     (ADR-1314, amended by #4778): each project's P80 is the owner's latest result —
     the cache entry first, then the newest persisted run — read through
     :func:`latest_forecast_p80_by_project`. This used to read the persisted
-    ``MonteCarloRun`` only, so after a Member-triggered run (cache refreshed, no row
-    persisted, #1502) the My Work card showed a different date from the project's own
-    forecast for up to a day. The max across projects is the honest "when is
+    ``MonteCarloRun`` only, so whenever the cache entry was fresher than the
+    persisted row the My Work card showed a different date from the project's own
+    forecast. The max across projects is the honest "when is
     everything I'm on done at 80% confidence"; ``as_of`` is the driving project's
     ``last_run_at``, the owner's as_of. Projects with no P80 contribute nothing.
     """

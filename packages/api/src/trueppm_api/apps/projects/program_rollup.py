@@ -345,8 +345,8 @@ def p80_completion_entry(project_ids: list[Any]) -> dict[str, Any]:
     Each project's P80 is the latest result ``GET /projects/{id}/monte-carlo/latest/``
     serves — the cache entry first, the newest persisted ``MonteCarloRun`` after its
     TTL — so the program figure cannot disagree with the project forecast it names
-    (ADR-1314). A Member-triggered run refreshes only the cache (#1502), which is why
-    the cache is read at all.
+    (ADR-1314). The cache is read first because it is the owner's order, and a
+    persisted-only reader would lag a fresh run until it is recorded.
 
     The latest of the per-project P80s, not a joint simulation: the program finishes
     no earlier than its latest project, so a joint P80 would be this date or later.

@@ -23,6 +23,8 @@ health case is the clearest. `GET /projects/{id}/status-summary/` returns
 
 Two smaller cases of the same thing were found during the audit for this ADR:
 
+  > **Superseded in part (2026-11-27, #5181):** a Member's or Viewer's run no longer refreshes the shared `mc_latest` cache; only a Scheduler+ run of at least 100 simulations does. The bullet below records the earlier decision.
+
 - `status-summary.monte_carlo_p80` read only the persisted `MonteCarloRun`, while
   `monte-carlo/latest/` serves the cache entry first. A Member-triggered run
   refreshes the cache and persists no row (#1502), so for up to a day the two
@@ -30,8 +32,6 @@ Two smaller cases of the same thing were found during the audit for this ADR:
 - `GET /projects/{id}/blocked/` returns `count`, which is the length of a list
   capped at `MAX_BLOCKED_ROLLUP_ROWS`. It is a row count, not the number of blocked
   tasks.
-
-   > **Superseded in part (2026-11-27, #5181):** a Member's or Viewer's run no longer refreshes the shared `mc_latest` cache; only a Scheduler+ run of at least 100 simulations does. The text below records the earlier decision.
 
 Shell v2's context header (ADR-1298) already shows health once and a P80 stamp.
 Its tooltip carried a definition the web client wrote itself. The homes (#4755)
@@ -72,6 +72,8 @@ is the cumulative planned-vs-actual curve already, and #4767 renders it from
 compatibility. It now reads the same latest result (the cache entry, else the
 persisted run), so it cannot disagree with the owner. Its schema text names the
 owner.
+
+> **Superseded in part (2026-11-27, #5181):** a Member's or Viewer's run no longer refreshes the shared `mc_latest` cache; only a Scheduler+ run of at least 100 simulations does. The paragraph below records the earlier decision.
 
 The overview's forecast-derived fields (`risk_premium_*` and `forecast_staleness`)
 are echoes of the same owner, and they read the same latest result in the same
@@ -251,6 +253,8 @@ No new owner is added for the My Work ship date. It is the §1 forecast owner,
 
 ### Echoes
 
+> **Superseded in part (2026-11-27, #5181):** a Member's or Viewer's run no longer refreshes the shared `mc_latest` cache; only a Scheduler+ run of at least 100 simulations does. The bullet below records the earlier decision.
+
 - **`/me/work` `signals.forecast`** echoes `monte-carlo/latest/`. It read only the
   persisted `MonteCarloRun`, the same disagreement #4760 fixed in status-summary:
   after a Member-triggered run (cache refreshed, no row, #1502) the card on the
@@ -283,8 +287,6 @@ No new owner is added for the My Work ship date. It is the §1 forecast owner,
   called `compute_sprint_burn_status`. It now also carries `burn_status_reason` and
   the owner's `definitions` for `burn_status`, `trend_points` and
   `projected_finish_date`, so a `no_data` there names its cause as the owner does.
-
-  > **Superseded in part (2026-11-27, #5181):** a Member's or Viewer's run no longer refreshes the shared `mc_latest` cache; only a Scheduler+ run of at least 100 simulations does. The text below records the earlier decision.
 
 ### Sprint burn is not project burn
 

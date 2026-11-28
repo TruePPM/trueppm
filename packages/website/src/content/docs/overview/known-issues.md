@@ -57,7 +57,10 @@ this way.
   endpoint will answer `202` with a task-run id for the client to poll, and the web app
   will do that polling for you. API clients that read the forecast from the `POST`
   response will need to read `GET /projects/{id}/monte-carlo/latest/` once the run
-  succeeds.
+  succeeds. Below
+  Scheduler, or under the minimum run count, the run is not stored as the latest
+  forecast, so the caller's own result is in the task run's `result_summary.result`
+  rather than `latest/`.
 - **The what-if will stay synchronous, and stop holding the database** — in 0.5
   [#5067](https://gitlab.com/trueppm/trueppm/-/issues/5067) <!-- known-issues-ack:closed -->
   will run it outside the request transaction and release its database connection
