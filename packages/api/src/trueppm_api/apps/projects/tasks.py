@@ -388,7 +388,7 @@ def close_sprint(self: object, request_id: str) -> None:
             # enqueue_recalculate adopts an already-pending row: a raw insert here
             # would hit the one-pending-per-project unique index, roll the whole
             # close back and leave the sprint active (#5180).
-            enqueue_recalculate(project_id, reason=ScheduleRequestReason.SPRINT_CLOSED)
+            enqueue_recalculate(str(project_id), reason=ScheduleRequestReason.SPRINT_CLOSED)
 
             _compute_velocity_suggestions_safe(sprint)
 
