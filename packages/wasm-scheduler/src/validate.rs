@@ -608,10 +608,11 @@ fn validate_span(project: &Project, status_offset: i64) -> Result<(), String> {
     // is far higher (~262143), so without matching the Python ceiling a year-9950
     // start is rejected by Python but scheduled here. Use the *same* conservative
     // estimate (span x 7 + one scan) against the Python date ceiling.
-    check_far_future_reach(project.start_date, total_span)
+    check_date_range_reach(project, total_span)
 }
 
-fn check_far_future_reach(start_date: NaiveDate, total_span: i64) -> Result<(), String> {
+fn check_date_range_reach(project: &Project, total_span: i64) -> Result<(), String> {
+    let start_date = project.start_date;
     let max_calendar_reach = total_span.saturating_mul(7) + MAX_CALENDAR_SCAN_DAYS;
     if (py_date_max() - start_date).num_days() < max_calendar_reach {
         return Err(format!(
@@ -620,7 +621,32 @@ fn check_far_future_reach(start_date: NaiveDate, total_span: i64) -> Result<(), 
              Use an earlier start date."
         ));
     }
+    // The date.min twin, for spans derived backward from progress (#5190). Python
+    // raised a bare OverflowError for a started zero_remaining task on a year-0001
+    // start; this engine refused it only via its py_date_min walk floor. Both now
+    // refuse the identical inputs, with the same estimate as above, only when such a
+    // task exists. Mirrors Python's `_derives_span_backward` guard.
+    if project.tasks.iter().any(derives_span_backward)
+        && (start_date - py_date_min()).num_days() < max_calendar_reach
+    {
+        return Err(format!(
+            "Project start date {start_date} is too close to the minimum representable date for a \
+             span of {total_span} working days; an in-progress task's start is derived backward \
+             from its progress and would underflow the date range. Use a later start date, or \
+             record the task's actual start."
+        ));
+    }
     Ok(())
+}
+
+/// Open, started work with no recorded `actual_start`: the forward pass derives
+/// its start by walking back over the elapsed share of its duration (#5190).
+fn derives_span_backward(task: &Task) -> bool {
+    task.percent_complete > 0.0
+        && task.percent_complete < 100.0
+        && task.actual_start.is_none()
+        && task.actual_finish.is_none()
+        && task.duration_days() > 0
 }
 
 /// Incremental re-validation for [`SchedulerSession::set_task_start`] (#4712).
@@ -711,7 +737,7 @@ impl SessionBounds {
                  exceeds the maximum of {MAX_PROJECT_SPAN_DAYS} days."
             ))
         } else {
-            check_far_future_reach(project.start_date, total_span)
+            check_date_range_reach(project, total_span)
         };
         if checked.is_err() {
             // Roll the multiset back; the project was never mutated.
@@ -1444,6 +1470,38 @@ mod tests {
         let mut p = project(vec![task("A", 5)], vec![], Calendar::default());
         p.start_date = NaiveDate::from_ymd_opt(9990, 1, 1).unwrap();
         assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
+    fn rejects_progress_derived_span_near_date_min() {
+        // #5190: a started task with no actual_start walks back from its placement.
+        let mut t = task("A", 4);
+        t.percent_complete = 50.0;
+        t.zero_remaining = true;
+        let mut p = project(vec![t], vec![], Calendar::default());
+        p.start_date = py_date_min();
+        assert!(validate_project(&p).is_err());
+    }
+
+    #[test]
+    fn rejects_progress_derived_span_just_above_date_min_with_new_guard() {
+        // #5190: at date.min + 30 the older walk floor does not fire, but Python
+        // refuses (sweep entry date.min+30). Only the new guard produces this error.
+        let mut t = task("A", 4);
+        t.percent_complete = 50.0;
+        t.zero_remaining = true;
+        let mut p = project(vec![t], vec![], Calendar::default());
+        p.start_date = py_date_min() + Duration::days(30);
+        let err = validate_project(&p).unwrap_err();
+        assert!(err.contains("minimum representable date"), "{err}");
+    }
+
+    #[test]
+    fn accepts_unstarted_task_at_date_min() {
+        // The guard is scoped to progress-derived spans: no progress, no refusal.
+        let mut p = project(vec![task("A", 4)], vec![], Calendar::default());
+        p.start_date = py_date_min();
+        assert!(validate_project(&p).is_ok());
     }
 
     #[test]

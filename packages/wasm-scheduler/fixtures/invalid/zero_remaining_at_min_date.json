@@ -1,0 +1,10 @@
+{
+  "id": "inv-zero-remaining-at-min-date",
+  "name": "A 50% zero_remaining task on a 0001-01-01 start derives its span from the day before date.min — Python raised a bare OverflowError, Rust refused cleanly (#5190)",
+  "start_date": "0001-01-01",
+  "tasks": [
+    {"id": "a", "name": "a", "duration": 345600.0, "percent_complete": 50.0, "zero_remaining": true}
+  ],
+  "dependencies": [],
+  "calendar": {"working_days": 31, "exceptions": [], "hours_per_day": 8.0, "timezone": "UTC"}
+}
