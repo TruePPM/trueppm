@@ -48,6 +48,7 @@ of these.
 | `GET` / `HEAD` / `OPTIONS` | Header ignored (safe methods). |
 | Same key, **same** request | Stored response replayed (`Idempotent-Replay: true`). |
 | Same key, **different** request body/path | `422 Unprocessable Entity`, code `idempotency_key_conflict`. |
+| Key longer than 255 characters | `400 Bad Request`, code `idempotency_key_too_long`. |
 | Validation error (`4xx`) or server error (`5xx`) | Not cached — these roll back the request, so a retry re-runs it (the error is deterministic). |
 | Key older than the retention window | Purged; a later retry re-runs the request. |
 
@@ -60,7 +61,12 @@ rejected with `422`. Use `application/json` and resend the exact same payload by
 **Keys are scoped per authenticated user.** One user cannot replay another user's stored
 response, even with the same key value.
 
-### 422 conflict response
+### Refusal responses
+
+Both refusals come from the idempotency layer, before the endpoint runs, and share one
+body shape (`IdempotencyKeyError` in the OpenAPI schema). Each idempotent operation's
+declared `400` and `422` admit it beside that operation's own errors, so branch on
+`code`:
 
 ```json
 {

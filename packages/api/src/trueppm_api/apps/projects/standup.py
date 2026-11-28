@@ -67,6 +67,7 @@ def standup_walk(project: Project) -> dict[str, Any]:
 
             {
               "active": True,
+              "reason": None,
               "sprint": {"id", "name", "goal", "start_date", "finish_date"},
               "generated_at": <iso8601>,
               "window_since": <iso8601>,   # calendar-aware "done since" boundary
@@ -158,6 +159,9 @@ def standup_walk(project: Project) -> dict[str, Any]:
 
     return {
         "active": True,
+        # Always present: the published contract requires it, null on an active walk
+        # (the nightly api:fuzz caught it missing, #5093).
+        "reason": None,
         "sprint": {
             "id": str(sprint.pk),
             "name": sprint.name,

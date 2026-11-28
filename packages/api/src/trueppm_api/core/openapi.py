@@ -1078,12 +1078,21 @@ def ownership_refusal_403(description: str, *, codes: tuple[str, ...] = ()) -> A
         "required": ["detail"],
     }
     if codes:
+        # Not ``required``: the same 403 status is also answered by the role and
+        # membership permission classes, which run before the ownership guard and
+        # write a bare ``{"detail"}`` (the 2026-11-27 nightly ``api:fuzz`` failed six
+        # comment/note/attachment/reaction operations on exactly that, #5093). A
+        # present ``code`` means the ownership guard refused; an absent one means the
+        # caller's role did.
         schema["properties"]["code"] = {
             "type": "string",
             "enum": list(codes),
-            "description": "Stable refusal code — branch on this, not on ``detail``.",
+            "description": (
+                "Stable refusal code — branch on this, not on ``detail``. Present when "
+                "the ownership guard refused; absent when the caller's project role "
+                "refused first."
+            ),
         }
-        schema["required"].append("code")
     return OpenApiResponse(response=schema, description=description)
 
 
@@ -1115,6 +1124,42 @@ _IDEMPOTENT_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 #: Component name for the key-reuse conflict response (#4665).
 IDEMPOTENCY_CONFLICT = "IdempotencyKeyConflict"
 
+#: Component names for the oversized-key 400 response and the body both refusals share.
+IDEMPOTENCY_KEY_TOO_LONG = "IdempotencyKeyTooLong"
+IDEMPOTENCY_KEY_ERROR = "IdempotencyKeyError"
+
+#: The body ``IdempotencyMixin`` writes for both of its own refusals.
+#:
+#: The mixin runs in ``initial()``, before the view, so its refusal reaches the wire on
+#: an operation whose declared ``400`` / ``422`` describes only what the *view* refuses
+#: (a ``{"detail", "code"}`` envelope with a closed code, a bare array, a field map).
+#: The 2026-11-27 nightly ``api:fuzz`` failed ten operations on exactly that: a
+#: 256-character key answered ``{"Idempotency-Key": "..."}`` against a schema with no
+#: such key, and a reused key answered a codeless ``{"detail"}`` against a 422 that
+#: requires ``code`` (#5093). ``_declare_idempotency`` therefore adds this body as an
+#: ``anyOf`` branch to whatever the view already declares, rather than ``setdefault``,
+#: which kept the view's declaration and silently dropped the mixin's.
+_IDEMPOTENCY_KEY_ERROR_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "description": (
+        "A refusal from the ``Idempotency-Key`` layer, which runs before the endpoint "
+        "itself: the key is longer than 255 characters (``400``), or it was already "
+        "used for a different request (``422``)."
+    ),
+    "properties": {
+        "detail": {"type": "string"},
+        "code": {
+            "type": "string",
+            "enum": ["idempotency_key_too_long", "idempotency_key_conflict"],
+            "description": "Stable refusal code — branch on this, not on ``detail``.",
+        },
+    },
+    "required": ["detail", "code"],
+}
+_IDEMPOTENCY_KEY_ERROR_REF: dict[str, Any] = {
+    "$ref": f"#/components/schemas/{IDEMPOTENCY_KEY_ERROR}"
+}
+
 _IDEMPOTENCY_KEY_PARAMETER: dict[str, Any] = {
     "in": "header",
     "name": "Idempotency-Key",
@@ -1142,21 +1187,47 @@ _IDEMPOTENCY_CONFLICT_RESPONSE: dict[str, Any] = {
         "The ``Idempotency-Key`` was already used for a different request (method, "
         "path, query string or body differ). Send a new key for a new operation."
     ),
-    "content": {
-        _JSON_MEDIA_TYPE: {
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "detail": {
-                        "type": "string",
-                        "example": "Idempotency-Key was reused with a different request.",
-                    },
-                    "code": {"type": "string", "example": "idempotency_key_conflict"},
-                },
-            }
-        }
-    },
+    "content": {_JSON_MEDIA_TYPE: {"schema": _IDEMPOTENCY_KEY_ERROR_REF}},
 }
+
+_IDEMPOTENCY_KEY_TOO_LONG_RESPONSE: dict[str, Any] = {
+    "description": (
+        "The ``Idempotency-Key`` header is longer than 255 characters. Send a shorter "
+        "key (a UUIDv4 is recommended)."
+    ),
+    "content": {_JSON_MEDIA_TYPE: {"schema": _IDEMPOTENCY_KEY_ERROR_REF}},
+}
+
+
+def _also_accept_idempotency_error(responses: dict[str, Any], status: str, component: str) -> None:
+    """Make ``responses[status]`` admit the idempotency layer's refusal body.
+
+    With no declaration for ``status`` the shared component response is referenced.
+    With one, its JSON schema becomes ``anyOf: [declared, IdempotencyKeyError]`` —
+    the view's own refusals keep their exact shape and the mixin's is admitted beside
+    them. ``anyOf`` rather than ``oneOf``: a permissive declared schema (the generic
+    validation envelope) can match the mixin's body too, and ``oneOf`` would then
+    reject it for matching twice.
+    """
+    existing = responses.get(status)
+    if existing is None:
+        responses[status] = {"$ref": f"#/components/responses/{component}"}
+        return
+    if not isinstance(existing, dict) or "$ref" in existing:
+        return
+    media = existing.get("content", {}).get(_JSON_MEDIA_TYPE)
+    if not isinstance(media, dict) or "schema" not in media:
+        return
+    if existing.get("content") is _VALIDATION_RESPONSE["content"]:
+        # The generic envelope already admits a string ``detail`` and ``code``.
+        return
+    declared = media["schema"]
+    if isinstance(declared, dict) and _IDEMPOTENCY_KEY_ERROR_REF in declared.get("anyOf", []):
+        return
+    existing["content"] = {
+        **existing["content"],
+        _JSON_MEDIA_TYPE: {**media, "schema": {"anyOf": [declared, _IDEMPOTENCY_KEY_ERROR_REF]}},
+    }
 
 
 def _is_pk_param_name(name: str) -> bool:
@@ -1196,9 +1267,13 @@ def _type_uuid_path_params(result: dict[str, Any]) -> None:
 
 
 def _register_idempotency_conflict(result: dict[str, Any]) -> None:
-    """Register the shared 422 response once instead of inlining it ~340 times."""
-    result.setdefault("components", {}).setdefault("responses", {})[IDEMPOTENCY_CONFLICT] = dict(
-        _IDEMPOTENCY_CONFLICT_RESPONSE
+    """Register the shared 400/422 responses once instead of inlining them ~340 times."""
+    components = result.setdefault("components", {})
+    responses = components.setdefault("responses", {})
+    responses[IDEMPOTENCY_CONFLICT] = dict(_IDEMPOTENCY_CONFLICT_RESPONSE)
+    responses[IDEMPOTENCY_KEY_TOO_LONG] = dict(_IDEMPOTENCY_KEY_TOO_LONG_RESPONSE)
+    components.setdefault("schemas", {})[IDEMPOTENCY_KEY_ERROR] = dict(
+        _IDEMPOTENCY_KEY_ERROR_SCHEMA
     )
 
 
@@ -1407,6 +1482,39 @@ class TruePPMAutoSchema(AutoSchema):
             responses.setdefault("403", dict(_TOKEN_REFUSED_RESPONSE))
         return operation
 
+    def _map_basic_serializer(self, serializer: Any, direction: Any) -> dict[str, Any]:
+        """Honor an explicit ``required=False`` on a read-only response field.
+
+        drf-spectacular marks every ``readOnly`` field ``required``, and DRF gives
+        every read-only field ``required=False`` by default, so the two cannot be told
+        apart on ``field.required``. A serializer that *says* ``required=False`` on a
+        read-only field is declaring a key the response can omit (a gated
+        ``pulse-trend`` body, the accept/reject halves of the bulk scope-change
+        result); publishing it as required made the nightly ``api:fuzz`` fail the
+        responses those serializers describe (#5093). The init kwargs are the only
+        place the explicit choice survives.
+        """
+        result: dict[str, Any] = super()._map_basic_serializer(serializer, direction)
+        required = result.get("required")
+        if not required:
+            return result
+        from drf_spectacular.plumbing import force_instance
+
+        fields = getattr(force_instance(serializer), "fields", None)
+        if fields is None:
+            return result
+        optional = {
+            name
+            for name, field in fields.items()
+            if field.read_only and getattr(field, "_kwargs", {}).get("required") is False
+        }
+        kept = [name for name in required if name not in optional]
+        if kept:
+            result["required"] = kept
+        else:
+            result.pop("required")
+        return result
+
     def _declare_idempotency(self, operation: dict[str, Any], method: str) -> None:
         """Publish the ``Idempotency-Key`` contract on idempotent mutating operations (#4665).
 
@@ -1434,7 +1542,8 @@ class TruePPMAutoSchema(AutoSchema):
                 response.setdefault("headers", {})["Idempotent-Replay"] = dict(
                     _IDEMPOTENT_REPLAY_HEADER
                 )
-        responses.setdefault("422", {"$ref": f"#/components/responses/{IDEMPOTENCY_CONFLICT}"})
+        _also_accept_idempotency_error(responses, "422", IDEMPOTENCY_CONFLICT)
+        _also_accept_idempotency_error(responses, "400", IDEMPOTENCY_KEY_TOO_LONG)
 
     def _get_paginator(self) -> Any:
         """Return ``None`` for actions marked with :func:`suppress_list_pagination`.

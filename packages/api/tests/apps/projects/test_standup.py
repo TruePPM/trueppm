@@ -160,6 +160,19 @@ def test_walk_groups_by_assignee_with_three_buckets(
     assert [c["name"] for c in dev_bucket["in_progress"]] == ["In flight"]
 
 
+def test_active_walk_carries_a_null_reason(project: Project, sprint: Sprint, dev: Any) -> None:
+    # The published contract requires ``reason`` on every walk; the active walk
+    # omitted it and the nightly api:fuzz flagged the response (#5093).
+    walk = standup_walk(project)
+
+    assert walk["active"] is True
+    assert "reason" in walk
+    assert walk["reason"] is None
+    resp = _client(dev).get(_url(project))
+    assert resp.status_code == 200
+    assert "reason" in resp.json() and resp.json()["reason"] is None
+
+
 def test_unassigned_bucket_is_last(project: Project, sprint: Sprint, dev: Any) -> None:
     _task(project, sprint, "Owned", status=TaskStatus.IN_PROGRESS, assignee=dev)
     _task(project, sprint, "Orphan", status=TaskStatus.IN_PROGRESS, assignee=None)
