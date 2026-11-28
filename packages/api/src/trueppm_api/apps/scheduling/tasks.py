@@ -2201,14 +2201,10 @@ def _broadcast_cpm_complete(
     only ever see a payload for a write that actually committed.
 
     ``status_date`` is the CPM data date this run resolved (ADR-0752 §4),
-    echoed so a consumer knows which "today" produced these dates. It is
-    ``None`` on the program-scoped pass: ``gather_program_schedule`` runs the
-    merged engine with ``status_date=None`` on purpose, because member
-    projects can carry different ``status_date`` values and no single one
-    would honestly describe what the merged pass floored against — the
-    program view shows the earliest honest schedule, not a data-date floor.
-    Echoing ``None`` states that plainly rather than fabricating a value or
-    silently dropping the key.
+    echoed so a consumer knows which "today" produced these dates. On the
+    program-scoped pass it is that member project's own resolved data date,
+    which ``gather_program_schedule`` floors the member's open work at (#5178);
+    ``None`` only for a member with no schedulable work, which nothing floored.
 
     ``dates_changed`` (#4659) is set only by the data-date arming run (ADR-0752
     §7), which moves task dates but withholds the per-task ``task_dates_updated``
@@ -2561,18 +2557,20 @@ def _register_program_broadcasts(
 
         # Routed through the shared _broadcast_cpm_complete() (#3776) so this
         # pass and the single-project write-back can never again ship
-        # cpm_complete with different keys — status_date=None documents that
-        # the merged program pass floors nothing (see that function's
-        # docstring). functools.partial pins pid/project_finish/project_crit
-        # at this loop iteration, same as the default-arg pattern _dates and
-        # _capture use just above.
+        # cpm_complete with different keys. status_date is this member's own
+        # data date, which the program pass floored its open work at (#5178).
+        # functools.partial pins pid/project_finish/project_crit at this loop
+        # iteration, same as the default-arg pattern _dates and _capture use
+        # just above.
         transaction.on_commit(
             functools.partial(
                 _broadcast_cpm_complete,
                 project_id=pid,
                 project_finish=project_finish.isoformat() if project_finish else None,
                 critical_count=len(project_crit),
-                status_date=None,
+                status_date=(
+                    graph.data_dates[p.id].isoformat() if p.id in graph.data_dates else None
+                ),
                 dates_changed=p.id in (status_changed_projects or ()),
             )
         )

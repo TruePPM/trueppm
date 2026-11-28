@@ -163,7 +163,11 @@ def test_program_schedule_skips_calendar_exception_date_range(calendar: Calendar
 
     program = Program.objects.create(name="Launch")
     proj = Project.objects.create(
-        name="Holiday Project", start_date=START, calendar=calendar, program=program
+        name="Holiday Project",
+        start_date=START,
+        status_date=START,
+        calendar=calendar,
+        program=program,
     )
     task = Task.objects.create(project=proj, name="Build", duration=5)
 

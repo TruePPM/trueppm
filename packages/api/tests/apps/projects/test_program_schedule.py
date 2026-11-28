@@ -34,7 +34,9 @@ from trueppm_api.apps.projects.models import (
 
 User = get_user_model()
 
-# A Monday, so a standard Mon-Fri calendar starts work immediately.
+# A Monday, so a standard Mon-Fri calendar starts work immediately. Projects
+# pin their data date to their start: the program pass floors open work at each
+# member's data date (#5178), and an unset one resolves to today.
 START = date(2026, 3, 2)
 
 
@@ -56,10 +58,10 @@ def _program_with_cross_edge(
     """
     program = Program.objects.create(name="GA Launch")
     proj_a = Project.objects.create(
-        name="Security", start_date=START, calendar=calendar, program=program
+        name="Security", start_date=START, status_date=START, calendar=calendar, program=program
     )
     proj_b = Project.objects.create(
-        name="Marketing", start_date=START, calendar=calendar, program=program
+        name="Marketing", start_date=START, status_date=START, calendar=calendar, program=program
     )
     a1 = Task.objects.create(project=proj_a, name="Sign-off", duration=5)
     b1 = Task.objects.create(project=proj_b, name="Go-live", duration=2)
@@ -259,7 +261,9 @@ def test_schedule_empty_program_returns_lanes_no_tasks(calendar: Calendar) -> No
     """A program whose projects have no schedulable tasks returns lane metadata and
     an empty schedule rather than erroring."""
     program = Program.objects.create(name="Empty")
-    Project.objects.create(name="Shell", start_date=START, calendar=calendar, program=program)
+    Project.objects.create(
+        name="Shell", start_date=START, status_date=START, calendar=calendar, program=program
+    )
     user = User.objects.create_user(username="pm", password="pw")
     ProgramMembership.objects.create(program=program, user=user, role=Role.MEMBER)
 
@@ -310,10 +314,14 @@ def _program_with_invalid_task(
     _drop_estimate_ordering_constraint()
     program = Program.objects.create(name="Atlas Platform Launch")
     good = Project.objects.create(
-        name="Core API", start_date=START, calendar=calendar, program=program
+        name="Core API", start_date=START, status_date=START, calendar=calendar, program=program
     )
     bad = Project.objects.create(
-        name="Migration Tooling", start_date=START, calendar=calendar, program=program
+        name="Migration Tooling",
+        start_date=START,
+        status_date=START,
+        calendar=calendar,
+        program=program,
     )
     Task.objects.create(project=good, name="Ship", duration=3)
     offending = Task.objects.create(
@@ -388,7 +396,7 @@ def test_schedule_summary_expansion_conflict_returns_422_not_500(calendar: Calen
     """
     program = Program.objects.create(name="Atlas Platform Launch")
     proj = Project.objects.create(
-        name="Core API", start_date=START, calendar=calendar, program=program
+        name="Core API", start_date=START, status_date=START, calendar=calendar, program=program
     )
     summary = Task.objects.create(project=proj, name="Build", duration=3, wbs_path="1")
     a = Task.objects.create(project=proj, name="Backend", duration=2, wbs_path="1.1")
@@ -419,7 +427,11 @@ def test_gather_background_path_reraises_raw_scheduler_error(calendar: Calendar)
     _drop_estimate_ordering_constraint()
     program = Program.objects.create(name="Atlas Platform Launch")
     proj = Project.objects.create(
-        name="Migration Tooling", start_date=START, calendar=calendar, program=program
+        name="Migration Tooling",
+        start_date=START,
+        status_date=START,
+        calendar=calendar,
+        program=program,
     )
     Task.objects.create(
         project=proj,
@@ -452,7 +464,11 @@ def test_schedule_task_duration_is_working_days_not_calendar_span(calendar: Cale
     program = Program.objects.create(name="GA Launch")
     thursday = date(2026, 3, 5)  # A Thursday (START, 2026-03-02, is the Monday before it).
     proj = Project.objects.create(
-        name="Security", start_date=thursday, calendar=calendar, program=program
+        name="Security",
+        start_date=thursday,
+        status_date=thursday,
+        calendar=calendar,
+        program=program,
     )
     task = Task.objects.create(project=proj, name="Sign-off", duration=5)
     user = User.objects.create_user(username="pm", password="pw")
@@ -483,7 +499,11 @@ def test_schedule_lane_duration_is_working_days_across_its_span(calendar: Calend
     program = Program.objects.create(name="GA Launch")
     thursday = date(2026, 3, 5)
     proj = Project.objects.create(
-        name="Security", start_date=thursday, calendar=calendar, program=program
+        name="Security",
+        start_date=thursday,
+        status_date=thursday,
+        calendar=calendar,
+        program=program,
     )
     t1 = Task.objects.create(project=proj, name="Draft", duration=3)
     t2 = Task.objects.create(project=proj, name="Sign-off", duration=2)

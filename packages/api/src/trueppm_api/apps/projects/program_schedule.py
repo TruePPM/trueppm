@@ -156,6 +156,11 @@ class ProgramScheduleGraph:
     # was scheduled.
     engine_project: Any | None = None
     cpm_seconds: float = 0.0
+    # Each member project's resolved data date, keyed by project id (#5178): the
+    # floor ``_apply_member_floors`` applied to that member's open work, echoed on
+    # its ``cpm_complete`` so a consumer knows which "today" produced its dates.
+    # Members with no schedulable work are absent; empty on the no-work path.
+    data_dates: dict[Any, Any] = field(default_factory=dict)
 
     @property
     def summary_ids(self) -> set[str]:
@@ -199,6 +204,63 @@ def _project_sched_tasks(project: Any, db_tasks: list[Any], *, suggest_approve: 
     for st in sched_tasks:
         st.calendar_id = str(project.id)
     return sched_tasks
+
+
+def _apply_member_floors(
+    leaf_tasks: list[Any],
+    expanded_deps: list[Any],
+    project_by_task_id: dict[str, Any],
+) -> dict[Any, Any]:
+    """Floor each member's tasks at its own project start and data date (#5178).
+
+    The merged engine project carries a single ``start_date`` (the earliest member's)
+    and no ``status_date``, because the engine holds one project-start and one
+    data-date floor per run. Left at that, a task in a later-starting member was
+    placed at the earliest member's start and unstarted work could sit in the past —
+    and since this graph is the persisted writer for every member once a cross
+    link is accepted, accepting one link moved tasks it does not drive.
+
+    So each member's two floors ride on its own tasks as an SNET
+    (``planned_start``), the engine input that already carries the sprint floor
+    (ADR-0168), raised to whichever is later of the task's own SNET and the floor.
+    The floors are the single-project pass's (``_run_schedule``), not new math:
+
+    - Open work (not started or in progress) takes the later of the project start
+      and the resolved data date (``resolve_cpm_status_date``, ADR-0752 §4). The
+      engine snaps an SNET to the task's own calendar exactly as it snaps the two
+      project-level floors, and an in-progress task's remaining work is laid from
+      its ES floors, so this lands where the single pass does.
+    - A completed task takes only the project start: the engine pins it, with no
+      actuals, at the project start raised to its SNET, never at the data date.
+    - A task with an incoming SF link takes no project-start floor in the engine
+      (#4218), only the data date when that is after the project start, so only
+      that is applied. The SF test reads the expanded leaf edges the engine
+      schedules.
+
+    Mutates ``leaf_tasks`` in place. Engine input only: ``planned_start`` is never
+    read back from the result, so the stored row keeps its own value. Returns each
+    member's resolved data date, keyed by project id.
+    """
+    from trueppm_scheduler.models import DependencyType
+
+    from trueppm_api.apps.scheduling.services import resolve_cpm_status_date
+
+    sf_linked = {d.successor_id for d in expanded_deps if d.dep_type == DependencyType.SF}
+    data_dates: dict[Any, Any] = {}
+    for st in leaf_tasks:
+        project = project_by_task_id[st.id]
+        if project.id not in data_dates:
+            data_dates[project.id] = resolve_cpm_status_date(project.status_date)
+        data_date = data_dates[project.id]
+        if st.actual_finish is not None or (st.percent_complete or 0) >= 100:
+            floor = project.start_date
+        elif st.id in sf_linked:
+            floor = data_date if data_date > project.start_date else None
+        else:
+            floor = max(project.start_date, data_date)
+        if floor is not None and (st.planned_start is None or st.planned_start < floor):
+            st.planned_start = floor
+    return data_dates
 
 
 def _merge_children_map(db_tasks: list[Any], children_map: dict[str, list[str]]) -> None:
@@ -463,6 +525,11 @@ def gather_program_schedule(
         leaf_tasks, expanded_deps = expand_summary_dependencies(
             all_sched_tasks, sched_deps, all_children_map
         )
+        data_dates = _apply_member_floors(
+            leaf_tasks,
+            expanded_deps,
+            {tid: project_by_id[t.project_id] for tid, t in db_task_by_id.items()},
+        )
         merged = SchedProject(
             id=str(program.pk),
             name=program.name,
@@ -473,10 +540,10 @@ def gather_program_schedule(
             # is only a fallback for tasks with no calendar_id (none here).
             calendar=SchedCalendar(),
             calendars=calendars,
-            # Earliest-possible dates: per-project status_dates differ across the
-            # program, so a single merged data date would be arbitrary. The program
-            # forecast view shows the earliest honest schedule (ADR-0132 parity with
-            # a null status_date), not a data-date floor.
+            # No merged data date: member status_dates differ, and the engine holds
+            # one. Each member's own data date and project start are applied per
+            # task by _apply_member_floors above (#5178), so no member is floored
+            # at another member's dates.
             status_date=None,
         )
         cpm_started = perf_counter()
@@ -514,6 +581,7 @@ def gather_program_schedule(
         calendars=calendars,
         engine_project=merged,
         cpm_seconds=cpm_seconds,
+        data_dates=data_dates,
     )
 
 

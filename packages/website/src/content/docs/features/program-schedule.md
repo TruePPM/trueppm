@@ -28,6 +28,16 @@ Each member project is a lane: a summary row carrying the project name, with tha
 
 The critical path is computed across the **merged** program graph, not stitched together from per-project paths. An upstream task that gates another project's milestone is therefore shown as **critical** — drawn with the same red bar fill as on a single-project schedule — and its float is measured against the whole program. Any red bar that slips can slip the program.
 
+### Each project keeps its own start and data date
+
+:::note[Ships in 0.5]
+In the current release the merged program graph floors every task at the earliest member project's start date and applies no data date. A task in a later-starting project with nothing driving it is drawn at that earliest start, unstarted work can sit before the data date, and once a program has an accepted cross-project dependency those dates are written back to every member project ([#5178](https://gitlab.com/trueppm/trueppm/-/issues/5178)).
+:::
+
+Merging the graph does not move a project's own floors. Each member project's tasks are scheduled no earlier than that project's start date, and its unstarted and remaining in-progress work no earlier than its own data date (its **status date**, or today when none is set), exactly as on its own schedule. Completed work keeps its recorded dates. Accepting a cross-project dependency therefore moves only the work that dependency drives.
+
+Two cases still differ from the project's own schedule. A zero-duration milestone held only by its project's start date, in a project that starts later than another member, can put a successor linked to it with a positive lag one day earlier. And a task marked complete with no recorded actual dates, whose duration runs past its project's data date, is not laid back to finish on the data date as it is on the project's own schedule.
+
 ## Cross-project dependencies
 
 A dependency between two different projects is drawn as a **dashed line**, distinct from the solid lines used for dependencies within a single project. The dashed style makes every cross-project handoff easy to pick out — these are the seams where one team's delay becomes another team's problem. Only **accepted** cross-project dependencies are drawn; a proposed link that the downstream team has not yet accepted is not yet a real constraint and does not appear.

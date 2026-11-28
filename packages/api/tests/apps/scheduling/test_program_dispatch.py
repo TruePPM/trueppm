@@ -299,12 +299,11 @@ def test_cpm_complete_payload_shape_matches_between_single_and_program_pass(
     assert set(program_payload.keys()) == expected_keys
     assert set(single_payload.keys()) == expected_keys
 
-    # The program pass deliberately floors nothing — member projects can carry
-    # different status_dates, so gather_program_schedule runs with
-    # status_date=None and _broadcast_cpm_complete echoes that honestly rather
-    # than fabricating a value. The single-project pass always resolves one.
-    assert program_payload["status_date"] is None
-    assert single_payload["status_date"] is not None
+    # Both passes echo the data date they floored the project's open work at.
+    # The program pass floors each member at its own (#5178): proj_a sets none,
+    # so it resolves to today, exactly as the single-project pass resolves it.
+    assert program_payload["status_date"] == timezone.localdate().isoformat()
+    assert single_payload["status_date"] == timezone.localdate().isoformat()
 
 
 @pytest.mark.django_db
