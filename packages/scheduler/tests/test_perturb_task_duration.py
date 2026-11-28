@@ -1149,7 +1149,7 @@ def test_a_growing_pull_in_across_a_start_to_start_link_never_finishes_later(
     lag_days: int, status_date: date | None, fields: dict[str, object]
 ) -> None:
     """Removing more work from M cannot move the finish later (#4819): with no remaining
-    work the link still reads the recorded start, or the derived span start."""
+    work the link still reads the recorded start, or with none the instant (#5182)."""
     baseline = _chain_with_link_out(DependencyType.SS, lag_days, 5, status_date, **fields)
     finishes = [schedule(baseline).project_finish] + [
         schedule(perturb_task_duration(baseline, "M", delta)).project_finish

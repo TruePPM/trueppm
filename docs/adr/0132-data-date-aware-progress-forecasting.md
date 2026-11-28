@@ -2,7 +2,7 @@
 
 ## Status
 Accepted — implemented on main; status corrected 2026-06-30 after ADR audit (verified: status_date);
-§1/§2 correction below landed in #2676 (ADR-0752 §4/§7); §2a amended 2026-10-18 (#4523);
+§1/§2 correction below landed in #2676 (ADR-0752 §4/§7); §2a amended 2026-10-18 (#4523), its derived-start half superseded 2026-11-27 (#5182);
 §2 in-progress floor list corrected 2026-11-01 (#4527)
 
 > **Two claims below did not match the shipped code as of 2026-07-31 (#2622); both are now
@@ -122,6 +122,27 @@ documented no-op. The `trueppm-scheduler` PyPI package takes a **minor version
 bump** with a changelog note.
 
 ### 2a. Start-side links measure from the task's start, not its remaining window (amendment, 2026-10-18, #4523)
+
+> **Amendment (2026-11-27, #5182) — progress with no recorded start links from
+> `early_start`.** The *derived* half of §2a below is superseded; the text is kept
+> as the record of what shipped from #4523 until #5182. An SS or SF link out of live
+> work now measures from its recorded `actual_start` when it has one, and otherwise
+> from `early_start`, the start of its remaining work — including a task with
+> `percent_complete` and no `actual_start`. The derived span start sits
+> `duration × pct / 100` working days before the remaining work, so at a fixed
+> percentage a longer task read an earlier start and moved its SS/SF successors, and
+> the project finish, earlier (a 2-day task at 50% finished 03-18, a 4-day one 03-17).
+> No anchor that credits those inferred days can be monotone in duration, because the
+> credit grows with the duration itself. A link out of such a task keeps its late-date
+> bound as an ordinary link from `early_start` does; the recorded-start rule is
+> unchanged. `scheduled_start` (ADR-0752) still is the derived span, so the bar does
+> not move. The derived-start helpers named under "Where it lives" —
+> `_window_start_bound`, `_mc_span_link`, `backward::window_start_bound` and the
+> elapsed-days link offset in `linkStartMs` — were removed, along with
+> `_elapsed_link_days` / `Task::elapsed_link_days`. The oracle is now a model-free
+> property as well: lengthening percent-only work at its percentage never moves live
+> work or the finish earlier (`work_moved_earlier_by_lengthening` in
+> `packages/scheduler/tests/test_cpm_oracle.py`).
 
 §2 makes an in-progress task's `early_start` the start of its **remaining** work,
 floored at the data date (see the status note above) and at its other floors. That

@@ -5,8 +5,8 @@ elapsed portion of an in-progress task is history, ``int(duration * pct / 100)``
 working days of the *planned* duration exactly as :func:`schedule` counts it, and
 every run's sampled total less that fixed elapsed is the work still to do. The
 alternative #1495 weighed — elapsed scaled by each run's sampled total — would make
-already-spent time vary run to run, and would move the derived span start that
-SS/SF links from started work measure from (#4523) and the what-if arithmetic
+already-spent time vary run to run, and would move the derived span start the bar
+is drawn from (``scheduled_start``, ADR-0752) and the what-if arithmetic
 (:func:`_shift_remaining_work`, #4820) with it.
 
 The truncation #1495 was filed for is gone: every sampled duration is floored at

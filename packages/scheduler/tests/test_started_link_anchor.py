@@ -577,8 +577,9 @@ def test_no_ss_sf_route_reaches_the_late_window_floor_for_work() -> None:
     data-date-floored early start and pulled its late start below it, which the
     floor then raised back: this same search hits it on 6 of the 2,000 networks
     against the pre-#4523 engine (origin/main at 360cc305b), and on none now. A
-    recorded start now bounds nothing, and a derived one is inverted onto the
-    remaining window (``_window_start_bound``), so no route is left. If this fails,
+    recorded start now bounds nothing, and every other link measures from the early
+    start (#5182), so its inversion is already on the remaining window and no route
+    is left. If this fails,
     a late date of some task with work is being produced by the floor again — find
     which inversion stopped matching its forward constraint.
     """

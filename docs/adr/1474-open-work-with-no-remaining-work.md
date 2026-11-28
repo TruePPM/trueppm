@@ -3,6 +3,19 @@
 ## Status
 
 Accepted (2026-11-23) — the maintainer chose option 1 on #5070; implemented with #4819.
+Decision 3 amended 2026-11-27 (#5182).
+
+> **Amendment (2026-11-27, #5182) — only a recorded start detaches SS/SF links.**
+> Decision 3's second bullet is superseded (ADR-0132 §2a, #5182): with progress and no
+> recorded start, SS and SF links out of a task with no remaining work measure from its
+> instant, as a milestone's do, because a derived span start moved successors earlier
+> as the task lengthened. `_reads_instant` / `Task::reads_instant` is now false only for
+> SS/SF out of such a task with a recorded `actual_start`, and Monte Carlo reads the span
+> start for no zero-base column. `_elapsed_link_days`, `_window_start_bound` and
+> `_mc_span_link` (and their Rust mirrors) were removed. Pulling in more work still never
+> moves the finish later: with remaining work the link measures from `early_start`, and
+> with none from the instant at that same point. `scheduled_start` is still the derived
+> start. The text below is kept as the record of what #4819 shipped.
 
 > **Implementation status (2026-11-23):** implemented with #4819 in both engines
 > (`packages/scheduler`, `packages/wasm-scheduler`), the reference CPM oracle, Monte Carlo
