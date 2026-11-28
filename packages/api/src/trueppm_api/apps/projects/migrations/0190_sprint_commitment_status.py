@@ -8,7 +8,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("projects", "0188_dependency_unique_among_live"),
+        ("projects", "0189_export_job_encryption"),
     ]
 
     operations = [

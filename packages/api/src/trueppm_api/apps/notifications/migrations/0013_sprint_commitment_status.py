@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("notifications", "0007_squashed_0011_release_0_4"),
+        ("notifications", "0012_notification_agent_token"),
     ]
 
     operations = [
