@@ -741,6 +741,11 @@
       "issue": "#1826",
       "evidence": "9a0703bc1: added; no regeneration or hand-derivation statement in history"
     },
+    "invalid/zero_remaining_at_min_date.json": {
+      "provenance": "unknown",
+      "issue": "#5190",
+      "evidence": "input fixture (an expected refusal, no snapshot); added for #5190"
+    },
     "invalid/zero_working_days.json": {
       "provenance": "unknown",
       "issue": "#749",
