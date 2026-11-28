@@ -77,6 +77,9 @@ vi.mock('@/hooks/useCreateTimeEntry', () => ({
   useCreateTimeEntry: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null }),
 }));
 
+let mockOnline = true;
+vi.mock('@/hooks/useOnlineStatus', () => ({ useOnlineStatus: () => mockOnline }));
+
 function open() {
   useCommandPaletteStore.getState().setOpen(true);
 }
@@ -88,6 +91,7 @@ afterEach(() => {
   mockProjectId.mockReturnValue('p1');
   mockItems = MOCK_ITEMS;
   mockCrossViews = [];
+  mockOnline = true;
 });
 
 describe('CommandPalette', () => {
@@ -542,5 +546,20 @@ describe('CommandPalette — ranking and no-match fallback (#4504)', () => {
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'zzzz' } });
     expect(screen.getByText(/No matches for “zzzz”\./)).toBeInTheDocument();
     expect(screen.queryByRole('group', { name: 'Views in other projects' })).toBeNull();
+  });
+
+  it('says results cover only data already on the device when offline (#1592)', () => {
+    mockOnline = false;
+    open();
+    render(<CommandPalette />);
+    expect(
+      screen.getByText('Offline — searching projects and tasks already loaded on this device.'),
+    ).toBeInTheDocument();
+  });
+
+  it('shows no offline note while online', () => {
+    open();
+    render(<CommandPalette />);
+    expect(screen.queryByText(/^Offline — searching/)).toBeNull();
   });
 });

@@ -28,6 +28,9 @@ import { toast } from '@/components/Toast';
 import { formatMinutesAsHm } from '@/lib/parseHours';
 import { extractValidationMessage, isClientRejection } from '@/lib/apiError';
 import { TimesheetGrid } from './TimesheetGrid';
+import { TimesheetDayList } from './TimesheetDayList';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { assignedTasks, myWorkTaskMeta, zeroRowCandidates } from './assignedTasks';
 import {
   addDaysIso,
@@ -43,6 +46,16 @@ import {
   weekTotalMinutes,
   type TimesheetRow,
 } from './weekModel';
+
+const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "Today · Fri, Nov 27" / "Thu, Nov 26" — the phone day stepper's label. */
+function formatDayLabel(iso: string, isToday: boolean): string {
+  const wd = (new Date(`${iso}T00:00:00Z`).getUTCDay() + 6) % 7;
+  const text = `${DAY_NAMES[wd]}, ${MONTHS[Number(iso.slice(5, 7)) - 1]} ${Number(iso.slice(8, 10))}`;
+  return isToday ? `Today · ${text}` : text;
+}
 
 function rowMeta(row: TimesheetRow): CellTaskMeta {
   return {
@@ -69,6 +82,16 @@ export function TimesheetPage() {
   // the global sync badge (#1945).
   const [cellErrors, setCellErrors] = useState<Record<string, string>>({});
 
+  // Phone: collapse the seven-column grid to one day at a time (#1949). `dayIdx` is the
+  // Monday-based index of the day shown; it defaults to today in the current week.
+  const phone = useBreakpoint() === 'sm';
+  const online = useOnlineStatus();
+  const [dayIdx, setDayIdx] = useState(() => {
+    const i = Math.round(
+      (Date.parse(`${today}T00:00:00Z`) - Date.parse(`${mondayOf(today)}T00:00:00Z`)) / 86_400_000,
+    );
+    return Math.min(6, Math.max(0, i));
+  });
   const { data, isLoading, isError, refetch } = useWeekTimesheet(monday);
   const cellMutation = useTimesheetCell(monday);
   const submitMutation = useSubmitWeek(monday);
@@ -119,6 +142,20 @@ export function TimesheetPage() {
     setExtraTasks([]); // add-row context is per-week
     setCellErrors({}); // inline validation errors are per-week too
     setCopyNote('');
+  }
+
+  // Day stepper (phone). Stepping past either end of the week moves to the adjacent week.
+  function stepDay(delta: -1 | 1) {
+    const next = dayIdx + delta;
+    if (next < 0) {
+      stepWeek(-1);
+      setDayIdx(6);
+    } else if (next > 6) {
+      stepWeek(1);
+      setDayIdx(0);
+    } else {
+      setDayIdx(next);
+    }
   }
 
   function rejectionMessage(err: unknown): string {
@@ -268,19 +305,19 @@ export function TimesheetPage() {
         <div className="inline-flex items-center rounded-control border border-neutral-border bg-neutral-surface">
           <button
             type="button"
-            aria-label="Previous week"
-            onClick={() => stepWeek(-1)}
+            aria-label={phone ? 'Previous day' : 'Previous week'}
+            onClick={() => (phone ? stepDay(-1) : stepWeek(-1))}
             className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center text-neutral-text-secondary hover:text-neutral-text-primary focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-primary"
           >
             ‹
           </button>
           <span className="min-w-[10rem] px-2 text-center text-sm font-medium tabular-nums text-neutral-text-primary">
-            {formatWeekRange(monday)}
+            {phone ? formatDayLabel(days[dayIdx].date, days[dayIdx].isToday) : formatWeekRange(monday)}
           </span>
           <button
             type="button"
-            aria-label="Next week"
-            onClick={() => stepWeek(1)}
+            aria-label={phone ? 'Next day' : 'Next week'}
+            onClick={() => (phone ? stepDay(1) : stepWeek(1))}
             className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center text-neutral-text-secondary hover:text-neutral-text-primary focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-primary"
           >
             ›
@@ -297,6 +334,15 @@ export function TimesheetPage() {
           </span>
         )}
       </div>
+
+      {/* Hours keyed offline wait in this tab's mutation queue and send on reconnect; they are
+          not persisted, so a reload while offline drops them — say so rather than imply more. */}
+      {phone && !online && (
+        <p role="note" className="mb-3 rounded-card border border-semantic-at-risk/30 bg-semantic-at-risk-bg px-3 py-2 text-xs text-neutral-text-primary">
+          You&rsquo;re offline. Hours you enter are kept in this tab and sent when you reconnect. Keep this page
+          open until they sync.
+        </p>
+      )}
 
       {/* Always rendered: a live region that goes display:none -> visible is often not
           announced, so it stays in the layout (visually hidden while empty). */}
@@ -368,6 +414,18 @@ export function TimesheetPage() {
               this grid. Time you&rsquo;ve logged is all shown.
             </p>
           )}
+          {phone ? (
+            <TimesheetDayList
+              rows={rows}
+              day={days[dayIdx]}
+              dayTotal={dayTotals[days[dayIdx].date] ?? 0}
+              existingTaskIds={existingTaskIds}
+              submitted={submitted}
+              cellErrors={cellErrors}
+              onCellSave={handleCellSave}
+              onAddTask={handleAddTask}
+            />
+          ) : (
           <TimesheetGrid
           rows={rows}
           days={days}
@@ -381,6 +439,7 @@ export function TimesheetPage() {
           onAddTask={handleAddTask}
           onFillAcross={(row) => void handleFillAcross(row)}
           />
+          )}
         </>
       )}
     </div>

@@ -169,3 +169,27 @@ describe('BlankOutlineDraftRow — the vocabulary lock (#3027)', () => {
     expect(screen.getByRole('row')).not.toHaveTextContent(/no tasks yet/i);
   });
 });
+
+describe('BlankOutlineDraftRow — focus on arrival', () => {
+  it('takes the caret when nothing else holds it', () => {
+    render(<BlankOutlineDraftRow onCommit={vi.fn()} nameWidth={240} />);
+    expect(screen.getByRole('textbox', { name: 'First item name' })).toHaveFocus();
+  });
+
+  it('leaves focus in an open modal, on mount and when onCommit changes', () => {
+    const modal = document.createElement('div');
+    modal.setAttribute('aria-modal', 'true');
+    const search = document.createElement('input');
+    modal.appendChild(search);
+    document.body.appendChild(modal);
+    search.focus();
+    try {
+      const { rerender } = render(<BlankOutlineDraftRow onCommit={vi.fn()} nameWidth={240} />);
+      expect(search).toHaveFocus();
+      rerender(<BlankOutlineDraftRow onCommit={vi.fn()} nameWidth={240} />);
+      expect(search).toHaveFocus();
+    } finally {
+      modal.remove();
+    }
+  });
+});

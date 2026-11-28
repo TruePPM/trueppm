@@ -10,6 +10,7 @@ import { createPortal } from 'react-dom';
 import { SearchIcon } from '@/components/Icons';
 import { altKeyLabel, modifierKeyLabel } from '@/lib/platform';
 import { useTogglePin } from '@/hooks/usePins';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
 import { useProjectId } from '@/hooks/useProjectId';
 import { useCommandPaletteStore } from '@/stores/commandPaletteStore';
@@ -369,6 +370,7 @@ export function CommandPalette() {
   const setOpen = useCommandPaletteStore((s) => s.setOpen);
   const logTimeTarget = useCommandPaletteStore((s) => s.logTimeTarget);
   const setLogTimeTarget = useCommandPaletteStore((s) => s.setLogTimeTarget);
+  const online = useOnlineStatus();
 
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
@@ -548,7 +550,7 @@ export function CommandPalette() {
                   setQuery(e.target.value);
                   setActiveIndex(0);
                 }}
-                className="w-full bg-transparent py-3 text-sm text-neutral-text-primary placeholder:text-neutral-text-secondary focus:outline-none"
+                className="w-full bg-transparent min-h-[44px] py-3 text-base md:text-sm text-neutral-text-primary placeholder:text-neutral-text-secondary focus:outline-none"
               />
               <kbd className="tppm-mono shrink-0 rounded-chip border border-neutral-border px-1.5 py-0.5 text-xs text-neutral-text-secondary">
                 Esc
@@ -560,6 +562,14 @@ export function CommandPalette() {
             {!currentProjectId && !query.trim() && (
               <p className="border-b border-neutral-border px-4 py-1.5 text-xs text-neutral-text-secondary">
                 Open a project to search its tasks and sprint.
+              </p>
+            )}
+
+            {/* Offline: the palette still searches what TanStack Query has cached; server-side
+            people/omni search needs the network, so say what the results cover (#1592). */}
+            {!online && (
+              <p role="note" className="border-b border-neutral-border px-4 py-1.5 text-xs text-neutral-text-secondary">
+                Offline — searching projects and tasks already loaded on this device.
               </p>
             )}
 
@@ -589,7 +599,7 @@ export function CommandPalette() {
 
             {/* Footer hint — the action verb adapts so a task open is announced as
             "open in drawer" (it does not navigate away) before the user commits. */}
-            <div className="flex items-center gap-3 border-t border-neutral-border px-3 py-2 text-xs text-neutral-text-secondary">
+            <div className="hidden items-center gap-3 border-t border-neutral-border px-3 py-2 text-xs md:flex text-neutral-text-secondary">
               <span>
                 <kbd className="tppm-mono">↑↓</kbd> navigate
               </span>

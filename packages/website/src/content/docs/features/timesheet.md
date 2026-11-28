@@ -113,6 +113,12 @@ you add rows with **Add project or task** and key every cell by hand.
 - **Fill across.** A row with hours on a weekday will show **Fill across**: it copies the hours from the first weekday that has hours into that row's empty Monday–Friday cells that aren't in the future. It never overwrites a cell that already has hours and never touches weekends. A failed write (for example on a closed task) is shown on its own cell and doesn't undo the others. Review the numbers, then correct any day that differed.
 :::
 
+### On a phone
+
+:::note[Ships in 0.5]
+On a phone-width screen the seven-column grid becomes a **single-day list**: one row per task with one hours field each, and the **‹ ›** buttons step between days (stepping past Monday or Sunday moves to the adjacent week). Hours use the same shorthand as the grid, a day over 8 hours is flagged, and read-only cells (several entries, a submitted week, a future date) explain why. When the phone is offline, hours you enter are held in the open tab and sent when the connection returns; they are not stored across a reload, so keep the page open until they sync. A week you have not opened yet cannot load while offline, so a cold offline start shows no timesheet rows.
+:::
+
 ### Days with more than one entry
 
 If you logged two separate sessions against the same task on the same day, that cell shows the **sum** and is read-only in the grid — a single number can't be split back into the individual entries without losing their notes and provenance. Edit those entries from [My Work](/features/my-work/), where each one is listed on its own.

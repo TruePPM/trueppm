@@ -15,6 +15,8 @@ vi.mock('@/components/Toast', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/components/Toast')>()),
   toast: { error: vi.fn(), success: vi.fn(), info: vi.fn(), warning: vi.fn() },
 }));
+let mockBreakpoint = 'lg';
+vi.mock('@/hooks/useBreakpoint', () => ({ useBreakpoint: () => mockBreakpoint }));
 vi.mock('@/hooks/useTimesheetAssignments', () => ({
   useTimesheetAssignments: vi.fn(),
 }));
@@ -114,6 +116,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  mockBreakpoint = 'lg';
   vi.useRealTimers();
 });
 
@@ -499,3 +502,32 @@ function addDays(iso: string, n: number): string {
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
 }
+
+describe('TimesheetPage phone day stepper (#1949)', () => {
+  const lastWeekMonday = '2026-06-08';
+
+  it('steps Mon back to the previous week Sunday, and Sun forward to the next Monday', () => {
+    mockBreakpoint = 'sm';
+    render(<TimesheetPage />);
+    // Opens on today, Wed Jun 17.
+    expect(screen.getByText('Today · Wed, Jun 17')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Previous day' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Previous day' }));
+    expect(screen.getByText('Mon, Jun 15')).toBeInTheDocument();
+    expect(mockUseWeek).toHaveBeenLastCalledWith('2026-06-15');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Previous day' }));
+    expect(screen.getByText('Sun, Jun 14')).toBeInTheDocument();
+    expect(mockUseWeek).toHaveBeenLastCalledWith(lastWeekMonday);
+
+    // Forward across the same boundary: Sun -> next Monday.
+    fireEvent.click(screen.getByRole('button', { name: 'Next day' }));
+    expect(screen.getByText('Mon, Jun 15')).toBeInTheDocument();
+    expect(mockUseWeek).toHaveBeenLastCalledWith('2026-06-15');
+    for (let i = 0; i < 6; i++) fireEvent.click(screen.getByRole('button', { name: 'Next day' }));
+    expect(screen.getByText('Sun, Jun 21')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Next day' }));
+    expect(screen.getByText('Mon, Jun 22')).toBeInTheDocument();
+    expect(mockUseWeek).toHaveBeenLastCalledWith('2026-06-22');
+  });
+});

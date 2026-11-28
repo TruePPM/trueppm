@@ -94,6 +94,16 @@ export function TopBar2() {
           {modifierKeyLabel()}K
         </kbd>
       </button>
+      {/* Phone quick-find (#1592): the same palette as ⌘K, opened by tap. 44px target. */}
+      <button
+        type="button"
+        aria-label="Search projects and tasks"
+        aria-haspopup="dialog"
+        onClick={() => openPalette(true)}
+        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-p1-text-2 hover:text-p1-text-1 focus:outline-none focus:ring-2 focus:ring-p1-focus md:hidden"
+      >
+        <SearchIcon className="h-5 w-5" aria-hidden="true" />
+      </button>
       <CreateMenu />
       {phone && <UserMenu />}
     </header>

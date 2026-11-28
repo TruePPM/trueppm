@@ -489,3 +489,42 @@ test.describe('Timesheet — weekly grid (#1435, ADR-0224)', () => {
     await expect(page.getByRole('grid', { name: 'Weekly timesheet' })).toHaveCount(0);
   });
 });
+
+test.describe('Timesheet — phone day list (#1949)', () => {
+  test.use({ viewport: { width: 375, height: 812 } });
+
+  test('collapses to one day, steps between days, and logs hours', async ({ page }) => {
+    await setupTimesheet(page);
+    await page.goto('/me/timesheet');
+
+    // No seven-column grid on a phone: one day (today, Fri) with a field per task.
+    await expect(page.getByRole('grid', { name: 'Weekly timesheet' })).toHaveCount(0);
+    const day = page.getByRole('grid', { name: 'Timesheet for Fri 19' });
+    await expect(day).toBeVisible();
+    await expect(page.getByText('Today · Fri, Jun 19')).toBeVisible();
+    await expect(day.getByText('Foundation pour')).toBeVisible();
+
+    // Hours keyed for Friday move the day total.
+    await day.getByRole('textbox', { name: /Foundation pour, Fri 19/ }).fill('2');
+    await day.getByRole('textbox', { name: /Foundation pour, Fri 19/ }).press('Enter');
+    await expect(day.getByLabel('Fri 19 total 2:00')).toBeVisible();
+
+    // Step back four days to Monday: 9h across two tasks, flagged over 8h.
+    for (let i = 0; i < 4; i++) await page.getByRole('button', { name: 'Previous day' }).click();
+    const mon = page.getByRole('grid', { name: 'Timesheet for Mon 15' });
+    await expect(mon.getByLabel(/Mon 15 total 9:00, over 8 hours/)).toBeVisible();
+
+    // The stepper buttons are 44px touch targets.
+    const box = await page.getByRole('button', { name: 'Next day' }).boundingBox();
+    expect(box?.width).toBeGreaterThanOrEqual(44);
+    expect(box?.height).toBeGreaterThanOrEqual(44);
+  });
+
+  test('says so when the phone is offline', async ({ page, context }) => {
+    await setupTimesheet(page);
+    await page.goto('/me/timesheet');
+    await expect(page.getByRole('grid', { name: 'Timesheet for Fri 19' })).toBeVisible();
+    await context.setOffline(true);
+    await expect(page.getByText(/You.re offline\. Hours you enter are kept in this tab/)).toBeVisible();
+  });
+});

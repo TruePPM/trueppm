@@ -68,6 +68,15 @@ export interface CellEditVars {
   entryId: string | null;
 }
 
+const OPTIMISTIC_PREFIX = 'optimistic-';
+
+/**
+ * Creates by `${taskId}|${date}`, resolving to the new entry id (null if the response had none).
+ * Kept after the POST settles, because a queued second edit can run after it resolves; an entry
+ * is dropped on a failed create or a delete, and a newer create for the cell replaces it.
+ */
+const pendingCreates = new Map<string, Promise<string | null>>();
+
 /**
  * Create / update / clear a single `(task, date)` grid cell (ADR-0224 mapping):
  *   - `entryId != null`, `minutes > 0`  → PATCH the entry's minutes
@@ -82,19 +91,38 @@ export function useTimesheetCell(mondayIso: string) {
 
   return useMutation({
     mutationFn: async ({ meta, date, minutes, entryId }: CellEditVars): Promise<void> => {
-      if (entryId !== null) {
+      const cellKey = `${meta.taskId}|${date}`;
+      let id = entryId;
+      if (id !== null && id.startsWith(OPTIMISTIC_PREFIX)) {
+        // A second edit of a cell whose create has not landed (offline, or a fast double edit)
+        // carries the client-side placeholder id from the optimistic cache. It is not a server
+        // id, so wait for the create and use the id it returned; if there is none (the create
+        // failed, or the response carried no id) fall back to creating, never PATCH the placeholder.
+        id = (await pendingCreates.get(cellKey)?.catch(() => null)) ?? null;
+      }
+      if (id !== null) {
         if (minutes > 0) {
-          await apiClient.patch(`/me/time-entries/${entryId}/`, { minutes });
+          await apiClient.patch(`/me/time-entries/${id}/`, { minutes });
         } else {
-          await apiClient.delete(`/me/time-entries/${entryId}/`);
+          await apiClient.delete(`/me/time-entries/${id}/`);
+          pendingCreates.delete(cellKey);
         }
         return;
       }
       if (minutes > 0) {
-        await apiClient.post(`/tasks/${meta.taskId}/time-entries/`, {
-          minutes,
-          entry_date: date,
-        });
+        const create = apiClient
+          .post<{ id?: string }>(`/tasks/${meta.taskId}/time-entries/`, {
+            minutes,
+            entry_date: date,
+          })
+          .then((res) => res.data?.id ?? null);
+        pendingCreates.set(cellKey, create);
+        try {
+          await create;
+        } catch (err) {
+          if (pendingCreates.get(cellKey) === create) pendingCreates.delete(cellKey);
+          throw err;
+        }
       }
     },
     onMutate: async (vars: CellEditVars) => {
@@ -138,7 +166,7 @@ export function applyCellEdit(prev: WeeklyResponse, vars: CellEditVars): WeeklyR
         : prev.results.filter((e) => e.id !== entryId);
   } else if (minutes > 0) {
     const optimistic: WeeklyEntry = {
-      id: `optimistic-${meta.taskId}-${date}`,
+      id: `${OPTIMISTIC_PREFIX}${meta.taskId}-${date}`,
       task: meta.taskId,
       task_short_id: meta.taskShortId,
       task_name: meta.taskName,

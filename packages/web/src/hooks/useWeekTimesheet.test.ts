@@ -1,8 +1,8 @@
 import { renderHook, waitFor } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
 import { AxiosError, type AxiosResponse } from 'axios';
 import { act } from 'react';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { createElement } from 'react';
 import {
@@ -153,6 +153,111 @@ describe('useTimesheetCell endpoint mapping', () => {
   });
 });
 
+describe('offline cell writes (#1949)', () => {
+  beforeEach(() => {
+    getMock.mockReset().mockResolvedValue({ data: response([]) });
+    postMock.mockReset().mockResolvedValue({ data: { id: 'real-1' } });
+    patchMock.mockReset().mockResolvedValue({ data: {} });
+    deleteMock.mockReset().mockResolvedValue({ data: {} });
+  });
+  afterEach(() => onlineManager.setOnline(true));
+
+  /** What the page does: read the cell's entry id from the (optimistic) cache. */
+  function cellEntryId(qc: QueryClient): string | null {
+    const cur = qc.getQueryData<WeeklyResponse>(weekTimesheetKey('2026-06-15'));
+    return cur?.results.find((e) => e.task === META.taskId && e.entry_date === '2026-06-16')?.id ?? null;
+  }
+
+  it('sends the write exactly once on reconnect', async () => {
+    const { qc, Wrapper } = wrapper();
+    onlineManager.setOnline(false);
+    const { result } = renderHook(() => useTimesheetCell('2026-06-15'), { wrapper: Wrapper });
+    act(() => {
+      result.current.mutate({ meta: META, date: '2026-06-16', minutes: 90, entryId: null });
+    });
+    await waitFor(() => expect(cellEntryId(qc)).not.toBeNull());
+    expect(postMock).not.toHaveBeenCalled();
+    act(() => onlineManager.setOnline(true));
+    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(1));
+    expect(postMock).toHaveBeenCalledWith('/tasks/task-a/time-entries/', { minutes: 90, entry_date: '2026-06-16' });
+  });
+
+  it('a second offline edit of a new cell does not PATCH a placeholder id or double-create', async () => {
+    const { qc, Wrapper } = wrapper();
+    onlineManager.setOnline(false);
+    const { result } = renderHook(() => useTimesheetCell('2026-06-15'), { wrapper: Wrapper });
+    act(() => {
+      result.current.mutate({ meta: META, date: '2026-06-16', minutes: 90, entryId: null });
+    });
+    await waitFor(() => expect(cellEntryId(qc)).not.toBeNull());
+    act(() => {
+      result.current.mutate({ meta: META, date: '2026-06-16', minutes: 120, entryId: cellEntryId(qc) });
+    });
+    act(() => onlineManager.setOnline(true));
+    await waitFor(() => expect(postMock).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 50));
+    // No request may target the client-side placeholder id, and the cell is created once.
+    expect(patchMock.mock.calls.filter(([url]) => String(url).includes('optimistic-'))).toHaveLength(0);
+    expect(postMock).toHaveBeenCalledTimes(1);
+    expect(postMock).toHaveBeenCalledWith('/tasks/task-a/time-entries/', { minutes: 90, entry_date: '2026-06-16' });
+    await waitFor(() => expect(patchMock).toHaveBeenCalledWith('/me/time-entries/real-1/', { minutes: 120 }));
+  });
+
+  it('a queued second edit creates instead of throwing when the first create is rejected', async () => {
+    const { qc, Wrapper } = wrapper();
+    // The first create stays in flight while the second edit starts, so the second edit awaits
+    // the same promise and sees it reject (paused mutations resume one at a time and never would).
+    let rejectFirst: (err: Error) => void = () => {};
+    postMock
+      .mockReset()
+      .mockReturnValueOnce(
+        new Promise((_, reject) => {
+          rejectFirst = reject;
+        }),
+      )
+      .mockResolvedValueOnce({ data: { id: 'real-2' } });
+    const { result } = renderHook(() => useTimesheetCell('2026-06-15'), { wrapper: Wrapper });
+    act(() => {
+      result.current.mutate({ meta: META, date: '2026-06-16', minutes: 90, entryId: null });
+    });
+    await waitFor(() => expect(cellEntryId(qc)).not.toBeNull());
+    await waitFor(() => expect(postMock).toHaveBeenCalledTimes(1));
+    const placeholder = cellEntryId(qc);
+    const second = renderHook(() => useTimesheetCell('2026-06-15'), { wrapper: Wrapper });
+    let secondOutcome: 'ok' | 'threw' | null = null;
+    act(() => {
+      second.result.current
+        .mutateAsync({ meta: META, date: '2026-06-16', minutes: 120, entryId: placeholder })
+        .then(
+          () => {
+            secondOutcome = 'ok';
+          },
+          () => {
+            secondOutcome = 'threw';
+          },
+        );
+    });
+    // The second edit's onMutate has run (cache shows 120), so its mutationFn is awaiting the create.
+    await waitFor(() => {
+      const cur = qc.getQueryData<WeeklyResponse>(weekTimesheetKey('2026-06-15'));
+      expect(cur?.results.find((e) => e.id === placeholder)?.minutes).toBe(120);
+    });
+    act(() => {
+      rejectFirst(new Error('network down'));
+    });
+    await waitFor(() => expect(secondOutcome).not.toBeNull());
+    expect(secondOutcome).toBe('ok');
+    expect(postMock).toHaveBeenCalledTimes(2);
+    expect(postMock).toHaveBeenLastCalledWith('/tasks/task-a/time-entries/', {
+      minutes: 120,
+      entry_date: '2026-06-16',
+    });
+    expect(
+      patchMock.mock.calls.filter(([url]) => String(url).includes('optimistic-')),
+    ).toHaveLength(0);
+  });
+});
+
 describe('sequential fill-across writes through the real hook (#1950)', () => {
   beforeEach(() => {
     postMock.mockReset();
@@ -235,3 +340,4 @@ describe('useSubmitWeek', () => {
     await waitFor(() => expect(deleteMock).toHaveBeenCalledWith('/me/timesheets/2026-06-15/submit/'));
   });
 });
+
