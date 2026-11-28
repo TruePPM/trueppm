@@ -29,6 +29,25 @@ export type V2MenuItem =
   | { kind: 'item'; label: string; onSelect: () => void; disabled?: boolean; shortcut?: string }
   | { kind: 'checkbox'; label: string; checked: boolean; onSelect: () => void; disabled?: boolean };
 
+/** One v1 action carried into the v2 overflow (#5106's parity decision). */
+export interface V2ActionItem {
+  label: string;
+  onSelect: () => void;
+  disabled?: boolean;
+  shortcut?: string;
+}
+
+/**
+ * A titled group of those actions. `start` sections sit above Structure (the
+ * authoring acts: Add milestone, Add phase); `end` sections follow Export (the
+ * project-level acts: baselines, imports, share, recently deleted, mode).
+ */
+export interface V2ActionSection {
+  heading: string;
+  position: 'start' | 'end';
+  items: V2ActionItem[];
+}
+
 /**
  * The 44x44 hit target of rule 5, built per rule 330: a `before:` box SIZED
  * from explicit lengths and centered on the control, never `inset`-ed (an
@@ -130,6 +149,13 @@ function V2Menu({
     }
   };
 
+  const sectionOf: string[] = [];
+  items.reduce((current, it) => {
+    const next = it.kind === 'heading' ? it.label : current;
+    sectionOf.push(next);
+    return next;
+  }, '');
+
   // The hook's maxHeight is the real gap to the viewport edge (web-rule 351);
   // the design's own cap still applies on a tall window.
   const panelStyle =
@@ -169,6 +195,10 @@ function V2Menu({
             className="z-50 max-h-[min(70vh,28rem)] overflow-y-auto rounded-control border border-neutral-border bg-neutral-surface py-1 shadow-pop"
           >
             {items.map((it, idx) => {
+              // The heading a row sits under, stamped on the row so a reader of
+              // the DOM (and the count's e2e check) can tell a Columns checkbox
+              // from a command.
+              const section = sectionOf[idx];
               if (it.kind === 'heading') {
                 return (
                   <div
@@ -192,6 +222,7 @@ function V2Menu({
                   aria-checked={it.kind === 'checkbox' ? it.checked : undefined}
                   aria-disabled={it.disabled ? true : undefined}
                   aria-keyshortcuts={it.kind === 'item' ? it.shortcut : undefined}
+                  data-section={section || undefined}
                   tabIndex={it.label === rovingLabel ? 0 : -1}
                   onFocus={() => setActiveItem(it.label)}
                   onClick={select}
@@ -270,6 +301,20 @@ export interface ScheduleToolbarV2Props {
   legend: (placement: 'bar') => ReactNode;
   /** Told when the legend relocates, so the timeline header can host it. */
   onLegendPlacementChange: (placement: ScheduleV2Composition['legend']) => void;
+  /**
+   * The v1 acts that have no control of their own in the v2 bar (#5106): one
+   * overflow menu holds them, so none is unreachable under the flag.
+   */
+  actionSections?: V2ActionSection[];
+  /** Extra Structure rows (Ungroup, Undo), listed after Group. */
+  structureExtras?: V2ActionItem[];
+  /**
+   * Phone layout (<768px, #5106): the list beneath draws no zoomable canvas,
+   * no baseline bars, no dependency arrows, no columns and no folding outline,
+   * so Zoom, Baseline, Group, Expand all, Dependency links and Columns are not
+   * offered there — a control that does nothing is worse than an absent one.
+   */
+  phone?: boolean;
 }
 
 /**
@@ -349,7 +394,9 @@ export function ScheduleToolbarV2(props: ScheduleToolbarV2Props) {
     if (i >= 0) current.current = i;
   };
 
-  const demoted = demotedCommands(c, props.baselineAvailable);
+  // On a phone the list has no baseline bars to toggle (see `phone`).
+  const baselineOffered = props.baselineAvailable && !props.phone;
+  const demoted = demotedCommands(c, baselineOffered);
   const demotedItems: V2MenuItem[] = demoted.map((d) => {
     if (d === 'today') return { kind: 'item', label: 'Today', onSelect: props.onToday };
     if (d === 'baseline')
@@ -367,15 +414,21 @@ export function ScheduleToolbarV2(props: ScheduleToolbarV2Props) {
     };
   });
 
-  const overflowItems: V2MenuItem[] = [
-    ...(demotedItems.length > 0
-      ? [
-          { kind: 'heading', label: 'Moved here: no room at this width' } as V2MenuItem,
-          ...demotedItems,
-        ]
-      : []),
-    { kind: 'heading', label: 'Structure' },
-    ...(props.onGroup
+  // The phone list has no outline to fold, no arrows and no columns, so the rows
+  // that act on those are not offered there (see `phone`).
+  const outlineRows: V2MenuItem[] = [
+    { kind: 'item', label: 'Expand all', onSelect: props.onExpandAll },
+    {
+      kind: 'checkbox',
+      label: 'Dependency links',
+      checked: props.dependencyLinesShown,
+      onSelect: props.onToggleDependencyLines,
+    },
+  ];
+  const columns = props.phone ? [] : props.columns;
+  // A heading with no rows under it is never drawn.
+  const structureRows: V2MenuItem[] = [
+    ...(props.onGroup && !props.phone
       ? [
           {
             kind: 'item',
@@ -385,31 +438,51 @@ export function ScheduleToolbarV2(props: ScheduleToolbarV2Props) {
           } as V2MenuItem,
         ]
       : []),
-    { kind: 'item', label: 'Expand all', onSelect: props.onExpandAll },
-    {
-      kind: 'checkbox',
-      label: 'Dependency links',
-      checked: props.dependencyLinesShown,
-      onSelect: props.onToggleDependencyLines,
-    },
-    { kind: 'heading', label: 'Columns' },
-    ...props.columns.map<V2MenuItem>((col) => ({
+    ...(props.structureExtras ?? []).map<V2MenuItem>((x) => ({ kind: 'item', ...x })),
+    ...(props.phone ? [] : outlineRows),
+  ];
+  const sectionRows = (position: V2ActionSection['position']): V2MenuItem[] =>
+    (props.actionSections ?? [])
+      .filter((sec) => sec.position === position && sec.items.length > 0)
+      .flatMap<V2MenuItem>((sec) => [
+        { kind: 'heading', label: sec.heading },
+        ...sec.items.map<V2MenuItem>((x) => ({ kind: 'item', ...x })),
+      ]);
+
+  const overflowItems: V2MenuItem[] = [
+    ...(demotedItems.length > 0
+      ? [
+          { kind: 'heading', label: 'Moved here: no room at this width' } as V2MenuItem,
+          ...demotedItems,
+        ]
+      : []),
+    ...sectionRows('start'),
+    ...(structureRows.length > 0
+      ? [{ kind: 'heading', label: 'Structure' } as V2MenuItem, ...structureRows]
+      : []),
+    ...(columns.length > 0 ? [{ kind: 'heading', label: 'Columns' } as V2MenuItem] : []),
+    ...columns.map<V2MenuItem>((col) => ({
       kind: 'checkbox',
       label: col.label,
       checked: col.visible,
       onSelect: () => props.onToggleColumn(col.key),
     })),
-    { kind: 'heading', label: 'Export' },
+    ...(props.exportItems.length > 0 ? [{ kind: 'heading', label: 'Export' } as V2MenuItem] : []),
     ...props.exportItems.map<V2MenuItem>((x) => ({ kind: 'item', ...x })),
+    ...sectionRows('end'),
   ];
   // The count names commands, not menu rows, and only the commands this menu
   // actually renders: Group is absent for a reader without edit rights, and a
   // count that included it would name an item the reader cannot find.
   const overflowCount = overflowCommandCount({
-    group: props.onGroup !== undefined,
-    columns: props.columns.length > 0,
+    group: props.onGroup !== undefined && !props.phone,
+    columns: columns.length > 0,
+    outlineControls: !props.phone,
     exportItems: props.exportItems.length > 0,
     demoted: demoted.length,
+    actions:
+      (props.structureExtras?.length ?? 0) +
+      (props.actionSections ?? []).reduce((n, sec) => n + sec.items.length, 0),
   });
   const activeFilters = props.milestonesOnly ? 1 : 0;
 
@@ -420,6 +493,7 @@ export function ScheduleToolbarV2(props: ScheduleToolbarV2Props) {
       aria-label="Schedule toolbar"
       data-testid="schedule-toolbar-v2"
       data-fit-step={step}
+      data-phone={props.phone ? 'true' : undefined}
       onKeyDown={onKeyDown}
       onFocus={onFocus}
       // `overflow-x-clip`, not `overflow-hidden`: the bar must never spill
@@ -441,9 +515,11 @@ export function ScheduleToolbarV2(props: ScheduleToolbarV2Props) {
           },
         ]}
       />
-      <div className="shrink-0">
-        <ZoomControl onFit={props.onFit} collapsed={c.zoom === 'select'} />
-      </div>
+      {!props.phone && (
+        <div className="shrink-0">
+          <ZoomControl onFit={props.onFit} collapsed={c.zoom === 'select'} />
+        </div>
+      )}
       {props.canAddTask && (
         <button
           type="button"
@@ -467,7 +543,7 @@ export function ScheduleToolbarV2(props: ScheduleToolbarV2Props) {
           Today
         </button>
       )}
-      {props.baselineAvailable && c.baseline === 'bar' && (
+      {baselineOffered && c.baseline === 'bar' && (
         <button
           type="button"
           className={`${BTN} ${props.baselineShown ? BTN_ON : ''}`}

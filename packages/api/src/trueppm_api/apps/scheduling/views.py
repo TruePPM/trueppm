@@ -117,6 +117,7 @@ from trueppm_api.apps.scheduling.serializers import (
     ProjectForecastSnapshotSerializer,
     ScheduleCpmDerivationSerializer,
     ScheduleDrivingChainSerializer,
+    ScheduleFeasibilitySerializer,
     ScheduleMonteCarloDerivationSerializer,
     VelocitySuggestionSerializer,
 )
@@ -3475,3 +3476,137 @@ class ScheduleDrivingChainView(McpReadableViewMixin, APIView):
                 {"detail": _DATE_RANGE_EXCEEDED_DETAIL}, status=status.HTTP_400_BAD_REQUEST
             )
         return Response(stamped)
+
+
+#: One sentence per refusal code (#5106), served beside the verdict so the Schedule
+#: page's error state never writes its own explanation of a server fact. The endpoint
+#: answers one question — is there a dependency loop — so there is one code.
+SCHEDULE_FEASIBILITY_DEFINITIONS: dict[str, str] = {
+    "cyclic_dependency": (
+        "These tasks wait on each other in a loop, so none of them can start first and "
+        "no dates can be computed. Remove or reverse one link in the loop."
+    ),
+}
+
+#: The body of the 422 when the loop check could not run. Fixed text on purpose: the
+#: builder's exception message can carry task ids and internal limits, and the
+#: engine's own refusal text is Admin-only everywhere else it is stored (the failed
+#: run's ``error_detail``, ``taskruns.tracker.WS_FAILURE_MESSAGE``).
+SCHEDULE_FEASIBILITY_UNCHECKED_DETAIL = (
+    "The dependency-loop check could not run on this project's stored network."
+)
+
+
+class ScheduleFeasibilityView(McpReadableViewMixin, APIView):
+    """Whether this project's dependency links form a loop (#5106).
+
+    ``GET /projects/<pk>/schedule/feasibility/``
+
+    The interactive write path refuses a link that closes a loop, but older writes,
+    imports and structural edits can still leave one behind; the background
+    recalculation then fails with the engine's message held Admin-only on the failed
+    run, and every reader of the Schedule page sees stale dates with no reason. This
+    read gives the page that reason as a fact: it builds the scheduler input through
+    the shared converters ``_run_schedule`` uses and asks the engine's
+    :func:`trueppm_scheduler.find_cycle` for a loop.
+
+    The contract is deliberately that one question. ``computable`` means "no
+    dependency loop found", not "``schedule()`` would succeed": the engine's other
+    refusals (an unknown calendar, a summary SS/SF link, an empty project, …) are
+    raised inside ``schedule()``, which this view never calls — no CPM pass runs. If
+    the input cannot even be built, the view answers 422 with a fixed message rather
+    than guess a verdict either way.
+
+    RBAC mirrors :class:`ScheduleDrivingChainView`: any project member (Viewer+), plus
+    an ``mcp:read`` token on safe methods. Task names are already readable at Viewer.
+    """
+
+    mcp_scope = McpScope.PATH
+    # mcp_compute_heavy is intentionally not set: this view runs no schedule() pass.
+    # A loop is a property of dependency edges (#4814): governed by Dependencies scope.
+    agent_area = "dependencies"
+    project_url_kwarg = "pk"
+    permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
+    # Builds the full scheduler input (calendar composition, velocity inputs, summary
+    # expansion) per call and the page polls it, so it shares its siblings' read bucket
+    # rather than falling through to the general account default.
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "cpm_on_read"
+
+    @extend_schema(
+        operation_id="project_schedule_feasibility",
+        summary="Whether the project's dependency links form a loop",
+        responses={
+            200: OpenApiResponse(
+                response=ScheduleFeasibilitySerializer,
+                description=(
+                    "computable=true when no dependency loop was found, or "
+                    "computable=false with code cyclic_dependency and the loop in cycle."
+                ),
+            ),
+            403: OpenApiResponse(description="Not a member of the project."),
+            404: OpenApiResponse(description="Unknown project."),
+            422: OpenApiResponse(description="The loop check could not run on the stored network."),
+        },
+    )
+    def get(self, request: Request, pk: str) -> Response:
+        from trueppm_scheduler import SchedulerError, find_cycle
+
+        project = get_object_or_404(
+            Project.objects.select_related("calendar", "program__calendar").prefetch_related(
+                "calendar__exceptions",
+                "calendar_layers__calendar__exceptions",
+                "program__calendar__exceptions",
+            ),
+            pk=pk,
+            is_deleted=False,
+        )
+        self.check_object_permissions(request, project)
+
+        try:
+            sched_project = _build_cpm_sched_project(project, pk)
+            check = find_cycle(
+                [(d.predecessor_id, d.successor_id) for d in sched_project.dependencies]
+            )
+        except SchedulerError:
+            # A deterministic verdict on the stored data (e.g. the raw-edge cap), but
+            # not a loop: say the check could not run, never the engine's text.
+            logger.warning("schedule feasibility: input refused for project %s", pk, exc_info=True)
+            return Response(
+                {"detail": SCHEDULE_FEASIBILITY_UNCHECKED_DETAIL},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+        except ValueError:
+            # A converter fault, not a scheduler verdict: same fixed answer, logged as
+            # an error because no stored data should reach it.
+            logger.exception("schedule feasibility: input build failed for project %s", pk)
+            return Response(
+                {"detail": SCHEDULE_FEASIBILITY_UNCHECKED_DETAIL},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        code: str | None = None
+        cycle_ids: list[str] = []
+        if check.cycle is not None:
+            code = "cyclic_dependency"
+            # find_cycle repeats the first id at the end; the payload lists each once.
+            cycle_ids = list(dict.fromkeys(str(t) for t in check.cycle))
+
+        names: dict[str, str] = {}
+        if cycle_ids:
+            names = {
+                str(tid): name
+                for tid, name in Task.objects.filter(project=project, pk__in=cycle_ids).values_list(
+                    "id", "name"
+                )
+            }
+
+        payload = {
+            "project_id": str(project.pk),
+            "computable": code is None,
+            "code": code,
+            "cycle": [{"id": tid, "name": names[tid]} for tid in cycle_ids if tid in names],
+            "definition": SCHEDULE_FEASIBILITY_DEFINITIONS[code] if code else None,
+            "as_of": timezone.now(),
+        }
+        return Response(ScheduleFeasibilitySerializer(payload).data)

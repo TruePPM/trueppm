@@ -14,6 +14,7 @@ from trueppm_api.apps.scheduling.views import (
     MonteCarloWhatIfView,
     ScheduleDerivationView,
     ScheduleDrivingChainView,
+    ScheduleFeasibilityView,
     VelocitySuggestionViewSet,
     run_monte_carlo,
     trigger_schedule,
@@ -43,6 +44,11 @@ urlpatterns: list[URLPattern | URLResolver] = [
         "projects/<str:pk>/schedule/bug-report-export/",
         ScheduleBugReportExportView.as_view(),
         name="project-schedule-bug-report-export",
+    ),
+    path(
+        "projects/<str:pk>/schedule/feasibility/",
+        ScheduleFeasibilityView.as_view(),
+        name="project-schedule-feasibility",
     ),
     path("projects/<str:pk>/monte-carlo/", run_monte_carlo, name="project-monte-carlo"),
     path(

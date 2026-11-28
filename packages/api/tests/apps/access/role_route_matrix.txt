@@ -326,6 +326,7 @@
 ----+++  GET api/v1/projects/<str:pk>/schedule/bug-report-export/::get
 --+++++  GET api/v1/projects/<str:pk>/schedule/derivation/::get
 --+++++  GET api/v1/projects/<str:pk>/schedule/driving-chain/::get
+--+++++  GET api/v1/projects/<str:pk>/schedule/feasibility/::get
 --+++++  GET api/v1/projects/<uuid:pk>/notification-preferences/::get
 -++++++  GET api/v1/projects/<uuid:pk>/sync/::get
 --+++++  GET api/v1/projects/<uuid:project_pk>/members/::list

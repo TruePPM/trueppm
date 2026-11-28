@@ -3905,6 +3905,16 @@ function TaskNameBadges(props: TaskNameContentProps) {
       {hasMissingDatesWarning && !shellV2Row && (
         <MissingCommittedStartChip task={task} projectId={projectId} canEdit={canEdit} />
       )}
+      {/* The one per-row warning v2 keeps (#5106): blocked. Text, not a color
+          alone, and read out: v2's opening grid has no Status column to carry it. */}
+      {shellV2Row && task.isBlocked && (
+        <span
+          data-testid={`row-blocked-${task.id}`}
+          className="inline-flex shrink-0 items-center rounded-chip bg-semantic-at-risk-bg px-1.5 py-0.5 text-xs font-medium text-semantic-at-risk"
+        >
+          Blocked
+        </span>
+      )}
       {recalcPrompt?.taskId === task.id && (
         <RecalcPercentChip
           prompt={recalcPrompt}

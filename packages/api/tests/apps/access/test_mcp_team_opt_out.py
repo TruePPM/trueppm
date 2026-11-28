@@ -413,6 +413,7 @@ _PATH_ROUTES = [
     "monte-carlo/latest/",
     "schedule/derivation/",
     "schedule/driving-chain/",
+    "schedule/feasibility/",
 ]
 
 

@@ -229,6 +229,31 @@ The driving-chain endpoint ships in 0.5 (ADR-1381). In 0.4, call
 `GET /projects/{id}/schedule/derivation/` once per hop.
 :::
 
+### Schedule feasibility
+
+`GET /api/v1/projects/{id}/schedule/feasibility/` answers one question: do the
+project's dependency links form a loop? It builds the scheduler input the same way the
+background recalculation does and asks the engine's own cycle check, so a client never
+has to infer a loop from the links it holds. No CPM pass runs, so `computable: true`
+means no loop was found, not that every other scheduler check passes. Any project
+member (Viewer and up) and an `mcp:read` token may read it; a non-member gets 403 and
+an unknown or trashed project 404. If the scheduler input cannot be built at all, the
+answer is 422 with a fixed `detail`, and no verdict either way. Reads share the
+`cpm_on_read` rate limit with the derivation and driving-chain reads.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `computable` | `boolean` | `false` when the dependency links form a loop |
+| `code` | `string \| null` | `cyclic_dependency` when the links form a loop. `null` exactly when `computable` is `true` |
+| `cycle` | `array` | `{id, name}` for each task in the loop, in order, each once (the path returns to the first). Empty unless `code` is `cyclic_dependency` |
+| `definition` | `string \| null` | One sentence defining `code`; `null` when computable |
+| `as_of` | `datetime` | When the server checked the network |
+
+:::note[Ships in 0.5]
+The feasibility endpoint ships in 0.5. In 0.4 a loop left by an import surfaces only as
+a failed recalculation run, whose message is visible to workspace operators.
+:::
+
 ### Derivation vocabulary
 
 :::note[Ships in 0.5]

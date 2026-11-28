@@ -157,13 +157,18 @@ export function overflowCommandCount(present: {
   columns: boolean;
   exportItems: boolean;
   demoted: number;
+  /** The v1 acts carried into the overflow (#5106), one per row rendered. */
+  actions?: number;
+  /** Expand all and Dependency links; absent on the phone list (#5106). */
+  outlineControls?: boolean;
 }): number {
   return (
     (present.group ? 1 : 0) +
     (present.columns ? 1 : 0) +
-    2 +
+    (present.outlineControls === false ? 0 : 2) +
     (present.exportItems ? 1 : 0) +
-    present.demoted
+    present.demoted +
+    (present.actions ?? 0)
   );
 }
 
