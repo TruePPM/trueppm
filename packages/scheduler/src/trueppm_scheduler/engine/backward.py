@@ -885,8 +885,9 @@ def _link_slack(
     if dep.dep_type == DependencyType.SS:
         # Measured from the start the link anchors on (#4523, :func:`_link_start`).
         # For a recorded start only the zero test for a driving edge reads the
-        # result (:func:`_free_float_days`); for a derived start it also limits
-        # free float, because that start slips with the remaining work.
+        # result (:func:`_free_float_days`); with no recorded start the start is
+        # ``early_start``, so the link also limits free float, because that
+        # start slips with the remaining work.
         latest = _retreat_calendar_days(succ_start, lag, node_cal)
         return _wd_span(_link_start(task), latest, node_cal, wd_counter, calendar)
     if dep.dep_type == DependencyType.FF:

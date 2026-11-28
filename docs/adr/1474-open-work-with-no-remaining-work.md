@@ -15,7 +15,9 @@ Decision 3 amended 2026-11-27 (#5182).
 > `_mc_span_link` (and their Rust mirrors) were removed. Pulling in more work still never
 > moves the finish later: with remaining work the link measures from `early_start`, and
 > with none from the instant at that same point. `scheduled_start` is still the derived
-> start. The text below is kept as the record of what #4819 shipped.
+> start. The text below is kept as the record of what #4819 shipped. The symptom the
+> derived start removed, a successor sitting at data date + lag on every update when no
+> start is recorded, is the accepted shipped behavior again; #5208 is the open follow-up.
 
 > **Implementation status (2026-11-23):** implemented with #4819 in both engines
 > (`packages/scheduler`, `packages/wasm-scheduler`), the reference CPM oracle, Monte Carlo

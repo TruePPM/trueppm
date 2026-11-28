@@ -143,6 +143,10 @@ bump** with a changelog note.
 > property as well: lengthening percent-only work at its percentage never moves live
 > work or the finish earlier (`work_moved_earlier_by_lengthening` in
 > `packages/scheduler/tests/test_cpm_oracle.py`).
+>
+> The symptom this section once removed, a successor sitting at data date + lag on
+> every update when no start is recorded, is the accepted shipped behavior again;
+> #5208 is the open follow-up for preserving that credit.
 
 §2 makes an in-progress task's `early_start` the start of its **remaining** work,
 floored at the data date (see the status note above) and at its other floors. That

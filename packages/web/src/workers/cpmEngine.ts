@@ -291,20 +291,18 @@ function advanceCalendarDays(ms: number, lagDays: number): number {
 }
 
 /**
- * The start an SS or SF link out of `source` measures from: its link start
- * (when it started, or is forecast to have started), never its remaining-work
- * window — which is not always where its bar is drawn. Mirrors the server engines' `_link_start` /
- * `Task::link_start` (ADR-0132 §2a, #4523):
+ * The start an SS or SF link out of `source` measures from. Mirrors the server
+ * engines' `_link_start` / `Task::link_start` (ADR-0132 §2a, #4523, #5182):
  *
- *  - a started task's recorded `actual_start`;
- *  - otherwise its early start — also for live work with progress but no
- *    recorded start, whose bar still starts on the derived span start (#5182): at
- *    a fixed percentage a longer task backs that span off further, so measuring
- *    from it moved successors earlier as the task grew.
+ *  - a recorded `actual_start`, when the task has one;
+ *  - otherwise its early start, the start of its remaining work — also for live
+ *    work with progress but no recorded start. Measuring from the derived span
+ *    start moved successors earlier as the task grew at a fixed percentage.
  *
- * An in-progress task's early start is floored at the data date, so measuring
- * from it re-added the lag on every status update — and the preview would now
- * paint a successor later than the server puts it.
+ * An in-progress task's early start is floored at the data date, so with no
+ * recorded start a status update that only moves the data date moves the
+ * successor too. That is the server's own rule (#5182, credit-preserving
+ * alternative tracked in #5208), so the preview matches it.
  */
 function linkStartMs(source: TaskState): number {
   if (source.isComplete || source.durationDays <= 0) return source.earlyStartMs;
@@ -317,7 +315,7 @@ function linkStartMs(source: TaskState): number {
  * `nextWorkingDay(anchor + lag)`. Ordinary work anchors FS on the day after its
  * finish, SS on its start, FF on its finish and SF on the last working day
  * *before* its start (the day before it for a positive lag, #4333) — the start
- * being its span start (`linkStartMs`, #4523); a milestone
+ * being `linkStartMs` (#4523, #5182); a milestone
  * anchors FS/SS on its instant, and FF/SF on the day its instant closes for a
  * positive lag (#4273) — the last working day before it with no lag or a lead, so a lead
  * counts back from the zero-lag finish and never lands later than it. Mirrors the server
