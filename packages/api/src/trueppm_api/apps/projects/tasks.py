@@ -272,9 +272,10 @@ def close_sprint(self: object, request_id: str) -> None:
         snapshot_completed_metrics,
         snapshot_sprint_task_outcomes,
     )
-    from trueppm_api.apps.scheduling.models import (
-        ScheduleRequest,
-        ScheduleRequestReason,
+    from trueppm_api.apps.scheduling.models import ScheduleRequestReason
+    from trueppm_api.apps.scheduling.services import (
+        dispatch_schedule_request,
+        ensure_pending_schedule_request,
     )
     from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
@@ -387,10 +388,22 @@ def close_sprint(self: object, request_id: str) -> None:
             # Enqueue downstream CPM recompute with the SPRINT_CLOSED reason
             # so the audit trail records why the recalculation fired.
             project_id = sprint.project_id
-            ScheduleRequest.objects.create(
-                project_id=project_id,
-                reason=ScheduleRequestReason.SPRINT_CLOSED,
+            # The PENDING outbox row is inserted (or an existing one adopted, in a
+            # savepoint, so the one-pending-per-project index cannot roll the close
+            # back, #5180) inside this transaction; only the dispatch waits for
+            # commit. Dispatching here would let a worker run against pre-close
+            # state and exit, stranding a DISPATCHED row for RECALC_ORPHAN_AFTER.
+            # If the dispatch never happens, drain_schedule_queue replays the row.
+            found = ensure_pending_schedule_request(
+                str(project_id), reason=ScheduleRequestReason.SPRINT_CLOSED
             )
+            if found is not None:
+                recalc_row, recalc_adopted = found
+                transaction.on_commit(
+                    lambda: dispatch_schedule_request(
+                        str(project_id), recalc_row, adopted=recalc_adopted
+                    )
+                )
 
             _compute_velocity_suggestions_safe(sprint)
 

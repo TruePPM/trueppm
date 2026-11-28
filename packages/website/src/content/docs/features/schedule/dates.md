@@ -39,7 +39,9 @@ Two consequences worth knowing:
   a sprint inherits its **sprint start date** as a synthetic floor, so agile
   work positions inside its sprint window instead of sliding back to the
   project origin. That floor is engine input only — nothing is written to the
-  task, and the task still reads as having no committed start.
+  task, and the task still reads as having no committed start. Deleting the
+  sprint removes its start-date floor: the schedule recomputes the task's dates
+  as if it had no sprint.
 - Committing a start is not the same as setting a deadline. There is no
   finish-side constraint yet. From 0.5 a task can carry a soft **deadline**,
   set in the task drawer under the schedule strip. It is an annotation: the

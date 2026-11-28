@@ -125,9 +125,19 @@ def test_declared_deduplicating_helpers_look_for_a_live_row_before_inserting(nam
     path = _enqueue_functions()[name]
     tree = ast.parse(path.read_text())
     fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == name)
+    # A helper may delegate its lookup to a sibling in the same module
+    # (enqueue_recalculate -> ensure_pending_schedule_request), so scan those too.
+    called = {
+        n.func.id for n in ast.walk(fn) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+    }
+    scanned: list[ast.AST] = [fn]
+    scanned += [
+        n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in called and n is not fn
+    ]
     lookups = {
         node.attr
-        for node in ast.walk(fn)
+        for root in scanned
+        for node in ast.walk(root)
         if isinstance(node, ast.Attribute) and node.attr in {"filter", "get_or_create"}
     }
     assert lookups, (

@@ -22,7 +22,11 @@ from trueppm_api.apps.projects.models import (
     TaskStatus,
 )
 from trueppm_api.apps.projects.tasks import _do_drain, close_sprint
-from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestReason
+from trueppm_api.apps.scheduling.models import (
+    ScheduleRequest,
+    ScheduleRequestReason,
+    ScheduleRequestStatus,
+)
 
 User = get_user_model()
 
@@ -155,6 +159,66 @@ def test_close_sprint_emits_schedule_request_with_sprint_closed_reason(
     sr = ScheduleRequest.objects.filter(project=project).first()
     assert sr is not None
     assert sr.reason == ScheduleRequestReason.SPRINT_CLOSED
+
+
+@patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
+def test_close_sprint_with_pending_schedule_request_still_closes(
+    _broadcast: object, project: Project
+) -> None:
+    """#5180: a pending recompute row must not roll the close back.
+
+    The one-pending-per-project unique index used to turn the raw insert into an
+    IntegrityError that aborted the whole close and left the sprint ACTIVE.
+    """
+    s = _make_active_sprint(project)
+    ScheduleRequest.objects.create(project=project, reason=ScheduleRequestReason.TASK_CHANGE)
+    req = SprintCloseRequest.objects.create(sprint=s)
+    close_sprint.run(str(req.id))
+    s.refresh_from_db()
+    req.refresh_from_db()
+    assert s.state == SprintState.COMPLETED
+    assert req.status == SprintCloseRequestStatus.COMPLETED
+    # Exactly one live row: the adopted one. With a reachable broker it has been
+    # dispatched already; without one it stays PENDING. Either way, no second row.
+    live = ScheduleRequest.objects.filter(
+        project=project,
+        status__in=[ScheduleRequestStatus.PENDING, ScheduleRequestStatus.DISPATCHED],
+    )
+    assert live.count() == 1
+
+
+@patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
+def test_close_sprint_defers_recompute_dispatch_to_commit(
+    _broadcast: object,
+    project: Project,
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    """The PENDING outbox row is written in the close transaction; only the
+    dispatch waits for commit, so a worker never runs against pre-close state."""
+    s = _make_active_sprint(project)
+    req = SprintCloseRequest.objects.create(sprint=s)
+    with patch("trueppm_api.apps.scheduling.tasks.recalculate_schedule.delay") as delay:
+        delay.return_value = MagicMock(id="task-1")
+        with django_capture_on_commit_callbacks(execute=False) as callbacks:  # type: ignore[operator]
+            close_sprint.run(str(req.id))
+        delay.assert_not_called()
+        # The outbox row already exists, still PENDING, before commit.
+        assert (
+            ScheduleRequest.objects.filter(
+                project=project,
+                reason=ScheduleRequestReason.SPRINT_CLOSED,
+                status=ScheduleRequestStatus.PENDING,
+            ).count()
+            == 1
+        )
+        for cb in callbacks:
+            cb()
+        delay.assert_called_once_with(str(project.pk))
+    live = ScheduleRequest.objects.filter(
+        project=project,
+        status__in=[ScheduleRequestStatus.PENDING, ScheduleRequestStatus.DISPATCHED],
+    )
+    assert live.count() == 1
 
 
 @patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")

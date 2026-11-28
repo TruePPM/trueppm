@@ -22,14 +22,22 @@ observed.
 from __future__ import annotations
 
 from datetime import date
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
-from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.projects.models import Calendar, Project, Task
+from trueppm_api.apps.access.models import ProgramMembership, ProjectMembership, Role
+from trueppm_api.apps.projects.models import (
+    Calendar,
+    Program,
+    Project,
+    Sprint,
+    SprintState,
+    Task,
+)
+from trueppm_api.apps.scheduling.models import ScheduleRequestReason
 
 User = get_user_model()
 
@@ -269,3 +277,223 @@ def test_notes_and_name_only_patch_still_does_not_recalc_with_status_date_set(
     )
     assert status == 200
     assert calls == 0
+
+
+# ---------------------------------------------------------------------------
+# Project-level scheduling inputs (#5177) and sprint start/delete (#5179)
+# ---------------------------------------------------------------------------
+
+
+def _call(
+    client: APIClient,
+    method: str,
+    url: str,
+    body: dict[str, object] | None,
+    django_capture_on_commit_callbacks: object,
+) -> tuple[int, MagicMock]:
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.projects.views._dispatch_webhooks"),
+        patch("trueppm_api.apps.projects.views._enqueue_recalculate") as mock_recalc,
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        r = (
+            getattr(client, method)(url, body, format="json")
+            if body is not None
+            else getattr(client, method)(url)
+        )
+    return r.status_code, mock_recalc
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "body",
+    [{"start_date": "2026-05-01"}, {"status_date": "2026-04-15"}],
+)
+def test_project_start_or_status_date_change_recalcs(
+    client: APIClient,
+    project: Project,
+    body: dict[str, object],
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    status, recalc = _call(
+        client, "patch", f"/api/v1/projects/{project.pk}/", body, django_capture_on_commit_callbacks
+    )
+    assert status == 200
+    recalc.assert_called_once_with(str(project.pk), reason=ScheduleRequestReason.TASK_CHANGE)
+
+
+@pytest.mark.django_db
+def test_clearing_status_date_recalcs(
+    client: APIClient, project: Project, django_capture_on_commit_callbacks: object
+) -> None:
+    project.status_date = date(2026, 4, 10)
+    project.save(update_fields=["status_date"])
+    status, recalc = _call(
+        client,
+        "patch",
+        f"/api/v1/projects/{project.pk}/",
+        {"status_date": None},
+        django_capture_on_commit_callbacks,
+    )
+    assert status == 200
+    recalc.assert_called_once_with(str(project.pk), reason=ScheduleRequestReason.TASK_CHANGE)
+
+
+@pytest.mark.django_db
+def test_project_patch_leaving_dates_unchanged_does_not_recalc(
+    client: APIClient, project: Project, django_capture_on_commit_callbacks: object
+) -> None:
+    project.status_date = date(2026, 4, 10)
+    project.save(update_fields=["status_date"])
+    status, recalc = _call(
+        client,
+        "patch",
+        f"/api/v1/projects/{project.pk}/",
+        {"name": "Renamed", "start_date": "2026-04-01", "status_date": "2026-04-10"},
+        django_capture_on_commit_callbacks,
+    )
+    assert status == 200
+    recalc.assert_not_called()
+
+
+@pytest.fixture
+def sprint(project: Project) -> Sprint:
+    return Sprint.objects.create(
+        project=project,
+        name="S1",
+        start_date=date(2026, 4, 6),
+        finish_date=date(2026, 4, 20),
+        state=SprintState.PLANNED,
+    )
+
+
+@pytest.mark.django_db
+def test_planned_sprint_start_date_change_recalcs(
+    client: APIClient, sprint: Sprint, django_capture_on_commit_callbacks: object
+) -> None:
+    status, recalc = _call(
+        client,
+        "patch",
+        f"/api/v1/sprints/{sprint.pk}/",
+        {"start_date": "2026-04-08"},
+        django_capture_on_commit_callbacks,
+    )
+    assert status == 200
+    recalc.assert_called_once_with(str(sprint.project_id), reason=ScheduleRequestReason.TASK_CHANGE)
+
+
+@pytest.mark.django_db
+def test_sprint_rename_does_not_recalc(
+    client: APIClient, sprint: Sprint, django_capture_on_commit_callbacks: object
+) -> None:
+    status, recalc = _call(
+        client,
+        "patch",
+        f"/api/v1/sprints/{sprint.pk}/",
+        {"name": "Renamed"},
+        django_capture_on_commit_callbacks,
+    )
+    assert status == 200
+    recalc.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_sprint_delete_recalcs(
+    client: APIClient, sprint: Sprint, task: Task, django_capture_on_commit_callbacks: object
+) -> None:
+    task.sprint = sprint
+    task.save(update_fields=["sprint"])
+    status, recalc = _call(
+        client, "delete", f"/api/v1/sprints/{sprint.pk}/", None, django_capture_on_commit_callbacks
+    )
+    assert status == 204
+    recalc.assert_called_once_with(str(sprint.project_id), reason=ScheduleRequestReason.TASK_CHANGE)
+
+
+@pytest.mark.django_db
+def test_sprint_patch_echoing_unchanged_start_date_does_not_recalc(
+    client: APIClient, sprint: Sprint, django_capture_on_commit_callbacks: object
+) -> None:
+    status, recalc = _call(
+        client,
+        "patch",
+        f"/api/v1/sprints/{sprint.pk}/",
+        {"name": "Renamed", "start_date": "2026-04-06"},
+        django_capture_on_commit_callbacks,
+    )
+    assert status == 200
+    recalc.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_deleting_a_sprint_with_no_tasks_also_recalcs(
+    client: APIClient, sprint: Sprint, django_capture_on_commit_callbacks: object
+) -> None:
+    """User-accepted: the delete enqueues even when no task moved."""
+    status, recalc = _call(
+        client, "delete", f"/api/v1/sprints/{sprint.pk}/", None, django_capture_on_commit_callbacks
+    )
+    assert status == 204
+    recalc.assert_called_once_with(str(sprint.project_id), reason=ScheduleRequestReason.TASK_CHANGE)
+
+
+@pytest.mark.django_db
+def test_calendar_and_start_date_change_enqueues_exactly_once(
+    client: APIClient, project: Project, django_capture_on_commit_callbacks: object
+) -> None:
+    other = Calendar.objects.create(name="Other")
+    status, recalc = _call(
+        client,
+        "patch",
+        f"/api/v1/projects/{project.pk}/",
+        {"calendar": str(other.pk), "start_date": "2026-05-01"},
+        django_capture_on_commit_callbacks,
+    )
+    assert status == 200
+    recalc.assert_called_once_with(str(project.pk), reason=ScheduleRequestReason.CALENDAR_CHANGE)
+
+
+@pytest.fixture
+def program(user: object) -> Program:
+    p = Program.objects.create(name="Prog")
+    ProgramMembership.objects.create(program=p, user=user, role=Role.ADMIN)
+    return p
+
+
+@pytest.mark.django_db
+def test_program_change_recalcs(
+    client: APIClient,
+    project: Project,
+    program: Program,
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    status, recalc = _call(
+        client,
+        "patch",
+        f"/api/v1/projects/{project.pk}/",
+        {"program": str(program.pk)},
+        django_capture_on_commit_callbacks,
+    )
+    assert status == 200, recalc
+    recalc.assert_called_once_with(str(project.pk), reason=ScheduleRequestReason.TASK_CHANGE)
+
+
+@pytest.mark.django_db
+def test_program_patch_to_same_program_does_not_recalc(
+    client: APIClient,
+    project: Project,
+    program: Program,
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    project.program = program
+    project.save(update_fields=["program"])
+    status, recalc = _call(
+        client,
+        "patch",
+        f"/api/v1/projects/{project.pk}/",
+        {"program": str(program.pk)},
+        django_capture_on_commit_callbacks,
+    )
+    assert status == 200
+    recalc.assert_not_called()

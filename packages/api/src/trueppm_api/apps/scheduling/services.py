@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from trueppm_api.apps.projects.models import Calendar, Sprint
-    from trueppm_api.apps.scheduling.models import MonteCarloRun
+    from trueppm_api.apps.scheduling.models import MonteCarloRun, ScheduleRequest
 
 logger = logging.getLogger(__name__)
 
@@ -108,12 +108,31 @@ def enqueue_recalculate(
     If the broker is unavailable the row is left PENDING and
     ``drain_schedule_queue`` picks it up within 30 seconds.
     """
+    found = ensure_pending_schedule_request(project_id, reason)
+    if found is None:
+        return
+    req, adopted = found
+    dispatch_schedule_request(project_id, req, adopted=adopted)
+
+
+def ensure_pending_schedule_request(
+    project_id: str,
+    reason: ScheduleRequestReason = ScheduleRequestReason.TASK_CHANGE,
+) -> tuple[ScheduleRequest, bool] | None:
+    """Insert, or adopt, the project's PENDING outbox row without dispatching.
+
+    The insert runs in a savepoint so the one-pending-per-project unique index
+    cannot poison a caller's enclosing transaction. Returns ``(row, adopted)`` or
+    ``None`` when the pending row moved on between insert and lookup. A caller
+    inside its own transaction calls this there (the row is the durable outbox,
+    recovered by ``drain_schedule_queue`` if the dispatch never happens) and
+    defers :func:`dispatch_schedule_request` to ``transaction.on_commit``.
+    """
     from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
 
-    req: ScheduleRequest
     try:
         with transaction.atomic():
-            req = ScheduleRequest.objects.create(project_id=project_id, reason=reason)
+            return ScheduleRequest.objects.create(project_id=project_id, reason=reason), False
     except IntegrityError:
         # A pending row already exists. Adopt it instead of returning — the
         # existing row may be stranded (the request that created it failed to
@@ -132,18 +151,33 @@ def enqueue_recalculate(
         if existing is None:
             # Race: row transitioned out of PENDING between insert + lookup.
             # Whoever moved it reads the data afterwards; nothing to do.
-            return
-        req = existing
-        if ScheduleRequest.objects.filter(
+            return None
+        return existing, True
+
+
+def dispatch_schedule_request(
+    project_id: str, req: ScheduleRequest, *, adopted: bool = False
+) -> None:
+    """Best-effort Celery dispatch of an already-inserted PENDING outbox row.
+
+    ``adopted`` rows skip the send when a run is already in flight (#4095). A
+    broker failure leaves the row PENDING for ``drain_schedule_queue``.
+    """
+    from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestStatus
+
+    if (
+        adopted
+        and ScheduleRequest.objects.filter(
             project_id=project_id,
             status=ScheduleRequestStatus.DISPATCHED,
             dispatched_at__gte=timezone.now() - RECALC_ORPHAN_AFTER,
-        ).exists():
-            # layering-ok: the OTel metric sink, a no-op unless telemetry is enabled
-            from trueppm_api.apps.observability.otel.metrics import record_recalc_coalesced
+        ).exists()
+    ):
+        # layering-ok: the OTel metric sink, a no-op unless telemetry is enabled
+        from trueppm_api.apps.observability.otel.metrics import record_recalc_coalesced
 
-            record_recalc_coalesced("dispatch_skipped")
-            return
+        record_recalc_coalesced("dispatch_skipped")
+        return
 
     # Best-effort immediate dispatch — reduces recalculation latency when the
     # broker is healthy.  Failure here is not fatal; the row stays PENDING.
@@ -739,10 +773,20 @@ def build_sched_tasks(db_tasks: list[Any], *, suggest_approve: bool) -> list[Any
             # it in this one converter keeps CPM and Monte Carlo in sync (#1185).
             # Milestones are excluded — a sprint review/demo gate sits at the sprint
             # end, not its start (ADR-0106).
+            # A soft-deleted sprint floors nothing: Sprint.soft_delete keeps the row
+            # and leaves Task.sprint_id pointing at it, so without the is_deleted
+            # check a deleted sprint would keep pinning its tasks to a window that
+            # no longer exists, and the recompute the delete enqueues would change
+            # nothing. ``t.sprint`` is already loaded for the start_date read, so
+            # the check costs no query.
             planned_start=(
                 t.planned_start
                 if t.planned_start is not None
-                else (t.sprint.start_date if (t.sprint_id and not t.is_milestone) else None)
+                else (
+                    t.sprint.start_date
+                    if (t.sprint_id and not t.is_milestone and not t.sprint.is_deleted)
+                    else None
+                )
             ),
             percent_complete=t.percent_complete,
             actual_start=t.actual_start,
