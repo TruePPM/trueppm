@@ -24,6 +24,7 @@ from trueppm_api.apps.projects.models import (
 )
 from trueppm_api.apps.projects.seed import export_program, validate_seed
 from trueppm_api.apps.projects.seed.importer import import_seed
+from trueppm_api.apps.scheduling import services as scheduling_services
 
 FIXTURE = (
     Path(__file__).resolve().parents[4]
@@ -68,6 +69,11 @@ def _pin_today(monkeypatch: pytest.MonkeyPatch, today: date = _PINNED_TODAY) -> 
             return cls(today.year, today.month, today.day)
 
     monkeypatch.setattr(importer_module, "date", _FrozenDate)
+    # The program pass floors each member with no status date at its CPM data
+    # date, `resolve_cpm_status_date` -> `timezone.localdate()`. Pin that to the
+    # same day, or the real today sits past the pinned anchor and floors all
+    # open work after the shutdown window.
+    monkeypatch.setattr(scheduling_services.timezone, "localdate", lambda *a, **k: today)
 
 
 def _doc(*, strip_shutdown: bool = False) -> dict:
