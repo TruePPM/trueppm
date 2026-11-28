@@ -267,7 +267,7 @@ def straddling_network(project: Project) -> Task:
 
 def _mc(client: APIClient, project: Project) -> dict[str, Any]:
     res = client.post(
-        f"/api/v1/projects/{project.pk}/monte-carlo/", {"n_simulations": 50}, format="json"
+        f"/api/v1/projects/{project.pk}/monte-carlo/", {"n_simulations": 100}, format="json"
     )
     assert res.status_code == 200, res.content
     return dict(res.json())

@@ -154,6 +154,14 @@ logger = logging.getLogger(__name__)
 MC_LATEST_CACHE_VERSION = 3
 
 
+# Smallest run count whose result may become the project's shared latest forecast.
+# Below it the P50/P80/P95 order statistics collapse toward one another (a single run
+# reports P50 = P80 = P95), so the band would present false precision to every member.
+# Runs under the minimum are still computed and returned to the caller. It sits below
+# the engine default (10,000) so ordinary use is unaffected.
+MC_LATEST_MIN_RUNS = 100
+
+
 def mc_latest_cache_key(pk: object) -> str:
     """Read-cache key for a project's latest Monte Carlo forecast.
 
@@ -562,8 +570,8 @@ def _persist_mc_run_if_authorized(
     author and grows the retained-run set (#1502). Gating the read at Member and the
     write at Scheduler stops a Viewer/Member from spamming ``run_monte_carlo`` to
     inflate history and pollute drift attribution over a schedule they cannot own. The
-    ``mc_latest`` cache is a per-project read cache, not per-user history, so it stays
-    refreshed for every caller — only the attributed row is gated here.
+    ``mc_latest`` cache is the shared forecast every member reads, so the caller gates it
+    the same way (see ``simulate_and_record_monte_carlo``).
 
     Best-effort: a write failure inside the service is logged and swallowed by
     ``record_monte_carlo_run``; ``result_dict`` gains ``run_id`` only when persistence
@@ -696,12 +704,15 @@ class MonteCarloRunThrottle(ScopedRateThrottle):
                 "The simulation was queued on a Celery worker (#2273). Body "
                 "{task_run_id, status, n_simulations}: poll GET "
                 "/projects/{pk}/task-runs/{task_run_id}/ until status is success or "
-                "failed. On success the result is the project's latest forecast — read "
+                "failed. On success a stored run is the project's latest forecast — read "
                 "it from GET /projects/{pk}/monte-carlo/latest/ (the same payload this "
                 "endpoint returned synchronously before #2273), and result_summary "
-                "carries {run_id, n_simulations, last_run_at}; run_id is null when the "
-                "caller is below Scheduler, which refreshes the forecast but records no "
-                "attributed history row (#1502). On failed, result_summary carries the "
+                "carries {run_id, n_simulations, last_run_at, stored_as_latest}; only a "
+                "Scheduler-or-above run of at least 100 simulations becomes the "
+                "project's latest forecast and gets a run_id. Any other run leaves the "
+                "latest forecast unchanged, has stored_as_latest false and run_id null "
+                "(#1502, #5181), and its own result is returned in result_summary.result "
+                "because latest/ does not hold it. On failed, result_summary carries the "
                 "refusal body below plus status_code (400 or 503), exactly as this "
                 "endpoint returned it before the move: a cyclic graph, MC_CELL_CAP, "
                 "the engine caps, a busy worker slot or the wall-clock budget."
@@ -1286,14 +1297,20 @@ def simulate_and_record_monte_carlo(
         # row below so history stays re-derivable after the fact.
         "status_date": mc_status_date.isoformat(),
     }
-    cache.set(mc_latest_cache_key(pk), result_dict, timeout=86400)
+    # The shared latest forecast (cache entry AND history row, which the latest read
+    # falls back to) is written only for Scheduler+ callers, using the same role
+    # decision as the attributed history row (`persist`), and only for a run count at
+    # or above MC_LATEST_MIN_RUNS. Anyone else still receives their own result.
+    store_as_latest = persist and mc_result.runs >= MC_LATEST_MIN_RUNS
+    if store_as_latest:
+        cache.set(mc_latest_cache_key(pk), result_dict, timeout=86400)
 
     # Persist a forecast-drift history row (ADR-0175, #961) only for Scheduler+
     # callers; the read is Member-level but the attributed write is not (#1502).
     _persist_mc_run_if_authorized(
         project,
         user=user,
-        persist=persist,
+        persist=store_as_latest,
         mc_result=mc_result,
         n_simulations=n_simulations,
         cpm_finish=cpm_finish,
@@ -1306,6 +1323,8 @@ def simulate_and_record_monte_carlo(
         plan_version=plan_version,
         cpm_finish_at_day_start=cpm_finish_at_day_start,
     )
+    # Not cached: tells the caller whether their run became the shared latest forecast.
+    result_dict["stored_as_latest"] = store_as_latest
     return result_dict
 
 

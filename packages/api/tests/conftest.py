@@ -207,8 +207,17 @@ def _monte_carlo_runs_to_completion(request: pytest.FixtureRequest) -> Iterator[
             return resp
         run = TaskRun.objects.get(pk=resp.data["task_run_id"])
         summary = run.result_summary or {}
+        if run.status == TaskRunStatus.SUCCESS and summary.get("stored_as_latest") is False:
+            # A run that was not stored as the shared latest (#5181) carries its own
+            # result on the run; `latest/` would answer for somebody else's forecast.
+            body = {**summary["result"], "stored_as_latest": False}
+            resp.status_code = 200
+            resp.data = body
+            resp.content = json.dumps(body, default=str).encode()
+            return resp
         if run.status == TaskRunStatus.SUCCESS:
             latest = self.get(f"{path}latest/")
+            latest.data = {**latest.data, "stored_as_latest": True}
             # The synchronous endpoint carried run_id only when a row was persisted.
             if summary.get("run_id") is not None:
                 latest.data = {**latest.data, "run_id": summary["run_id"]}

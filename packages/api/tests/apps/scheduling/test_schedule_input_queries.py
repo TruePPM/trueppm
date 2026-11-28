@@ -44,7 +44,7 @@ def chain(project: Project) -> dict[str, Task]:
 @pytest.fixture
 def client(project: Project) -> APIClient:
     user = User.objects.create_user(username="q_user", password="pw")
-    ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+    ProjectMembership.objects.create(project=project, user=user, role=Role.SCHEDULER)
     c = APIClient()
     c.force_authenticate(user=user)
     return c
@@ -114,7 +114,7 @@ def test_monte_carlo_view_does_not_prefetch_project_tasks(
 ) -> None:
     with CaptureQueriesContext(connection) as ctx:
         r = client.post(
-            f"/api/v1/projects/{project.pk}/monte-carlo/", {"n_simulations": 50}, format="json"
+            f"/api/v1/projects/{project.pk}/monte-carlo/", {"n_simulations": 100}, format="json"
         )
     assert r.status_code == 200
     _assert_single_task_load(ctx)

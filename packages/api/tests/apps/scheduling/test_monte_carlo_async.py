@@ -279,17 +279,33 @@ class TestWorker:
         assert polled.status_code == 200
         assert polled.data["status"] == "success"
 
-    def test_member_run_refreshes_latest_without_a_history_row(
+    def test_member_run_returns_a_result_but_is_not_stored_as_latest(
         self, mc_async: None, project: Project
     ) -> None:
+        # Only Scheduler+ may replace the shared latest forecast (#5181); a Member's
+        # run is still computed and delivered to the caller through the task run.
         client, user = _client(project, "mc_member", Role.MEMBER)
         run = self._queue(project, client, {})
         _run_queued(run, project, user_id=user.pk, persist=False, n_explicit=False)
         run.refresh_from_db()
         assert run.status == TaskRunStatus.SUCCESS
         assert run.result_summary["run_id"] is None
+        assert run.result_summary["stored_as_latest"] is False
         assert not MonteCarloRun.objects.filter(project=project).exists()
-        assert cache.get(mc_latest_cache_key(project.pk)) is not None
+        assert cache.get(mc_latest_cache_key(project.pk)) is None
+
+    def test_scheduler_run_below_the_minimum_is_not_stored_as_latest(
+        self, mc_async: None, project: Project
+    ) -> None:
+        client, user = _client(project, "mc_sched", Role.SCHEDULER)
+        run = self._queue(project, client, {"n_simulations": 1})
+        _run_queued(run, project, user_id=user.pk, persist=True, n_simulations=1)
+        run.refresh_from_db()
+        assert run.status == TaskRunStatus.SUCCESS
+        assert run.result_summary["stored_as_latest"] is False
+        assert cache.get(mc_latest_cache_key(project.pk)) is None
+        # Neither the cache nor the history row the latest read falls back to.
+        assert not MonteCarloRun.objects.filter(project=project).exists()
 
     def test_engine_refusal_is_a_failed_run_every_member_can_read(
         self, mc_async: None, project: Project, settings: Any
@@ -427,7 +443,7 @@ class TestWorkerRechecks:
         engine.assert_not_called()
         assert cache.get(mc_latest_cache_key(project.pk)) is None
 
-    def test_member_run_after_the_cache_expires_falls_back_to_the_last_scheduler_row(
+    def test_member_run_never_displaces_the_scheduler_forecast(
         self, mc_async: None, project: Project
     ) -> None:
         sched, sched_user = _client(project, "mc_sched", Role.SCHEDULER)
@@ -436,11 +452,11 @@ class TestWorkerRechecks:
         _run_queued(first, project, user_id=sched_user.pk, persist=True)
         second = self._queue(project, member, {"n_simulations": 200})
         _run_queued(second, project, user_id=member_user.pk, n_simulations=200)
-        assert member.get(f"{_url(project)}latest/").data["n_simulations"] == 200
+        # The shared latest is still the Scheduler's run (#5181).
+        assert member.get(f"{_url(project)}latest/").data["n_simulations"] == 100
 
-        # The Member's forecast lives only in the 24 h cache (#1502). Once it is
-        # gone, latest/ serves the last persisted (Scheduler) run, not the
-        # Member's newer one — documented in ADR-1430.
+        # The same holds once the cache entry expires: the history fallback holds
+        # only Scheduler+ rows.
         cache.delete(mc_latest_cache_key(project.pk))
         latest = member.get(f"{_url(project)}latest/").data
         assert latest["n_simulations"] == 100

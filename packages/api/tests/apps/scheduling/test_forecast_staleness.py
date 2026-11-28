@@ -350,21 +350,18 @@ class TestPlanVersionIsRecorded:
         assert res.data["forecast_staleness"] == "current"
         assert res.data["plan_version"] == res.data["plan_version_current"]
 
-    def test_the_cache_entry_carries_the_plan_version_for_member_triggered_runs(
+    def test_a_viewer_run_leaves_no_latest_entry_to_carry_a_plan_version(
         self, viewer_client: APIClient, project: Project, pert_task: Task
     ) -> None:
-        """A Viewer/Member run refreshes the cache but persists no attributed row
-        (#1502), so the cache entry is the ONLY place that run's plan version lives.
-        If `plan_version` were derived per response rather than carried, every
-        Member-driven project would read `unknown` forever."""
+        """A Viewer/Member run persists no attributed row (#1502) and, since #5181,
+        no shared latest entry either, so it can neither supply nor replace the
+        project's forecast or its plan version."""
         res = viewer_client.post(run_url(project.pk), {"n_simulations": 100}, format="json")
         assert res.status_code == 200
         assert MonteCarloRun.objects.filter(project=project).count() == 0
 
         latest = viewer_client.get(latest_url(project.pk))
-        assert latest.status_code == 200
-        assert latest.data["plan_version"] is not None
-        assert latest.data["forecast_staleness"] == "current"
+        assert latest.status_code == 404
 
 
 # ---------------------------------------------------------------------------

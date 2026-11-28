@@ -198,6 +198,12 @@ The most recent result is also available without re-running the simulation:
 GET /api/v1/projects/<project_id>/monte-carlo/latest/
 ```
 
+::::note[Ships in 0.5]
+In 0.4 and earlier, a run from any project member replaces the latest result.
+::::
+
+Only a **Scheduler** or above can replace the project's latest forecast, and only with a run of at least 100 simulations. Everyone from Viewer up can still run a simulation and receive the result, but a Viewer's or Member's run, or any run of fewer than 100 simulations, is returned to the caller and is not stored: the response carries `stored_as_latest: false`, and the latest forecast other members read is unchanged.
+
 ## Which forecast a project headlines
 
 ::::note[Ships in 0.5]

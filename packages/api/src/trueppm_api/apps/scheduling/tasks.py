@@ -559,7 +559,13 @@ def execute_monte_carlo_task_run(
                 "run_id": result.get("run_id"),
                 "n_simulations": result.get("n_simulations"),
                 "last_run_at": result.get("last_run_at"),
+                "stored_as_latest": result.get("stored_as_latest", False),
             }
+            if not summary["stored_as_latest"]:
+                # A run that did not become the shared latest forecast (caller below
+                # Scheduler, or fewer runs than MC_LATEST_MIN_RUNS) has no other
+                # place to be read from, so the caller's own result rides the run.
+                summary["result"] = result
             tracker.set_result(summary)
     except TaskRunRefused:
         # Already recorded on the run by the tracker; a refusal is an answer, not

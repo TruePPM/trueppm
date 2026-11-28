@@ -55,7 +55,7 @@ def tasks(project: Project) -> list[Task]:
 @pytest.fixture
 def client(project: Project) -> APIClient:
     user = User.objects.create_user(username="adm_user", password="pw")
-    ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+    ProjectMembership.objects.create(project=project, user=user, role=Role.SCHEDULER)
     c = APIClient()
     c.force_authenticate(user=user)
     return c

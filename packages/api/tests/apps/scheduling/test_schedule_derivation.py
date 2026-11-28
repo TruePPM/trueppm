@@ -60,7 +60,7 @@ def chain(project: Project) -> dict[str, Task]:
 
 @pytest.fixture
 def member_client(user: object, project: Project) -> APIClient:
-    ProjectMembership.objects.create(project=project, user=user, role=Role.MEMBER)
+    ProjectMembership.objects.create(project=project, user=user, role=Role.SCHEDULER)
     c = APIClient()
     c.force_authenticate(user=user)
     return c

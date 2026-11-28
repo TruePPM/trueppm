@@ -18,6 +18,7 @@ from rest_framework.test import APIClient
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Project, Task
 from trueppm_api.apps.scheduling.models import MonteCarloRun
+from trueppm_api.apps.scheduling.views import MC_LATEST_MIN_RUNS, mc_latest_cache_key
 
 User = get_user_model()
 
@@ -137,8 +138,8 @@ class TestPersistOnRun:
     def test_each_run_appends_a_row(
         self, admin_client: APIClient, project: Project, pert_task: Task
     ) -> None:
-        admin_client.post(run_url(project.pk), {"n_simulations": 50}, format="json")
-        admin_client.post(run_url(project.pk), {"n_simulations": 50}, format="json")
+        admin_client.post(run_url(project.pk), {"n_simulations": 100}, format="json")
+        admin_client.post(run_url(project.pk), {"n_simulations": 100}, format="json")
         assert MonteCarloRun.objects.filter(project=project).count() == 2
 
     def test_scheduler_run_persists_a_row(
@@ -151,7 +152,7 @@ class TestPersistOnRun:
         # Scheduler is the write floor (#1502): a Scheduler holds schedule
         # authority, so their run is attributed and retained — the persistence
         # gate is role >= SCHEDULER, not a hardcoded Admin/Owner check.
-        res = scheduler_client.post(run_url(project.pk), {"n_simulations": 50}, format="json")
+        res = scheduler_client.post(run_url(project.pk), {"n_simulations": 100}, format="json")
         assert res.status_code == 200
         assert "run_id" in res.json()
         runs = MonteCarloRun.objects.filter(project=project)
@@ -165,12 +166,15 @@ class TestPersistOnRun:
         # #1502: a Member may read the forecast but holds no schedule authority, so
         # no attributed history row is written. The read succeeds in full — the
         # record does not — so the response omits run_id.
-        res = member_client.post(run_url(project.pk), {"n_simulations": 50}, format="json")
-        assert res.status_code == 200
+        res = member_client.post(run_url(project.pk), {"n_simulations": 100}, format="json")
+        assert res.status_code == 200, res.content
         body = res.json()
         assert "last_run_at" in body  # the full computed forecast is still returned
         assert "run_id" not in body
+        assert body["stored_as_latest"] is False
         assert MonteCarloRun.objects.filter(project=project).count() == 0
+        # ...and the shared latest forecast other members read is untouched (#5181).
+        assert cache.get(mc_latest_cache_key(project.pk)) is None
 
     def test_viewer_run_returns_forecast_but_persists_no_row(
         self, viewer_client: APIClient, project: Project, pert_task: Task
@@ -178,10 +182,51 @@ class TestPersistOnRun:
         # #1502 root case: a Viewer (role 0) POSTing repeatedly to grow history and
         # pollute drift attribution over a schedule they cannot own. Read stays open;
         # the write is gated, so no row and no run_id.
-        res = viewer_client.post(run_url(project.pk), {"n_simulations": 50}, format="json")
+        res = viewer_client.post(run_url(project.pk), {"n_simulations": 100}, format="json")
         assert res.status_code == 200
         assert "run_id" not in res.json()
+        assert res.json()["stored_as_latest"] is False
         assert MonteCarloRun.objects.filter(project=project).count() == 0
+        assert cache.get(mc_latest_cache_key(project.pk)) is None
+
+    def test_scheduler_run_below_the_minimum_is_not_the_shared_latest(
+        self, scheduler_client: APIClient, project: Project, pert_task: Task
+    ) -> None:
+        # #5181: a one-run result reports P50 = P80 = P95 and must never be served as
+        # the project's forecast, neither from the cache nor from the history fallback.
+        res = scheduler_client.post(run_url(project.pk), {"n_simulations": 1}, format="json")
+        assert res.status_code == 200
+        assert res.json()["stored_as_latest"] is False
+        assert cache.get(mc_latest_cache_key(project.pk)) is None
+        assert MonteCarloRun.objects.filter(project=project).count() == 0
+        assert (
+            scheduler_client.get(f"/api/v1/projects/{project.pk}/monte-carlo/latest/").status_code
+            == 404
+        )
+
+    def test_scheduler_run_at_the_minimum_is_the_shared_latest(
+        self, scheduler_client: APIClient, project: Project, pert_task: Task
+    ) -> None:
+        res = scheduler_client.post(
+            run_url(project.pk), {"n_simulations": MC_LATEST_MIN_RUNS}, format="json"
+        )
+        assert res.status_code == 200
+        assert res.json()["stored_as_latest"] is True
+        assert cache.get(mc_latest_cache_key(project.pk)) is not None
+
+    def test_viewer_run_cannot_replace_the_scheduler_forecast(
+        self,
+        scheduler_client: APIClient,
+        viewer_client: APIClient,
+        project: Project,
+        pert_task: Task,
+    ) -> None:
+        scheduler_client.post(run_url(project.pk), {"n_simulations": 100}, format="json")
+        before = cache.get(mc_latest_cache_key(project.pk))
+        assert before is not None
+        res = viewer_client.post(run_url(project.pk), {"n_simulations": 1}, format="json")
+        assert res.status_code == 200
+        assert cache.get(mc_latest_cache_key(project.pk)) == before
 
 
 @pytest.mark.django_db
