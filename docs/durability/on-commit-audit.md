@@ -37,6 +37,7 @@ gate fails when it drifts.
 |---|---|---|
 | `_dispatch_webhooks` | `WebhookDelivery` | `drain_webhook_queue` |
 | `_enqueue_recalculate` | `ScheduleRequest` | `drain_schedule_queue` |
+| `dispatch_schedule_request` | `ScheduleRequest` | `drain_schedule_queue` |
 | `dispatch_webhooks` | `WebhookDelivery` | `drain_webhook_queue` |
 | `enqueue_csv_import` | `CsvImportRequest` | `csv import drain` |
 | `enqueue_import` | `ImportRequest` | `import drain` |

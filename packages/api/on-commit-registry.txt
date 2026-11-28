@@ -5,6 +5,7 @@
 #   benign | name                          builtin/pure call that does no durable work
 outbox | enqueue_recalculate | ScheduleRequest | drain_schedule_queue
 outbox | _enqueue_recalculate | ScheduleRequest | drain_schedule_queue
+outbox | dispatch_schedule_request | ScheduleRequest | drain_schedule_queue
 outbox | dispatch_webhooks | WebhookDelivery | drain_webhook_queue
 outbox | _dispatch_webhooks | WebhookDelivery | drain_webhook_queue
 outbox | enqueue_import | ImportRequest | import drain
