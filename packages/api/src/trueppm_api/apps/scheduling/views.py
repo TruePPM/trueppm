@@ -3522,6 +3522,7 @@ class ScheduleFeasibilityView(McpReadableViewMixin, APIView):
     """
 
     mcp_scope = McpScope.PATH
+    # mcp_compute_heavy is intentionally not set: this view runs no schedule() pass.
     # A loop is a property of dependency edges (#4814): governed by Dependencies scope.
     agent_area = "dependencies"
     project_url_kwarg = "pk"

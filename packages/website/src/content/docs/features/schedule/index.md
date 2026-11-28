@@ -217,11 +217,11 @@ These current-toolbar options will not be part of the redesigned page, by decisi
 
 ### Not in the redesigned Schedule page yet
 
-These are not part of the redesigned page yet, and no release is promised for any of them:
+These are not part of the redesigned page yet, and no release is promised for any of them, and the two below are tracked in [#5200](https://gitlab.com/trueppm/trueppm/-/issues/5200):
 
-- Filters other than **Milestones only**. The **Filter** menu holds that one filter for now.
+- Filters other than **Milestones only**. The **Filter** menu holds that one filter for now ([#5200](https://gitlab.com/trueppm/trueppm/-/issues/5200)).
 - Grouping recurring tasks under one row ([#4503](https://gitlab.com/trueppm/trueppm/-/issues/4503)).
-- An as-of date beside the P50 and P95 lines. The **P80** tick and the **Commit** marker carry theirs in their definitions (see [Commit marker and P80 tick](#commit-marker-and-p80-tick)).
+- An as-of date beside the P50 and P95 lines. The **P80** tick and the **Commit** marker carry theirs in their definitions (see [Commit marker and P80 tick](#commit-marker-and-p80-tick)). Tracked in [#5200](https://gitlab.com/trueppm/trueppm/-/issues/5200).
 
 ## Canvas renderer
 

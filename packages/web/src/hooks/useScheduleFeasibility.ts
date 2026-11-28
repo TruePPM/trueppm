@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { apiClient } from '@/api/client';
 import type { ScheduleFeasibility } from '@/api/types';
@@ -22,7 +23,7 @@ export function isScheduleFeasibility(data: unknown): data is ScheduleFeasibilit
  * The loop and its definition are server facts — the engine's own cycle check —
  * so the page never infers a loop from the links it holds. Refetched every 30 s
  * so a fixed link clears the banner without a reload; a response of another
- * shape is "no verdict", never a refusal.
+ * shape, or a 422, is "no verdict" (null), never a refusal.
  *
  * @param projectId - The project to check; the query is idle while undefined.
  */
@@ -32,11 +33,18 @@ export function useScheduleFeasibility(
   return useQuery({
     queryKey: scheduleFeasibilityKey(projectId ?? ''),
     queryFn: async ({ signal }) => {
-      const { data } = await apiClient.get<unknown>(
-        `/projects/${projectId}/schedule/feasibility/`,
-        { signal },
-      );
-      return isScheduleFeasibility(data) ? data : null;
+      try {
+        const { data } = await apiClient.get<unknown>(
+          `/projects/${projectId}/schedule/feasibility/`,
+          { signal },
+        );
+        return isScheduleFeasibility(data) ? data : null;
+      } catch (err) {
+        // 422 = the server could not build the input: no verdict. Throwing would
+        // make TanStack keep the last successful data, leaving a stale loop banner.
+        if (axios.isAxiosError(err) && err.response?.status === 422) return null;
+        throw err;
+      }
     },
     enabled: Boolean(projectId),
     staleTime: 15_000,
