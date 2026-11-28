@@ -259,9 +259,14 @@ class AllocationView(IdempotencyMixin, APIView):
         body = AllocationRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         data = body.validated_data
-        dry_run = serializers.BooleanField().to_internal_value(
-            request.query_params.get("dry_run", "false")
-        )
+        # A bare field's ValidationError serializes as a top-level array; key it by the
+        # parameter so the 400 is the field-keyed object the schema declares (#5093).
+        try:
+            dry_run = serializers.BooleanField().to_internal_value(
+                request.query_params.get("dry_run", "false")
+            )
+        except serializers.ValidationError as exc:
+            raise serializers.ValidationError({"dry_run": exc.detail}) from exc
         try:
             return self._check_and_save(request, data, dry_run=dry_run)
         except (APIException, Http404, DjangoPermissionDenied):

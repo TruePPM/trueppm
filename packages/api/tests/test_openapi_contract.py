@@ -445,11 +445,30 @@ def test_ownership_guards_declare_their_403_and_no_stray_400(schema: dict) -> No
             assert body["properties"]["code"]["enum"] == [code], (
                 f"{method.upper()} {path} must enumerate exactly {code!r} (#3365)"
             )
-            assert "code" in body["required"]
+            # Optional, not required: the role/membership permission classes answer
+            # the same 403 first with a bare ``{"detail"}`` (#5093).
+            assert "code" not in body["required"]
         if (method, path) in collaboration_deletes:
-            assert "400" not in responses, (
+            assert responses.get("400", _IDEMPOTENCY_400) == _IDEMPOTENCY_400, (
                 f"{method.upper()} {path} still declares a 400 it can no longer return (#3365)"
             )
+
+
+#: The 400 every idempotent write can return from ``IdempotencyMixin`` (an oversized
+#: ``Idempotency-Key``) before its handler runs. It is declared mechanically from the
+#: view, so it is not a handler-reviewed state refusal and is excluded from that set.
+_IDEMPOTENCY_400 = {"$ref": "#/components/responses/IdempotencyKeyTooLong"}
+_IDEMPOTENCY_ERROR_REF = {"$ref": "#/components/schemas/IdempotencyKeyError"}
+
+
+def _declared_400_body(body: dict) -> dict:
+    """Strip the idempotency layer's ``anyOf`` branch to get the handler's own 400."""
+    branches = body.get("anyOf")
+    if branches and _IDEMPOTENCY_ERROR_REF in branches:
+        rest = [b for b in branches if b != _IDEMPOTENCY_ERROR_REF]
+        if len(rest) == 1:
+            return rest[0]
+    return body
 
 
 def test_bodyless_writes_declaring_a_400_are_exactly_the_reviewed_set(schema: dict) -> None:
@@ -468,6 +487,7 @@ def test_bodyless_writes_declaring_a_400_are_exactly_the_reviewed_set(schema: di
         if method in ("post", "put", "patch", "delete")
         and "requestBody" not in op
         and "400" in op.get("responses", {})
+        and op["responses"]["400"] != _IDEMPOTENCY_400
     }
     missing = sorted(_STATE_REFUSAL_OPERATIONS - declared)
     unreviewed = sorted(declared - _STATE_REFUSAL_OPERATIONS)
@@ -505,7 +525,7 @@ def test_every_state_refusal_400_uses_one_of_the_three_real_wire_shapes(schema: 
             # how the pre-#3319 pin/undo/restore sites were written; not a
             # regression to introduce, so it is tolerated only where it already is.
             continue
-        body = content["application/json"]["schema"]
+        body = _declared_400_body(content["application/json"]["schema"])
         # The pre-#3319 pin sites point at a named component; resolve it so the
         # shape check reads the same thing a client generator would.
         if "$ref" in body:
@@ -535,7 +555,10 @@ def test_the_bare_array_refusal_shape_is_declared_where_drf_emits_it(schema: dic
         body = schema["paths"][path][method]["responses"]["400"]["content"]["application/json"][
             "schema"
         ]
-        assert body == {"type": "array", "items": {"type": "string"}}, (
+        # The idempotency layer's object is admitted beside it (#5093), not instead.
+        assert body == {
+            "anyOf": [{"type": "array", "items": {"type": "string"}}, _IDEMPOTENCY_ERROR_REF]
+        }, (
             f"{method.upper()} {path} returns a bare array of messages; declaring an "
             "object there would make a generated client throw on parse (#3319)."
         )
@@ -1054,7 +1077,8 @@ def test_pin_endpoints_document_the_limit_rejection(schema: dict) -> None:
     for path in ("/api/v1/projects/{id}/pin/", "/api/v1/programs/{id}/pin/"):
         op = schema["paths"][path]["post"]
         assert "400" in op["responses"], f"{path} must document the pin-limit 400 (#2455)."
-        ref = op["responses"]["400"]["content"]["application/json"]["schema"].get("$ref", "")
+        body = _declared_400_body(op["responses"]["400"]["content"]["application/json"]["schema"])
+        ref = body.get("$ref", "")
         props = schema["components"]["schemas"][ref.rsplit("/", 1)[-1]]["properties"]
         assert {"detail", "code"} <= set(props), f"{path} 400 must carry detail + code (#2455)."
 

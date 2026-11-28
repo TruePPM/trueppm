@@ -216,6 +216,17 @@ def test_anonymous_and_agent_tokens_are_refused(world: dict[str, Any]) -> None:
     assert client.post(f"{URL}?dry_run=1", body(world), format="json").status_code == 401
 
 
+def test_malformed_dry_run_is_a_field_keyed_400(world: dict[str, Any]) -> None:
+    # A bare BooleanField's ValidationError serialized as a top-level array, which
+    # the declared 400 does not admit (#5093). Keyed by the query parameter now.
+    resp = world["client"].post(f"{URL}?dry_run=bogus", body(world), format="json")
+    assert resp.status_code == 400
+    assert isinstance(resp.data, dict)
+    assert set(resp.data) == {"dry_run"}
+    assert isinstance(resp.data["dry_run"], list) and resp.data["dry_run"]
+    assert mine_row(world) is None
+
+
 def test_archived_project_is_refused(world: dict[str, Any]) -> None:
     Project.objects.filter(pk=world["mine"].pk).update(is_archived=True)
     assert save(world, share_pct=10).status_code == 403

@@ -195,6 +195,13 @@ class ExternalConnectionUpsertSerializer(serializers.Serializer[Any]):
     def validate_secret(self, value: str) -> str:
         if not value.strip():
             raise serializers.ValidationError("Secret must not be blank.")
+        # Sent in an ``Authorization: Bearer`` header (Jira Server/DC), which
+        # http.client encodes as latin-1 and refuses to carry CR/LF; refuse such a
+        # secret as a 400 rather than letting the verify call answer 500 (#5093).
+        if not (value.isascii() and value.isprintable()):
+            raise serializers.ValidationError(
+                "Secret must contain only printable ASCII characters."
+            )
         return value
 
     def validate_jql(self, value: str) -> str:

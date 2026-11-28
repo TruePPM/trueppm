@@ -49,9 +49,15 @@ def _assert_board_writable(sprint: Sprint) -> None:
     from trueppm_api.apps.projects.models import SprintState
 
     if sprint.state not in (SprintState.ACTIVE, SprintState.COMPLETED):
+        # A dict, not a bare string: DRF serializes a string ValidationError as a
+        # top-level array, which no declared 400 on the board/pulse routes admits (#5093).
         raise ValidationError(
-            f"The retro board is read-only while the sprint is {sprint.state}; "
-            "it opens when the sprint is active and stays editable after close."
+            {
+                "detail": (
+                    f"The retro board is read-only while the sprint is {sprint.state}; "
+                    "it opens when the sprint is active and stays editable after close."
+                )
+            }
         )
 
 

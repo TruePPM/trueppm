@@ -90,9 +90,13 @@ CASES = [
     ("param became required", lambda d: OP(d)["parameters"][0].__setitem__("required", True), "param-required", ""),
     ("new required param", lambda d: OP(d)["parameters"].append({"name": "z", "in": "query", "required": True, "schema": {"type": "string"}}), "param-required", ""),
     ("endpoint removed", lambda d: d["paths"].clear(), "endpoint-removed", ""),
+    ("anyOf wrap that also drops a declared property", lambda d: S(d, "Widget").__setitem__("anyOf", [{"type": "object", "properties": {"code": {"type": "string"}}}]) or [S(d, "Widget").pop(k) for k in ("type", "properties", "required")], "property-removed", "response"),
 ]
 # Passing shapes: additive changes, and relaxations that are not Breaking.
+def wrap_anyof(d):
+    d["components"]["schemas"]["Widget"] = {"anyOf": [shape(), {"type": "object", "properties": {"code": {"type": "string"}}}]}
 PASSES = [
+    ("declared body wrapped in anyOf with an error branch", wrap_anyof),
     ("added req field", lambda d: S(d, "Req")["properties"].__setitem__("extra", {"type": "string"})),
     ("added resp field", lambda d: S(d, "Widget")["properties"].__setitem__("extra", {"type": "string"})),
     ("added enum value (both)", both(setv("Req", ("properties", "kind", "enum"), ["a", "b", "c"]), setv("Widget", ("properties", "kind", "enum"), ["a", "b", "c"]))),
@@ -122,6 +126,24 @@ for name, mut, rule, direction in CASES:
 for name, mut in PASSES:
     cand = copy.deepcopy(BASE); mut(cand)
     check(g.diff_schemas(BASE, cand) == [], f"{name} passes (got {g.diff_schemas(BASE, cand)})")
+# anyOf masking: the dropped / optionalized key `code` ALSO exists in the error branch.
+ERR = {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]}
+def with_code(required):
+    d = copy.deepcopy(BASE)
+    w = shape(); w["properties"]["code"] = {"type": "string"}; w["required"] = required
+    S(d, "Widget").clear(); S(d, "Widget").update(w)
+    return d
+mbase = with_code(["name", "code"])
+dropped = copy.deepcopy(mbase)
+S(dropped, "Widget").update({"anyOf": [shape(), ERR]})
+for k in ("type", "properties", "required"): S(dropped, "Widget").pop(k)
+found = g.diff_schemas(mbase, dropped)
+check(("property-removed", "response #/Widget.code") in found, f"anyOf: property dropped from declared branch but present in error branch (got {found})")
+optional = copy.deepcopy(mbase)
+decl = shape(); decl["properties"]["code"] = {"type": "string"}; decl["required"] = ["name"]
+S(optional, "Widget").clear(); S(optional, "Widget").update({"anyOf": [decl, ERR]})
+found = g.diff_schemas(mbase, optional)
+check(("became-optional", "response #/Widget.code") in found, f"anyOf: key optional in declared branch but required in error branch (got {found})")
 print(f"differ cases: {len(CASES)} breaking + {len(PASSES)} passing, {failed} failed")
 sys.exit(1 if failed else 0)
 PY

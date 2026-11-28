@@ -137,6 +137,46 @@ def test_idempotent_mutations_declare_the_header_and_replay_contract() -> None:
     assert "IdempotencyKeyConflict" in _SCHEMA["components"]["responses"]
 
 
+_IDEMPOTENCY_ERROR_REF = {"$ref": "#/components/schemas/IdempotencyKeyError"}
+
+
+def test_idempotency_refusals_are_admitted_beside_the_operations_own_errors() -> None:
+    """The mixin refuses before the view runs, so its body must fit every op (#5093).
+
+    The 2026-11-27 nightly api:fuzz failed ten operations because ``setdefault``
+    kept a view's own 400/422 and dropped the mixin's: a reused key on
+    ``POST /me/credentials/{provider}/`` answered a body the declared 422 rejected.
+    """
+    schemas = _SCHEMA["components"]["schemas"]
+    assert schemas["IdempotencyKeyError"]["required"] == ["detail", "code"]
+    credentials = _SCHEMA["paths"]["/api/v1/me/credentials/{provider}/"]["post"]["responses"]
+    body = credentials["422"]["content"]["application/json"]["schema"]
+    assert body["anyOf"][1] == _IDEMPOTENCY_ERROR_REF
+    assert body["anyOf"][0] != _IDEMPOTENCY_ERROR_REF  # the view's own 422 is kept
+    # An op with no 400 of its own references the shared component.
+    task_delete = _SCHEMA["paths"]["/api/v1/tasks/{id}/"]["delete"]["responses"]
+    assert task_delete["400"] == {"$ref": "#/components/responses/IdempotencyKeyTooLong"}
+    # The generic validation envelope already admits a string detail/code: not wrapped.
+    task_create = _SCHEMA["paths"]["/api/v1/tasks/"]["post"]["responses"]
+    assert "anyOf" not in task_create["400"]["content"]["application/json"]["schema"]
+
+
+def test_read_only_fields_declared_optional_are_not_required() -> None:
+    """An explicit ``required=False`` on a read-only response field is honored (#5093)."""
+    schemas = _SCHEMA["components"]["schemas"]
+    assert schemas["SprintPulseTrend"]["required"] == ["gated"]
+    assert schemas["SprintScopeChangeBulkResult"]["required"] == ["pending_count"]
+    assert "as_of" not in schemas["ProgramRollupKpiEntry"]["required"]
+    assert "available" in schemas["ProgramRollupKpiEntry"]["required"]
+    # A plain read-only field (no explicit required=False) stays required.
+    assert "id" in schemas["BaselineDecision"]["required"]
+
+
+def test_baseline_decision_reason_code_admits_the_blank_a_kept_decision_stores() -> None:
+    prop = _SCHEMA["components"]["schemas"]["BaselineDecision"]["properties"]["reason_code"]
+    assert {"$ref": "#/components/schemas/BlankEnum"} in prop["oneOf"]
+
+
 def test_exempt_and_safe_operations_do_not_declare_idempotency_key() -> None:
     # One-time-secret mint: idempotency_exempt, must not promise replay.
     exempt = _SCHEMA["paths"]["/api/v1/projects/{project_pk}/webhooks/"]["post"]
