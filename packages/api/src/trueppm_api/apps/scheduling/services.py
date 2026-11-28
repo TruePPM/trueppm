@@ -773,10 +773,20 @@ def build_sched_tasks(db_tasks: list[Any], *, suggest_approve: bool) -> list[Any
             # it in this one converter keeps CPM and Monte Carlo in sync (#1185).
             # Milestones are excluded — a sprint review/demo gate sits at the sprint
             # end, not its start (ADR-0106).
+            # A soft-deleted sprint floors nothing: Sprint.soft_delete keeps the row
+            # and leaves Task.sprint_id pointing at it, so without the is_deleted
+            # check a deleted sprint would keep pinning its tasks to a window that
+            # no longer exists, and the recompute the delete enqueues would change
+            # nothing. ``t.sprint`` is already loaded for the start_date read, so
+            # the check costs no query.
             planned_start=(
                 t.planned_start
                 if t.planned_start is not None
-                else (t.sprint.start_date if (t.sprint_id and not t.is_milestone) else None)
+                else (
+                    t.sprint.start_date
+                    if (t.sprint_id and not t.is_milestone and not t.sprint.is_deleted)
+                    else None
+                )
             ),
             percent_complete=t.percent_complete,
             actual_start=t.actual_start,
