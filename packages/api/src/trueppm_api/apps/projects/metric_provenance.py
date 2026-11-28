@@ -294,6 +294,20 @@ METRIC_DEFINITIONS: dict[str, str] = {
         "sit in two different projects of this program that you are a member of. "
         "Pending proposals and links that leave the program are not counted."
     ),
+    # ── project Overview supporting facts (#5103) ──────────────────────
+    "over_allocated_count": (
+        "People on this project whose load on this project is over 100% in at least "
+        "one week of the next 8 weeks, starting this Monday, time off removed: their "
+        "booked days on this project divided by their default units on each of their "
+        "own working days. Bookings on other projects are not counted, so this is not "
+        "this week's team utilization. It can differ from the Resources page's "
+        "over-allocated count, which applies the project roster's units override and "
+        "the project calendar instead of each person's default units and own calendar."
+    ),
+    "changes_since": (
+        "The start of this week (Monday 00:00, server time zone). The Overview's change "
+        "feed is the project changelog from this moment, newest first."
+    ),
 }
 
 #: The figures each owning endpoint defines in its ``definitions`` map (ADR-1314).
@@ -312,7 +326,11 @@ OVERVIEW_DEFINED: list[str] = [
     "tasks_with_duration_count",
     "next_milestone_baseline_date",
     "next_milestone_total_float",
+    "over_allocated_count",
+    "changes_since",
 ]
+#: How many weeks ahead the Overview over-allocation figures look (#5103).
+OVER_ALLOCATION_WEEKS = 8
 UTILIZATION_DEFINED: list[str] = ["load_pct"]
 PEOPLE_LOAD_DEFINED: dict[str, str] = {
     "load_pct": "people_load.load_pct",

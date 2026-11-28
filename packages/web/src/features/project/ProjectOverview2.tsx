@@ -10,6 +10,13 @@ import { StatusChip, type StatusTone } from '@/components/page2/StatusChip';
 import { TYPE } from '@/components/page2/typeScale';
 import { SCurveChart, forecastToSCurveProps } from '@/features/charts';
 import { useEffect, useState } from 'react';
+import type { ScheduleDrivingChain } from '@/api/types';
+import type { ChangelogEntry, ChangeType } from '@/features/project/activity/useProjectChangelog';
+import {
+  isDrivingChain,
+  notComputableText,
+  truncationLines,
+} from '@/features/schedule/whyCritical/whyCriticalModel';
 import type { SnapshotRow } from '@/components/page2/SnapshotPanel';
 import { StatusUpdatesSection } from '@/features/project/statusUpdates/StatusUpdatesSection';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
@@ -44,6 +51,12 @@ export interface Overview2Data {
     /** Working days of total float from the last calculation (#5103). */
     total_float?: number | null;
   } | null;
+  /** People over 100% load in a week of the next 8, time off removed; null when withheld (#5103). */
+  over_allocated_count?: number | null;
+  over_allocated_reason?: 'withheld' | null;
+  over_allocated_window?: { start: string; end: string } | null;
+  /** The start of the changes feed: this Monday 00:00, the server's (#5103). */
+  changes_since?: string;
   /** When the server computed this payload (ADR-1314). */
   as_of?: string;
   /** One server sentence per figure it defines (ADR-1314). Rendered verbatim. */
@@ -146,7 +159,89 @@ export function leadSpokenLabel(p80Long: string, asOf: string | null, caveats: s
   return caveats.length > 0 ? `${base}. ${caveats.join('. ')}` : base;
 }
 
+/**
+ * The driving chain behind the lead date (#5103): the server's ADR-1381 chain through
+ * the top forecast driver, fetched only once the reader asks for it, because each
+ * call is a full CPM pass on the server.
+ */
+export function useDriverChain(projectId: string, taskId: string | undefined, open: boolean) {
+  return useQuery<ScheduleDrivingChain>({
+    queryKey: ['driving-chain', projectId, taskId],
+    enabled: open && !!taskId,
+    queryFn: async () => {
+      const data: unknown = (
+        await apiClient.get(`/projects/${projectId}/schedule/driving-chain/`, {
+          params: { task_id: taskId },
+        })
+      ).data;
+      if (!isDrivingChain(data)) throw new Error('Unexpected driving-chain payload');
+      return data;
+    },
+  });
+}
+
+/** Reading order for the chain: furthest upstream first, the driver, then down to the finish. */
+export function chainOrder(chain: ScheduleDrivingChain): ScheduleDrivingChain['nodes'] {
+  const rank = { upstream: 0, self: 1, downstream: 2 } as const;
+  return [...chain.nodes].sort(
+    (a, b) =>
+      rank[a.direction] - rank[b.direction] ||
+      (a.direction === 'upstream' ? b.hops - a.hops : a.hops - b.hops),
+  );
+}
+
+function DriverChain({ projectId, taskId }: { projectId: string; taskId: string }) {
+  const q = useDriverChain(projectId, taskId, true);
+  if (q.isLoading)
+    return (
+      <p role="status" className="text-xs text-p1-text-2">
+        Loading the driver chain…
+      </p>
+    );
+  if (q.error || !q.data)
+    return (
+      <QueryErrorState
+        variant="inline"
+        message="The driver chain didn’t load."
+        onRetry={() => void q.refetch()}
+      />
+    );
+  const chain = q.data;
+  if (!chain.computable)
+    return <p className="text-xs text-p1-text-2">{notComputableText(chain.reason, false)}</p>;
+  return (
+    <div data-testid="overview2-driver-chain">
+      <ol className="flex flex-col gap-1 text-xs" aria-label="Driver chain">
+        {chainOrder(chain).map((n) => (
+          <li key={n.task_id} className="flex flex-wrap items-baseline gap-x-2">
+            <span aria-hidden="true">{n.direction === 'self' ? '◆' : '→'}</span>
+            <Link
+              className="text-p1-text-1 underline"
+              to={`/projects/${projectId}/tasks/${n.task_id}`}
+            >
+              {n.name}
+            </Link>
+            {n.early_finish && (
+              <span className="font-mono text-p1-text-2">
+                finishes {fmtUtcMedium(n.early_finish)}
+              </span>
+            )}
+            {n.direction === 'self' && <span className="text-p1-text-2">· biggest driver</span>}
+            {n.is_project_finish && <span className="text-p1-text-2">· project finish</span>}
+          </li>
+        ))}
+      </ol>
+      {truncationLines(chain).map((line) => (
+        <p key={line} className="text-xs text-p1-text-3">
+          {line}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 function LeadCard({ projectId, mc }: { projectId: string; mc: MonteCarloResult }) {
+  const [chainOpen, setChainOpen] = useState(false);
   const { formatInstantTime: clock, formatInstantDate: day } = useUserDateFormat();
   const chip = commitmentChip(mc.p80DeltaVsCommitmentDays);
   const runs = mc.nSimulations ?? mc.runs;
@@ -247,11 +342,28 @@ function LeadCard({ projectId, mc }: { projectId: string; mc: MonteCarloResult }
           </span>
         </Link>
       </p>
+      {topId && (
+        <button
+          type="button"
+          className="mt-2 text-xs text-p1-brand underline"
+          aria-expanded={chainOpen}
+          aria-controls="ov2-driver-chain"
+          onClick={() => setChainOpen((v) => !v)}
+          data-testid="overview2-chain-toggle"
+        >
+          {chainOpen ? 'Hide the driver chain' : 'Show the driver chain'}
+        </button>
+      )}
+      {chainOpen && topId && (
+        <div id="ov2-driver-chain" className="mt-2">
+          <DriverChain projectId={projectId} taskId={topId} />
+        </div>
+      )}
     </section>
   );
 }
 
-function Tile({
+export function Tile({
   term,
   definition,
   asOf,
@@ -309,6 +421,83 @@ export function liveSnapshotRows(mc: MonteCarloResult | undefined): SnapshotRow[
   ];
 }
 
+type ChangesPage = { results: ChangelogEntry[]; next_cursor: string | null };
+
+const CHANGE_WORD: Record<ChangeType, string> = {
+  created: 'added',
+  updated: 'changed',
+  deleted: 'removed',
+};
+
+/**
+ * "Changes since Monday" (#5103). The boundary is the server's `changes_since`; the
+ * rows are the project changelog's own (ADR-0201), which also decides who may see
+ * the actor, so this list never names one.
+ */
+function ChangesSince({
+  projectId,
+  since,
+  definition,
+}: {
+  projectId: string;
+  since: string;
+  definition?: string;
+}) {
+  const { formatInstantDate: day } = useUserDateFormat();
+  const q = useQuery<ChangesPage>({
+    queryKey: ['project-overview-changes', projectId, since],
+    queryFn: async () =>
+      (
+        await apiClient.get<ChangesPage>(`/projects/${projectId}/changelog/`, {
+          params: { since, page_size: 5 },
+        })
+      ).data,
+  });
+  return (
+    <section
+      aria-labelledby="ov2-changes-h"
+      className="flex flex-col gap-2"
+      data-testid="overview2-changes"
+    >
+      <div className="flex flex-wrap items-baseline gap-x-3">
+        <SectionHeading id="ov2-changes-h">Changes since Monday</SectionHeading>
+        <span className="text-xs text-p1-text-2">
+          <DefinitionTip term="What this covers" definition={definition} />
+        </span>
+      </div>
+      {q.isLoading ? (
+        <p role="status" className="text-xs text-p1-text-2">
+          Loading changes…
+        </p>
+      ) : q.error ? (
+        <QueryErrorState
+          variant="inline"
+          message="Changes didn’t load."
+          onRetry={() => void q.refetch()}
+        />
+      ) : (q.data?.results ?? []).length === 0 ? (
+        <p className="text-xs text-p1-text-2">No changes since Monday.</p>
+      ) : (
+        <ul className="flex flex-col gap-1 text-sm text-p1-text-1">
+          {(q.data?.results ?? []).map((e) => (
+            <li key={e.id} className="flex flex-wrap items-baseline gap-x-2">
+              <span className="text-xs text-p1-text-2">{e.object_kind_label ?? e.object_type}</span>
+              <span>{e.object_label}</span>
+              <span className="text-xs text-p1-text-2">{CHANGE_WORD[e.change_type]}</span>
+              <span className="font-mono text-xs text-p1-text-3">
+                {day(e.history_date, 'medium')}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <Link className="text-xs text-p1-brand underline" to={`/projects/${projectId}/activity`}>
+        All changes in Activity
+      </Link>
+    </section>
+  );
+}
+
 export function ProjectOverview2({ projectId }: { projectId: string }) {
   const overview = useOverview2(projectId);
   const forecast = useMonteCarloResult(projectId);
@@ -320,6 +509,63 @@ export function ProjectOverview2({ projectId }: { projectId: string }) {
   const base = `/projects/${projectId}`;
   const o = overview.data;
   const mc = forecast.data;
+  // The desktop column count follows the tiles actually served: a withheld or
+  // absent figure drops its tile, and a fixed four-column grid would leave a gap.
+  // Literal class names so Tailwind's scanner keeps all three.
+  const tileCount = o
+    ? 2 + (o.over_allocated_count != null ? 1 : 0) + (o.open_risk_count != null ? 1 : 0)
+    : 0;
+  const lgCols =
+    tileCount >= 4 ? 'lg:grid-cols-4' : tileCount === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-2';
+  const tiles = o ? (
+    <div className={`grid grid-cols-2 gap-3 ${lgCols}`} data-testid="overview2-tiles">
+      <Tile
+        term="Critical tasks"
+        definition={o.definitions?.critical_task_count}
+        asOf={o.as_of}
+        value={String(o.critical_task_count)}
+      />
+      <Tile
+        term="Complete"
+        definition={o.definitions?.complete_tasks}
+        asOf={o.as_of}
+        value={`${o.complete_tasks} of ${o.total_tasks}`}
+        sub="tasks"
+      />
+      {o.over_allocated_count != null && (
+        <Tile
+          term="Over-allocated"
+          definition={o.definitions?.over_allocated_count}
+          asOf={o.as_of}
+          value={String(o.over_allocated_count)}
+          sub={`${o.over_allocated_count === 1 ? 'person' : 'people'}${
+            o.over_allocated_window ? ` through ${fmtUtcMedium(o.over_allocated_window.end)}` : ''
+          }`}
+        />
+      )}
+      {o.open_risk_count != null && (
+        <Tile
+          term="Open risks"
+          definition={o.definitions?.open_risk_count}
+          asOf={o.as_of}
+          value={String(o.open_risk_count)}
+          sub={o.high_risk_count ? `${o.high_risk_count} high` : undefined}
+        />
+      )}
+    </div>
+  ) : null;
+  const costLine = (
+    // TODO(#4810): cost_computable is not served yet; until it is, the line stays and the rates link is aspirational.
+    <NotComputable
+      label="Cost variance"
+      missing="no cost rates are set"
+      fix={
+        <Link className="text-p1-brand underline" to={`${base}/resources`}>
+          Set rates in People
+        </Link>
+      }
+    />
+  );
 
   return (
     <PageFrame width="contained" header={<PageTitle visuallyHidden>Overview</PageTitle>}>
@@ -368,40 +614,8 @@ export function ProjectOverview2({ projectId }: { projectId: string }) {
         ) : (
           o && (
             <>
-              <div className="grid grid-cols-2 gap-3 lg:grid-cols-3" data-testid="overview2-tiles">
-                <Tile
-                  term="Critical tasks"
-                  definition={o.definitions?.critical_task_count}
-                  asOf={o.as_of}
-                  value={String(o.critical_task_count)}
-                />
-                <Tile
-                  term="Complete"
-                  definition={o.definitions?.complete_tasks}
-                  asOf={o.as_of}
-                  value={`${o.complete_tasks} of ${o.total_tasks}`}
-                  sub="tasks"
-                />
-                {o.open_risk_count != null && (
-                  <Tile
-                    term="Open risks"
-                    definition={o.definitions?.open_risk_count}
-                    asOf={o.as_of}
-                    value={String(o.open_risk_count)}
-                    sub={o.high_risk_count ? `${o.high_risk_count} high` : undefined}
-                  />
-                )}
-              </div>
-              {/* TODO(#4810): cost_computable is not served yet; until it is, the line stays and the rates link is aspirational. */}
-              <NotComputable
-                label="Cost variance"
-                missing="no cost rates are set"
-                fix={
-                  <Link className="text-p1-brand underline" to={`${base}/resources`}>
-                    Set rates in People
-                  </Link>
-                }
-              />
+              {tiles}
+              {costLine}
               {o.next_milestone && (
                 <section aria-labelledby="ov2-ms-h" className="flex flex-col gap-2">
                   <SectionHeading id="ov2-ms-h">Milestones</SectionHeading>
@@ -439,6 +653,13 @@ export function ProjectOverview2({ projectId }: { projectId: string }) {
                     )}
                   </p>
                 </section>
+              )}
+              {o.changes_since && (
+                <ChangesSince
+                  projectId={projectId}
+                  since={o.changes_since}
+                  definition={o.definitions?.changes_since}
+                />
               )}
             </>
           )

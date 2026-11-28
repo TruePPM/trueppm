@@ -14464,6 +14464,47 @@ class ProjectCommitView(IdempotencyMixin, APIView):
         )
 
 
+def _overview_over_allocation(
+    request: Request, project: Project, week_start: datetime.date
+) -> dict[str, Any]:
+    """``over_allocated_*`` for the project Overview (#5103), or withheld.
+
+    Withheld (count and window null, ``over_allocated_reason: "withheld"``) for a
+    caller below Scheduler or one the team's capacity-signal policy excludes: the
+    same two gates as ``/me/people-load/``, so this tile is not a side channel round
+    them. Also withheld for a controlled agent whose scope excludes ``resources``:
+    the Overview itself is a ``schedule`` read, but this figure is per-person
+    capacity, which ``/utilization/`` and ``/resources/summary/`` refuse that agent.
+    """
+    from trueppm_api.apps.access.permissions import effective_project_role
+    from trueppm_api.apps.projects.agent_scope import agent_lacks_read
+    from trueppm_api.apps.projects.metric_provenance import OVER_ALLOCATION_WEEKS
+    from trueppm_api.apps.projects.signal_privacy_services import (
+        can_read_signal_for_projects,
+    )
+    from trueppm_api.apps.projects.utilization import compute_people_load
+
+    withheld: dict[str, Any] = {
+        "over_allocated_count": None,
+        "over_allocated_reason": "withheld",
+        "over_allocated_window": None,
+    }
+    if agent_lacks_read(request, "resources"):
+        return withheld
+    role = effective_project_role(request, project.pk)
+    if role is None or role < Role.SCHEDULER:
+        return withheld
+    pid = str(project.pk)
+    if not can_read_signal_for_projects(request, [pid], "capacity").get(pid):
+        return withheld
+    load = compute_people_load([pid], week_start, OVER_ALLOCATION_WEEKS)
+    return {
+        "over_allocated_count": load["over_allocated_count"],
+        "over_allocated_reason": None,
+        "over_allocated_window": load["window"],
+    }
+
+
 class ProjectOverviewView(McpReadableViewMixin, APIView):
     """Aggregated KPI snapshot for the single-project overview dashboard.
 
@@ -14674,6 +14715,22 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
         week_end = week_start + datetime.timedelta(days=6)
         team_utilization = compute_team_utilization(project, week_start, week_end)
 
+        # ── Over-allocated people, next 8 weeks (#5103) ────────────────────
+        # The one owner of "load, time off removed" is compute_people_load (#4777),
+        # scoped to THIS project: a member's view of this project must not count
+        # bookings on projects the caller may not read. It is per-person capacity, so
+        # it sits behind the same two gates as /me/people-load/ and the utilization
+        # view: Scheduler+ and the ADR-0104 `capacity` signal. A count of one person
+        # is that person's load, so an aggregate is not a reason to skip the gate.
+        over_allocated = _overview_over_allocation(request, project, week_start)
+
+        # ── Changes since Monday (#5103) ───────────────────────────────────
+        # The boundary is a server fact so every client agrees on "this week"; the
+        # feed itself is the changelog's (ADR-0201), which owns history_user gating.
+        changes_since = timezone.make_aware(
+            datetime.datetime.combine(week_start, datetime.time.min)
+        )
+
         # ── Added time (schedule risk premium) ─────────────────────────────
         # The gap between the CPM finish and the P80 commitment, promoted off the
         # Monte Carlo payload so every consumer of project health — cards, MCP
@@ -14763,6 +14820,8 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
                 # Machine-readable cause when the ratio is undefined (rule 119); the
                 # web package maps it to a sentence. `None` whenever `pct` is set.
                 "team_utilization_reason": team_utilization["reason"],
+                **over_allocated,
+                "changes_since": changes_since,
                 "owner_name": owner_name,
                 "open_risk_count": open_risk_count,
                 "high_risk_count": high_risk_count,

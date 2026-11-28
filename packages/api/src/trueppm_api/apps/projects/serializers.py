@@ -14542,6 +14542,13 @@ class ProjectOverviewNextMilestoneSerializer(serializers.Serializer[dict[str, An
     )
 
 
+class ProjectOverviewWindowSerializer(serializers.Serializer[dict[str, str]]):
+    """The inclusive date range the Overview's over-allocation figure covers (#5103)."""
+
+    start = serializers.DateField(read_only=True)
+    end = serializers.DateField(read_only=True)
+
+
 class ProjectOverviewSerializer(serializers.Serializer[dict[str, Any]]):
     """Response for ``GET /api/v1/projects/{id}/overview/`` (``ProjectOverviewView.get``, #3679).
 
@@ -14614,6 +14621,23 @@ class ProjectOverviewSerializer(serializers.Serializer[dict[str, Any]]):
     team_utilization_pct = serializers.FloatField(read_only=True, allow_null=True)
     team_utilization_reason = serializers.ChoiceField(
         choices=["no_roster", "no_capacity"], read_only=True, allow_null=True
+    )
+    over_allocated_count = serializers.IntegerField(
+        read_only=True, allow_null=True, help_text=METRIC_DEFINITIONS["over_allocated_count"]
+    )
+    over_allocated_reason = serializers.ChoiceField(
+        choices=["withheld"],
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Why over_allocated_count is null (rule 119): withheld when the caller is "
+            "below Scheduler, the team's capacity-signal policy excludes them, or an "
+            "agent token's scope excludes Resources."
+        ),
+    )
+    over_allocated_window = ProjectOverviewWindowSerializer(read_only=True, allow_null=True)
+    changes_since = serializers.DateTimeField(
+        read_only=True, help_text=METRIC_DEFINITIONS["changes_since"]
     )
     owner_name = serializers.CharField(read_only=True, allow_null=True)
     open_risk_count = serializers.IntegerField(read_only=True)
