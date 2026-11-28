@@ -93,16 +93,18 @@ _PROPOSE_FLOOR: dict[str, int] = {
 #: What each area governs on the MCP read surface, in words the Agents page shows next
 #: to the matrix. Kept beside the enforcement so the two change together, and pinned
 #: against the real URL resolver by ``test_every_area_governs_a_routed_mcp_view``.
-#: Each entry names the endpoints the area refuses. The embedded fields listed under
-#: ``schedule`` are the known gaps (#5118); the exports need every area (``ALL_AREAS``).
+#: Each entry names the endpoints the area refuses. Fields a Schedule-area
+#: read embeds from another area are withheld from an agent that lacks that area
+#: (#5118); the exports need every area (``ALL_AREAS``).
 AGENT_AREA_COVERS: dict[str, str] = {
     "schedule": (
         "Projects, programs, tasks, phases, sprints, risks, labels, custom fields, "
         "acceptance criteria, history, status updates, forecasts, Monte Carlo, My Work "
         "and search. Task-level summaries such as predecessor counts and readiness stay "
-        "here. A few fields inside these reads still carry another area's data and are "
-        "served here for now: task baseline fields, dependency edges in history, program "
-        "schedule links, overview utilization, program rollup cost and sprint member hours."
+        "here. Fields inside these reads that carry another area's data are left out "
+        "without that area: baseline fields on a task (Baselines), the dependency links "
+        "of a program schedule (Dependencies), and overview utilization, program rollup "
+        "cost and sprint member hours (Resources)."
     ),
     "dependencies": (
         "Dependency links between tasks, the driving chain, and the derivation that "
@@ -123,6 +125,19 @@ RESOURCE_TASK_FIELDS: tuple[str, ...] = (
     "assignments",
     "assignee_is_overallocated",
     "assignee_load_includes_estimate",
+)
+
+#: Task fields computed from the active baseline's snapshot. A task read by an agent
+#: without ``baselines`` read drops them (:func:`strip_baseline_task_fields`): the two
+#: dates are the snapshot itself, and the variance, SPI and band are the snapshot
+#: subtracted from (or divided into) the live plan, so each one discloses it.
+BASELINE_TASK_FIELDS: tuple[str, ...] = (
+    "baseline_start",
+    "baseline_finish",
+    "baseline_finish_variance_days",
+    "schedule_variance_days",
+    "spi",
+    "spi_band",
 )
 
 #: Every area: the value an ``agent_action_areas`` entry takes for an action whose one
@@ -318,6 +333,29 @@ def strip_resource_task_fields(data: dict[str, Any], request: Any) -> dict[str, 
     """Drop :data:`RESOURCE_TASK_FIELDS` from a task payload for an agent without them."""
     if agent_lacks_read(request, "resources"):
         for field in RESOURCE_TASK_FIELDS:
+            data.pop(field, None)
+    return data
+
+
+def strip_baseline_task_fields(data: dict[str, Any], request: Any) -> dict[str, Any]:
+    """Drop :data:`BASELINE_TASK_FIELDS` from a task payload for an agent without them."""
+    if agent_lacks_read(request, "baselines"):
+        for field in BASELINE_TASK_FIELDS:
+            data.pop(field, None)
+    return data
+
+
+def strip_area_fields(
+    data: dict[str, Any], request: Any, area: str, fields: tuple[str, ...]
+) -> dict[str, Any]:
+    """Drop ``fields`` from a response dict for a controlled agent that cannot read ``area``.
+
+    For a view that sits in one area (Schedule) yet embeds another area's figures. The
+    keys are dropped, not nulled, so a withheld value is never mistaken for "no data".
+    A person, or a token the capability scope does not govern, is never affected.
+    """
+    if agent_lacks_read(request, area):
+        for field in fields:
             data.pop(field, None)
     return data
 

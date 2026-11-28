@@ -976,3 +976,220 @@ def test_export_unaffected_for_a_person(export_world: dict[str, Any]) -> None:
     sync_project, _, sync_program, _ = _export_paths(export_world)
     assert person.get(sync_project).status_code == 200
     assert person.get(sync_program).status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Embedded cross-area fields (#5118)
+# ---------------------------------------------------------------------------
+
+
+def _routed_mcp_views() -> list[tuple[str, Any, tuple[str, ...]]]:
+    """(route, view instance, governing areas) for every routed MCP-readable GET."""
+    from django.urls import get_resolver
+
+    from trueppm_api.apps.access.permissions import McpReadableViewMixin
+
+    out: list[tuple[str, Any, tuple[str, ...]]] = []
+
+    def walk(patterns: Any, prefix: str = "") -> None:
+        for p in patterns:
+            if hasattr(p, "url_patterns"):
+                walk(p.url_patterns, prefix + str(p.pattern))
+                continue
+            cls = getattr(p.callback, "cls", None) or getattr(p.callback, "view_class", None)
+            if cls is None or not issubclass(cls, McpReadableViewMixin):
+                continue
+            actions = getattr(p.callback, "actions", None) or {"get": None}
+            for method, act in actions.items():
+                if method != "get":
+                    continue
+                view = cls()
+                view.action = act
+                areas = agent_scope.areas_for_view(view) or ()
+                out.append((f"{prefix}{p.pattern} [{act}]", view, areas))
+
+    walk(get_resolver().url_patterns)
+    return out
+
+
+def _declared_fields(view: Any) -> set[str]:
+    serializer_class = getattr(view, "serializer_class", None)
+    meta = getattr(serializer_class, "Meta", None)
+    fields = getattr(meta, "fields", None)
+    return set(fields) if isinstance(fields, (list, tuple)) else set()
+
+
+def test_views_returning_other_area_fields_map_to_that_area_or_strip_them() -> None:
+    """Walk every routed MCP view: a view whose serializer declares another area's known
+    fields is either governed by that area or its serializer withholds them per request.
+
+    Replaces the old resolver test that only proved each area governs *some* view: it
+    could not see a Schedule-area view embedding Resources or Baselines data (#5118).
+    """
+    from trueppm_api.apps.projects.serializers import TaskSerializer
+
+    markers = {
+        "resources": set(agent_scope.RESOURCE_TASK_FIELDS),
+        "baselines": set(agent_scope.BASELINE_TASK_FIELDS),
+    }
+    views = _routed_mcp_views()
+    assert views, "no routed MCP views found: the walk proved nothing"
+    seen_task_serializer = False
+    for route, view, areas in views:
+        serializer_class = getattr(view, "serializer_class", None)
+        withholds = isinstance(serializer_class, type) and issubclass(
+            serializer_class, TaskSerializer
+        )
+        seen_task_serializer = seen_task_serializer or withholds
+        declared = _declared_fields(view)
+        for area, fields in markers.items():
+            if declared & fields and area not in areas:
+                assert withholds, f"{route} returns {sorted(declared & fields)} but is {areas}"
+    assert seen_task_serializer
+
+
+def test_overview_and_dependency_leaks_are_stripped_by_helper() -> None:
+    class Req:
+        auth = None
+
+    assert agent_scope.strip_area_fields({"links": [1]}, Req(), "dependencies", ("links",)) == {
+        "links": [1]
+    }
+
+
+def _agent_with(world: dict[str, Any], **levels: str) -> APIClient:
+    _set_scope(world, **levels)
+    return _bearer(world["raw"])
+
+
+@pytest.mark.django_db
+def test_task_baseline_fields_follow_the_baselines_area(world: dict[str, Any]) -> None:
+    from trueppm_api.apps.projects.models import Task
+
+    task = Task.objects.create(project=world["project"], name="Wire", duration=1)
+    path = f"/api/v1/tasks/{task.id}/"
+    agent = _bearer(world["raw"])
+    for field in agent_scope.BASELINE_TASK_FIELDS:
+        assert field in agent.get(path).data, field
+
+    agent = _agent_with(world, baselines="none")
+    stripped = agent.get(path)
+    assert stripped.status_code == 200
+    for field in agent_scope.BASELINE_TASK_FIELDS:
+        assert field not in stripped.data, field
+    listed = agent.get(f"/api/v1/tasks/?project={world['project'].id}")
+    rows = listed.data["results"] if isinstance(listed.data, dict) else listed.data
+    assert rows and all("baseline_start" not in r and "spi" not in r for r in rows)
+    # Another area at none does not hide baseline fields; a person is never affected.
+    _set_scope(world, baselines="read", resources="none")
+    assert "baseline_start" in agent.get(path).data
+    assert "baseline_start" in _as(world["principal"]).get(path).data
+    _set_scope(world, baselines="none")
+    assert "baseline_start" in _as(world["principal"]).get(path).data
+
+
+@pytest.mark.django_db
+def test_overview_team_utilization_follows_the_resources_area(world: dict[str, Any]) -> None:
+    path = _overview(world["project"])
+    agent = _bearer(world["raw"])
+    at_read = agent.get(path).data
+    assert "team_utilization_pct" in at_read and "team_utilization_reason" in at_read
+
+    agent = _agent_with(world, resources="none")
+    stripped = agent.get(path)
+    assert stripped.status_code == 200
+    for key in ("team_utilization_pct", "team_utilization_reason"):
+        assert key not in stripped.data
+    assert "team_utilization_pct" not in stripped.data["definitions"]
+    assert stripped.data["total_tasks"] == 0
+    assert "team_utilization_pct" in _as(world["principal"]).get(path).data
+
+
+@pytest.mark.django_db
+def test_program_rollup_cost_kpis_follow_the_resources_area(world: dict[str, Any]) -> None:
+    program = world["program"]
+    program.rollup_enabled_kpis = ["cost_variance", "budget_utilization"]
+    program.save(update_fields=["rollup_enabled_kpis"])
+    ProgramMembership.objects.create(program=program, user=world["principal"], role=Role.ADMIN)
+    path = f"/api/v1/programs/{program.id}/rollup/"
+    agent = _bearer(world["raw"])
+    resp = agent.get(path)
+    assert resp.status_code == 200, resp.data
+    assert {"cost_variance", "budget_utilization"} <= set(resp.data["kpis"])
+
+    agent = _agent_with(world, resources="none")
+    stripped = agent.get(path)
+    assert stripped.status_code == 200
+    for key in ("cost_variance", "budget_utilization"):
+        assert key not in stripped.data["kpis"]
+        assert key not in stripped.data["definitions"]
+    assert {"cost_variance", "budget_utilization"} <= set(
+        _as(world["principal"]).get(path).data["kpis"]
+    )
+
+
+@pytest.mark.django_db
+def test_program_schedule_links_follow_the_dependencies_area(world: dict[str, Any]) -> None:
+    from trueppm_api.apps.projects.models import Dependency, Task
+
+    a = Task.objects.create(project=world["project"], name="A", duration=1)
+    b = Task.objects.create(project=world["project"], name="B", duration=1)
+    Dependency.objects.create(predecessor=a, successor=b)
+    ProgramMembership.objects.create(
+        program=world["program"], user=world["principal"], role=Role.ADMIN
+    )
+    path = f"/api/v1/programs/{world['program'].id}/schedule/"
+    resp = _bearer(world["raw"]).get(path)
+    assert resp.status_code == 200, resp.data
+    assert len(resp.data["links"]) == 1
+
+    agent = _agent_with(world, dependencies="none")
+    stripped = agent.get(path)
+    assert stripped.status_code == 200
+    assert "links" not in stripped.data and "cross_project_edge_count" not in stripped.data
+    assert stripped.data["tasks"]
+    assert len(_as(world["principal"]).get(path).data["links"]) == 1
+
+
+@pytest.mark.django_db
+def test_sprint_capacity_members_follow_the_resources_area(world: dict[str, Any]) -> None:
+    from trueppm_api.apps.projects.models import Sprint
+
+    sprint = Sprint.objects.create(
+        project=world["project"],
+        name="S1",
+        start_date=date(2026, 4, 1),
+        finish_date=date(2026, 4, 14),
+    )
+    # The principal is an Admin, outside the default TEAM audience for ``capacity``
+    # (ADR-0104); widen it so the only thing suppressing members is the agent's scope.
+    from trueppm_api.apps.projects import signal_privacy_services as svc
+    from trueppm_api.apps.projects.signal_privacy_services import SignalAudience
+
+    policy = svc.get_or_create_policy(world["project"])
+    svc.raise_signal_ceiling(policy, "capacity", SignalAudience.TEAM_SM_PM)
+    svc.set_signal_audience(policy, "capacity", SignalAudience.TEAM_SM_PM)
+    path = f"/api/v1/sprints/{sprint.id}/capacity/"
+    agent = _bearer(world["raw"])
+    resp = agent.get(path)
+    assert resp.status_code == 200, resp.data
+    assert resp.data["capacity_suppressed"] is False
+
+    agent = _agent_with(world, resources="none")
+    stripped = agent.get(path)
+    assert stripped.status_code == 200
+    assert stripped.data["members"] == [] and stripped.data["capacity_suppressed"] is True
+    assert "totals" in stripped.data
+    assert _as(world["principal"]).get(path).data["capacity_suppressed"] is False
+
+
+@pytest.mark.django_db
+def test_history_stream_carries_no_dependency_rows_for_an_agent(world: dict[str, Any]) -> None:
+    """The aggregated changelog (which includes Dependency history) is not MCP-readable;
+    the history an agent can read is the project row only."""
+    pk = world["project"].id
+    agent = _bearer(world["raw"])
+    assert agent.get(f"/api/v1/projects/{pk}/changelog/").status_code in (401, 403)
+    resp = agent.get(f"/api/v1/projects/{pk}/history/")
+    assert resp.status_code == 200
+    assert all("dependency" not in str(r).lower() for r in resp.data["results"])

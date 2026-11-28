@@ -14454,6 +14454,18 @@ class ProjectCommitView(IdempotencyMixin, APIView):
         )
 
 
+def _strip_resource_overview_fields(overview: dict[str, Any], request: Request) -> None:
+    """Withhold the team-utilization figure (and its definition) from a no-Resources agent."""
+    from trueppm_api.apps.projects.agent_scope import agent_lacks_read
+
+    if agent_lacks_read(request, "resources"):
+        for key in ("team_utilization_pct", "team_utilization_reason"):
+            overview.pop(key, None)
+        definitions = overview.get("definitions")
+        if isinstance(definitions, dict):
+            definitions.pop("team_utilization_pct", None)
+
+
 class ProjectOverviewView(McpReadableViewMixin, APIView):
     """Aggregated KPI snapshot for the single-project overview dashboard.
 
@@ -14737,34 +14749,35 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
             )
         )
 
-        return Response(
-            {
-                "schedule_health": health,
-                "spi": spi,
-                **risk_premium,
-                **staleness,
-                "tasks_late_count": tasks_late,
-                "critical_task_count": critical_count,
-                "total_tasks": total,
-                "complete_tasks": complete,
-                "tasks_with_duration_count": with_duration,
-                "next_milestone": next_milestone,
-                "team_utilization_pct": team_utilization["pct"],
-                # Machine-readable cause when the ratio is undefined (rule 119); the
-                # web package maps it to a sentence. `None` whenever `pct` is set.
-                "team_utilization_reason": team_utilization["reason"],
-                "owner_name": owner_name,
-                "open_risk_count": open_risk_count,
-                "high_risk_count": high_risk_count,
-                "start_date": project.start_date.isoformat(),
-                # Provenance (ADR-1314): this endpoint owns open risks, team
-                # utilization and the SPI schedule band — the last one is NOT the
-                # project health band, and its definition says so.
-                "as_of": timezone.now(),
-                "definitions": definitions_for(OVERVIEW_DEFINED),
-            },
-            status=status.HTTP_200_OK,
-        )
+        # Capability scope (#5118): the load-vs-capacity ratio is a Resources figure on
+        # a Schedule-area view, so an agent without Resources read does not get it.
+        overview = {
+            "schedule_health": health,
+            "spi": spi,
+            **risk_premium,
+            **staleness,
+            "tasks_late_count": tasks_late,
+            "critical_task_count": critical_count,
+            "total_tasks": total,
+            "complete_tasks": complete,
+            "tasks_with_duration_count": with_duration,
+            "next_milestone": next_milestone,
+            "team_utilization_pct": team_utilization["pct"],
+            # Machine-readable cause when the ratio is undefined (rule 119); the
+            # web package maps it to a sentence. `None` whenever `pct` is set.
+            "team_utilization_reason": team_utilization["reason"],
+            "owner_name": owner_name,
+            "open_risk_count": open_risk_count,
+            "high_risk_count": high_risk_count,
+            "start_date": project.start_date.isoformat(),
+            # Provenance (ADR-1314): this endpoint owns open risks, team
+            # utilization and the SPI schedule band — the last one is NOT the
+            # project health band, and its definition says so.
+            "as_of": timezone.now(),
+            "definitions": definitions_for(OVERVIEW_DEFINED),
+        }
+        _strip_resource_overview_fields(overview, request)
+        return Response(overview, status=status.HTTP_200_OK)
 
 
 class ProjectAttentionView(APIView):
@@ -18692,9 +18705,19 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
             definitions_by_field,
         )
 
+        summary = capacity_summary_for(request, sprint)
+        # Capability scope (#5118): per-member committed/available hours are resource
+        # capacity (each person's availability), so they follow the Resources area, not
+        # Schedule, where the sprint itself lives. Reuse the ADR-0104 suppression shape;
+        # the name-free aggregate ``totals`` stay, as they do for a below-tier reader.
+        from trueppm_api.apps.projects.agent_scope import agent_lacks_read
+        from trueppm_api.apps.projects.signal_privacy_services import suppress_capacity_summary
+
+        if agent_lacks_read(request, "resources"):
+            summary = suppress_capacity_summary(summary)
         return Response(
             {
-                **capacity_summary_for(request, sprint),
+                **summary,
                 "as_of": timezone.now().isoformat(),
                 "definitions": definitions_by_field(SPRINT_CAPACITY_DEFINED),
             },

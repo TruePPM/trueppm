@@ -139,13 +139,19 @@ areas to use them. Without one, the export is refused and the refusal names the
 first area missing.
 
 A call refused for scope is answered with the area's name, not the data. The table
-lists the endpoints each area refuses; it does not yet cover every field that carries
-an area's data inside another read. A few such fields are still served under
-Schedule & tasks to an agent that has **Read** there: the baseline fields on a task,
-dependency edges in task history, a program's schedule links, utilization in a
-project's overview, cost figures in a program's rollup, and sprint member hours.
-Moving them under their own areas is tracked in
-[#5118](https://gitlab.com/trueppm/trueppm/-/issues/5118). The resource list
+lists the endpoints each area refuses. Where a read in one area carries another
+area's figures, the server leaves those fields out of the response for an agent that
+lacks the other area, rather than sending them empty:
+
+- **Baselines** governs the baseline dates on a task and the figures computed against
+  them (baseline finish variance, schedule variance, SPI and its band).
+- **Dependencies** governs the dependency links in a program's schedule.
+- **Resources** governs team utilization in a project's overview, the cost variance
+  and budget utilization figures in a program's rollup, and the per-person hours in a
+  sprint's capacity.
+
+A person is never affected. The aggregated project changelog, which includes
+dependency history, is not on the agent read surface at all. The resource list
 endpoints themselves are not on the agent read surface at all, so no agent can read
 them whatever its scope.
 

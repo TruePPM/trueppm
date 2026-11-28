@@ -70,7 +70,7 @@ from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 # the module-level import is cycle-safe) and shared so /programs/ matches /projects/
 # on the raised page ceiling (ADR-0401).
 from trueppm_api.apps.profiles.services import annotate_is_pinned
-from trueppm_api.apps.projects.agent_scope import ALL_AREAS
+from trueppm_api.apps.projects.agent_scope import ALL_AREAS, agent_lacks_read, strip_area_fields
 from trueppm_api.apps.projects.bulk_settings import (
     BulkFieldsRequestSerializer,
     ProgramBulkFieldsSerializer,
@@ -3454,6 +3454,12 @@ class ProgramViewSet(
         payload["definitions"]["projects"] = METRIC_DEFINITIONS["rollup.project_row"]
         for key in ("projects_on_track", "open_risk_count", "cross_project_link_count"):
             payload["definitions"][key] = METRIC_DEFINITIONS[f"rollup.{key}"]
+        # Capability scope (#5118): the cost KPIs are Resources figures (the project
+        # cost view is a Resources read) inside a Schedule-area rollup.
+        if agent_lacks_read(request, "resources"):
+            for key in ("cost_variance", "budget_utilization"):
+                payload["kpis"].pop(key, None)
+                payload["definitions"].pop(key, None)
         return Response(payload)
 
     @extend_schema(
@@ -3523,6 +3529,10 @@ class ProgramViewSet(
                     _membership_role(request, project_id)
                 ),
             )
+        # Capability scope (#5118): the merged graph's leaf-level edges are Dependencies
+        # data on a Schedule-area view. Tasks, the program-true dates and the critical
+        # path stay; the edge list and its cross-project count are withheld.
+        strip_area_fields(payload, request, "dependencies", ("links", "cross_project_edge_count"))
         return Response(payload)
 
     @extend_schema(
