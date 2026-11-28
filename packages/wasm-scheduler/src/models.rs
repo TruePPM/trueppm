@@ -218,7 +218,7 @@ pub struct Task {
     /// Input: open work with **no remaining work** (ADR-1474, #4819), while
     /// `duration` and `percent_complete` still describe the work done. Placed as an
     /// instant like a milestone; FS/FF links measure from it, SS/SF links from the
-    /// recorded `actual_start` or the derived span start (`link_start`). Ignored on
+    /// recorded `actual_start` when it has one, else the instant (#5182). Ignored on
     /// a completed task and a zero-duration milestone. Mirrors the Python
     /// `Task.zero_remaining`.
     #[serde(default, skip_serializing_if = "is_false")]

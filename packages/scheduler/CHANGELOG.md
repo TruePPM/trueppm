@@ -99,6 +99,20 @@ change between releases. Pin an exact version (e.g.
 
 ### Changed
 
+- **A start-to-start or start-to-finish link out of a task with
+  `percent_complete` and no `actual_start` measures from where its remaining work
+  resumes (`early_start`), not from the span start its elapsed days imply.** A
+  longer task at the same percentage used to read an earlier start and pulled its
+  successors, or the project finish, earlier. This reverses the 0.4.0 #4523
+  reading, which measured these links from the derived span start for percent-only
+  progress. It applies in `schedule()`, `monte_carlo()`, the WASM engine and the
+  Gantt drag preview; the bar (`scheduled_start`) still shows the derived span.
+  Record `actual_start` to measure the links from when the work began. Seeded
+  results on such projects can change, and the 0.5.0-dev result-stability stamp
+  is re-stamped for it. The private `trueppm_scheduler.engine` helpers
+  `_elapsed_link_days`, `_window_start_bound` and `_mc_span_link` are removed
+  ([#5182](https://gitlab.com/trueppm/trueppm/-/issues/5182)).
+
 - **Velocity forecasting shares one team capacity per run
   ([#5011](https://gitlab.com/trueppm/trueppm/-/issues/5011),
   [#5012](https://gitlab.com/trueppm/trueppm/-/issues/5012), ADR-1412;
@@ -377,7 +391,7 @@ change between releases. Pin an exact version (e.g.
   instant, so with no lag on finish-to-start or finish-to-finish links out of it
   the CPM finish moves by the days pulled in, and its start-to-start and
   start-to-finish links keep measuring from its recorded `actual_start`, or its
-  derived span start, so a bigger pull-in never finishes later than a smaller
+  instant when none is recorded, so a bigger pull-in never finishes later than a smaller
   one on any link type. Its three-point estimate moves by the delta like any
   other shift. This reverses the completion behavior added with the #4432 fix. A
   zero delta now returns every task unchanged
@@ -387,8 +401,8 @@ change between releases. Pin an exact version (e.g.
 - **`Task.zero_remaining`**, a new input (appended last to `Task`): open work
   with no remaining work, while `duration` and `percent_complete` still describe
   the work done. Placed as an instant like a milestone; FS/FF links measure from
-  that instant and SS/SF links from the recorded `actual_start` or the derived
-  span start. `to_dict()` emits it only when `True` (as the Rust engine does), so a
+  that instant and SS/SF links from the recorded `actual_start`, or from the
+  instant when none is recorded. `to_dict()` emits it only when `True` (as the Rust engine does), so a
   network that never sets it serializes exactly as before; only a document that
   sets it needs an engine that knows the key (ADR-1474,
   [#4819](https://gitlab.com/trueppm/trueppm/-/issues/4819)).
