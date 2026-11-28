@@ -87,11 +87,13 @@ def test_event_type_cap() -> None:
     risk/baseline/comment domain events were added under ADR-0206, raising it 14→19;
     ADR-1485 added schedule.finish_changed, 19→20; ADR-1485 D6 and ADR-1477
     added six more (change_undone, scope_change_requested, changeset.opened,
-    changeset.entry_added, changeset.entry_reasoned, baseline.kept), 20→26.
+    changeset.entry_added, changeset.entry_reasoned, baseline.kept), 20→26;
+    #5127 added sprint.commitment_at_risk, 26→27.
     """
     assert len(ALL_WEBHOOK_EVENTS) == OSS_WEBHOOK_EVENT_CAP
-    assert OSS_WEBHOOK_EVENT_CAP == 26
+    assert OSS_WEBHOOK_EVENT_CAP == 27
     assert set(ALL_WEBHOOK_EVENTS) == {
+        "sprint.commitment_at_risk",
         "task.created",
         "task.updated",
         "task.deleted",

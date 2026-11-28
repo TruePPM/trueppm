@@ -687,10 +687,14 @@ input up front rather than spinning on a degenerate project:
   days) will be weighed on the same chain, and the uncapped sprint horizon summed over
   every scrum task must also stay under `366_000` sprints, which bounds the velocity
   sampler's total draws. A cyclic graph has no longest chain; it falls back to the
-  serial sum and is then reported as a cycle. Three separate refusals will sit beside
+  serial sum and is then reported as a cycle. Four separate refusals will sit beside
   it: a `status_date` more than `MAX_PROJECT_SPAN_DAYS` after the start, an
-  `actual_start`/`actual_finish` more than that from the start, and a start date so
-  close to `date.max` that the walk would overflow the date range.
+  `actual_start`/`actual_finish` more than that from the start, a start date so
+  close to `date.max` that the walk would overflow the date range, and, when a
+  started task with no `actual_start` has its start derived backward from its
+  progress, a start date that close to `date.min` (the same span x 7 + one scan
+  estimate). Before 0.5 that last case raised a bare `OverflowError` instead of
+  `InvalidScheduleInput`.
 - **Project work** — from 0.5, the sum of every task's worst-case duration plus every lag's
   magnitude must stay under `MAX_PROJECT_WORK_DAYS` (`3_660_000`, 10x the span cap);
   0.4 has no such limit. This will bound the CPU the passes spend (they walk the calendar per day of duration),

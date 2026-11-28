@@ -3382,6 +3382,7 @@ def record_sprint_scope_change(
             task.sprint_pending = True
             task.save(update_fields=["sprint_pending"])
         _on_commit_scope_webhook(scope_change, "sprint.scope_change_requested")
+        _notify_scope_change_requested(scope_change)
 
     # sprint_scope_changed is the OSS extension point Enterprise connects
     # against. A raising receiver must not propagate out of and break this OSS
@@ -3935,6 +3936,8 @@ def record_commitment_slip(
     _on_commit_scope_webhook(
         row, "sprint.scope_changed" if accepted else "sprint.scope_change_requested"
     )
+    if not accepted:
+        _notify_scope_change_requested(row)
     if request is not None and not accepted:
         setattr(_host(request), SLIP_PENDING_ATTR, True)
     _on_commit_scope_broadcast(row)
@@ -4073,6 +4076,13 @@ def _record_decision_note(row: Any, author: Any, reason: str) -> None:
         body=f"{what} {row.status} for {row.sprint.name}: {reason.strip()}",
         decision=True,
     )
+
+
+def _notify_scope_change_requested(row: Any) -> None:
+    """Trampoline to the batched accept-authority notice (ADR-1485 D8)."""
+    from trueppm_api.apps.projects.commitment_risk import notify_scope_change_requested
+
+    notify_scope_change_requested(row)
 
 
 def _on_commit_scope_webhook(row: Any, event_type: str, *, source: str = "api") -> None:
