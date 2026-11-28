@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AxiosError, type AxiosResponse, type InternalAxiosRequestConfig } from 'axios';
 import { apiClient } from '@/api/client';
+import { MonteCarloNotStoredError } from '@/lib/monteCarloRun';
 
 interface RunOptions {
   n_simulations?: number;
@@ -82,7 +83,15 @@ export function useRunMonteCarlo(projectId: string | undefined) {
         const { data: run } = await apiClient.get<TaskRunPoll>(
           `/projects/${projectId}/task-runs/${runId}/`,
         );
-        if (run.status === 'success') return;
+        if (run.status === 'success') {
+          // A run below Scheduler (or under the minimum run count) is computed but
+          // never becomes the shared forecast. Stale role data can still offer the
+          // control, so say so rather than letting the old forecast sit unchanged.
+          if (run.result_summary?.stored_as_latest === false) {
+            throw new MonteCarloNotStoredError();
+          }
+          return;
+        }
         if (run.status === 'failed' || run.status === 'cancelled') {
           throw refusalError(run.result_summary);
         }

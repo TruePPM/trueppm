@@ -89,7 +89,9 @@ const CP_TASKS_RESPONSE = { count: 0, next: null, previous: null, results: [] };
 // (self membership row). Default to a manual health of AUTO (no reported chip) and a
 // non-Admin role so the common assertions are unaffected; individual tests override.
 const PROJECT_DETAIL = { id: 'proj-1', server_version: 1, name: 'Proj', health: 'AUTO' };
-const SELF_MEMBERSHIP_MEMBER = [{ id: 'me', role: 100 }];
+// Scheduler by default: Monte Carlo Run/Rerun is Scheduler-and-above.
+const SELF_MEMBERSHIP_MEMBER = [{ id: 'me', role: 200 }];
+const SELF_MEMBERSHIP_VIEWER = [{ id: 'me', role: 1 }];
 
 /** Resolve the two header-hook endpoints; return null for anything else. */
 function headerHookResponse(url: string): { data: unknown } | null {
@@ -374,6 +376,22 @@ describe('ProjectOverviewPage', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /run forecast/i })).toBeInTheDocument();
     });
+  });
+
+  it('a Viewer sees the explanation instead of a Run forecast button', async () => {
+    mockedGet.mockImplementation((url: string) => {
+      if (url.endsWith('/members/')) return Promise.resolve({ data: SELF_MEMBERSHIP_VIEWER });
+      if (url.endsWith('/monte-carlo/latest/')) return Promise.reject(new Error('404'));
+      if (url === '/projects/proj-1/') return Promise.resolve({ data: PROJECT_DETAIL });
+      if (url.endsWith('/overview/')) return Promise.resolve({ data: OVERVIEW_RESPONSE });
+      if (url.endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
+      if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
+      if (url === '/tasks/') return Promise.resolve({ data: CP_TASKS_RESPONSE });
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    });
+    renderPage();
+    await screen.findByText(/Only Schedulers and above can update the shared forecast/);
+    expect(screen.queryByRole('button', { name: /run forecast/i })).not.toBeInTheDocument();
   });
 
   it('shows P50/P80/P95 pills when MC result available', async () => {
@@ -1307,7 +1325,7 @@ function mockOverviewEndpoints(overrides: EndpointOverrides = {}) {
     if (url === '/projects/proj-1/')
       return overrides.project?.() ?? Promise.resolve({ data: PROJECT_DETAIL });
     if (url.endsWith('/members/'))
-      return Promise.resolve({ data: [{ id: 'me', role: overrides.role ?? 100 }] });
+      return Promise.resolve({ data: [{ id: 'me', role: overrides.role ?? 200 }] });
     if (url.endsWith('/overview/'))
       return overrides.overview?.() ?? Promise.resolve({ data: OVERVIEW_RESPONSE });
     if (url.endsWith('/attention/'))

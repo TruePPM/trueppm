@@ -44,8 +44,19 @@ vi.mock('./ForecastHistorySection', () => ({
   ForecastHistorySection: () => null,
 }));
 
+const roleState = vi.hoisted(() => ({ role: 200 as number | null }));
+vi.mock('@/hooks/useCurrentUserRole', () => ({
+  useCurrentUserRole: () => ({
+    role: roleState.role,
+    roleLabel: null,
+    isLoading: false,
+    isError: false,
+  }),
+}));
+
 beforeEach(() => {
   runMutate.mockReset();
+  roleState.role = 200;
   runState = { isPending: false, isError: false, error: null };
   mockResult = { data: FIXTURE_MC_RESULT, isLoading: false, error: null };
   localStorage.clear();
@@ -324,5 +335,43 @@ describe('ScheduleForecastBar — a refused run (#3332)', () => {
     mockResult = { data: undefined, isLoading: false, error: null };
     renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} />);
     expect(screen.getByRole('alert')).toHaveTextContent("Couldn't run the simulation.");
+  });
+
+  describe.each([
+    ['Viewer', 1],
+    ['Member', 100],
+  ])('as a %s (no rights to update the shared forecast)', (_label, role) => {
+    it('shows the explanation, not a Run button, when there is no forecast', () => {
+      roleState.role = role;
+      mockResult = { data: undefined, isLoading: false, error: null };
+      renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} />);
+      expect(screen.queryByRole('button', { name: /Run Monte Carlo/i })).not.toBeInTheDocument();
+      expect(
+        screen.getByText(/Only Schedulers and above can update the shared forecast\./),
+      ).toBeInTheDocument();
+    });
+
+    it('withholds Rerun even when the forecast is stale', () => {
+      roleState.role = role;
+      mockResult = {
+        data: { ...FIXTURE_MC_RESULT, forecastStaleness: 'aged' },
+        isLoading: false,
+        error: null,
+      };
+      renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} />);
+      expect(
+        screen.queryByRole('button', { name: /Rerun Monte Carlo forecast/i }),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  it.each([
+    ['Scheduler', 200],
+    ['Admin', 300],
+  ])('a %s still gets Run Monte Carlo when there is no forecast', (_label, role) => {
+    roleState.role = role;
+    mockResult = { data: undefined, isLoading: false, error: null };
+    renderWithProviders(<ScheduleForecastBar projectId="p1" tasks={[]} />);
+    expect(screen.getByRole('button', { name: /Run Monte Carlo/i })).toBeInTheDocument();
   });
 });

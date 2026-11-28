@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
 import { useRunMonteCarlo } from '@/hooks/useRunMonteCarlo';
+import { describeRunRefusal } from '@/lib/monteCarloRun';
+import { useCanRunMonteCarlo, MC_RUN_ROLE_NOTE } from '@/hooks/useCanRunMonteCarlo';
 import { RefusalAlert } from '@/components/dialog';
-import { describeWriteRefusal } from '@/lib/writeRefusal';
 import { useForecastPresentation } from './useForecastPresentation';
 import { MonteCarloSheet } from './MonteCarloSheet';
 import {
@@ -42,12 +43,13 @@ export function MobileMonteCarloCard({ projectId }: Props) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const { data: result, isLoading } = useMonteCarloResult(projectId);
   const runMc = useRunMonteCarlo(projectId);
+  const canRun = useCanRunMonteCarlo(projectId);
   // The server's own refusal (#3332). A run is refused for reasons the planner
   // can act on — no estimates on the plan, a role that may not run one — and
   // "Could not run simulation." plus an unconditional "Try again" told them
   // neither which it was nor that a second press would be refused identically.
   const runRefusal = useMemo(
-    () => describeWriteRefusal(runMc.error, "Couldn't run the simulation."),
+    () => describeRunRefusal(runMc.error, "Couldn't run the simulation."),
     [runMc.error],
   );
   // Called before the early returns below — hooks cannot be conditional, and the
@@ -71,6 +73,22 @@ export function MobileMonteCarloCard({ projectId }: Props) {
   if (!result) {
     // No project context yet — render nothing rather than a CTA that cannot fire.
     if (!projectId) return null;
+    // Below Scheduler there is nothing to run: a static note, not a dead button.
+    if (!canRun) {
+      return (
+        <div
+          className="md:hidden flex items-center gap-2 w-full min-h-11 px-4 py-2 border-t border-neutral-border bg-neutral-surface-raised"
+          data-testid="mobile-mc-no-run"
+        >
+          <span className="text-xs font-medium text-neutral-text-secondary tracking-wide uppercase">
+            MC
+          </span>
+          <span className="text-xs text-neutral-text-secondary">
+            {isLoading ? 'Loading forecast…' : `No forecast yet. ${MC_RUN_ROLE_NOTE}`}
+          </span>
+        </div>
+      );
+    }
     // "Try again" only where a replay could succeed (web-rule 372a). On a 403 or
     // a "nothing to simulate" 400 the CTA keeps its verb: the act is still
     // available once the planner changes what the server objected to.

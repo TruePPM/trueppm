@@ -4,6 +4,7 @@ import { renderWithRouter } from '@/test/utils';
 import { setFeatureFlag } from '@/lib/featureFlags';
 import type { MonteCarloResult } from '@/types';
 import { SHELL_V2_FLAG } from './shellFlag';
+import { MonteCarloNotStoredError } from '@/lib/monteCarloRun';
 import { ForecastPage } from './ForecastPage';
 
 const q = vi.hoisted(() => ({
@@ -20,6 +21,16 @@ vi.mock('@/features/charts', () => ({
     <div data-testid="histogram">{buckets.length}</div>
   ),
   forecastToSCurveProps: () => ({}),
+}));
+
+const roleState = vi.hoisted(() => ({ role: 200 as number | null }));
+vi.mock('@/hooks/useCurrentUserRole', () => ({
+  useCurrentUserRole: () => ({
+    role: roleState.role,
+    roleLabel: null,
+    isLoading: false,
+    isError: false,
+  }),
 }));
 
 const result = {
@@ -39,6 +50,7 @@ describe('ForecastPage', () => {
     localStorage.clear();
     setFeatureFlag(SHELL_V2_FLAG, true);
     q.run = { mutate: vi.fn(), isPending: false, isError: false, error: null };
+    roleState.role = 200;
     set({ data: result });
   });
 
@@ -104,5 +116,26 @@ describe('ForecastPage', () => {
     q.run = { ...q.run, isPending: true };
     renderWithRouter(<ForecastPage />, { initialEntries: ['/projects/proj/forecast'] });
     expect(screen.getByRole('button', { name: 'Running…' })).toBeDisabled();
+  });
+
+  describe.each([
+    ['Viewer', 1],
+    ['Member', 100],
+  ])('as a %s', (_label, role) => {
+    it('has no Run button, and the empty state explains why', () => {
+      roleState.role = role;
+      set({ data: undefined });
+      renderWithRouter(<ForecastPage />, { initialEntries: ['/projects/proj/forecast'] });
+      expect(screen.queryByRole('button', { name: /Run forecast/ })).toBeNull();
+      expect(
+        screen.getByText(/Only Schedulers and above can update the shared forecast\./),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it('shows a not-stored run as a refusal', () => {
+    q.run = { ...q.run, isError: true, error: new MonteCarloNotStoredError() };
+    renderWithRouter(<ForecastPage />, { initialEntries: ['/projects/proj/forecast'] });
+    expect(screen.getByRole('alert')).toHaveTextContent(/wasn't saved as the shared forecast/);
   });
 });

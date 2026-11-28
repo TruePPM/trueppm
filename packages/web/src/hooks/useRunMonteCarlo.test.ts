@@ -5,6 +5,7 @@ import { act } from 'react';
 import type { ReactNode } from 'react';
 import { createElement } from 'react';
 import axios from 'axios';
+import { MonteCarloNotStoredError } from '@/lib/monteCarloRun';
 import { MC_POLL_TIMEOUT_MS, useRunMonteCarlo } from './useRunMonteCarlo';
 
 const postMock = vi.hoisted(() => vi.fn());
@@ -41,6 +42,21 @@ describe('useRunMonteCarlo', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it('surfaces a run that was not stored as the shared forecast instead of succeeding', async () => {
+    postMock.mockResolvedValueOnce(QUEUED);
+    getMock.mockResolvedValueOnce(runIs('success', { run_id: null, stored_as_latest: false }));
+    const invalidate = vi.spyOn(qc, 'invalidateQueries');
+
+    const { result } = renderHook(() => useRunMonteCarlo('proj-1'), {
+      wrapper: makeWrapper(qc),
+    });
+    result.current.mutate({});
+
+    await waitFor(() => expect(result.current.isError).toBe(true), SETTLE);
+    expect(result.current.error).toBeInstanceOf(MonteCarloNotStoredError);
+    expect(invalidate).not.toHaveBeenCalled();
   });
 
   it('POSTs to /projects/{id}/monte-carlo/ on mutate', async () => {

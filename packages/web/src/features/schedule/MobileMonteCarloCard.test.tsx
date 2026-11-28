@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderWithProviders } from '@/test/utils';
 import { FIXTURE_MC_RESULT } from '@/fixtures/monteCarlo';
 import type { UseMonteCarloResultReturn } from '@/hooks/useMonteCarloResult';
+import { MonteCarloNotStoredError } from '@/lib/monteCarloRun';
 import { MobileMonteCarloCard } from './MobileMonteCarloCard';
 import { ADDED_TIME_FIXTURES, ADDED_TIME_STATES } from '@/fixtures/addedTime';
 import { addedTimePresentation, addedTimeShortForm } from '@/features/project/addedTime';
@@ -48,8 +49,19 @@ vi.mock('@/hooks/useMonteCarloHistory', () => ({
   }),
 }));
 
+const roleState = vi.hoisted(() => ({ role: 200 as number | null }));
+vi.mock('@/hooks/useCurrentUserRole', () => ({
+  useCurrentUserRole: () => ({
+    role: roleState.role,
+    roleLabel: null,
+    isLoading: false,
+    isError: false,
+  }),
+}));
+
 beforeEach(() => {
   useMonteCarloResultSpy.mockReset();
+  roleState.role = 200;
   useMonteCarloResultSpy.mockReturnValue({
     data: FIXTURE_MC_RESULT,
     isLoading: false,
@@ -288,5 +300,34 @@ describe('MobileMonteCarloCard added time (#2531)', () => {
     renderWithProviders(<MobileMonteCarloCard projectId="proj-1" />);
     const button = screen.getByRole('button', { name: /Monte Carlo confidence/ });
     expect(button).not.toHaveTextContent('needs estimates');
+  });
+
+  describe.each([
+    ['Viewer', 1],
+    ['Member', 100],
+  ])('as a %s with no forecast yet', (_label, role) => {
+    it('renders the explanation and no Run control', () => {
+      roleState.role = role;
+      useMonteCarloResultSpy.mockReturnValue({ data: undefined, isLoading: false, error: null });
+      renderWithProviders(<MobileMonteCarloCard projectId="proj-1" />);
+      expect(screen.queryByRole('button')).not.toBeInTheDocument();
+      expect(screen.getByTestId('mobile-mc-no-run')).toHaveTextContent(
+        'Only Schedulers and above can update the shared forecast.',
+      );
+    });
+  });
+
+  it('a Scheduler still gets the Run Monte Carlo CTA', () => {
+    roleState.role = 200;
+    useMonteCarloResultSpy.mockReturnValue({ data: undefined, isLoading: false, error: null });
+    renderWithProviders(<MobileMonteCarloCard projectId="proj-1" />);
+    expect(screen.getByRole('button', { name: /Run Monte Carlo simulation/ })).toBeInTheDocument();
+  });
+
+  it('says the run was not saved when a stale-role run comes back not stored', () => {
+    useMonteCarloResultSpy.mockReturnValue({ data: undefined, isLoading: false, error: null });
+    runState = { isPending: false, isError: true, error: new MonteCarloNotStoredError() };
+    renderWithProviders(<MobileMonteCarloCard projectId="proj-1" />);
+    expect(screen.getByTestId('mobile-mc-error')).toHaveTextContent(/wasn't saved as the shared/);
   });
 });

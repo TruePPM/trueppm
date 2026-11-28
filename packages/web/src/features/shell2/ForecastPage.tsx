@@ -4,6 +4,7 @@ import { useProjectId } from '@/hooks/useProjectId';
 import { useProjectRef } from '@/hooks/useProjectRef';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
 import { useRunMonteCarlo } from '@/hooks/useRunMonteCarlo';
+import { useCanRunMonteCarlo, MC_RUN_ROLE_NOTE } from '@/hooks/useCanRunMonteCarlo';
 import { PageFrame } from '@/components/page2/PageFrame';
 import { PageTitle } from '@/components/page2/PageTitle';
 import { DefinitionTip } from '@/components/page2/DefinitionTip';
@@ -34,7 +35,9 @@ export function ForecastPage() {
 
 function RunButton({ projectId, label }: { projectId: string | undefined; label: string }) {
   const run = useRunMonteCarlo(projectId);
+  const canRun = useCanRunMonteCarlo(projectId);
   const refusal = run.isError ? runRefusalText(run.error) : null;
+  if (!canRun) return null;
   return (
     <div className="flex items-center gap-3">
       <button
@@ -57,6 +60,7 @@ function RunButton({ projectId, label }: { projectId: string | undefined; label:
 function ForecastBody() {
   const projectId = useProjectId();
   const query = useMonteCarloResult(projectId);
+  const canRun = useCanRunMonteCarlo(projectId);
   const state = forecastViewState(query);
 
   return (
@@ -75,7 +79,9 @@ function ForecastBody() {
             Not run yet
           </h2>
           <p className="text-sm text-p1-text-2">
-            Run a forecast to see the range of finish dates this schedule could reach.
+            {canRun
+              ? 'Run a forecast to see the range of finish dates this schedule could reach.'
+              : `No forecast has been run for this schedule. ${MC_RUN_ROLE_NOTE}`}
           </p>
         </section>
       )}

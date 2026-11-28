@@ -1,5 +1,5 @@
 import type { MonteCarloResult } from '@/types';
-import { describeWriteRefusal } from '@/lib/writeRefusal';
+import { describeRunRefusal } from '@/lib/monteCarloRun';
 
 /**
  * What the shell-v2 Monte Carlo view shows. Every date and percentile is the
@@ -56,7 +56,7 @@ export function staleMessage(staleness: MonteCarloResult['forecastStaleness']): 
  * cycle or an archived project is not fixed by a second click.
  */
 export function runRefusalText(error: unknown): string | null {
-  const refusal = describeWriteRefusal(error, "Couldn't run the forecast.");
+  const refusal = describeRunRefusal(error, "Couldn't run the forecast.");
   if (!refusal) return null;
   // The server's own sentence may already say it (the queue-failure 503 does).
   if (!refusal.retryable || /try again/i.test(refusal.message)) return refusal.message;

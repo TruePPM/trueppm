@@ -1,4 +1,5 @@
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
+import { useCanRunMonteCarlo } from '@/hooks/useCanRunMonteCarlo';
 
 interface Props {
   projectId: string;
@@ -15,6 +16,7 @@ interface Props {
  */
 export function PhaseUncertaintyBlock({ projectId }: Props) {
   const { data: mcResult, isLoading } = useMonteCarloResult(projectId);
+  const canRun = useCanRunMonteCarlo(projectId);
 
   if (isLoading) return null;
 
@@ -30,9 +32,24 @@ export function PhaseUncertaintyBlock({ projectId }: Props) {
 
   const chips = mcResult
     ? ([
-        { label: 'Phase P50', iso: mcResult.p50, border: 'border-semantic-on-track/40', text: 'text-semantic-on-track' },
-        { label: 'Phase P80', iso: mcResult.p80, border: 'border-semantic-at-risk/40',  text: 'text-semantic-at-risk' },
-        { label: 'Phase P95', iso: mcResult.p95, border: 'border-semantic-critical/40', text: 'text-semantic-critical' },
+        {
+          label: 'Phase P50',
+          iso: mcResult.p50,
+          border: 'border-semantic-on-track/40',
+          text: 'text-semantic-on-track',
+        },
+        {
+          label: 'Phase P80',
+          iso: mcResult.p80,
+          border: 'border-semantic-at-risk/40',
+          text: 'text-semantic-at-risk',
+        },
+        {
+          label: 'Phase P95',
+          iso: mcResult.p95,
+          border: 'border-semantic-critical/40',
+          text: 'text-semantic-critical',
+        },
       ] as const)
     : null;
 
@@ -71,11 +88,15 @@ export function PhaseUncertaintyBlock({ projectId }: Props) {
           aria-label="Phase schedule confidence"
         >
           <p className="text-xs text-neutral-text-secondary">
-            Run Monte Carlo to see phase confidence dates.
+            {canRun
+              ? 'Run Monte Carlo to see phase confidence dates.'
+              : 'No phase confidence dates yet. A Scheduler or above has to run the forecast.'}
           </p>
-          <p className="text-xs text-neutral-text-disabled mt-1">
-            Edit estimates on leaf tasks, then run the simulation.
-          </p>
+          {canRun && (
+            <p className="text-xs text-neutral-text-disabled mt-1">
+              Edit estimates on leaf tasks, then run the simulation.
+            </p>
+          )}
         </div>
       )}
     </div>

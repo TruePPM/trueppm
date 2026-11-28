@@ -2,7 +2,9 @@ import { useMemo, useState } from 'react';
 import type { Task } from '@/types';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
 import { useRunMonteCarlo } from '@/hooks/useRunMonteCarlo';
-import { describeWriteRefusal, type WriteRefusal } from '@/lib/writeRefusal';
+import { describeRunRefusal } from '@/lib/monteCarloRun';
+import { useCanRunMonteCarlo, MC_RUN_ROLE_NOTE } from '@/hooks/useCanRunMonteCarlo';
+import type { WriteRefusal } from '@/lib/writeRefusal';
 import { formatRelative } from '@/lib/formatRelative';
 import { useForecastPresentation } from './useForecastPresentation';
 import { MonteCarloHistogram } from './MonteCarloHistogram';
@@ -139,6 +141,8 @@ interface ForecastEmptyStateProps {
   /** The server's refusal from a failed run, shaped once (#3332). */
   runRefusal: WriteRefusal | null;
   runMcIsPending: boolean;
+  /** Scheduler and above; a lower role gets the explanation instead of a Run button. */
+  canRun: boolean;
   onRun: () => void;
   onRetry: () => void;
 }
@@ -155,6 +159,7 @@ function ForecastEmptyState({
   loadFailed,
   runRefusal,
   runMcIsPending,
+  canRun,
   onRun,
   onRetry,
 }: ForecastEmptyStateProps) {
@@ -181,13 +186,15 @@ function ForecastEmptyState({
                 // again." — the desktop twin of `MobileMonteCarloCard` reads the
                 // same `useRunMonteCarlo` hook and had the same defect (#3332).
                 runRefusal.message
-              : 'Run a simulation to see P50/P80/P95 finish-date probabilities.'}
+              : canRun
+                ? 'Run a simulation to see P50/P80/P95 finish-date probabilities.'
+                : `No forecast yet. ${MC_RUN_ROLE_NOTE}`}
       </span>
       {loadFailed ? (
         <button type="button" onClick={onRetry} className={`ml-auto ${BTN_CLS}`}>
           Retry
         </button>
-      ) : (
+      ) : canRun ? (
         <button
           type="button"
           onClick={onRun}
@@ -196,7 +203,7 @@ function ForecastEmptyState({
         >
           {runMcIsPending ? 'Running…' : 'Run Monte Carlo'}
         </button>
-      )}
+      ) : null}
     </section>
   );
 }
@@ -221,10 +228,11 @@ function ForecastEmptyState({
 export function ScheduleForecastBar({ projectId, tasks, cpmFinish, variant = 'docked' }: Props) {
   const { data: result, isLoading, error, refetch } = useMonteCarloResult(projectId);
   const runMc = useRunMonteCarlo(projectId);
+  const canRun = useCanRunMonteCarlo(projectId);
   // Same shaping as the mobile card — one definition, and "Run Monte Carlo"
   // keeps its verb on a refusal a replay cannot fix (web-rule 372a).
   const runRefusal = useMemo(
-    () => describeWriteRefusal(runMc.error, "Couldn't run the simulation."),
+    () => describeRunRefusal(runMc.error, "Couldn't run the simulation."),
     [runMc.error],
   );
   const [expanded, setExpanded] = useState(readExpanded);
@@ -248,6 +256,7 @@ export function ScheduleForecastBar({ projectId, tasks, cpmFinish, variant = 'do
         loadFailed={Boolean(error)}
         runRefusal={runRefusal}
         runMcIsPending={runMc.isPending}
+        canRun={canRun}
         onRun={() => runMc.mutate({})}
         onRetry={() => refetch?.()}
       />
@@ -393,7 +402,7 @@ export function ScheduleForecastBar({ projectId, tasks, cpmFinish, variant = 'do
             {/* No `title` (#2454, rule 287): it restated the aria-label
                 verbatim, and the visible "Rerun" label already reads
                 unambiguously in this Monte Carlo section. */}
-            {offerRerun && (
+            {offerRerun && canRun && (
               <button
                 type="button"
                 onClick={() => runMc.mutate({})}
@@ -435,7 +444,8 @@ export function ScheduleForecastBar({ projectId, tasks, cpmFinish, variant = 'do
                   Finish-date forecast
                 </h3>
                 <p className="mb-3 text-xs text-neutral-text-secondary">
-                  Monte Carlo · {(result.nSimulations ?? result.runs).toLocaleString()} runs · P50–P80 band
+                  Monte Carlo · {(result.nSimulations ?? result.runs).toLocaleString()} runs ·
+                  P50–P80 band
                 </p>
                 <VelocitySaturationNote
                   saturatedRuns={result.velocitySaturatedRuns}

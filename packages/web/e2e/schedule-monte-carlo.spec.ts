@@ -760,6 +760,76 @@ test.describe('Monte Carlo Schedule Integration (#333)', () => {
     await expect(bar).toBeVisible();
     await expect(bar.getByText(/^P80:/)).toHaveCount(1);
   });
+
+  // Only Scheduler+ runs update the shared forecast (#5181); below that the run is
+  // computed and discarded, so the control is withheld, not offered and refused.
+  const NO_FORECAST = (page: import('@playwright/test').Page) =>
+    page.route(`**/api/v1/projects/${PROJECT_ID}/monte-carlo/latest/`, (route) =>
+      route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'No Monte Carlo run for this project.' }),
+      }),
+    );
+
+  for (const [label, role] of [
+    ['Viewer', 1],
+    ['Member', 100],
+  ] as const) {
+    test(`a ${label} gets the explanation, not a Run button, when no forecast exists (#5181)`, async ({
+      page,
+    }) => {
+      await gotoScheduleWithMC(page, FIXTURE_MC_RESULT, role);
+      await NO_FORECAST(page);
+      await page.reload();
+
+      const bar = page.getByRole('region', { name: /Schedule forecast/ });
+      await expect(
+        bar.getByText('No forecast yet. Only Schedulers and above can update the shared forecast.'),
+      ).toBeVisible({ timeout: 10_000 });
+      await expect(page.getByRole('button', { name: /Run Monte Carlo/i })).toHaveCount(0);
+    });
+
+    test(`a ${label} is not offered Rerun on a stale forecast (#5181)`, async ({ page }) => {
+      await gotoScheduleWithMC(
+        page,
+        { ...FIXTURE_MC_RESULT, forecast_staleness: 'project_changed' },
+        role,
+      );
+      // The stale notice still renders; only the action is withheld.
+      await expect(page.locator('[data-testid="mc-recomputing"]')).toHaveText(
+        'Edited since this run',
+        { timeout: 10_000 },
+      );
+      await expect(page.locator('[aria-label="Rerun Monte Carlo forecast"]')).toHaveCount(0);
+    });
+  }
+
+  test('a Scheduler can run the forecast from the empty state (#5181)', async ({ page }) => {
+    let posted = 0;
+    await gotoScheduleWithMC(page, FIXTURE_MC_RESULT, 200);
+    await NO_FORECAST(page);
+    await page.route(`**/api/v1/projects/${PROJECT_ID}/monte-carlo/`, (route) => {
+      if (route.request().method() !== 'POST') return route.continue();
+      posted += 1;
+      return route.fulfill({
+        status: 202,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          queued: true,
+          task_run_id: MC_TASK_RUN_ID,
+          status: 'pending',
+          n_simulations: null,
+        }),
+      });
+    });
+    await page.reload();
+
+    const run = page.getByRole('button', { name: 'Run Monte Carlo' });
+    await expect(run).toBeVisible({ timeout: 10_000 });
+    await run.click();
+    await expect.poll(() => posted).toBe(1);
+  });
 });
 
 test.describe('Monte Carlo forecast history (#961, ADR-0175)', () => {

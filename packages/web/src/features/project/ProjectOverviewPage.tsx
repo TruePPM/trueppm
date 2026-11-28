@@ -10,6 +10,7 @@ import { useProject } from '@/hooks/useProject';
 import { useSurfaceVisibility } from '@/hooks/useSurfaceVisibility';
 import { isTabVisibleForMethodology } from '@/features/shell/methodologyTabs';
 import { useCurrentUserRole } from '@/hooks/useCurrentUserRole';
+import { useCanRunMonteCarlo, MC_RUN_ROLE_NOTE } from '@/hooks/useCanRunMonteCarlo';
 import { ROLE_ADMIN, ROLE_SCHEDULER, canCommitPlan } from '@/lib/roles';
 import { useCommitProject } from '@/hooks/useProjectMutations';
 import { commitRefusalMessage } from '@/hooks/commitRefusal';
@@ -31,6 +32,7 @@ import { HEALTH_BAND_LABEL } from '@/lib/healthBand';
 import { useMonteCarloResult } from '@/hooks/useMonteCarloResult';
 import { forecastPresentation } from '@/features/schedule/useForecastPresentation';
 import { useRunMonteCarlo } from '@/hooks/useRunMonteCarlo';
+import { MonteCarloNotStoredError } from '@/lib/monteCarloRun';
 import { formatRelative } from '@/lib/formatRelative';
 import { BurnChart } from '@/features/reports/BurnChart';
 import { MonteCarloHistogram } from '@/features/schedule/MonteCarloHistogram';
@@ -883,6 +885,7 @@ function MonteCarloWidget({ projectId }: MonteCarloWidgetProps) {
   const { data: mc, isLoading } = useMonteCarloResult(projectId);
   const forecast = forecastPresentation(mc);
   const runMutation = useRunMonteCarlo(projectId);
+  const canRun = useCanRunMonteCarlo(projectId);
 
   // Persistent rerun affordance — outline secondary, never the primary CTA
   // (Janet's persona prefers a quiet button on Overview, #335).
@@ -967,10 +970,12 @@ function MonteCarloWidget({ projectId }: MonteCarloWidgetProps) {
             </div>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
-            {rerunButton}
+            {canRun && rerunButton}
             {runMutation.isError && (
               <span className="text-xs text-semantic-critical" role="alert">
-                Could not rerun. Try again.
+                {runMutation.error instanceof MonteCarloNotStoredError
+                  ? runMutation.error.message
+                  : 'Could not rerun. Try again.'}
               </span>
             )}
             <Link
@@ -986,19 +991,23 @@ function MonteCarloWidget({ projectId }: MonteCarloWidgetProps) {
       ) : (
         <div className="flex flex-col gap-2 p-4 rounded-card border border-neutral-border bg-neutral-surface-raised">
           <p className="text-sm text-neutral-text-secondary">
-            No forecast available. Run a simulation to see finish date probabilities.
+            {canRun
+              ? 'No forecast available. Run a simulation to see finish date probabilities.'
+              : `No forecast available. ${MC_RUN_ROLE_NOTE}`}
           </p>
-          <button
-            type="button"
-            onClick={() => runMutation.mutate({})}
-            disabled={runMutation.isPending}
-            className="self-start text-xs bg-brand-primary text-neutral-text-inverse rounded-control px-3 h-7 font-medium
+          {canRun && (
+            <button
+              type="button"
+              onClick={() => runMutation.mutate({})}
+              disabled={runMutation.isPending}
+              className="self-start text-xs bg-brand-primary text-neutral-text-inverse rounded-control px-3 h-7 font-medium
               hover:opacity-90 disabled:opacity-50
               focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-1
               focus-visible:outline-none"
-          >
-            {runMutation.isPending ? 'Running…' : 'Run forecast'}
-          </button>
+            >
+              {runMutation.isPending ? 'Running…' : 'Run forecast'}
+            </button>
+          )}
         </div>
       )}
     </section>

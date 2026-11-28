@@ -202,7 +202,7 @@ GET /api/v1/projects/<project_id>/monte-carlo/latest/
 In 0.4 and earlier, a run from any project member replaces the latest result.
 ::::
 
-Only a **Scheduler** or above can replace the project's latest forecast, and only with a run of at least 100 simulations. Everyone from Viewer up can still run a simulation and receive the result, but a Viewer's or Member's run, or any run of fewer than 100 simulations, is returned to the caller and is not stored: the latest forecast other members read is unchanged. A synchronous run reports `stored_as_latest: false` in the response; on the asynchronous path, `stored_as_latest` is on the task run's `result_summary`, not in the response. A project whose operator caps admit fewer than 100 runs lowers the minimum to that count, so a default Scheduler run still stores.
+Only a **Scheduler** or above can replace the project's latest forecast, and only with a run of at least 100 simulations. Everyone from Viewer up can still run a simulation and receive the result, but a Viewer's or Member's run, or any run of fewer than 100 simulations, is returned to the caller and is not stored: the latest forecast other members read is unchanged. The **Run** and **Rerun** controls are shown only to a Scheduler or above; a Viewer or Member sees a note saying so where the control would be. A synchronous run reports `stored_as_latest: false` in the response; on the asynchronous path, `stored_as_latest` is on the task run's `result_summary`, not in the response. A project whose operator caps admit fewer than 100 runs lowers the minimum to that count, so a default Scheduler run still stores.
 
 ## Which forecast a project headlines
 

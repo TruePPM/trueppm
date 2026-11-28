@@ -3,13 +3,14 @@ import { screen } from '@testing-library/react';
 import { renderWithProviders } from '@/test/utils';
 import type { UseMonteCarloResultReturn } from '@/hooks/useMonteCarloResult';
 
-const mcSpy = vi.hoisted(() =>
-  vi.fn<(projectId?: string) => UseMonteCarloResultReturn>(),
-);
+const mcSpy = vi.hoisted(() => vi.fn<(projectId?: string) => UseMonteCarloResultReturn>());
 
 vi.mock('@/hooks/useMonteCarloResult', () => ({
   useMonteCarloResult: (projectId?: string) => mcSpy(projectId),
 }));
+
+const canRunSpy = vi.hoisted(() => vi.fn(() => true));
+vi.mock('@/hooks/useCanRunMonteCarlo', () => ({ useCanRunMonteCarlo: () => canRunSpy() }));
 
 // Import after mock registration
 const { PhaseUncertaintyBlock } = await import('./PhaseUncertaintyBlock');
@@ -33,6 +34,7 @@ const MCResult = {
 describe('PhaseUncertaintyBlock', () => {
   beforeEach(() => {
     mcSpy.mockReset();
+    canRunSpy.mockReturnValue(true);
     mcSpy.mockReturnValue({ data: MCResult, isLoading: false, error: null });
   });
 
@@ -58,9 +60,7 @@ describe('PhaseUncertaintyBlock', () => {
 
   it('shows derived-from subtext', () => {
     renderWithProviders(<PhaseUncertaintyBlock projectId="p1" />);
-    expect(
-      screen.getByText(/Derived from child task estimates/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Derived from child task estimates/i)).toBeInTheDocument();
   });
 
   it('labels the region for screen readers', () => {
@@ -71,5 +71,13 @@ describe('PhaseUncertaintyBlock', () => {
   it('forwards projectId to useMonteCarloResult', () => {
     renderWithProviders(<PhaseUncertaintyBlock projectId="proj-xyz" />);
     expect(mcSpy).toHaveBeenCalledWith('proj-xyz');
+  });
+
+  it('does not tell a role that cannot run the forecast to run it', () => {
+    canRunSpy.mockReturnValue(false);
+    mcSpy.mockReturnValue({ data: undefined, isLoading: false, error: null });
+    renderWithProviders(<PhaseUncertaintyBlock projectId="p1" />);
+    expect(screen.queryByText(/Run Monte Carlo to see/)).not.toBeInTheDocument();
+    expect(screen.getByText(/A Scheduler or above has to run the forecast/)).toBeInTheDocument();
   });
 });
