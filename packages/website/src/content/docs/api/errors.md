@@ -177,6 +177,7 @@ the envelope uses; every other field key is unambiguous.
 
 | Code | Meaning | Extra keys |
 |------|---------|-----------|
+| `idempotency_key_too_long` | The `Idempotency-Key` header is longer than 255 characters. Raised by the idempotency layer before the endpoint runs, on any `POST`, `PUT`, `PATCH` or `DELETE`. See [Idempotency](/api/idempotency/) | — |
 | `invalid_body` | The request body parsed as valid JSON but is not an **object** — a top-level array, string, or number. No field is at fault; the envelope is the wrong shape. See [Non-object request bodies](#non-object-request-bodies) | — |
 | `progress_requires_anchor` | Progress was set on a task with no date to anchor it to | `suggested_action` |
 | `milestone_rollup_locked` | The value is rolled up to the milestone and cannot be set directly | `suggested_action` |
@@ -379,6 +380,10 @@ is without parsing the sentence in `detail`. Both are **strings**, not numbers �
 DRF renders a validation detail through `ErrorDetail`, a `str` subclass.
 
 ### 403 — refused by policy
+
+The ownership refusals below carry `code`. A caller whose **role** is refused before
+the ownership check runs (a Viewer deleting a comment, for example) gets a bare
+`{"detail": "..."}` with no `code`, so treat `code` as optional on these operations.
 
 | Code | Meaning |
 |------|---------|
@@ -667,6 +672,7 @@ bare `413`, which carries no `code`. The per-route ceilings ship in 0.5; see
 | `credential_required` | The connection needs a credential that was not supplied | — |
 | `provider_verification_failed` | The external provider rejected the supplied credential | — |
 | `source_verification_failed` | The configured external source could not be verified | — |
+| `idempotency_key_conflict` | The `Idempotency-Key` was already used with a different request body or path. Raised by the idempotency layer before the endpoint runs. See [Idempotency](/api/idempotency/) | — |
 
 ### 429 — throttled
 
@@ -687,8 +693,7 @@ internal annotation on a Django REST Framework `ErrorDetail` object — the task
 comment, attachment, note and reaction *validation* refusals (size, MIME type,
 reply depth, edit window, count caps; the six ownership refusals in the
 [403 table](#403--refused-by-policy) above are the exception, having been rebuilt
-as real body keys), signed download URLs, idempotency-key
-reuse, the sync id-collision conflict, and the phase-rollup-lock family
+as real body keys), signed download URLs, the sync id-collision conflict, and the phase-rollup-lock family
 (`summary_rollup_locked`, `phase_status_rollup_locked`,
 `phase_estimate_rollup_locked`, `assignee_on_phase`, `time_log_on_phase`,
 `phase_in_sprint_forbidden`, `subtask_on_phase`) all pass a `code` keyword when

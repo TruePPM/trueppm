@@ -1,7 +1,14 @@
 ---
 title: Idempotency
 description: Stripe-style Idempotency-Key header for safe retries of unsafe requests.
+documentedFor: "0.5"
 ---
+
+:::note[Ships in 0.5]
+The `code`-keyed refusal bodies on this page ship in 0.5. In 0.4 an over-long key answers
+`400` with `{"Idempotency-Key": "..."}` (a field-keyed message, no `code`), and a reused key
+answers `422` with no `code`.
+:::
 
 TruePPM supports a Stripe-style `Idempotency-Key` request header so that **retrying an
 unsafe request is safe** — a retry after a network timeout replays the original response

@@ -90149,6 +90149,7 @@
                 },
                 "required": [
                     "finish_date",
+                    "id",
                     "name",
                     "non_working_days_skipped",
                     "start_date",

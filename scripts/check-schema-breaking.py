@@ -31,7 +31,8 @@ send it; a response consumer written against it loses a case). An added value is
 flagged - stability.md calls it Additive.
 
 Deliberately out of scope (documented, not silent): ``oneOf``/``anyOf`` branches are
-not diffed (``allOf`` is flattened), ``format``/``nullable``/constraint changes are
+not diffed (``allOf`` is flattened; a property in any ``anyOf`` branch counts as present, so
+the idempotency 400 wrap is not a removal; ``oneOf`` is untouched), ``format``/``nullable``/constraint changes are
 Behavioral per stability.md, and unknown vendor keys such as an ``x-extensible-enum``
 marker are ignored, so adding one never trips the gate.
 
@@ -127,6 +128,15 @@ class _Differ:
         out = {k: v for k, v in node.items() if k != "allOf"}
         props = dict(out.get("properties") or {})
         req = list(out.get("required") or [])
+        # A property declared in ANY anyOf branch counts as present, so wrapping a
+        # declared body as ``anyOf: [declared, Other]`` is not read as removing its
+        # properties. A branch's ``required`` is kept so the declared body's
+        # required set is not read as loosened by the wrap.
+        for part in node.get("anyOf") or []:
+            sub, _ = self._flatten(doc, part)
+            for k, v in (sub.get("properties") or {}).items():
+                props.setdefault(k, v)
+            req += sub.get("required") or []
         for part in node.get("allOf") or []:
             sub, _ = self._flatten(doc, part)
             props.update(sub.get("properties") or {})

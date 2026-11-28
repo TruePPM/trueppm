@@ -90,9 +90,13 @@ CASES = [
     ("param became required", lambda d: OP(d)["parameters"][0].__setitem__("required", True), "param-required", ""),
     ("new required param", lambda d: OP(d)["parameters"].append({"name": "z", "in": "query", "required": True, "schema": {"type": "string"}}), "param-required", ""),
     ("endpoint removed", lambda d: d["paths"].clear(), "endpoint-removed", ""),
+    ("anyOf wrap that also drops a declared property", lambda d: S(d, "Widget").__setitem__("anyOf", [{"type": "object", "properties": {"code": {"type": "string"}}}]) or [S(d, "Widget").pop(k) for k in ("type", "properties", "required")], "property-removed", "response"),
 ]
 # Passing shapes: additive changes, and relaxations that are not Breaking.
+def wrap_anyof(d):
+    d["components"]["schemas"]["Widget"] = {"anyOf": [shape(), {"type": "object", "properties": {"code": {"type": "string"}}}]}
 PASSES = [
+    ("declared body wrapped in anyOf with an error branch", wrap_anyof),
     ("added req field", lambda d: S(d, "Req")["properties"].__setitem__("extra", {"type": "string"})),
     ("added resp field", lambda d: S(d, "Widget")["properties"].__setitem__("extra", {"type": "string"})),
     ("added enum value (both)", both(setv("Req", ("properties", "kind", "enum"), ["a", "b", "c"]), setv("Widget", ("properties", "kind", "enum"), ["a", "b", "c"]))),

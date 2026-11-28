@@ -95,6 +95,21 @@ def test_requires_authentication() -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize(
+    "secret", ["tok\u0101en", "tok\u203e", "tok\r\nX-Injected: 1", "\U000fc87d"]
+)
+def test_connect_secret_outside_printable_ascii_is_a_400_not_a_500(
+    client: APIClient, secret: str
+) -> None:
+    # The secret rides in an ``Authorization`` header (Jira Server/DC Bearer), which
+    # http.client encodes as latin-1 and refuses to carry CR/LF: it used to answer 500.
+    response = client.put(
+        "/api/v1/me/connections/jira/", _connect_body(secret=secret), format="json"
+    )
+    assert response.status_code == 400
+    assert "secret" in response.json()
+
+
 def test_connect_stores_encrypted_secret(client: APIClient, user: AbstractBaseUser) -> None:
     response = client.put("/api/v1/me/connections/jira/", _connect_body(), format="json")
     assert response.status_code == 200
