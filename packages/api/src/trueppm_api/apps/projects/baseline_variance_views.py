@@ -146,6 +146,9 @@ class BaselineVarianceView(McpReadableViewMixin, APIView):
 
     # ADR-0678: projects/<project_pk>/… — an opted-out project is a 403.
     mcp_scope = McpScope.PATH
+    # Every figure here is a live date subtracted from a baseline snapshot, so a
+    # ``baselines=none`` agent must not read it (#5118).
+    agent_area = "baselines"
     # One CPM pass per page to derive each row's cause, so it shares the
     # derivation read's cost class and budget.
     mcp_compute_heavy = True

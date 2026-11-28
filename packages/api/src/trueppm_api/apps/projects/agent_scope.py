@@ -102,9 +102,13 @@ AGENT_AREA_COVERS: dict[str, str] = {
         "acceptance criteria, history, status updates, forecasts, Monte Carlo, My Work "
         "and search. Task-level summaries such as predecessor counts and readiness stay "
         "here. Fields inside these reads that carry another area's data are left out "
-        "without that area: baseline fields on a task (Baselines), the dependency links "
-        "of a program schedule (Dependencies), and overview utilization, program rollup "
-        "cost and sprint member hours (Resources)."
+        "without that area: baseline fields on a task, the project overview's SPI, "
+        "schedule band and next-milestone baseline date, the program rollup's baseline "
+        "variance, schedule health, program health and project commitment dates, and the "
+        "baseline finish and variance in a status update (Baselines); the dependency "
+        "links of a program schedule and the rollup's cross-project link count "
+        "(Dependencies); overview utilization, program rollup cost and sprint member "
+        "hours (Resources)."
     ),
     "dependencies": (
         "Dependency links between tasks, the driving chain, and the derivation that "
@@ -115,7 +119,7 @@ AGENT_AREA_COVERS: dict[str, str] = {
         "and summary, program resource contention, and the resource assignments and "
         "overallocation flags on each task (left out of task reads without this area)."
     ),
-    "baselines": "Baselines and their task snapshots.",
+    "baselines": "Baselines, their task snapshots and baseline variance.",
 }
 
 #: Task fields that carry resource data. A task read by an agent without ``resources``
@@ -140,9 +144,36 @@ BASELINE_TASK_FIELDS: tuple[str, ...] = (
     "spi_band",
 )
 
+#: Fields of the project overview that carry Baselines data: the next milestone's
+#: baseline date, and the SPI ratio and the schedule band derived from it (the same
+#: snapshot arithmetic as the task-level ``spi``/``spi_band``).
+OVERVIEW_BASELINE_FIELDS: tuple[str, ...] = ("spi", "schedule_health")
+
+#: Fields of a status update's frozen forecast that carry Baselines data.
+STATUS_FORECAST_BASELINE_FIELDS: tuple[str, ...] = (
+    "baseline_finish",
+    "baseline_finish_at_day_start",
+    "baseline_finish_variance_days",
+)
+
+#: Fields of a status update's milestone rows that carry Baselines data (the variance
+#: is the live finish minus the baseline finish).
+STATUS_MILESTONE_BASELINE_FIELDS: tuple[str, ...] = (
+    "baseline_finish",
+    "baseline_finish_at_day_start",
+    "variance_days",
+)
+
 #: Every area: the value an ``agent_action_areas`` entry takes for an action whose one
 #: response carries data from all of them (the project and program exports).
 ALL_AREAS: tuple[str, ...] = AGENT_AREAS
+
+# A view or viewset whose Schedule-area read embeds another area's fields declares them
+# in ``agent_strips``: ``{action_or_None: {area: (field, ...)}}`` (``None`` for a plain
+# APIView). It is documentation the classification test
+# (``test_every_schedule_view_is_classified``) reads, so a new Schedule-area view cannot
+# ship without either declaring its strips or being reviewed onto that test's allowlist.
+# The stripping itself stays at the call site (:func:`strip_area_fields`).
 
 # Model names whose reads belong to an area other than the default ``schedule``. Every
 # MCP-readable view resolves to its areas through ``agent_action_areas`` (per viewset
@@ -290,7 +321,7 @@ def areas_for_view(view: Any) -> tuple[str, ...] | None:
     whose single response carries resources, dependencies, baselines and task
     assignments together: refusing a ``resources=none`` agent the resource endpoints
     while serving the same rows in an export would make the toggle a suggestion. A view
-    may also declare ``agent_area``. Otherwise a view declaring
+    may also declare ``agent_area`` (one area, or a tuple of them). Otherwise a view declaring
     ``McpScope.NO_PROJECT_DATA`` (the identity echo, the calendar library) has no area;
     anything else resolves through its queryset model, defaulting to ``schedule``.
     """
@@ -302,8 +333,10 @@ def areas_for_view(view: Any) -> tuple[str, ...] | None:
         if areas and all(area in AGENT_AREAS for area in areas):
             return tuple(str(area) for area in areas)
     declared = getattr(view, "agent_area", None)
-    if declared in AGENT_AREAS:
-        return (str(declared),)
+    if isinstance(declared, str) and declared in AGENT_AREAS:
+        return (declared,)
+    if isinstance(declared, tuple) and declared and all(a in AGENT_AREAS for a in declared):
+        return tuple(str(a) for a in declared)
     if str(getattr(view, "mcp_scope", "") or "") == "none":
         return None
     queryset = getattr(view, "queryset", None)

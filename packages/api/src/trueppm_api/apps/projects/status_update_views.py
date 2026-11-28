@@ -10,7 +10,7 @@ The public, snapshot-only read rides the share-link envelope in ``share_views``.
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, ClassVar
 
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
@@ -40,6 +40,11 @@ from trueppm_api.apps.access.permissions import (
 )
 from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 from trueppm_api.apps.projects import status_update_pdf, status_update_services
+from trueppm_api.apps.projects.agent_scope import (
+    STATUS_FORECAST_BASELINE_FIELDS,
+    STATUS_MILESTONE_BASELINE_FIELDS,
+    agent_lacks_read,
+)
 from trueppm_api.apps.projects.models import Project, StatusUpdate, StatusUpdateRag
 from trueppm_api.apps.workspace.serializers import display_name_for
 
@@ -149,6 +154,53 @@ class StatusUpdateSerializer(serializers.ModelSerializer[StatusUpdate]):
         return status_update_services.live_diff(obj, current)
 
 
+def _strip_baseline_snapshot(data: dict[str, Any], request: Request) -> dict[str, Any]:
+    """Withhold the baseline finish and variance from an agent without Baselines read (#5118).
+
+    A status update is a Schedule-area read, but its frozen forecast and milestone rows
+    quote the active baseline's finish and the variance against it, and ``live_diff``
+    repeats the variance. The seal (``snapshot_sha256``) and its verdict are unaffected:
+    they are computed from the stored row, not from this response.
+    """
+    if not agent_lacks_read(request, "baselines"):
+        return data
+    snapshot = data.get("snapshot")
+    if isinstance(snapshot, dict):
+        snapshot = dict(snapshot)
+        forecast = snapshot.get("forecast")
+        if isinstance(forecast, dict):
+            snapshot["forecast"] = {
+                k: v for k, v in forecast.items() if k not in STATUS_FORECAST_BASELINE_FIELDS
+            }
+        milestones = snapshot.get("milestones")
+        if isinstance(milestones, list):
+            snapshot["milestones"] = [
+                {k: v for k, v in m.items() if k not in STATUS_MILESTONE_BASELINE_FIELDS}
+                if isinstance(m, dict)
+                else m
+                for m in milestones
+            ]
+        data["snapshot"] = snapshot
+    diff = data.get("live_diff")
+    if isinstance(diff, dict):
+        data["live_diff"] = {
+            k: v
+            for k, v in diff.items()
+            if k != "forecast.baseline_finish_variance_days" and not k.endswith(".variance_days")
+        }
+    return data
+
+
+_STATUS_BASELINE_STRIPS: dict[str | None, dict[str, tuple[str, ...]]] = {
+    None: {
+        "baselines": (
+            *(f"forecast.{f}" for f in STATUS_FORECAST_BASELINE_FIELDS),
+            *(f"milestones[].{f}" for f in STATUS_MILESTONE_BASELINE_FIELDS),
+        )
+    }
+}
+
+
 class StatusUpdatePagination(PageNumberPagination):
     page_size = 20
     max_page_size = 100
@@ -166,6 +218,7 @@ class ProjectStatusUpdateListCreateView(McpReadableViewMixin, IdempotencyMixin, 
 
     # ADR-0678: projects/<project_pk>/status-updates/
     mcp_scope = McpScope.PATH
+    agent_strips: ClassVar[dict[str | None, dict[str, tuple[str, ...]]]] = _STATUS_BASELINE_STRIPS
     permission_classes = [IsAuthenticated, IsProjectMember]  # noqa: RUF012
     # A status update is the PM's own signed call: posting needs the person present
     # (a session or JWT). Every API token is refused, an agent's included, even one
@@ -217,7 +270,10 @@ class ProjectStatusUpdateListCreateView(McpReadableViewMixin, IdempotencyMixin, 
         paginator = StatusUpdatePagination()
         page = paginator.paginate_queryset(qs, request, view=self)
         context = {"current": status_update_services.current_values(project) if page else None}
-        data = StatusUpdateSerializer(page, many=True, context=context).data
+        data = [
+            _strip_baseline_snapshot(dict(row), request)
+            for row in StatusUpdateSerializer(page, many=True, context=context).data
+        ]
         return paginator.get_paginated_response(data)
 
     @extend_schema(
@@ -249,6 +305,7 @@ class ProjectStatusUpdateDetailView(McpReadableViewMixin, APIView):
 
     # ADR-0678: projects/<project_pk>/status-updates/<update_id>/
     mcp_scope = McpScope.PATH
+    agent_strips: ClassVar[dict[str | None, dict[str, tuple[str, ...]]]] = _STATUS_BASELINE_STRIPS
     permission_classes = [IsAuthenticated, IsProjectMember]  # noqa: RUF012
     http_method_names = ["get", "head", "options"]  # noqa: RUF012
 
@@ -263,7 +320,11 @@ class ProjectStatusUpdateDetailView(McpReadableViewMixin, APIView):
             StatusUpdate.objects.select_related("author"), pk=update_id, project=project
         )
         context = {"current": status_update_services.current_values(project)}
-        return Response(StatusUpdateSerializer(update, context=context).data)
+        return Response(
+            _strip_baseline_snapshot(
+                dict(StatusUpdateSerializer(update, context=context).data), request
+            )
+        )
 
 
 class ProjectStatusUpdatePdfView(McpReadableViewMixin, APIView):
@@ -278,6 +339,10 @@ class ProjectStatusUpdatePdfView(McpReadableViewMixin, APIView):
 
     # ADR-0678: projects/<project_pk>/status-updates/<update_id>/pdf/
     mcp_scope = McpScope.PATH
+    # The page prints the baseline finish and its variance from the frozen snapshot, and
+    # a PDF cannot have fields dropped from it, so the whole page needs Baselines read
+    # as well as Schedule (#5118).
+    agent_area = ("schedule", "baselines")
     permission_classes = [IsAuthenticated, IsProjectMember]  # noqa: RUF012
     http_method_names = ["get", "head", "options"]  # noqa: RUF012
 

@@ -7107,6 +7107,26 @@ class TaskViewSet(
     """
 
     # ADR-0678 (#2482): Task.project FK.
+    # Task fields withheld from an agent without the area (#5118): the strip lives in
+    # ``TaskSerializer.to_representation``; read by the classification test.
+    agent_strips: ClassVar[dict[str | None, dict[str, tuple[str, ...]]]] = {
+        action: {
+            "baselines": (
+                "baseline_start",
+                "baseline_finish",
+                "baseline_finish_variance_days",
+                "schedule_variance_days",
+                "spi",
+                "spi_band",
+            ),
+            "resources": (
+                "assignments",
+                "assignee_is_overallocated",
+                "assignee_load_includes_estimate",
+            ),
+        }
+        for action in ("list", "retrieve")
+    }
     mcp_scope = McpScope.QUERYSET
 
     permission_classes = [IsAuthenticated, IsProjectMemberWrite, IsProjectNotArchived]
@@ -14455,15 +14475,27 @@ class ProjectCommitView(IdempotencyMixin, APIView):
 
 
 def _strip_resource_overview_fields(overview: dict[str, Any], request: Request) -> None:
-    """Withhold the team-utilization figure (and its definition) from a no-Resources agent."""
-    from trueppm_api.apps.projects.agent_scope import agent_lacks_read
+    """Withhold other areas' figures (and their definitions) from a scoped agent.
 
+    Resources: the team-utilization figure. Baselines: the SPI ratio and the schedule
+    band derived from it, and the next milestone's baseline date (#5118).
+    """
+    from trueppm_api.apps.projects.agent_scope import OVERVIEW_BASELINE_FIELDS, agent_lacks_read
+
+    definitions = overview.get("definitions")
     if agent_lacks_read(request, "resources"):
         for key in ("team_utilization_pct", "team_utilization_reason"):
             overview.pop(key, None)
-        definitions = overview.get("definitions")
         if isinstance(definitions, dict):
             definitions.pop("team_utilization_pct", None)
+    if agent_lacks_read(request, "baselines"):
+        for key in OVERVIEW_BASELINE_FIELDS:
+            overview.pop(key, None)
+            if isinstance(definitions, dict):
+                definitions.pop(key, None)
+        milestone = overview.get("next_milestone")
+        if isinstance(milestone, dict):
+            milestone.pop("baseline_date", None)
 
 
 class ProjectOverviewView(McpReadableViewMixin, APIView):
@@ -14510,6 +14542,14 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
     # returns True for everyone — the gate reads as live in review and enforces
     # nothing. Declared per view because `pk` means something else on other routes.
     project_url_kwarg = "pk"
+    # Fields withheld from an agent without the area (#5118); read by the
+    # classification test. The strip is ``_strip_resource_overview_fields``.
+    agent_strips: ClassVar[dict[str | None, dict[str, tuple[str, ...]]]] = {
+        None: {
+            "resources": ("team_utilization_pct", "team_utilization_reason"),
+            "baselines": ("spi", "schedule_health", "next_milestone.baseline_date"),
+        }
+    }
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
 
     @extend_schema(
@@ -17239,6 +17279,11 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
     queryset = Sprint.objects.select_related(
         "project", "created_by", "target_milestone", "milestone_bound_by"
     ).filter(is_deleted=False)
+    # Per-member hours withheld from an agent without Resources (#5118); read by the
+    # classification test.
+    agent_strips: ClassVar[dict[str | None, dict[str, tuple[str, ...]]]] = {
+        "capacity": {"resources": ("members",)}
+    }
     serializer_class = SprintSerializer
     filter_backends = [filters.OrderingFilter]
     ordering_fields = ["start_date", "finish_date", "name", "state"]

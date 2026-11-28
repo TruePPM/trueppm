@@ -811,6 +811,15 @@ def _group_contention_assignments(rows: Iterable[Any]) -> list[dict[str, Any]]:
     return sorted(resources_map.values(), key=lambda r: r["name"])
 
 
+#: Rollup KPIs computed against the active baseline (:func:`strip_area_fields`'s sibling
+#: in the program rollup): both variances and the SPI-proxy schedule band.
+_BASELINE_ROLLUP_KPIS: tuple[str, ...] = (
+    "baseline_variance",
+    "schedule_variance",
+    "schedule_health",
+)
+
+
 class ProgramViewSet(
     DetailLookupIgnoresSearchMixin[Program],
     McpReadableViewMixin,
@@ -849,6 +858,24 @@ class ProgramViewSet(
     # it is a Resources read. The JSON export and the bundle download carry every
     # area's data in one response, so they need all of them. Everything else is
     # Schedule.
+    # Schedule-area actions that embed another area's fields and withhold them from an
+    # agent without that area (#5118); read by the classification test.
+    agent_strips: ClassVar[dict[str | None, dict[str, tuple[str, ...]]]] = {
+        "rollup": {
+            "resources": ("cost_variance", "budget_utilization"),
+            "dependencies": ("cross_project_link_count",),
+            "baselines": (
+                "baseline_variance",
+                "schedule_variance",
+                "schedule_health",
+                "program_health",
+                "projects_on_track",
+                "commitment_date",
+                "p80_delta_vs_commitment_days",
+            ),
+        },
+        "schedule": {"dependencies": ("links", "cross_project_edge_count")},
+    }
     agent_action_areas: ClassVar[dict[str, str | tuple[str, ...]]] = {
         "resource_contention": "resources",
         "export": ALL_AREAS,
@@ -3411,7 +3438,17 @@ class ProgramViewSet(
             exclude_project_ids=excluded,
             # Program Admin+ here; project Admin+ on every contributing project
             # is checked inside (ADR-1324 §4 — program roles do not cascade).
-            cost_viewer=request.user if role is not None and role >= Role.ADMIN else None,
+            # An agent without Resources read is judged as a caller who cannot see cost
+            # (#5118): ``None`` takes the existing ``cost_restricted`` path, which also
+            # refuses ``weighted_by_budget`` (the weighting would leak budget ratios), so
+            # a budget-weighted program's health is not a back door to the budgets.
+            cost_viewer=(
+                request.user
+                if role is not None
+                and role >= Role.ADMIN
+                and not agent_lacks_read(request, "resources")
+                else None
+            ),
         )
         # The overview's rows and lead figure (#4799). Built here rather than in
         # compute_program_rollup so the weekly digest, which has no viewer, never
@@ -3454,12 +3491,39 @@ class ProgramViewSet(
         payload["definitions"]["projects"] = METRIC_DEFINITIONS["rollup.project_row"]
         for key in ("projects_on_track", "open_risk_count", "cross_project_link_count"):
             payload["definitions"][key] = METRIC_DEFINITIONS[f"rollup.{key}"]
-        # Capability scope (#5118): the cost KPIs are Resources figures (the project
-        # cost view is a Resources read) inside a Schedule-area rollup.
+        # Capability scope (#5118): this Schedule-area rollup embeds other areas' figures.
+        # Fields are dropped, never nulled.
         if agent_lacks_read(request, "resources"):
             for key in ("cost_variance", "budget_utilization"):
                 payload["kpis"].pop(key, None)
                 payload["definitions"].pop(key, None)
+        if agent_lacks_read(request, "dependencies"):
+            payload["summary"].pop("cross_project_link_count", None)
+            payload["definitions"].pop("cross_project_link_count", None)
+        if agent_lacks_read(request, "baselines"):
+            # Each of these is the active baseline subtracted from, or divided into, the
+            # live plan: the variance KPIs, the SPI-proxy schedule band and every figure
+            # reduced from it (the headline program health, the on-track count).
+            for key in _BASELINE_ROLLUP_KPIS:
+                payload["kpis"].pop(key, None)
+                payload["definitions"].pop(key, None)
+            for key in ("program_health", "program_health_reason"):
+                payload.pop(key, None)
+            payload["definitions"].pop("program_health", None)
+            payload["summary"].pop("projects_on_track", None)
+            payload["definitions"].pop("projects_on_track", None)
+            for row in payload["projects"]:
+                # ``commitment_date`` is the active baseline's finish, falling back to
+                # the program target date. The row does not say which, so all three
+                # commitment fields go: over-withholding a program target is the safe
+                # side of a read the agent cannot tell apart.
+                for key in (
+                    "schedule_health",
+                    "commitment_date",
+                    "p80_delta_vs_commitment_days",
+                    "p80_delta_vs_commitment_reason",
+                ):
+                    row.pop(key, None)
         return Response(payload)
 
     @extend_schema(
