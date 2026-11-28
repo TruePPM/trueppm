@@ -66,6 +66,11 @@ Summary task values are derived, never directly edited:
 | `is_critical` | True if any child is critical | Post-CPM step in Celery task |
 | `total_float` | MIN(children's `total_float`) | Post-CPM step in Celery task |
 
+> **Amendment 2026-11-27 (#5183):** the `is_critical` and `total_float` rows above
+> describe the original rule. A summary now rolls up its **incomplete** leaves only,
+> so finished work no longer sets its float or criticality. A summary whose leaves
+> are all complete reads as zero float and not critical.
+
 **Why split between CPM post-processing and serializer**: Date/float/critical fields
 only change when the schedule is recalculated (CPM runs). `percent_complete` changes
 whenever any child's progress is updated — computing it in the serializer ensures it's
