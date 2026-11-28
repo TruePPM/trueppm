@@ -473,6 +473,21 @@ the reconciliation of `/sprints/{id}/capacity/` and `/me/work` `signals.utilizat
 |---|---|---|---|
 | Person load across projects | `GET /me/people-load/` | `people[].cells[].load_pct` | `as_of` |
 | People over capacity | me/people-load | `over_allocated_count` | `as_of` |
+| People over capacity (one project, echo) | `GET /projects/{id}/overview/` | `over_allocated_count` (+ `over_allocated_reason`, `over_allocated_window`) | `as_of` |
+
+**Amendment, #5103 (2026-11-27).** The project Overview's `over_allocated_count` is an
+echo of this owner, not a second computation: the view calls
+`compute_people_load([project], this Monday, 8)` and serves its `over_allocated_count`
+and `window`, so it counts bookings on that one project only. It sits behind the same
+two gates as `/me/people-load/` (Scheduler or above, and the ADR-0104 `capacity`
+signal), plus the agent `resources` scope area, since the Overview itself is a
+`schedule` read; a caller failing any of them reads `null` with
+`over_allocated_reason: "withheld"`. Its definition says how it differs from the
+Resources page's over-allocated KPI (`GET /projects/{id}/resources/summary/`), which is
+computed by `aggregate_utilization_weekly` with the roster's `units_override` and the
+project calendar and has no `capacity` signal gate. Reconciling that KPI onto this
+owner is open in #5206; until then the two can disagree for a part-time override, a
+project-holiday week, or a project with no CPM result.
 
 `load_pct = round(100 × booked unit-days ÷ (Resource.max_units × working days))` per
 ISO week. Booked unit-days come from the same daily engine as `/utilization/`

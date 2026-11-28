@@ -418,11 +418,15 @@ describe('ProjectOverview2 — #5103 facts', () => {
     const { unmount } = renderPage();
     expect(await screen.findByText('Over-allocated')).toBeInTheDocument();
     expect(screen.getByText(/people through Jan 17, 2027/)).toBeInTheDocument();
+    expect(screen.getByTestId('overview2-tiles')).toHaveClass('lg:grid-cols-4');
     unmount();
     h.overview = { ...OVERVIEW, over_allocated_count: null, over_allocated_reason: 'withheld' };
     renderPage();
-    await screen.findByTestId('overview2-tiles');
+    const tiles = await screen.findByTestId('overview2-tiles');
     expect(screen.queryByText('Over-allocated')).toBeNull();
+    // Three tiles, three desktop columns: no empty fourth column.
+    expect(tiles).toHaveClass('lg:grid-cols-3');
+    expect(tiles).not.toHaveClass('lg:grid-cols-4');
   });
 
   it('lists changes since Monday from the changelog, and says so when there are none', async () => {

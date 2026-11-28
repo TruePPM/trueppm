@@ -509,8 +509,16 @@ export function ProjectOverview2({ projectId }: { projectId: string }) {
   const base = `/projects/${projectId}`;
   const o = overview.data;
   const mc = forecast.data;
+  // The desktop column count follows the tiles actually served: a withheld or
+  // absent figure drops its tile, and a fixed four-column grid would leave a gap.
+  // Literal class names so Tailwind's scanner keeps all three.
+  const tileCount = o
+    ? 2 + (o.over_allocated_count != null ? 1 : 0) + (o.open_risk_count != null ? 1 : 0)
+    : 0;
+  const lgCols =
+    tileCount >= 4 ? 'lg:grid-cols-4' : tileCount === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-2';
   const tiles = o ? (
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" data-testid="overview2-tiles">
+    <div className={`grid grid-cols-2 gap-3 ${lgCols}`} data-testid="overview2-tiles">
       <Tile
         term="Critical tasks"
         definition={o.definitions?.critical_task_count}

@@ -14631,7 +14631,8 @@ class ProjectOverviewSerializer(serializers.Serializer[dict[str, Any]]):
         allow_null=True,
         help_text=(
             "Why over_allocated_count is null (rule 119): withheld when the caller is "
-            "below Scheduler or the team's capacity-signal policy excludes them."
+            "below Scheduler, the team's capacity-signal policy excludes them, or an "
+            "agent token's scope excludes Resources."
         ),
     )
     over_allocated_window = ProjectOverviewWindowSerializer(read_only=True, allow_null=True)

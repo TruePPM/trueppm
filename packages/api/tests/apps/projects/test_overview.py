@@ -1666,13 +1666,14 @@ class TestOverviewSupportingFacts:
     def test_bookings_on_another_project_are_not_counted(
         self, project: Project, calendar: Calendar, other_user: object
     ) -> None:
-        # Dana is at 60% here and 100% on a project the caller cannot read: over 100%
-        # in total, but this project's view must not count (and so disclose) the
-        # other project's booking.
+        # Dana is at 60% here and 100% on "Elsewhere": over 100% in total. The caller
+        # is a Scheduler on BOTH, so a count over the caller's readable projects would
+        # read 1; this project's figure counts this project's bookings only.
         ProjectMembership.objects.create(project=project, user=other_user, role=Role.SCHEDULER)
         other = Project.objects.create(
             name="Elsewhere", start_date=datetime.date(2026, 1, 1), calendar=calendar
         )
+        ProjectMembership.objects.create(project=other, user=other_user, role=Role.SCHEDULER)
         dana = Resource.objects.create(name="Dana", max_units=Decimal("1.0"))
         start, end = _this_week()
         for proj, units in ((project, "0.6"), (other, "1.0")):
@@ -1684,3 +1685,87 @@ class TestOverviewSupportingFacts:
         data = c.get(self.url(project.pk)).json()
         assert data["over_allocated_reason"] is None
         assert data["over_allocated_count"] == 0
+
+    def test_admin_is_counted_once_the_team_shares_capacity_upward(
+        self, project: Project, other_user: object
+    ) -> None:
+        # Admin sits in the PM band with the Owner: the shared policy opens it too.
+        from trueppm_api.apps.projects import signal_privacy_services as svc
+        from trueppm_api.apps.projects.models import SignalAudience
+
+        ProjectMembership.objects.create(project=project, user=other_user, role=Role.ADMIN)
+        self._overbook(project)
+        policy = svc.get_or_create_policy(project)
+        svc.raise_signal_ceiling(policy, "capacity", SignalAudience.TEAM_SM_PM)
+        svc.set_signal_audience(policy, "capacity", SignalAudience.TEAM_SM_PM)
+        c = APIClient()
+        c.force_authenticate(user=other_user)
+        data = c.get(self.url(project.pk)).json()
+        assert data["over_allocated_reason"] is None
+        assert data["over_allocated_count"] == 1
+
+    def test_viewer_is_withheld(self, project: Project, other_user: object) -> None:
+        ProjectMembership.objects.create(project=project, user=other_user, role=Role.VIEWER)
+        self._overbook(project)
+        c = APIClient()
+        c.force_authenticate(user=other_user)
+        data = c.get(self.url(project.pk)).json()
+        assert data["over_allocated_count"] is None
+        assert data["over_allocated_reason"] == "withheld"
+        assert data["over_allocated_window"] is None
+
+    def test_archived_project_still_serves_the_count(
+        self, project: Project, other_user: object
+    ) -> None:
+        # Archived is read-only, not unreadable: /me/people-load/ keeps archived
+        # projects in scope, so the project's own echo must agree.
+        ProjectMembership.objects.create(project=project, user=other_user, role=Role.SCHEDULER)
+        self._overbook(project)
+        Project.objects.filter(pk=project.pk).update(is_archived=True)
+        c = APIClient()
+        c.force_authenticate(user=other_user)
+        resp = c.get(self.url(project.pk))
+        assert resp.status_code == 200
+        assert resp.json()["over_allocated_count"] == 1
+
+    def _agent(self, owner: object, grant: dict[str, str] | None) -> APIClient:
+        import secrets
+
+        from trueppm_api.apps.agents.models import AgentActionChainHead
+        from trueppm_api.apps.projects.authentication import TOKEN_PREFIX, sha256_hex
+        from trueppm_api.apps.projects.models import SCOPE_MCP_READ, ApiToken
+
+        AgentActionChainHead.objects.get_or_create(pk=1)
+        raw = f"{TOKEN_PREFIX}{secrets.token_hex(32)}"
+        ApiToken.objects.create(
+            owner=owner,
+            name="Claude",
+            token_prefix=raw[len(TOKEN_PREFIX) : len(TOKEN_PREFIX) + 8],
+            token_hash=sha256_hex(raw),
+            created_by=owner,
+            scopes=[SCOPE_MCP_READ],
+            agent_scope=grant,
+        )
+        c = APIClient()
+        c.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+        return c
+
+    @pytest.mark.parametrize(("resources", "expected"), [("none", None), ("read", 1)])
+    def test_agent_needs_the_resources_area(
+        self, project: Project, other_user: object, resources: str, expected: int | None
+    ) -> None:
+        # The Overview is a `schedule` read, but this figure is per-person capacity,
+        # which /utilization/ and /resources/summary/ refuse a resources=none agent.
+        ProjectMembership.objects.create(project=project, user=other_user, role=Role.SCHEDULER)
+        self._overbook(project)
+        grant = {
+            "schedule": "read",
+            "dependencies": "read",
+            "resources": resources,
+            "baselines": "read",
+        }
+        resp = self._agent(other_user, grant).get(self.url(project.pk))
+        assert resp.status_code == 200, resp.content
+        data = resp.json()
+        assert data["over_allocated_count"] == expected
+        assert data["over_allocated_reason"] == ("withheld" if expected is None else None)

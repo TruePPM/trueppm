@@ -328,7 +328,6 @@ test.describe('shell v2 project overview', () => {
     await expectNoA11yViolationsBothThemes(page, testInfo);
   });
 
-
   test.describe('phone layout (#5104)', () => {
     test.use({ viewport: { width: 390, height: 844 } });
 

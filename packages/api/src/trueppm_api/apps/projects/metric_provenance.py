@@ -300,7 +300,9 @@ METRIC_DEFINITIONS: dict[str, str] = {
         "one week of the next 8 weeks, starting this Monday, time off removed: their "
         "booked days on this project divided by their default units on each of their "
         "own working days. Bookings on other projects are not counted, so this is not "
-        "this week's team utilization."
+        "this week's team utilization. It can differ from the Resources page's "
+        "over-allocated count, which applies the project roster's units override and "
+        "the project calendar instead of each person's default units and own calendar."
     ),
     "changes_since": (
         "The start of this week (Monday 00:00, server time zone). The Overview's change "

@@ -83774,12 +83774,12 @@
                         "type": "integer",
                         "readOnly": true,
                         "nullable": true,
-                        "description": "People on this project whose load on this project is over 100% in at least one week of the next 8 weeks, starting this Monday, time off removed: their booked days on this project divided by their default units on each of their own working days. Bookings on other projects are not counted, so this is not this week's team utilization."
+                        "description": "People on this project whose load on this project is over 100% in at least one week of the next 8 weeks, starting this Monday, time off removed: their booked days on this project divided by their default units on each of their own working days. Bookings on other projects are not counted, so this is not this week's team utilization. It can differ from the Resources page's over-allocated count, which applies the project roster's units override and the project calendar instead of each person's default units and own calendar."
                     },
                     "over_allocated_reason": {
                         "readOnly": true,
                         "nullable": true,
-                        "description": "Why over_allocated_count is null (rule 119): withheld when the caller is below Scheduler or the team's capacity-signal policy excludes them.\n\n* `withheld` - withheld",
+                        "description": "Why over_allocated_count is null (rule 119): withheld when the caller is below Scheduler, the team's capacity-signal policy excludes them, or an agent token's scope excludes Resources.\n\n* `withheld` - withheld",
                         "oneOf": [
                             {
                                 "$ref": "#/components/schemas/AllocationWithheldReasonEnum"
@@ -83908,7 +83908,7 @@
                     },
                     "over_allocated_count": {
                         "type": "string",
-                        "description": "People on this project whose load on this project is over 100% in at least one week of the next 8 weeks, starting this Monday, time off removed: their booked days on this project divided by their default units on each of their own working days. Bookings on other projects are not counted, so this is not this week's team utilization."
+                        "description": "People on this project whose load on this project is over 100% in at least one week of the next 8 weeks, starting this Monday, time off removed: their booked days on this project divided by their default units on each of their own working days. Bookings on other projects are not counted, so this is not this week's team utilization. It can differ from the Resources page's over-allocated count, which applies the project roster's units override and the project calendar instead of each person's default units and own calendar."
                     },
                     "changes_since": {
                         "type": "string",

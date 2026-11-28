@@ -14462,9 +14462,12 @@ def _overview_over_allocation(
     Withheld (count and window null, ``over_allocated_reason: "withheld"``) for a
     caller below Scheduler or one the team's capacity-signal policy excludes: the
     same two gates as ``/me/people-load/``, so this tile is not a side channel round
-    them.
+    them. Also withheld for a controlled agent whose scope excludes ``resources``:
+    the Overview itself is a ``schedule`` read, but this figure is per-person
+    capacity, which ``/utilization/`` and ``/resources/summary/`` refuse that agent.
     """
     from trueppm_api.apps.access.permissions import effective_project_role
+    from trueppm_api.apps.projects.agent_scope import agent_lacks_read
     from trueppm_api.apps.projects.metric_provenance import OVER_ALLOCATION_WEEKS
     from trueppm_api.apps.projects.signal_privacy_services import (
         can_read_signal_for_projects,
@@ -14476,6 +14479,8 @@ def _overview_over_allocation(
         "over_allocated_reason": "withheld",
         "over_allocated_window": None,
     }
+    if agent_lacks_read(request, "resources"):
+        return withheld
     role = effective_project_role(request, project.pk)
     if role is None or role < Role.SCHEDULER:
         return withheld
