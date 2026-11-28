@@ -22,7 +22,12 @@ from typing import Any, NamedTuple
 
 import numpy as np
 
-from trueppm_scheduler.engine import MAX_VELOCITY_SPRINTS, _velocity_mean, monte_carlo
+from trueppm_scheduler.engine import (
+    MAX_VELOCITY_SPRINTS,
+    InvalidScheduleInput,
+    _velocity_mean,
+    monte_carlo,
+)
 from trueppm_scheduler.models import Calendar, DeliveryMode, Project, Task
 
 # Cells (runs x horizon) per bootstrap draw block: drawing whole-row blocks consumes
@@ -177,9 +182,13 @@ def forecast_velocity_delivery(
         signal (no observations, all zero, no remaining work, or a sprint shorter
         than a day).
 
+    A backlog so large that the engine refuses its worst-case total span does not
+    raise: it returns a forecast with ``horizon_saturated`` True and every date
+    clamped to ``MAX_VELOCITY_SPRINTS`` sprints past ``today``.
+
     Raises:
         SchedulerError: Whatever :func:`~trueppm_scheduler.monte_carlo` raises for
-            input it refuses, such as a non-finite ``remaining_points``.
+            other input it refuses, such as a non-finite ``remaining_points``.
     """
     if remaining_points <= 0 or sprint_length_days < 1:
         return None
@@ -202,7 +211,23 @@ def forecast_velocity_delivery(
     )
     if _velocity_mean(project) is None:
         return None
-    result = monte_carlo(project, runs=runs, seed=seed)
+    try:
+        result = monte_carlo(project, runs=runs, seed=seed)
+    except InvalidScheduleInput as exc:
+        # The engine refuses a worst-case span past its cap before it clamps the
+        # sprint horizon to MAX_VELOCITY_SPRINTS. For a backlog this large that is
+        # saturation, which this function has always reported rather than raised.
+        if not str(exc).startswith("Total project span"):
+            raise
+        horizon = today + timedelta(days=MAX_VELOCITY_SPRINTS * sprint_length_days)
+        return DeliveryForecast(
+            p50_periods=MAX_VELOCITY_SPRINTS,
+            p80_periods=MAX_VELOCITY_SPRINTS,
+            p50_date=horizon,
+            p80_date=horizon,
+            p95_date=horizon,
+            horizon_saturated=True,
+        )
 
     def sprint_of(day: date) -> int:
         return -(-((day - today).days + 1) // sprint_length_days)

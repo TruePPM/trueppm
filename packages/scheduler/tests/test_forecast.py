@@ -234,3 +234,41 @@ def test_velocity_band_dates() -> None:
     assert velocity_band_dates(
         cpm_finish=None, remaining=5, sprint_days=14, velocity_low=5, avg=10.0
     ) == (None, None, None, False)
+
+
+def test_velocity_forecast_saturates_instead_of_raising_on_a_huge_backlog() -> None:
+    """The engine's span refusal is saturation here, as before #5185."""
+    got = forecast_velocity_delivery(
+        2000.0, [0.0, 0.0, 0.0, 1.0], sprint_length_days=14, today=TODAY
+    )
+    assert got is not None
+    assert got.horizon_saturated is True
+    assert got.p95_date == TODAY + timedelta(days=10_000 * 14)
+
+
+def test_five_day_week_monte_carlo_differs_from_the_forecast() -> None:
+    """The forecast's sprints are calendar days; a working-day calendar finishes later."""
+    kwargs: dict[str, Any] = {"points": 40.0, "samples": [10.0, 12.0, 8.0], "length": 14}
+    seven = _monte_carlo_dates(runs=500, seed=1, **kwargs)
+    story = Task(
+        id="story",
+        name="story",
+        duration=timedelta(days=1),
+        delivery_mode=DeliveryMode.SCRUM,
+        story_points=40.0,
+    )
+    five = monte_carlo(
+        Project(
+            id="p",
+            name="p",
+            start_date=TODAY,
+            status_date=TODAY,
+            tasks=[story],
+            calendar=Calendar(working_days=0x1F),
+            velocity_samples=[10.0, 12.0, 8.0],
+            sprint_length_days=14,
+        ),
+        runs=500,
+        seed=1,
+    )
+    assert five.p50 > seven[0]
