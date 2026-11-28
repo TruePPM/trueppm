@@ -119,15 +119,16 @@ is not a certification.
 
 ### What exists today, and what does not
 
-* **Refusal guards (shipped).** An agent is a personal API token that carries
-  `mcp:read` and not a full scope. Its calls pass guards that refuse with a typed
-  envelope: a paused agent (`agent_paused`), a read outside the agent's capability
-  scope (`capability_scope`), and a token that fails identity checks
-  (`token_identity`). The scope is a per-area grant (schedule, dependencies, resources,
-  baselines); the effective scope is the grant intersected with the principal's
-  *current* roles, evaluated on every call and never cached
-  (`apps/projects/agent_scope.py`). `write` is not grantable in 0.5, and that refusal is
-  enforced on the server, not by the UI.
+* **Refusal guards (pause and capability scope ship in 0.5).** An agent is a personal
+  API token that carries `mcp:read` and not a full scope. Its calls pass guards that
+  refuse with a typed envelope: a paused agent (`agent_paused`), a read outside the
+  agent's capability scope (`capability_scope`), and a token that fails identity checks
+  (`token_identity`). The pause and per-area scope guards are on `main` and in no
+  release tag yet (the latest is v0.4.0); they ship in 0.5. The scope is a per-area
+  grant (schedule, dependencies, resources, baselines); the effective scope is the grant
+  intersected with the principal's *current* roles, evaluated on every call and never
+  cached (`apps/projects/agent_scope.py`). `write` will not be grantable in 0.5, and
+  that refusal is enforced on the server, not by the UI.
 * **Scheduling refusals (not shipped).** The constraints that would refuse an
   infeasible *schedule change* (`graph_validation`, `sprint_sovereignty`, `rollup_lock`,
   `engine_referee`) are reserved codes with no producer. They will ship with the gated
@@ -162,7 +163,7 @@ is not a certification.
 | A grant cannot be raised above the principal's ceiling, whoever edits it, and `write` cannot be granted. | `validate_grant`; same test file |
 | Pause and revoke take effect on the next call. The paused-agent message never names the person who paused it. | same test file |
 | A refusal reveals only the caller's own credential state (`DISCLOSABLE_CONSTRAINTS`), never the existence or state of a resource the caller cannot read. | `apps/agents/refusal.py` |
-| Humans and agents are refused by the same role checks: an agent token resolves to its owner, so each view's own RBAC applies on top of the scope. | `agent_scope.py` module docstring |
+| Humans and agents are refused by the same role checks: an agent token resolves to its owner, so each view's own RBAC applies on top of the scope. | `test_agent_never_exceeds_principal_and_demotion_shrinks_it` in `tests/apps/agents/test_agent_control_plane.py`; `agent_scope.py` module docstring |
 | `manage.py audit_verify` *detects* edits to a row, reordering, gaps, and deleted rows, including a prune that left no checkpoint. | `apps/agents/services.py` (`verify_chain`), `management/commands/audit_verify.py` |
 
 ### What the mechanisms do not guarantee
@@ -181,9 +182,13 @@ is not a certification.
 * **Data an agent was legitimately given.** Scope limits what an agent can read; it
   cannot limit what the agent does with it afterwards, such as relaying it to a
   third party.
-* **Fields embedded across areas** are being closed view by view (#5118). Until that
-  lands in a release, treat an area set to `none` as a strong default rather than a
-  proof for the Schedule-area views that embed another area's figures.
+* **Row order in the program overview.** Agent reads of the program Schedule area
+  withhold the Baselines, Dependencies and Resources figures they embed (task baseline
+  fields, overview SPI and utilization, rollup variances and health, status-update
+  baseline dates, program schedule links, sprint member hours). The overview lists its
+  project rows sorted by how far each slips against its commitment date, so an agent
+  without Baselines read can still infer that ranking from the order, though not the
+  dates or day counts. The forecast and Monte Carlo reads are classified separately.
 
 ### Out of scope
 
