@@ -177,16 +177,20 @@ The set is open-ended and grows as features land; current event types include:
   `status_date` is the CPM data date this run resolved (`Project.status_date`
   if set, otherwise today; ADR-0752 §4), echoed so a consumer knows which
   "today" produced the dates. On the program-scoped pass (ADR-0120 D3,
-  escalated when the project's program holds an accepted cross-project edge)
-  `status_date` is always `null`: member projects can carry different
-  `status_date` values and the merged run floors none of them, so no single
-  value would honestly describe what was computed. Both dispatch paths build
+  escalated when the project's program holds an accepted cross-project edge),
+  each member project's `cpm_complete` carries that member's own resolved data
+  date (ships in 0.5): the merged run floors each member's tasks at that
+  member's own start date and data date, so the value describes what was
+  computed for that project. It is `null` only for a member with no schedulable
+  work. Both dispatch paths build
   this payload through one shared helper so the key set cannot drift between
   them (#3776). One run adds a fourth key (ships in 0.5): the first recalculation
   that resolves a project's empty `status_date` to today on an established schedule
   (the data-date "arming" run, ADR-0752 §7) withholds the per-task
   `task_dates_updated` delta, and if it moved any task its `cpm_complete` carries
-  `"dates_changed": true`. Treat it as "re-read the task list": it names no task and
+  `"dates_changed": true`. On the program-scoped pass arming applies per member:
+  the first program pass after the upgrade arms each unarmed member, so those
+  members emit no movement events for it. Treat it as "re-read the task list": it names no task and
   no date, so it carries no movement — the confidentiality goal of ADR-0752 §7 — and
   a re-read goes through REST, which applies the reader's field gating. The key is
   absent on every other run, whose movement arrives as `task_dates_updated`. It is also
