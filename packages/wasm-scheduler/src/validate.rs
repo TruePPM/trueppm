@@ -1484,6 +1484,19 @@ mod tests {
     }
 
     #[test]
+    fn rejects_progress_derived_span_just_above_date_min_with_new_guard() {
+        // #5190: at date.min + 30 the older walk floor does not fire, but Python
+        // refuses (sweep entry date.min+30). Only the new guard produces this error.
+        let mut t = task("A", 4);
+        t.percent_complete = 50.0;
+        t.zero_remaining = true;
+        let mut p = project(vec![t], vec![], Calendar::default());
+        p.start_date = py_date_min() + Duration::days(30);
+        let err = validate_project(&p).unwrap_err();
+        assert!(err.contains("minimum representable date"), "{err}");
+    }
+
+    #[test]
     fn accepts_unstarted_task_at_date_min() {
         // The guard is scoped to progress-derived spans: no progress, no refusal.
         let mut p = project(vec![task("A", 4)], vec![], Calendar::default());
