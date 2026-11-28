@@ -183,6 +183,14 @@ change between releases. Pin an exact version (e.g.
 
 ### Fixed
 
+- **A progress-derived start near `date.min` is refused, not a crash
+  ([#5190](https://gitlab.com/trueppm/trueppm/-/issues/5190)).** `schedule()` raised
+  a bare `OverflowError` for a started task with no `actual_start` (for example 50%
+  complete with `zero_remaining`) on a project starting at `date.min`, because its
+  start is walked back from its placement. Validation now raises
+  `InvalidScheduleInput` for a start that close to `date.min` whenever such a task
+  exists, with the same span x 7 + one scan estimate as the `date.max` guard; the
+  WASM engine refuses the same inputs. Projects with no such task are unaffected.
 - **A start-of-day milestone's `total_float` equals the working days from its
   `early_start` to its `late_start`
   ([#4528](https://gitlab.com/trueppm/trueppm/-/issues/4528)).** When its float

@@ -202,7 +202,7 @@ When the active sprint has a pending slip, the sprint panel's badge reads "N dat
 
 If a slip no longer fits (see below), accepting it tells you it was closed without applying. If the server can't apply a slip, you'll see a message and the slip stays pending. The board and the schedule refresh after each decision.
 
-A slip that comes from a schedule recalculation, after an earlier task moves, is not blocked. Flagging those as at risk is separate work planned for a later 0.5 change (#5127); until it ships, nothing marks them.
+A slip that comes from a schedule recalculation, after an earlier task moves, is not blocked. In 0.5 it will be flagged instead: the sprint's [commitment status](/api/reference/sprints/) will list the task as at risk, and the people who can accept a change will get the *Committed tasks are now expected to finish after the sprint ends* notice (see [Notifications](/features/notifications/)).
 
 A pending slip can stop applying before anyone decides it:
 

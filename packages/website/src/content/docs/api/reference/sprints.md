@@ -116,6 +116,58 @@ The mid-sprint scope-injection approve-gate (ADR-0102 §5) referenced from
 started lands here pending Scrum Master / Product Owner approval rather than
 silently joining the commitment.
 
+## Sprint commitment status
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/sprints/{id}/commitment-status/` | Committed tasks at risk of finishing after the sprint ends, and the scope changes still awaiting a decision (experimental, ships in 0.5) |
+
+Any project member (Viewer and up) can read it, and an `mcp:read` token can too
+(MCP tool `get_sprint_commitment_status`). Accepting or rejecting stays on the
+Admin-and-up routes above. The operation is published `x-experimental`: see
+[API stability](/api/stability/).
+
+```json
+{
+  "sprint_id": "…",
+  "sprint_finish_date": "2026-01-16",
+  "at_risk_count": 1,
+  "at_risk": [{
+    "task_id": "…", "task_name": "Build importer", "finish": "2026-01-21",
+    "working_days_after_sprint_end": 3,
+    "cause": "Driven by 'Schema review' (FS link): 2026-01-20.",
+    "derivation_ref": {"task_id": "…", "quantity": "early_finish"}
+  }],
+  "open_scope_change_count": 1,
+  "oldest_open_age_seconds": 5400,
+  "open_scope_changes": [{
+    "id": "…", "kind": "slip", "batch_id": "…", "task_id": "…", "task_name": "Build importer",
+    "requested_by": 12, "requested_by_name": "Sam Lee", "requested_at": "…",
+    "age_seconds": 5400, "proposed_start": "2026-01-05", "proposed_finish": "2026-01-21",
+    "reason": ""
+  }],
+  "as_of": "…"
+}
+```
+
+- `at_risk` is read from the last recalculation: a committed, unfinished task whose
+  finish is after the sprint's `finish_date`. Pending injections are not committed and
+  are not listed. A sprint that is not active has no commitment, so it reads empty.
+- `cause` is the server's one-line explanation of the task's current finish, and
+  `derivation_ref` holds the exact arguments of `get_schedule_derivation`. Both are
+  `null` when the server has no derivation (a recalculation is still pending, or the
+  task is outside the scheduled network). Quote `cause` as sent.
+- `open_scope_changes` lists `injection` and `slip` rows in the order they were asked,
+  oldest first. Rows from one drag or bulk placement share a `batch_id`.
+- Detection also runs after every recalculation and when a sprint is activated: a task that has just become at risk
+  sends the `sprint.commitment_at_risk` webhook once (see
+  [Webhooks](/features/webhooks/)) and notifies the people who can accept the change.
+  A task that recovers and slips again is announced again. The notice, the record that
+  the task was announced and the webhook's delivery are written in one transaction
+  under the sprint's row lock, so two detections running together announce a task
+  once, and a run interrupted before that commit is announced again by the next one.
+  The webhook itself is delivered at least once, like every webhook.
+
 ## Sprint and task duration changes
 
 | Method | Path | Description |

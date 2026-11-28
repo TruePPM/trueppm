@@ -45,6 +45,7 @@ from trueppm_mcp.tools import (
     _get_sprint,
     _get_sprint_burndown,
     _get_sprint_close_request,
+    _get_sprint_commitment_status,
     _get_sprint_velocity,
     _get_task,
     _list_baseline_decisions,
@@ -1814,3 +1815,25 @@ async def test_resolve_reference_other_errors_propagate(settings: Settings) -> N
             await _resolve_reference(client, "PLAT", "project")
     finally:
         await client.aclose()
+
+
+async def test_get_sprint_commitment_status_returns_the_server_body(settings: Settings) -> None:
+    seen: list[httpx.Request] = []
+    body = {
+        "sprint_id": "s-1",
+        "at_risk_count": 1,
+        "at_risk": [{"task_id": "t-1", "cause": None, "derivation_ref": None}],
+        "open_scope_changes": [],
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json=body)
+
+    async with TruePPMClient(settings, transport=httpx.MockTransport(handler)) as client:
+        result = await _get_sprint_commitment_status(client, "s-1")
+
+    assert seen[0].url.path.endswith("/sprints/s-1/commitment-status/")
+    # A null cause stays null: the tool never fills in what the server did not say.
+    assert result["at_risk"][0]["cause"] is None
+    assert result == body
