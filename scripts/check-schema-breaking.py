@@ -31,8 +31,14 @@ send it; a response consumer written against it loses a case). An added value is
 flagged - stability.md calls it Additive.
 
 Deliberately out of scope (documented, not silent): ``oneOf``/``anyOf`` branches are
-not diffed (``allOf`` is flattened; a property in any ``anyOf`` branch counts as present, so
-the idempotency 400 wrap is not a removal; ``oneOf`` is untouched), ``format``/``nullable``/constraint changes are
+not diffed as alternatives. ``allOf`` is flattened. ``anyOf`` is read as follows: the
+properties are the union of its branches (so wrapping a declared body with an error
+branch is not a removal), but a baseline property must still be present in the branch
+with the largest property overlap with the baseline (another branch carrying the same
+key cannot mask a drop), and ``required`` is taken from that same best-matching branch
+only (another branch's ``required`` cannot mask a key made optional there). A literal
+intersection across branches was tried and rejected: it reads every declared required
+key as loosened as soon as an error branch is added. ``oneOf`` is NOT read at all (#5203). ``format``/``nullable``/constraint changes are
 Behavioral per stability.md, and unknown vendor keys such as an ``x-extensible-enum``
 marker are ignored, so adding one never trips the gate.
 
@@ -128,15 +134,26 @@ class _Differ:
         out = {k: v for k, v in node.items() if k != "allOf"}
         props = dict(out.get("properties") or {})
         req = list(out.get("required") or [])
-        # A property declared in ANY anyOf branch counts as present, so wrapping a
-        # declared body as ``anyOf: [declared, Other]`` is not read as removing its
-        # properties. A branch's ``required`` is kept so the declared body's
-        # required set is not read as loosened by the wrap.
+        # ``anyOf`` (e.g. a declared body wrapped with an error branch): the
+        # properties are the union so the wrap alone is not read as a removal. The
+        # per-branch property and required sets are kept so ``schema()`` can judge
+        # a property, and its requiredness, against the branch that best matches
+        # the baseline - another branch carrying the same key must not mask a drop
+        # or an optionalization.
+        branches = []
+        branch_reqs = []
         for part in node.get("anyOf") or []:
             sub, _ = self._flatten(doc, part)
-            for k, v in (sub.get("properties") or {}).items():
+            sp = sub.get("properties") or {}
+            for k, v in sp.items():
                 props.setdefault(k, v)
-            req += sub.get("required") or []
+            branches.append(set(sp))
+            branch_reqs.append(set(sub.get("required") or []))
+        if branch_reqs:
+            out["_own_req"] = set(req)
+            out["_branch_reqs"] = branch_reqs
+            out["_branches"] = branches
+            out["_own"] = set(props) - set().union(*branches)
         for part in node.get("allOf") or []:
             sub, _ = self._flatten(doc, part)
             props.update(sub.get("properties") or {})
@@ -179,9 +196,15 @@ class _Differ:
             self.schema(bs.get("items", {}), cs.get("items", {}), f"{loc}[]", direction)
         bp, cp = bs.get("properties") or {}, cs.get("properties") or {}
         breq, creq = set(bs.get("required") or []), set(cs.get("required") or [])
+        declared = set(cp)
+        branches = cs.get("_branches")
+        if branches and bp:
+            idx = max(range(len(branches)), key=lambda i: len(branches[i] & set(bp)))
+            declared = branches[idx] | cs.get("_own", set())
+            creq = cs["_own_req"] | cs["_branch_reqs"][idx]
         for prop, bsub in bp.items():
             ploc = f"{loc}.{prop}"
-            if prop not in cp:
+            if prop not in cp or prop not in declared:
                 self.add("property-removed", f"{direction} {ploc}")
                 continue
             if direction == "response" and prop in breq - creq:

@@ -126,6 +126,24 @@ for name, mut, rule, direction in CASES:
 for name, mut in PASSES:
     cand = copy.deepcopy(BASE); mut(cand)
     check(g.diff_schemas(BASE, cand) == [], f"{name} passes (got {g.diff_schemas(BASE, cand)})")
+# anyOf masking: the dropped / optionalized key `code` ALSO exists in the error branch.
+ERR = {"type": "object", "properties": {"code": {"type": "string"}}, "required": ["code"]}
+def with_code(required):
+    d = copy.deepcopy(BASE)
+    w = shape(); w["properties"]["code"] = {"type": "string"}; w["required"] = required
+    S(d, "Widget").clear(); S(d, "Widget").update(w)
+    return d
+mbase = with_code(["name", "code"])
+dropped = copy.deepcopy(mbase)
+S(dropped, "Widget").update({"anyOf": [shape(), ERR]})
+for k in ("type", "properties", "required"): S(dropped, "Widget").pop(k)
+found = g.diff_schemas(mbase, dropped)
+check(("property-removed", "response #/Widget.code") in found, f"anyOf: property dropped from declared branch but present in error branch (got {found})")
+optional = copy.deepcopy(mbase)
+decl = shape(); decl["properties"]["code"] = {"type": "string"}; decl["required"] = ["name"]
+S(optional, "Widget").clear(); S(optional, "Widget").update({"anyOf": [decl, ERR]})
+found = g.diff_schemas(mbase, optional)
+check(("became-optional", "response #/Widget.code") in found, f"anyOf: key optional in declared branch but required in error branch (got {found})")
 print(f"differ cases: {len(CASES)} breaking + {len(PASSES)} passing, {failed} failed")
 sys.exit(1 if failed else 0)
 PY
