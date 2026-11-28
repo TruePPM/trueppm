@@ -110,8 +110,9 @@ AGENT_AREA_COVERS: dict[str, str] = {
     ),
     "resources": (
         "Project cost and rates, utilization, resource allocation, the resource heat map "
-        "and summary, program resource contention, and the resource assignments and "
-        "overallocation flags on each task (left out of task reads without this area)."
+        "and summary, program resource contention, the over-allocated count on the "
+        "project overview, and the resource assignments and overallocation flags on "
+        "each task (left out of task reads without this area)."
     ),
     "baselines": "Baselines and their task snapshots.",
 }
