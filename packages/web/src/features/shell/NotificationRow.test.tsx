@@ -322,6 +322,23 @@ describe('NotificationRow', () => {
     );
   });
 
+  it.each(['sprint.scope_change_requested', 'sprint.commitment_at_risk'])(
+    'omits the mute action for the unmutable commitment notice %s (ADR-1485 D8)',
+    (eventType) => {
+      renderWithRouter(
+        <NotificationRow
+          notification={row({
+            mention: null,
+            event_type: eventType,
+            subject: 'Commitment change awaiting your decision',
+            body: '3 tasks · accept all / review',
+          })}
+        />,
+      );
+      expect(screen.queryByText('Mute notifications like this')).toBeNull();
+    },
+  );
+
   it('omits the mute action for a mention row (you mute a type, not a person)', () => {
     renderWithRouter(<NotificationRow notification={row()} />);
     expect(screen.queryByText('Mute notifications like this')).toBeNull();

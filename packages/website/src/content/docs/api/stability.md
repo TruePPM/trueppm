@@ -768,6 +768,14 @@ documented behavior that never worked or never held:
   duplicates for the two add routes are gone for the same reason.
 - `count` on the task list is no longer `required` in `PaginatedTaskList`: a
   `pagination=keyset` response has never carried it.
+- Response properties the server already omits on some paths were declared `required` and
+  are now optional: the task-collaboration `403` `code` (a role refusal that fires before the
+  ownership check carries `detail` alone), and fields on `ProgramScheduleTask`,
+  `ProjectVelocity`, `SprintPulseTrend`, `SprintScopeChangeBulkResult` and the
+  external-source error bodies (`CredentialVerificationError`, `ExternalConnectionError`,
+  `PinLimitReachedResponse`, `TaskLinkCredentialRequired`). The server never sent those
+  keys in the omitting case; the schema overclaimed them. A client must not read them
+  unconditionally.
 - `GET /programs/samples/{key}/download/` declared a binary string; the body is a JSON
   object served as `application/json`, and still is.
 

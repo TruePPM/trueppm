@@ -81,6 +81,11 @@ export const WEBHOOK_EVENT_CATALOG: WebhookEventGroup[] = [
         label: 'Scope change awaiting a decision',
         isNew: true,
       },
+      {
+        id: 'sprint.commitment_at_risk',
+        label: 'Committed tasks at risk of missing the sprint end',
+        isNew: true,
+      },
     ],
   },
   {

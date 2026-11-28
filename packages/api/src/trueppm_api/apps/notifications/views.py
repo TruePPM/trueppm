@@ -24,6 +24,7 @@ from drf_spectacular.utils import (
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
@@ -44,6 +45,7 @@ from .models import (
     DEFAULT_PREFERENCES,
     PROJECT_NOTIFICATION_DEFAULT_MATRIX,
     SIGNAL_ONLY_EVENTS,
+    UNMUTABLE_IN_APP_EVENTS,
     EmailTransportMode,
     Notification,
     NotificationChannel,
@@ -150,6 +152,13 @@ def _resolve_snooze_until(
         {"detail": "Provide a 'preset' or an 'until' datetime (null to un-snooze)."},
         status=status.HTTP_400_BAD_REQUEST,
     )
+
+
+class _PreferenceMatrixPagination(PageNumberPagination):
+    """One page that holds the whole (event type x channel) matrix."""
+
+    page_size = 500
+    max_page_size = 500
 
 
 @extend_schema_view(
@@ -409,6 +418,11 @@ class NotificationPreferenceViewSet(
 
     serializer_class = NotificationPreferenceSerializer
     permission_classes: list[type[BasePermission]] = [IsAuthenticated]
+    # The whole matrix is one document (the web hook reads page 1 only). It reached
+    # the default PAGE_SIZE of 50 exactly, and the next event type would have
+    # silently dropped its rows off the end of the page, so the page is sized well
+    # past the matrix rather than at the global default.
+    pagination_class = _PreferenceMatrixPagination
 
     def get_queryset(self) -> QuerySet[NotificationPreference]:
         user = self.request.user
@@ -495,6 +509,11 @@ class NotificationPreferenceViewSet(
                     p.enabled = (
                         p.channel == NotificationChannel.IN_APP
                         and p.event_type in SIGNAL_ONLY_EVENTS
+                    ) or (
+                        # The in-app row of these is written whatever the cell says
+                        # (ADR-1485 D8), so the stored cell must not read as muted.
+                        p.channel == NotificationChannel.IN_APP
+                        and p.event_type in UNMUTABLE_IN_APP_EVENTS
                     )
             else:  # everything
                 default_map = {(e, c): enabled for (e, c, enabled) in DEFAULT_PREFERENCES}

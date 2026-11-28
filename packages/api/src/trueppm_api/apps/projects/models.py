@@ -7747,6 +7747,38 @@ class SprintScopeChange(models.Model):
         return self.subtask_name
 
 
+class SprintCommitmentRisk(models.Model):
+    """A committed task last seen finishing after its ACTIVE sprint's end (ADR-1485 D3).
+
+    One row per (sprint, task) the post-recalculation detector has already
+    announced. It exists only so a recalculation that leaves the task at risk does
+    not re-announce it every run: the detector diffs the current at-risk set against
+    these rows, announces the newly flagged tasks once, and deletes the rows of tasks
+    that recovered. The read endpoint does not read this table; it computes from the
+    task's current ``early_finish``.
+
+    Plain models.Model: detector bookkeeping, not synced to clients.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    sprint = models.ForeignKey("Sprint", on_delete=models.CASCADE, related_name="commitment_risks")
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="sprint_commitment_risks")
+    # The finish the engine gave the task when it was flagged or last re-flagged.
+    finish = models.DateField()
+    flagged_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "projects_sprintcommitmentrisk"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["sprint", "task"], name="sprint_commitment_risk_unique_task"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"SprintCommitmentRisk(task={self.task_id}, sprint={self.sprint_id})"
+
+
 class GuardrailRule(models.TextChoices):
     """Sprint/Phase/WBS guardrail rule keys (ADR-0101).
 

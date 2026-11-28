@@ -75,6 +75,14 @@ class CredentialUpsertSerializer(serializers.Serializer[Any]):
         # explicitly so the error message is clear.
         if not value.strip():
             raise serializers.ValidationError("Secret must not be blank.")
+        # The secret is sent to the provider in an ``Authorization`` header, which
+        # http.client encodes as latin-1 and refuses to carry CR/LF. A non-ASCII or
+        # control character therefore raised inside ``verify_token`` and answered 500
+        # (#5093); no provider issues such a token, so refuse it here as a 400.
+        if not (value.isascii() and value.isprintable()):
+            raise serializers.ValidationError(
+                "Secret must contain only printable ASCII characters."
+            )
         return value
 
     def validate_base_url(self, value: str) -> str:

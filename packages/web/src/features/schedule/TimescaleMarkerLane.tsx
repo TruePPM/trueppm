@@ -12,6 +12,12 @@ interface Props {
   result: MonteCarloResult | null;
   scaleData: GanttScaleData | null;
   canvasScrollRef: RefObject<HTMLDivElement | null>;
+  /**
+   * Shell v2 (#5106): the commitment reads "Commit", and the P80 and Commit chips
+   * carry the server's definitions and the forecast's `as_of` (ADR-1314, #4760) as
+   * a hover tooltip and as a screen-reader list. Nothing here is recomputed.
+   */
+  shellV2?: boolean;
 }
 
 const STYLE: Record<LaneMarkerKind, { tick: string; chip: string }> = {
@@ -36,6 +42,21 @@ interface Spec {
   shortText: string;
   preferredSide: LaneMarkerInput['preferredSide'];
   title: string;
+  /** Server definition plus as_of, v2 only; empty when the payload carries none. */
+  definition: string;
+}
+
+/** "P80: Dec 4, 2026. <definition> As of Nov 26, 2026." — the tooltip and SR text. */
+export function markerDefinitionText(
+  label: string,
+  iso: string,
+  definition: string | undefined,
+  asOf: string | undefined,
+): string {
+  const parts = [`${label}: ${fmtUtcLong(iso)}.`];
+  if (definition) parts.push(definition);
+  if (asOf) parts.push(`As of ${fmtUtcLong(asOf)}.`);
+  return parts.join(' ');
 }
 
 /**
@@ -48,7 +69,12 @@ interface Spec {
  * `MonteCarloGanttMarkers` draws only the P80 line. Positions are written through
  * DOM refs on scroll so panning never re-renders (rule 57).
  */
-export function TimescaleMarkerLane({ result, scaleData, canvasScrollRef }: Props) {
+export function TimescaleMarkerLane({
+  result,
+  scaleData,
+  canvasScrollRef,
+  shellV2 = false,
+}: Props) {
   // Subscribed so the lane's top follows the cadence rail appearing (rule 315c).
   useChartHeaderHeight();
   const top = markerLaneTop();
@@ -63,8 +89,10 @@ export function TimescaleMarkerLane({ result, scaleData, canvasScrollRef }: Prop
       shortText: 'Today',
       preferredSide: 'auto',
       title: `Today: ${fmtUtcLong(today)}`,
+      definition: '',
     },
   ];
+  const asOf = result?.lastRunAt;
   if (result) {
     specs.push({
       kind: 'p80',
@@ -73,16 +101,22 @@ export function TimescaleMarkerLane({ result, scaleData, canvasScrollRef }: Prop
       shortText: 'P80',
       preferredSide: 'left',
       title: `P80: ${fmtUtcLong(result.p80)}`,
+      definition: shellV2
+        ? markerDefinitionText('P80 finish', result.p80, result.definitions?.p80, asOf)
+        : '',
     });
   }
   if (commitment) {
     specs.push({
       kind: 'target',
       iso: commitment,
-      fullText: `Target: ${fmtUtcShort(commitment)}`,
-      shortText: 'Target',
+      fullText: `${shellV2 ? 'Commit' : 'Target'}: ${fmtUtcShort(commitment)}`,
+      shortText: shellV2 ? 'Commit' : 'Target',
       preferredSide: 'right',
       title: `Target: ${fmtUtcLong(commitment)}`,
+      definition: shellV2
+        ? markerDefinitionText('Commitment', commitment, result?.definitions?.commitment_date, asOf)
+        : '',
     });
   }
   const specKey = specs.map((s) => `${s.kind}:${s.iso}`).join('|');
@@ -137,37 +171,50 @@ export function TimescaleMarkerLane({ result, scaleData, canvasScrollRef }: Prop
 
   if (!scaleData) return null;
 
+  const defined = specs.filter((s) => s.definition);
+
   return (
-    <div
-      data-testid="marker-lane"
-      aria-hidden="true"
-      className="pointer-events-none absolute left-0 right-0 overflow-hidden"
-      style={{ top, height: MARKER_LANE_HEIGHT }}
-    >
-      {specs.map((s) => (
-        <div key={s.kind} title={s.title}>
-          <div
-            ref={(el) => {
-              if (el) tickRefs.current.set(s.kind, el);
-              else tickRefs.current.delete(s.kind);
-            }}
-            data-testid={`marker-lane-tick-${s.kind}`}
-            className={`absolute top-0 bottom-0 w-px ${STYLE[s.kind].tick}`}
-            style={{ left: 0 }}
-          />
-          <span
-            ref={(el) => {
-              if (el) chipRefs.current.set(s.kind, el);
-              else chipRefs.current.delete(s.kind);
-            }}
-            data-testid={`marker-lane-${s.kind}`}
-            className={`absolute top-px whitespace-nowrap text-xs leading-[14px] font-medium border rounded-chip px-1.5 bg-neutral-surface ${STYLE[s.kind].chip}`}
-            style={{ left: 0 }}
-          >
-            {s.fullText}
-          </span>
-        </div>
-      ))}
-    </div>
+    <>
+      <div
+        data-testid="marker-lane"
+        aria-hidden="true"
+        className="pointer-events-none absolute left-0 right-0 overflow-hidden"
+        style={{ top, height: MARKER_LANE_HEIGHT }}
+      >
+        {specs.map((s) => (
+          <div key={s.kind} title={s.definition || s.title}>
+            <div
+              ref={(el) => {
+                if (el) tickRefs.current.set(s.kind, el);
+                else tickRefs.current.delete(s.kind);
+              }}
+              data-testid={`marker-lane-tick-${s.kind}`}
+              className={`absolute top-0 bottom-0 w-px ${STYLE[s.kind].tick}`}
+              style={{ left: 0 }}
+            />
+            <span
+              ref={(el) => {
+                if (el) chipRefs.current.set(s.kind, el);
+                else chipRefs.current.delete(s.kind);
+              }}
+              data-testid={`marker-lane-${s.kind}`}
+              data-definition={s.definition || undefined}
+              className={`absolute top-px whitespace-nowrap text-xs leading-[14px] font-medium border rounded-chip px-1.5 bg-neutral-surface ${STYLE[s.kind].chip}${s.definition ? ' pointer-events-auto cursor-help' : ''}`}
+              style={{ left: 0 }}
+            >
+              {s.fullText}
+            </span>
+          </div>
+        ))}
+      </div>
+      {/* The visual lane is aria-hidden; its defined markers are read here instead. */}
+      {defined.length > 0 && (
+        <ul className="sr-only" aria-label="Forecast markers" data-testid="marker-lane-definitions">
+          {defined.map((s) => (
+            <li key={s.kind}>{s.definition}</li>
+          ))}
+        </ul>
+      )}
+    </>
   );
 }

@@ -44,6 +44,7 @@ from .models import (
     DEFAULT_PREFERENCES,
     DND_BYPASS_EVENTS,
     PROJECT_NOTIFICATION_DEFAULT_MATRIX,
+    UNMUTABLE_IN_APP_EVENTS,
     Mention,
     MentionScope,
     Notification,
@@ -1182,7 +1183,9 @@ def create_event_notifications(
 
     notifications: list[Notification] = []
     for user_id in unique_ids:
-        if not _allows(user_id, NotificationChannel.IN_APP.value):
+        if event_type not in UNMUTABLE_IN_APP_EVENTS and not _allows(
+            user_id, NotificationChannel.IN_APP.value
+        ):
             continue
         notifications.append(
             Notification(
@@ -1300,7 +1303,11 @@ def create_event_notifications_multi_project(
 
     notifications: list[Notification] = []
     for recipient_id, project_id, subject, body, task_id in rows:
-        if recipient_id is None or not _allows(recipient_id, NotificationChannel.IN_APP.value):
+        if recipient_id is None:
+            continue
+        if event_type not in UNMUTABLE_IN_APP_EVENTS and not _allows(
+            recipient_id, NotificationChannel.IN_APP.value
+        ):
             continue
         notifications.append(
             Notification(
@@ -1322,6 +1329,69 @@ def create_event_notifications_multi_project(
         return 0
     _bulk_create_notifications(notifications, batch_size=NOTIFICATION_BULK_BATCH_SIZE)
     return len(notifications)
+
+
+def upsert_grouped_event_notification(
+    *,
+    event_type: str,
+    recipient_ids: Sequence[int | str | None],
+    project_id: uuid.UUID | str,
+    group_key: str,
+    subject: str,
+    body: str,
+    task_id: uuid.UUID | str | None = None,
+) -> int:
+    """Write ONE notice per recipient for a group of changes, rewriting it as the group grows.
+
+    ADR-1485 D8: one drag or one bulk placement produces one notice ("3 tasks ·
+    accept all / review"), however many rows the request wrote. The rows of one
+    request are written one at a time, so the notice cannot be built once at the
+    end without a request-end hook every write path would have to remember. Instead
+    each row calls this with the same ``group_key`` and the recipient's existing
+    notice is rewritten with the new subject and body, marked unread again so a
+    growing batch is not hidden by an earlier read.
+
+    Gating is :func:`create_event_notifications_multi_project`'s (preferences, DND
+    for email, :data:`UNMUTABLE_IN_APP_EVENTS`); a recipient it would skip gets
+    nothing. Returns the number of recipients whose notice was written or updated.
+    """
+    unique_ids = {rid for rid in recipient_ids if rid is not None}
+    if not unique_ids or not group_key:
+        return 0
+    # User PKs are integers everywhere; the fan-out helpers accept ``int | str``.
+    pks = [int(rid) for rid in unique_ids]
+    existing = {
+        n.recipient_id: n
+        for n in Notification.objects.select_for_update().filter(
+            recipient_id__in=pks, event_type=event_type, group_key=group_key
+        )
+    }
+    touched = 0
+    for note in existing.values():
+        note.subject = subject
+        note.body = body
+        note.task_id = task_id
+        note.is_read = False
+        note.read_at = None
+        note.save(update_fields=["subject", "body", "task", "is_read", "read_at"])
+        touched += 1
+    fresh = [rid for rid in pks if rid not in existing]
+    if fresh:
+        before = set(
+            Notification.objects.filter(
+                recipient_id__in=fresh, event_type=event_type, group_key=""
+            ).values_list("pk", flat=True)
+        )
+        created = create_event_notifications_multi_project(
+            event_type=event_type,
+            rows=[(rid, project_id, subject, body, task_id) for rid in fresh],
+        )
+        if created:
+            Notification.objects.filter(
+                recipient_id__in=fresh, event_type=event_type, group_key=""
+            ).exclude(pk__in=before).update(group_key=group_key)
+        touched += created
+    return touched
 
 
 # Default per-board stale threshold, mirrored on Project.stale_task_threshold_days

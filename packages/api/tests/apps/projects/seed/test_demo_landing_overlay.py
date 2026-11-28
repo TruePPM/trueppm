@@ -236,6 +236,19 @@ def test_the_overlay_is_idempotent_across_nightly_resets(demo_mode: None, progra
     assert Task.objects.get(project=project, name=CONFIRMED_MILESTONE_NAME).edited_at is not None
 
 
+def test_the_overlay_seeds_no_commitment_notices(demo_mode: None, program: Any) -> None:
+    """The overlay's schedule run finds at-risk sprint tasks, and announces none."""
+    from trueppm_api.apps.notifications.models import Notification, NotificationEventType
+    from trueppm_api.apps.projects.models import SprintCommitmentRisk
+
+    apply_demo_landing_overlay(program)
+
+    assert not Notification.objects.filter(
+        event_type=NotificationEventType.SPRINT_COMMITMENT_AT_RISK
+    ).exists()
+    assert not SprintCommitmentRisk.objects.exists()
+
+
 def test_the_overlay_refuses_outside_a_demo_deployment(program: Any, settings: Any) -> None:
     settings.DEMO_READ_ONLY = False
     with pytest.raises(DemoOverlayRefused):

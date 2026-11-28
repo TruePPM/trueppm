@@ -504,7 +504,7 @@ class TestNotificationPreferences:
         assert NotificationPreference.objects.filter(user=alice).count() == 0
         r = alice_client.get("/api/v1/me/notification-preferences/")
         assert r.status_code == 200
-        assert len(r.data["results"]) == len(DEFAULT_PREFERENCES)
+        assert len(r.data["results"]) == len(DEFAULT_PREFERENCES) == r.data["count"]
 
     def test_patch_toggles_enabled(self, alice_client: APIClient, alice: object) -> None:
         # Backfill defaults
@@ -548,7 +548,10 @@ class TestNotificationPreferences:
 
     def test_apply_signal_only_preset(self, alice_client: APIClient, alice: object) -> None:
         """signal_only keeps in-app ON for blocked + deadline-changed, all else OFF."""
-        from trueppm_api.apps.notifications.models import SIGNAL_ONLY_EVENTS
+        from trueppm_api.apps.notifications.models import (
+            SIGNAL_ONLY_EVENTS,
+            UNMUTABLE_IN_APP_EVENTS,
+        )
 
         r = alice_client.post(
             "/api/v1/me/notification-preferences/apply-preset/",
@@ -557,8 +560,9 @@ class TestNotificationPreferences:
         )
         assert r.status_code == 200, r.data
         for pref in NotificationPreference.objects.filter(user=alice):
-            expected = (
-                pref.channel == NotificationChannel.IN_APP and pref.event_type in SIGNAL_ONLY_EVENTS
+            # The in-app cell of an unmutable event stays on in every preset (ADR-1485 D8).
+            expected = pref.channel == NotificationChannel.IN_APP and (
+                pref.event_type in SIGNAL_ONLY_EVENTS or pref.event_type in UNMUTABLE_IN_APP_EVENTS
             )
             assert pref.enabled is expected, (pref.event_type, pref.channel)
 
@@ -632,11 +636,15 @@ class TestNotificationPreferences:
         assert r.status_code == 200
 
         # Database must reflect the preset consistently (no half-written rows).
-        from trueppm_api.apps.notifications.models import SIGNAL_ONLY_EVENTS
+        from trueppm_api.apps.notifications.models import (
+            SIGNAL_ONLY_EVENTS,
+            UNMUTABLE_IN_APP_EVENTS,
+        )
 
         for pref in NotificationPreference.objects.filter(user=alice):
-            expected = (
-                pref.channel == NotificationChannel.IN_APP and pref.event_type in SIGNAL_ONLY_EVENTS
+            # The in-app cell of an unmutable event stays on in every preset (ADR-1485 D8).
+            expected = pref.channel == NotificationChannel.IN_APP and (
+                pref.event_type in SIGNAL_ONLY_EVENTS or pref.event_type in UNMUTABLE_IN_APP_EVENTS
             )
             assert pref.enabled is expected, (
                 f"Row {pref.event_type}/{pref.channel} has unexpected enabled={pref.enabled}"

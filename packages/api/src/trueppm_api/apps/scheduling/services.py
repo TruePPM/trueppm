@@ -1157,7 +1157,20 @@ def _rollup_one_summary(
     # early_start) still pulls the rolled-up summary bar's span left. Falls
     # back to early_start when no leaf carries one (pre-#2622 synced rows).
     ss_dates = [t.scheduled_start for t in leaf_results if t.scheduled_start is not None]
-    floats = [t.total_float for t in leaf_results if t.total_float is not None]
+    # #5183: float and criticality are taken over the INCOMPLETE leaves only. The
+    # engine pins a completed leaf to its recorded dates, which yields a zero float
+    # that says nothing about the open work beside it; counting it made any summary
+    # holding finished work report total_float = 0 while is_critical stayed False.
+    # An all-complete summary reads like a completed leaf: zero float, not critical.
+    # The completion predicate is inlined (not the engine's private _is_complete)
+    # because the API may import only names the released scheduler wheel carries.
+    open_results = [
+        t
+        for t in leaf_results
+        if getattr(t, "actual_finish", None) is None
+        and (getattr(t, "percent_complete", 0) or 0) < 100
+    ]
+    floats = [t.total_float for t in open_results if t.total_float is not None]
 
     summary_sched = SchedTask(
         id=sid,
@@ -1171,7 +1184,7 @@ def _rollup_one_summary(
     summary_sched.scheduled_start = min(ss_dates) if ss_dates else summary_sched.early_start
     summary_sched.total_float = min(floats) if floats else timedelta(days=0)
     summary_sched.free_float = timedelta(days=0)
-    summary_sched.is_critical = any(t.is_critical for t in leaf_results)
+    summary_sched.is_critical = any(t.is_critical for t in open_results)
     return summary_sched
 
 
@@ -1186,11 +1199,11 @@ def apply_summary_rollups(
     Summary tasks are excluded from the leaf CPM pass (they are grouping nodes, not
     schedulable work), so their dates are *derived* from their leaf descendants:
     ``early_start = min(leaf early_start)``, ``early_finish = max(leaf early_finish)``,
-    tightest float, critical if any leaf is critical. Shared by the single-project
-    write-back (``scheduling.tasks._run_schedule``) and the program-scoped write-back
-    (``recalculate_program_schedule``) so the two never drift (the #1185 class). The
-    merged ``children_map`` keys are globally-unique task ids, so this works
-    unchanged across the per-project and program graphs.
+    tightest float and critical-if-any over the incomplete leaves (#5183). Shared by
+    the single-project write-back (``scheduling.tasks._run_schedule``) and the
+    program-scoped write-back (``recalculate_program_schedule``) so the two never
+    drift (the #1185 class). The merged ``children_map`` keys are globally-unique
+    task ids, so this works unchanged across the per-project and program graphs.
     """
     from trueppm_scheduler.engine import _collect_leaves
 

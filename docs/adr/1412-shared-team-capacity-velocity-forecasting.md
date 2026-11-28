@@ -129,7 +129,17 @@ gives identical results, chunked and unchunked runs are bit-identical, and the
 #5008 moves the API's own velocity/throughput bootstrap into the scheduler. That move
 must adopt this model (one capacity per run, fractional sprints, remaining points), not
 the per-task primitive, or the sprint-forecast surface and the Monte Carlo forecast will
-disagree about the same team. API call sites found on 2026-11-15, unchanged by this ADR:
+disagree about the same team.
+
+The library half of that move, `trueppm_scheduler.forecast` (#5008), first shipped
+counting whole sprints with a copy of the per-task primitive, so for one backlog,
+history and seed `forecast_velocity_delivery()` and `monte_carlo()` returned different
+dates (#5185). It now holds no velocity sampler of its own: `forecast_velocity_delivery`
+runs `monte_carlo()` on a one-story SCRUM project (a one-day `duration` floor, a
+seven-day working week, `today` as start and data date) and returns its P50/P80/P95
+dates, so the two agree by construction. `tests/test_forecast.py` pins the parity
+against an independently built `monte_carlo()` call. The throughput forecast has no
+Monte Carlo counterpart and keeps its own bootstrap. API call sites found on 2026-11-15, unchanged by this ADR:
 
 - `packages/api/src/trueppm_api/apps/projects/services.py`: the bootstrap sampler near
   line 5706 (documented as matching `_sample_velocity_durations` at

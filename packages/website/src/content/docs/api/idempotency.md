@@ -1,7 +1,14 @@
 ---
 title: Idempotency
 description: Stripe-style Idempotency-Key header for safe retries of unsafe requests.
+documentedFor: "0.5"
 ---
+
+:::note[Ships in 0.5]
+The `code`-keyed refusal bodies on this page ship in 0.5. In 0.4 an over-long key answers
+`400` with `{"Idempotency-Key": "..."}` (a field-keyed message, no `code`), and a reused key
+answers `422` with no `code`.
+:::
 
 TruePPM supports a Stripe-style `Idempotency-Key` request header so that **retrying an
 unsafe request is safe** — a retry after a network timeout replays the original response
@@ -48,6 +55,7 @@ of these.
 | `GET` / `HEAD` / `OPTIONS` | Header ignored (safe methods). |
 | Same key, **same** request | Stored response replayed (`Idempotent-Replay: true`). |
 | Same key, **different** request body/path | `422 Unprocessable Entity`, code `idempotency_key_conflict`. |
+| Key longer than 255 characters | `400 Bad Request`, code `idempotency_key_too_long`. |
 | Validation error (`4xx`) or server error (`5xx`) | Not cached — these roll back the request, so a retry re-runs it (the error is deterministic). |
 | Key older than the retention window | Purged; a later retry re-runs the request. |
 
@@ -60,7 +68,12 @@ rejected with `422`. Use `application/json` and resend the exact same payload by
 **Keys are scoped per authenticated user.** One user cannot replay another user's stored
 response, even with the same key value.
 
-### 422 conflict response
+### Refusal responses
+
+Both refusals come from the idempotency layer, before the endpoint runs, and share one
+body shape (`IdempotencyKeyError` in the OpenAPI schema). Each idempotent operation's
+declared `400` and `422` admit it beside that operation's own errors, so branch on
+`code`:
 
 ```json
 {

@@ -413,6 +413,7 @@ _PATH_ROUTES = [
     "monte-carlo/latest/",
     "schedule/derivation/",
     "schedule/driving-chain/",
+    "schedule/feasibility/",
 ]
 
 
@@ -1366,6 +1367,7 @@ _SPRINT_ACTION_READS = [
     "capacity/",
     "daily-delta/",
     "scope-changes/",
+    "commitment-status/",
     "incoming_carryover/",
     "close-request/",
     # reforecast-preview was the one GET this fix originally MISSED — its

@@ -141,3 +141,28 @@ endpoint-removed | POST /api/v1/workspace/groups/{group_id}/projects/{project_id
 # #4990 - the deprecated `has_more` flag leaves the sync pull envelope; it was exactly
 # `next_cursor is not null`.
 property-removed | response #/SyncPullResponse.has_more | sync-delta-hasmore-removed-4990 | deprecated duplicate of next_cursor is not null
+
+# #5093 - response properties the server already omits on some paths (a `required=False`
+# serializer field, a 403 whose role check refused before the ownership check). The schema
+# overclaimed them as required; declaring them optional corrects the declaration.
+became-optional | response #/ProgramScheduleTask.duration | api-fuzz-declaration-corrections-5093 | the server already omits this key; the schema overclaimed it as required
+became-optional | response #/ProgramScheduleTask.late_finish | api-fuzz-declaration-corrections-5093 | the server already omits this key; the schema overclaimed it as required
+became-optional | response #/ProgramScheduleTask.late_start | api-fuzz-declaration-corrections-5093 | the server already omits this key; the schema overclaimed it as required
+became-optional | response #/ProgramScheduleTask.milestone_at_day_end | api-fuzz-declaration-corrections-5093 | the server already omits this key; the schema overclaimed it as required
+became-optional | response #/ProgramScheduleTask.name | api-fuzz-declaration-corrections-5093 | the server already omits this key; the schema overclaimed it as required
+became-optional | response #/ProgramScheduleTask.project_name | api-fuzz-declaration-corrections-5093 | the server already omits this key; the schema overclaimed it as required
+became-optional | response #/ProgramScheduleTask.title | api-fuzz-declaration-corrections-5093 | the server already omits this key; the schema overclaimed it as required
+became-optional | response #/ProgramScheduleTask.total_float_days | api-fuzz-declaration-corrections-5093 | the server already omits this key; the schema overclaimed it as required
+became-optional | response #/ProgramScheduleTask.wbs_path | api-fuzz-declaration-corrections-5093 | the server already omits this key; the schema overclaimed it as required
+became-optional | response #/ProjectVelocity.velocity_suppressed | api-fuzz-declaration-corrections-5093 | the server already omits this key; the schema overclaimed it as required
+became-optional | response #/SprintPulseTrend.energy_declining | api-fuzz-declaration-corrections-5093 | the server already omits this key; the schema overclaimed it as required
+became-optional | response #/SprintPulseTrend.my_response | api-fuzz-declaration-corrections-5093 | the server already omits this key; the schema overclaimed it as required
+became-optional | response #/SprintPulseTrend.points | api-fuzz-declaration-corrections-5093 | the server already omits this key; the schema overclaimed it as required
+became-optional | response #/SprintScopeChangeBulkResult.accepted | api-fuzz-declaration-corrections-5093 | the server already omits this key; the schema overclaimed it as required
+became-optional | response #/SprintScopeChangeBulkResult.rejected | api-fuzz-declaration-corrections-5093 | the server already omits this key; the schema overclaimed it as required
+became-optional | response DELETE /api/v1/projects/{project_pk}/tasks/{task_pk}/attachments/{id}/ 403.code | api-fuzz-declaration-corrections-5093 | the server already omits this key; the schema overclaimed it as required
+became-optional | response DELETE /api/v1/projects/{project_pk}/tasks/{task_pk}/comments/{comment_pk}/reactions/{id}/ 403.code | api-fuzz-declaration-corrections-5093 | the server already omits this key; the schema overclaimed it as required
+became-optional | response DELETE /api/v1/projects/{project_pk}/tasks/{task_pk}/comments/{id}/ 403.code | api-fuzz-declaration-corrections-5093 | the server already omits this key; the schema overclaimed it as required
+became-optional | response DELETE /api/v1/projects/{project_pk}/tasks/{task_pk}/notes/{id}/ 403.code | api-fuzz-declaration-corrections-5093 | the server already omits this key; the schema overclaimed it as required
+became-optional | response PATCH /api/v1/projects/{project_pk}/tasks/{task_pk}/comments/{id}/ 403.code | api-fuzz-declaration-corrections-5093 | the server already omits this key; the schema overclaimed it as required
+became-optional | response PATCH /api/v1/projects/{project_pk}/tasks/{task_pk}/notes/{id}/ 403.code | api-fuzz-declaration-corrections-5093 | the server already omits this key; the schema overclaimed it as required

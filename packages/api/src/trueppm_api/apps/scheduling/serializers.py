@@ -1085,3 +1085,52 @@ class ScheduleDrivingChainSerializer(serializers.Serializer[dict[str, Any]]):
 
 
 ScheduleDrivingChainSerializer._declared_fields["_provenance"] = AnswerProvenanceSerializer()
+
+
+SCHEDULE_FEASIBILITY_CODE_CHOICES = ["cyclic_dependency"]
+
+
+class ScheduleFeasibilityTaskSerializer(serializers.Serializer[dict[str, Any]]):
+    """One task in a dependency loop."""
+
+    id = serializers.UUIDField()
+    name = serializers.CharField()
+
+
+class ScheduleFeasibilitySerializer(serializers.Serializer[dict[str, Any]]):
+    """Whether this project's dependency links form a loop (#5106).
+
+    The verdict is the engine's own: shaping runs through the same converters the
+    deterministic pass uses, and a loop is found by ``trueppm_scheduler.find_cycle``.
+    Nothing here is re-derived in the API, so the Schedule page's error state names the
+    same tasks the recalculation refused on. It answers only the loop question: the
+    engine's other refusals are raised inside ``schedule()``, which this read never runs.
+    """
+
+    project_id = serializers.UUIDField()
+    computable = serializers.BooleanField(
+        help_text=(
+            "False when the dependency links form a loop. True means no loop was found, "
+            "not that every other scheduler check passes."
+        )
+    )
+    code = serializers.ChoiceField(
+        choices=SCHEDULE_FEASIBILITY_CODE_CHOICES,
+        allow_null=True,
+        help_text=(
+            "`cyclic_dependency` when the dependency links form a loop (`cycle` lists "
+            "it). Null exactly when computable."
+        ),
+    )
+    cycle = ScheduleFeasibilityTaskSerializer(
+        many=True,
+        help_text=(
+            "The loop in order, each task once (the path returns to the first). Empty "
+            "unless code is `cyclic_dependency`."
+        ),
+    )
+    definition = serializers.CharField(
+        allow_null=True,
+        help_text="One sentence defining `code`; null when computable.",
+    )
+    as_of = serializers.DateTimeField(help_text="When the server checked the network.")

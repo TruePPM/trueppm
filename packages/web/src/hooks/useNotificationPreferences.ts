@@ -28,8 +28,8 @@ export function useNotificationPreferences() {
     queryFn: async () => {
       // The list endpoint is paginated (DRF PageNumberPagination, PAGE_SIZE=50)
       // so the body is the {count,next,previous,results} envelope, not a bare
-      // array — unwrap results. The matrix is four rows today, well under one
-      // page. (#792)
+      // array — unwrap results. The server sizes one page past the whole matrix
+      // (54 rows, more than the global PAGE_SIZE of 50), so page 1 is all of it. (#792)
       const res = await apiClient.get<PaginatedResponse<NotificationPreferenceRow>>(
         '/me/notification-preferences/',
       );

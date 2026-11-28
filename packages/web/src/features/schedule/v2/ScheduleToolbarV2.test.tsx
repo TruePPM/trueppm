@@ -185,3 +185,70 @@ describe('ladderSignature (#4796)', () => {
     expect(sig({}, 'month')).not.toBe(sig());
   });
 });
+
+describe('ScheduleToolbarV2 v1 action parity and phone (#5106)', () => {
+  const open = () =>
+    fireEvent.click(screen.getByRole('button', { name: /^More schedule actions/ }));
+
+  it('puts the carried-over v1 acts in the overflow, counted in its name', () => {
+    const onImport = vi.fn();
+    render(
+      <ScheduleToolbarV2
+        {...props({
+          structureExtras: [
+            { label: 'Ungroup', onSelect: vi.fn(), disabled: true },
+            { label: 'Undo last change', onSelect: vi.fn(), disabled: true },
+          ],
+          actionSections: [
+            {
+              heading: 'Add',
+              position: 'start',
+              items: [{ label: 'Add milestone', onSelect: vi.fn() }],
+            },
+            {
+              heading: 'Bring work in',
+              position: 'end',
+              items: [{ label: 'Import from MS Project…', onSelect: onImport }],
+            },
+            { heading: 'Empty', position: 'end', items: [] },
+          ],
+        })}
+      />,
+    );
+    // 5 base commands + 2 structure extras + 2 section items.
+    expect(
+      screen.getByRole('button', { name: 'More schedule actions, 9 items' }),
+    ).toBeInTheDocument();
+    open();
+    const names = screen.getAllByRole('menuitem').map((el) => el.textContent);
+    expect(names.indexOf('Add milestone')).toBeLessThan(names.indexOf('Group'));
+    expect(names.indexOf('Import from MS Project…')).toBeGreaterThan(names.indexOf('Export PDF…'));
+    expect(screen.getByRole('menuitem', { name: 'Ungroup' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    // An empty section draws no orphan heading.
+    expect(screen.queryByText('Empty')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Import from MS Project…' }));
+    expect(onImport).toHaveBeenCalledTimes(1);
+  });
+
+  it('on a phone offers no control the list cannot act on', () => {
+    render(<ScheduleToolbarV2 {...props({ phone: true })} />);
+    // Export only: no Group, Expand all, Dependency links or Columns.
+    expect(
+      screen.getByRole('button', { name: 'More schedule actions, 1 item' }),
+    ).toBeInTheDocument();
+    open();
+    for (const gone of ['Group', 'Expand all']) {
+      expect(screen.queryByRole('menuitem', { name: gone })).not.toBeInTheDocument();
+    }
+    expect(screen.queryByRole('menuitemcheckbox', { name: 'Owner' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Columns')).not.toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
+    expect(screen.queryByRole('button', { name: 'Zoom' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Baseline' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Today' })).toBeInTheDocument();
+    expect(screen.getByRole('toolbar')).toHaveAttribute('data-phone', 'true');
+  });
+});

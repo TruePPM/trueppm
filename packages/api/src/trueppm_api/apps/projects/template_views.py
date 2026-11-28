@@ -672,7 +672,10 @@ class ProjectTemplateViewSet(IdempotencyMixin, viewsets.ReadOnlyModelViewSet[Pro
         project_id, name, raw_description = _publish_inputs(body)
         try:
             project = Project.objects.get(pk=project_id, is_deleted=False)
-        except (Project.DoesNotExist, ValueError, TypeError) as exc:
+        # A malformed UUID raises Django's ValidationError, which DRF does not convert:
+        # it reached the wire as a bare ``["Invalid input."]`` array (#5093), unlike
+        # every other unknown-project path here.
+        except (Project.DoesNotExist, ValueError, TypeError, DjangoValidationError) as exc:
             raise ValidationError({"project": _NO_SUCH_PROJECT_DETAIL}) from exc
         self._require_project_admin(project)
 

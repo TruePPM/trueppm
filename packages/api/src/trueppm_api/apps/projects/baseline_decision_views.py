@@ -93,6 +93,12 @@ class ChangesetEntrySerializer(serializers.ModelSerializer[ChangesetEntry]):
 
 
 class BaselineDecisionSerializer(serializers.ModelSerializer[BaselineDecision]):
+    # Declared, not generated: ModelSerializer drops ``allow_blank`` from a read-only
+    # field, so the schema published a closed enum without ``""`` while a ``kept``
+    # decision (no reason required) stores and returns the blank (#5093).
+    reason_code = serializers.ChoiceField(
+        choices=RebaselineReasonCode.choices, allow_blank=True, read_only=True
+    )
     actor_name = serializers.SerializerMethodField()
     to_baseline_name = serializers.SerializerMethodField()
 

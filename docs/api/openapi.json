@@ -602,6 +602,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete acceptance criterion"
@@ -2323,30 +2326,37 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "allOf": [
+                                                        {
+                                                            "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                        }
+                                                    ],
+                                                    "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
+                                                    "example": "Request body must be a JSON object."
+                                                },
+                                                "code": {
+                                                    "allOf": [
+                                                        {
+                                                            "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                        }
+                                                    ],
+                                                    "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
+                                                    "example": "invalid_body"
                                                 }
-                                            ],
-                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
-                                            "example": "Request body must be a JSON object."
+                                            },
+                                            "additionalProperties": {
+                                                "$ref": "#/components/schemas/ValidationErrorDetail"
+                                            }
                                         },
-                                        "code": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
-                                                }
-                                            ],
-                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
-                                            "example": "invalid_body"
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    },
-                                    "additionalProperties": {
-                                        "$ref": "#/components/schemas/ValidationErrorDetail"
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -4090,6 +4100,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete exception"
@@ -4507,6 +4520,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -4703,12 +4719,19 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string"
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -5371,6 +5394,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete dependency"
@@ -5441,10 +5467,17 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string"
-                                    }
+                                    "anyOf": [
+                                        {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
+                                        }
+                                    ]
                                 }
                             }
                         },
@@ -5537,10 +5570,17 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string"
-                                    }
+                                    "anyOf": [
+                                        {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
+                                        }
+                                    ]
                                 }
                             }
                         },
@@ -7400,7 +7440,14 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ExternalConnectionError"
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/components/schemas/ExternalConnectionError"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
+                                        }
+                                    ]
                                 }
                             }
                         },
@@ -7642,12 +7689,19 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string"
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -7771,12 +7825,19 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string"
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -8050,7 +8111,14 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/CredentialVerificationError"
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/components/schemas/CredentialVerificationError"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
+                                        }
+                                    ]
                                 }
                             }
                         },
@@ -8192,12 +8260,19 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string"
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -9668,6 +9743,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Approve timesheet"
@@ -9760,8 +9838,15 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "additionalProperties": {}
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
+                                        }
+                                    ]
                                 }
                             }
                         },
@@ -10184,6 +10269,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete time entry"
@@ -10442,6 +10530,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "parameters": [
@@ -10883,12 +10974,19 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string"
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -11950,6 +12048,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete program"
@@ -12163,6 +12264,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -12298,8 +12402,15 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "additionalProperties": {}
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
+                                        }
+                                    ]
                                 }
                             }
                         },
@@ -12902,7 +13013,14 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/PinLimitReachedResponse"
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/components/schemas/PinLimitReachedResponse"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
+                                        }
+                                    ]
                                 }
                             }
                         },
@@ -13005,7 +13123,14 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/PinLimitReachedResponse"
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/components/schemas/PinLimitReachedResponse"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
+                                        }
+                                    ]
                                 }
                             }
                         },
@@ -13190,6 +13315,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -13273,6 +13401,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -13453,10 +13584,17 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {
-                                        "$ref": "#/components/schemas/ValidationErrorDetail"
-                                    }
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "additionalProperties": {
+                                                "$ref": "#/components/schemas/ValidationErrorDetail"
+                                            }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
+                                        }
+                                    ]
                                 }
                             }
                         },
@@ -14354,30 +14492,37 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "allOf": [
+                                                        {
+                                                            "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                        }
+                                                    ],
+                                                    "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
+                                                    "example": "Request body must be a JSON object."
+                                                },
+                                                "code": {
+                                                    "allOf": [
+                                                        {
+                                                            "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                        }
+                                                    ],
+                                                    "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
+                                                    "example": "invalid_body"
                                                 }
-                                            ],
-                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
-                                            "example": "Request body must be a JSON object."
+                                            },
+                                            "additionalProperties": {
+                                                "$ref": "#/components/schemas/ValidationErrorDetail"
+                                            }
                                         },
-                                        "code": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
-                                                }
-                                            ],
-                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
-                                            "example": "invalid_body"
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    },
-                                    "additionalProperties": {
-                                        "$ref": "#/components/schemas/ValidationErrorDetail"
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -15727,6 +15872,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete backlog item"
@@ -16492,6 +16640,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete ceremony"
@@ -17000,6 +17151,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete decision"
@@ -17497,6 +17651,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete external stakeholder"
@@ -17772,12 +17929,19 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string"
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -17997,12 +18161,19 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string"
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -18127,12 +18298,19 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string"
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -18662,6 +18840,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete mention group"
@@ -18898,6 +19079,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -19133,6 +19317,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -21385,6 +21572,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete project resource"
@@ -22493,12 +22683,19 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string"
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -22724,6 +22921,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -23499,6 +23699,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete board view"
@@ -23989,6 +24192,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -24275,8 +24481,15 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "additionalProperties": {}
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
+                                        }
+                                    ]
                                 }
                             }
                         },
@@ -25945,7 +26158,14 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/PinLimitReachedResponse"
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/components/schemas/PinLimitReachedResponse"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
+                                        }
+                                    ]
                                 }
                             }
                         },
@@ -26048,7 +26268,14 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/PinLimitReachedResponse"
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/components/schemas/PinLimitReachedResponse"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
+                                        }
+                                    ]
                                 }
                             }
                         },
@@ -26298,6 +26525,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -26874,28 +27104,35 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string"
-                                        },
-                                        "code": {
-                                            "type": "string",
-                                            "enum": [
-                                                "cyclic_dependency",
-                                                "self_reference"
-                                            ],
-                                            "description": "Stable refusal code — branch on this, not on ``detail``.",
-                                            "x-trueppm-enum": "open"
-                                        },
-                                        "offending": {
-                                            "type": "array",
-                                            "description": "Ids of the tasks on the cycle.",
-                                            "items": {
-                                                "type": "string"
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "type": "string"
+                                                },
+                                                "code": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                        "cyclic_dependency",
+                                                        "self_reference"
+                                                    ],
+                                                    "description": "Stable refusal code — branch on this, not on ``detail``.",
+                                                    "x-trueppm-enum": "open"
+                                                },
+                                                "offending": {
+                                                    "type": "array",
+                                                    "description": "Ids of the tasks on the cycle.",
+                                                    "items": {
+                                                        "type": "string"
+                                                    }
+                                                }
                                             }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -27286,6 +27523,78 @@
                     },
                     "404": {
                         "description": "Unknown project or task."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/schedule/feasibility/": {
+            "get": {
+                "operationId": "project_schedule_feasibility",
+                "description": "Whether this project's dependency links form a loop (#5106).\n\n``GET /projects/<pk>/schedule/feasibility/``\n\nThe interactive write path refuses a link that closes a loop, but older writes,\nimports and structural edits can still leave one behind; the background\nrecalculation then fails with the engine's message held Admin-only on the failed\nrun, and every reader of the Schedule page sees stale dates with no reason. This\nread gives the page that reason as a fact: it builds the scheduler input through\nthe shared converters ``_run_schedule`` uses and asks the engine's\n:func:`trueppm_scheduler.find_cycle` for a loop.\n\nThe contract is deliberately that one question. ``computable`` means \"no\ndependency loop found\", not \"``schedule()`` would succeed\": the engine's other\nrefusals (an unknown calendar, a summary SS/SF link, an empty project, …) are\nraised inside ``schedule()``, which this view never calls — no CPM pass runs. If\nthe input cannot even be built, the view answers 422 with a fixed message rather\nthan guess a verdict either way.\n\nRBAC mirrors :class:`ScheduleDrivingChainView`: any project member (Viewer+), plus\nan ``mcp:read`` token on safe methods. Task names are already readable at Viewer.",
+                "summary": "Whether the project's dependency links form a loop",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "scheduling"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ScheduleFeasibility"
+                                }
+                            }
+                        },
+                        "description": "computable=true when no dependency loop was found, or computable=false with code cyclic_dependency and the loop in cycle."
+                    },
+                    "403": {
+                        "description": "Not a member of the project."
+                    },
+                    "404": {
+                        "description": "Unknown project."
+                    },
+                    "422": {
+                        "description": "The loop check could not run on the stored network."
                     },
                     "429": {
                         "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
@@ -27909,56 +28218,63 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string"
-                                        },
-                                        "code": {
-                                            "type": "string",
-                                            "enum": [
-                                                "child_of_milestone",
-                                                "summary_start_link",
-                                                "summary_descendant_link",
-                                                "unschedulable_change"
-                                            ],
-                                            "description": "Stable refusal code — branch on this, not on ``detail``.",
-                                            "x-trueppm-enum": "open"
-                                        },
-                                        "blocking_dependencies": {
-                                            "type": "array",
-                                            "description": "Present only with code ``summary_start_link`` or ``summary_descendant_link``. For ``summary_start_link``: every Start-to-Start or Start-to-Finish link the task drives, and every Finish-to-Finish or Start-to-Finish link into it, that stops it becoming a summary (ADR-0370, #4437); ``successor_id`` is null when the successor is in another project. For ``summary_descendant_link``: every link the move would leave between a summary task and one of its own subtasks, which the scheduler treats as a cycle (#4705).",
-                                            "items": {
-                                                "type": "object",
-                                                "properties": {
-                                                    "id": {
-                                                        "type": "string",
-                                                        "format": "uuid"
-                                                    },
-                                                    "dep_type": {
-                                                        "type": "string",
-                                                        "enum": [
-                                                            "FS",
-                                                            "SS",
-                                                            "FF",
-                                                            "SF"
-                                                        ],
-                                                        "x-trueppm-enum": "open"
-                                                    },
-                                                    "successor_id": {
-                                                        "type": "string",
-                                                        "format": "uuid",
-                                                        "nullable": true
-                                                    }
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "type": "string"
                                                 },
-                                                "required": [
-                                                    "id",
-                                                    "dep_type",
-                                                    "successor_id"
-                                                ]
+                                                "code": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                        "child_of_milestone",
+                                                        "summary_start_link",
+                                                        "summary_descendant_link",
+                                                        "unschedulable_change"
+                                                    ],
+                                                    "description": "Stable refusal code — branch on this, not on ``detail``.",
+                                                    "x-trueppm-enum": "open"
+                                                },
+                                                "blocking_dependencies": {
+                                                    "type": "array",
+                                                    "description": "Present only with code ``summary_start_link`` or ``summary_descendant_link``. For ``summary_start_link``: every Start-to-Start or Start-to-Finish link the task drives, and every Finish-to-Finish or Start-to-Finish link into it, that stops it becoming a summary (ADR-0370, #4437); ``successor_id`` is null when the successor is in another project. For ``summary_descendant_link``: every link the move would leave between a summary task and one of its own subtasks, which the scheduler treats as a cycle (#4705).",
+                                                    "items": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "id": {
+                                                                "type": "string",
+                                                                "format": "uuid"
+                                                            },
+                                                            "dep_type": {
+                                                                "type": "string",
+                                                                "enum": [
+                                                                    "FS",
+                                                                    "SS",
+                                                                    "FF",
+                                                                    "SF"
+                                                                ],
+                                                                "x-trueppm-enum": "open"
+                                                            },
+                                                            "successor_id": {
+                                                                "type": "string",
+                                                                "format": "uuid",
+                                                                "nullable": true
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "id",
+                                                            "dep_type",
+                                                            "successor_id"
+                                                        ]
+                                                    }
+                                                }
                                             }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -28058,55 +28374,62 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string"
-                                        },
-                                        "code": {
-                                            "type": "string",
-                                            "enum": [
-                                                "summary_start_link",
-                                                "summary_descendant_link",
-                                                "unschedulable_change"
-                                            ],
-                                            "description": "Stable refusal code — branch on this, not on ``detail``.",
-                                            "x-trueppm-enum": "open"
-                                        },
-                                        "blocking_dependencies": {
-                                            "type": "array",
-                                            "description": "Present only with code ``summary_start_link`` or ``summary_descendant_link``. For ``summary_start_link``: every Start-to-Start or Start-to-Finish link the task drives, and every Finish-to-Finish or Start-to-Finish link into it, that stops it becoming a summary (ADR-0370, #4437); ``successor_id`` is null when the successor is in another project. For ``summary_descendant_link``: every link the move would leave between a summary task and one of its own subtasks, which the scheduler treats as a cycle (#4705).",
-                                            "items": {
-                                                "type": "object",
-                                                "properties": {
-                                                    "id": {
-                                                        "type": "string",
-                                                        "format": "uuid"
-                                                    },
-                                                    "dep_type": {
-                                                        "type": "string",
-                                                        "enum": [
-                                                            "FS",
-                                                            "SS",
-                                                            "FF",
-                                                            "SF"
-                                                        ],
-                                                        "x-trueppm-enum": "open"
-                                                    },
-                                                    "successor_id": {
-                                                        "type": "string",
-                                                        "format": "uuid",
-                                                        "nullable": true
-                                                    }
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "type": "string"
                                                 },
-                                                "required": [
-                                                    "id",
-                                                    "dep_type",
-                                                    "successor_id"
-                                                ]
+                                                "code": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                        "summary_start_link",
+                                                        "summary_descendant_link",
+                                                        "unschedulable_change"
+                                                    ],
+                                                    "description": "Stable refusal code — branch on this, not on ``detail``.",
+                                                    "x-trueppm-enum": "open"
+                                                },
+                                                "blocking_dependencies": {
+                                                    "type": "array",
+                                                    "description": "Present only with code ``summary_start_link`` or ``summary_descendant_link``. For ``summary_start_link``: every Start-to-Start or Start-to-Finish link the task drives, and every Finish-to-Finish or Start-to-Finish link into it, that stops it becoming a summary (ADR-0370, #4437); ``successor_id`` is null when the successor is in another project. For ``summary_descendant_link``: every link the move would leave between a summary task and one of its own subtasks, which the scheduler treats as a cycle (#4705).",
+                                                    "items": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "id": {
+                                                                "type": "string",
+                                                                "format": "uuid"
+                                                            },
+                                                            "dep_type": {
+                                                                "type": "string",
+                                                                "enum": [
+                                                                    "FS",
+                                                                    "SS",
+                                                                    "FF",
+                                                                    "SF"
+                                                                ],
+                                                                "x-trueppm-enum": "open"
+                                                            },
+                                                            "successor_id": {
+                                                                "type": "string",
+                                                                "format": "uuid",
+                                                                "nullable": true
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "id",
+                                                            "dep_type",
+                                                            "successor_id"
+                                                        ]
+                                                    }
+                                                }
                                             }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -28226,63 +28549,70 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
-                                                }
-                                            ],
-                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
-                                            "example": "Request body must be a JSON object."
-                                        },
-                                        "code": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
-                                                }
-                                            ],
-                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
-                                            "example": "invalid_body"
-                                        },
-                                        "blocking_dependencies": {
-                                            "type": "array",
-                                            "description": "Present only with code ``summary_start_link`` or ``summary_descendant_link``. For ``summary_start_link``: every Start-to-Start or Start-to-Finish link the task drives, and every Finish-to-Finish or Start-to-Finish link into it, that stops it becoming a summary (ADR-0370, #4437); ``successor_id`` is null when the successor is in another project. For ``summary_descendant_link``: every link the move would leave between a summary task and one of its own subtasks, which the scheduler treats as a cycle (#4705).",
-                                            "items": {
-                                                "type": "object",
-                                                "properties": {
-                                                    "id": {
-                                                        "type": "string",
-                                                        "format": "uuid"
-                                                    },
-                                                    "dep_type": {
-                                                        "type": "string",
-                                                        "enum": [
-                                                            "FS",
-                                                            "SS",
-                                                            "FF",
-                                                            "SF"
-                                                        ],
-                                                        "x-trueppm-enum": "open"
-                                                    },
-                                                    "successor_id": {
-                                                        "type": "string",
-                                                        "format": "uuid",
-                                                        "nullable": true
-                                                    }
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "allOf": [
+                                                        {
+                                                            "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                        }
+                                                    ],
+                                                    "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
+                                                    "example": "Request body must be a JSON object."
                                                 },
-                                                "required": [
-                                                    "id",
-                                                    "dep_type",
-                                                    "successor_id"
-                                                ]
+                                                "code": {
+                                                    "allOf": [
+                                                        {
+                                                            "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                        }
+                                                    ],
+                                                    "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
+                                                    "example": "invalid_body"
+                                                },
+                                                "blocking_dependencies": {
+                                                    "type": "array",
+                                                    "description": "Present only with code ``summary_start_link`` or ``summary_descendant_link``. For ``summary_start_link``: every Start-to-Start or Start-to-Finish link the task drives, and every Finish-to-Finish or Start-to-Finish link into it, that stops it becoming a summary (ADR-0370, #4437); ``successor_id`` is null when the successor is in another project. For ``summary_descendant_link``: every link the move would leave between a summary task and one of its own subtasks, which the scheduler treats as a cycle (#4705).",
+                                                    "items": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "id": {
+                                                                "type": "string",
+                                                                "format": "uuid"
+                                                            },
+                                                            "dep_type": {
+                                                                "type": "string",
+                                                                "enum": [
+                                                                    "FS",
+                                                                    "SS",
+                                                                    "FF",
+                                                                    "SF"
+                                                                ],
+                                                                "x-trueppm-enum": "open"
+                                                            },
+                                                            "successor_id": {
+                                                                "type": "string",
+                                                                "format": "uuid",
+                                                                "nullable": true
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "id",
+                                                            "dep_type",
+                                                            "successor_id"
+                                                        ]
+                                                    }
+                                                }
+                                            },
+                                            "additionalProperties": {
+                                                "$ref": "#/components/schemas/ValidationErrorDetail"
                                             }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    },
-                                    "additionalProperties": {
-                                        "$ref": "#/components/schemas/ValidationErrorDetail"
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -28798,30 +29128,37 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "allOf": [
+                                                        {
+                                                            "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                        }
+                                                    ],
+                                                    "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
+                                                    "example": "Request body must be a JSON object."
+                                                },
+                                                "code": {
+                                                    "allOf": [
+                                                        {
+                                                            "$ref": "#/components/schemas/ValidationErrorDetail"
+                                                        }
+                                                    ],
+                                                    "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
+                                                    "example": "invalid_body"
                                                 }
-                                            ],
-                                            "description": "The refusal's human-readable explanation when the request was refused as a whole. A list or object here is instead the validation errors of a serializer field named ``detail``.",
-                                            "example": "Request body must be a JSON object."
+                                            },
+                                            "additionalProperties": {
+                                                "$ref": "#/components/schemas/ValidationErrorDetail"
+                                            }
                                         },
-                                        "code": {
-                                            "allOf": [
-                                                {
-                                                    "$ref": "#/components/schemas/ValidationErrorDetail"
-                                                }
-                                            ],
-                                            "description": "The refusal's stable machine code when the request was refused as a whole — a string, drawn from the vocabulary in the error reference. A list or object here is instead the validation errors of the serializer field named ``code`` (``Program.code``, ``Project.code``).",
-                                            "example": "invalid_body"
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    },
-                                    "additionalProperties": {
-                                        "$ref": "#/components/schemas/ValidationErrorDetail"
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -29266,6 +29603,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -29570,7 +29910,14 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ProjectViewsError"
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/components/schemas/ProjectViewsError"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
+                                        }
+                                    ]
                                 }
                             }
                         },
@@ -29682,7 +30029,14 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ProjectViewsError"
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/components/schemas/ProjectViewsError"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
+                                        }
+                                    ]
                                 }
                             }
                         },
@@ -29774,7 +30128,14 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ProjectViewsError"
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/components/schemas/ProjectViewsError"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
+                                        }
+                                    ]
                                 }
                             }
                         },
@@ -29881,6 +30242,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -31120,6 +31484,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -31373,6 +31740,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete baseline"
@@ -32675,6 +33045,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete field"
@@ -34238,6 +34611,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete label"
@@ -34384,12 +34760,19 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string"
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -34609,12 +34992,19 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string"
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -34739,12 +35129,19 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string"
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -35274,6 +35671,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete mention group"
@@ -35510,6 +35910,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -35745,6 +36148,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -36379,12 +36785,19 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string"
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -37072,6 +37485,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete risk"
@@ -37911,6 +38327,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -39534,6 +39953,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -39928,13 +40350,12 @@
                                             "enum": [
                                                 "attachment_delete_forbidden"
                                             ],
-                                            "description": "Stable refusal code — branch on this, not on ``detail``.",
+                                            "description": "Stable refusal code — branch on this, not on ``detail``. Present when the ownership guard refused; absent when the caller's project role refused first.",
                                             "x-trueppm-enum": "open"
                                         }
                                     },
                                     "required": [
-                                        "detail",
-                                        "code"
+                                        "detail"
                                     ]
                                 }
                             }
@@ -39959,6 +40380,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete attachment"
@@ -40588,13 +41012,12 @@
                                             "enum": [
                                                 "reaction_delete_forbidden"
                                             ],
-                                            "description": "Stable refusal code — branch on this, not on ``detail``.",
+                                            "description": "Stable refusal code — branch on this, not on ``detail``. Present when the ownership guard refused; absent when the caller's project role refused first.",
                                             "x-trueppm-enum": "open"
                                         }
                                     },
                                     "required": [
-                                        "detail",
-                                        "code"
+                                        "detail"
                                     ]
                                 }
                             }
@@ -40619,6 +41042,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete reaction"
@@ -40812,13 +41238,12 @@
                                             "enum": [
                                                 "comment_edit_not_author"
                                             ],
-                                            "description": "Stable refusal code — branch on this, not on ``detail``.",
+                                            "description": "Stable refusal code — branch on this, not on ``detail``. Present when the ownership guard refused; absent when the caller's project role refused first.",
                                             "x-trueppm-enum": "open"
                                         }
                                     },
                                     "required": [
-                                        "detail",
-                                        "code"
+                                        "detail"
                                     ]
                                 }
                             }
@@ -40964,13 +41389,12 @@
                                             "enum": [
                                                 "comment_delete_forbidden"
                                             ],
-                                            "description": "Stable refusal code — branch on this, not on ``detail``.",
+                                            "description": "Stable refusal code — branch on this, not on ``detail``. Present when the ownership guard refused; absent when the caller's project role refused first.",
                                             "x-trueppm-enum": "open"
                                         }
                                     },
                                     "required": [
-                                        "detail",
-                                        "code"
+                                        "detail"
                                     ]
                                 }
                             }
@@ -40995,6 +41419,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete comment"
@@ -41103,6 +41530,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             },
@@ -41208,6 +41638,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -41455,6 +41888,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -41800,6 +42236,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -42344,6 +42783,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete link"
@@ -42431,7 +42873,14 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/TaskLinkCredentialRequired"
+                                    "anyOf": [
+                                        {
+                                            "$ref": "#/components/schemas/TaskLinkCredentialRequired"
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
+                                        }
+                                    ]
                                 }
                             }
                         },
@@ -42452,6 +42901,9 @@
                                 }
                             }
                         }
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Refresh link"
@@ -42874,13 +43326,12 @@
                                             "enum": [
                                                 "note_edit_not_author"
                                             ],
-                                            "description": "Stable refusal code — branch on this, not on ``detail``.",
+                                            "description": "Stable refusal code — branch on this, not on ``detail``. Present when the ownership guard refused; absent when the caller's project role refused first.",
                                             "x-trueppm-enum": "open"
                                         }
                                     },
                                     "required": [
-                                        "detail",
-                                        "code"
+                                        "detail"
                                     ]
                                 }
                             }
@@ -43026,13 +43477,12 @@
                                             "enum": [
                                                 "note_delete_forbidden"
                                             ],
-                                            "description": "Stable refusal code — branch on this, not on ``detail``.",
+                                            "description": "Stable refusal code — branch on this, not on ``detail``. Present when the ownership guard refused; absent when the caller's project role refused first.",
                                             "x-trueppm-enum": "open"
                                         }
                                     },
                                     "required": [
-                                        "detail",
-                                        "code"
+                                        "detail"
                                     ]
                                 }
                             }
@@ -43057,6 +43507,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete note"
@@ -43165,6 +43618,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -43272,6 +43728,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -45049,20 +45508,27 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string"
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "type": "string"
+                                                },
+                                                "code": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                        "unschedulable_change"
+                                                    ],
+                                                    "description": "Stable refusal code — branch on this, not on ``detail``.",
+                                                    "x-trueppm-enum": "open"
+                                                }
+                                            }
                                         },
-                                        "code": {
-                                            "type": "string",
-                                            "enum": [
-                                                "unschedulable_change"
-                                            ],
-                                            "description": "Stable refusal code — branch on this, not on ``detail``.",
-                                            "x-trueppm-enum": "open"
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -45347,8 +45813,15 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "additionalProperties": {}
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "additionalProperties": {}
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
+                                        }
+                                    ]
                                 }
                             }
                         },
@@ -45485,6 +45958,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     },
                     "403": {
                         "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
@@ -46217,6 +46693,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete resource skill"
@@ -46847,6 +47326,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete resource"
@@ -47384,6 +47866,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete retro item"
@@ -47487,6 +47972,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -48555,6 +49043,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -48797,10 +49288,17 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "string"
-                                    }
+                                    "anyOf": [
+                                        {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
+                                        }
+                                    ]
                                 }
                             }
                         },
@@ -48926,6 +49424,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -49730,12 +50231,19 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string"
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -49829,12 +50337,19 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string"
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -50074,12 +50589,19 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string"
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -50340,6 +50862,75 @@
                         }
                     }
                 }
+            }
+        },
+        "/api/v1/sprints/{id}/commitment-status/": {
+            "get": {
+                "operationId": "sprint_commitment_status",
+                "description": "Read a sprint's commitment status (ADR-1485 D3, D10).\n\nRead-only; any project member (Viewer+), the same audience as the\nscope-changes audit. ``at_risk`` lists committed tasks whose last-recalculated\nfinish is after the sprint's end, each with the server's one-line ``cause``\nand a ``derivation_ref``; ``open_scope_changes`` lists the PENDING rows of\nboth kinds with batch, requester, age and proposed dates. Accepting or\nrejecting stays on the Admin+ routes and is refused to API tokens.",
+                "summary": "Committed tasks at risk of missing the sprint end, and open scope changes",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sprints"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SprintCommitmentStatus"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "404": {
+                        "description": "Unknown sprint, or not a member of its project."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "x-experimental": true,
+                "x-stability-window": "At least two minor releases of notice before a breaking change."
             }
         },
         "/api/v1/sprints/{id}/daily-delta/": {
@@ -51993,6 +52584,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -52601,6 +53195,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -52991,6 +53588,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Undo structural operation"
@@ -53666,6 +54266,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete task relation"
@@ -54282,6 +54885,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete task resource"
@@ -55079,6 +55685,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete task skill requirement"
@@ -55865,6 +56474,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Delete task"
@@ -55935,12 +56547,19 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string"
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -56220,63 +56839,70 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string"
-                                        },
-                                        "code": {
-                                            "type": "string",
-                                            "enum": [
-                                                "summary_start_link",
-                                                "cyclic_dependency",
-                                                "self_reference",
-                                                "unschedulable_change"
-                                            ],
-                                            "description": "Stable refusal code — branch on this, not on ``detail``.",
-                                            "x-trueppm-enum": "open"
-                                        },
-                                        "blocking_dependencies": {
-                                            "type": "array",
-                                            "description": "Present only with code ``summary_start_link`` or ``summary_descendant_link``. For ``summary_start_link``: every Start-to-Start or Start-to-Finish link the task drives, and every Finish-to-Finish or Start-to-Finish link into it, that stops it becoming a summary (ADR-0370, #4437); ``successor_id`` is null when the successor is in another project. For ``summary_descendant_link``: every link the move would leave between a summary task and one of its own subtasks, which the scheduler treats as a cycle (#4705).",
-                                            "items": {
-                                                "type": "object",
-                                                "properties": {
-                                                    "id": {
-                                                        "type": "string",
-                                                        "format": "uuid"
-                                                    },
-                                                    "dep_type": {
-                                                        "type": "string",
-                                                        "enum": [
-                                                            "FS",
-                                                            "SS",
-                                                            "FF",
-                                                            "SF"
-                                                        ],
-                                                        "x-trueppm-enum": "open"
-                                                    },
-                                                    "successor_id": {
-                                                        "type": "string",
-                                                        "format": "uuid",
-                                                        "nullable": true
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "type": "string"
+                                                },
+                                                "code": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                        "summary_start_link",
+                                                        "cyclic_dependency",
+                                                        "self_reference",
+                                                        "unschedulable_change"
+                                                    ],
+                                                    "description": "Stable refusal code — branch on this, not on ``detail``.",
+                                                    "x-trueppm-enum": "open"
+                                                },
+                                                "blocking_dependencies": {
+                                                    "type": "array",
+                                                    "description": "Present only with code ``summary_start_link`` or ``summary_descendant_link``. For ``summary_start_link``: every Start-to-Start or Start-to-Finish link the task drives, and every Finish-to-Finish or Start-to-Finish link into it, that stops it becoming a summary (ADR-0370, #4437); ``successor_id`` is null when the successor is in another project. For ``summary_descendant_link``: every link the move would leave between a summary task and one of its own subtasks, which the scheduler treats as a cycle (#4705).",
+                                                    "items": {
+                                                        "type": "object",
+                                                        "properties": {
+                                                            "id": {
+                                                                "type": "string",
+                                                                "format": "uuid"
+                                                            },
+                                                            "dep_type": {
+                                                                "type": "string",
+                                                                "enum": [
+                                                                    "FS",
+                                                                    "SS",
+                                                                    "FF",
+                                                                    "SF"
+                                                                ],
+                                                                "x-trueppm-enum": "open"
+                                                            },
+                                                            "successor_id": {
+                                                                "type": "string",
+                                                                "format": "uuid",
+                                                                "nullable": true
+                                                            }
+                                                        },
+                                                        "required": [
+                                                            "id",
+                                                            "dep_type",
+                                                            "successor_id"
+                                                        ]
                                                     }
                                                 },
-                                                "required": [
-                                                    "id",
-                                                    "dep_type",
-                                                    "successor_id"
-                                                ]
+                                                "offending": {
+                                                    "type": "array",
+                                                    "description": "Present with ``cyclic_dependency`` / ``self_reference``: ids of the tasks on the cycle.",
+                                                    "items": {
+                                                        "type": "string"
+                                                    }
+                                                }
                                             }
                                         },
-                                        "offending": {
-                                            "type": "array",
-                                            "description": "Present with ``cyclic_dependency`` / ``self_reference``: ids of the tasks on the cycle.",
-                                            "items": {
-                                                "type": "string"
-                                            }
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -56532,6 +57158,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Accept suggestion"
@@ -56627,6 +57256,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Decline suggestion"
@@ -56722,6 +57354,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "summary": "Revoke suggestion"
@@ -57600,12 +58235,19 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string"
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -57928,6 +58570,9 @@
                                 }
                             }
                         }
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -58014,6 +58659,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -58223,12 +58871,19 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string"
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -58754,19 +59409,26 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "sent": {
-                                            "type": "boolean",
-                                            "enum": [
-                                                false
-                                            ],
-                                            "x-trueppm-enum": "exhaustive"
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "sent": {
+                                                    "type": "boolean",
+                                                    "enum": [
+                                                        false
+                                                    ],
+                                                    "x-trueppm-enum": "exhaustive"
+                                                },
+                                                "error": {
+                                                    "type": "string"
+                                                }
+                                            }
                                         },
-                                        "error": {
-                                            "type": "string"
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -58970,6 +59632,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     },
                     "403": {
                         "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
@@ -59701,6 +60366,9 @@
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
                     },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
+                    },
                     "403": {
                         "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
                         "content": {
@@ -59978,6 +60646,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     },
                     "403": {
                         "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
@@ -60257,6 +60928,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     },
                     "403": {
                         "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
@@ -60594,6 +61268,9 @@
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
                     },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
+                    },
                     "403": {
                         "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
                         "content": {
@@ -60704,6 +61381,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     },
                     "403": {
                         "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
@@ -60904,6 +61584,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     },
                     "403": {
                         "description": "Refused because the caller authenticated with an API token. Managing credentials or sign-in configuration requires a session or JWT — a token can neither mint, list or revoke tokens, nor read or reconfigure SSO providers — so that revoking a leaked credential is actual containment. The ``refusal`` envelope carries ``reason: policy`` and ``constraint: capability_scope``. A token that is revoked, expired, or carries the wrong scope for this surface is rejected earlier, by the authenticator, and receives ``401`` with ``reason: identity`` instead. This status is also returned to a *session* caller who lacks the required role; that refusal carries ``detail`` alone, with no ``refusal`` envelope.",
@@ -61194,6 +61877,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 },
                 "parameters": [
@@ -61491,12 +62177,19 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "detail": {
-                                            "type": "string"
+                                    "anyOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "detail": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "$ref": "#/components/schemas/IdempotencyKeyError"
                                         }
-                                    }
+                                    ]
                                 }
                             }
                         },
@@ -61658,6 +62351,9 @@
                     },
                     "422": {
                         "$ref": "#/components/responses/IdempotencyKeyConflict"
+                    },
+                    "400": {
+                        "$ref": "#/components/responses/IdempotencyKeyTooLong"
                     }
                 }
             }
@@ -64199,6 +64895,48 @@
                     "id"
                 ]
             },
+            "AtRiskTask": {
+                "type": "object",
+                "description": "A committed task the last recalculation places after the sprint's end.",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "task_name": {
+                        "type": "string"
+                    },
+                    "finish": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "working_days_after_sprint_end": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Working days from the sprint's end date to the task's finish."
+                    },
+                    "cause": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "derivation_ref": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/DerivationRef"
+                            }
+                        ],
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "cause",
+                    "derivation_ref",
+                    "finish",
+                    "task_id",
+                    "task_name",
+                    "working_days_after_sprint_end"
+                ]
+            },
             "AuditEvent": {
                 "type": "object",
                 "description": "Read serializer for an operational audit row (ADR-0157, #859).\n\nExposes both the actor FK id and the denormalized ``actor_label`` so the row\nstays readable after the user is deleted (the FK then resolves to null). The\ninteger ``actor_id`` is the stock ``auth.User`` PK (TruePPM has no custom user\nmodel); ``target_id`` is a nullable UUID best-effort pointer.",
@@ -64557,12 +65295,15 @@
                         "readOnly": true
                     },
                     "reason_code": {
-                        "allOf": [
+                        "readOnly": true,
+                        "oneOf": [
                             {
                                 "$ref": "#/components/schemas/ReasonCodeEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
                             }
-                        ],
-                        "readOnly": true
+                        ]
                     },
                     "reason": {
                         "type": "string",
@@ -66600,7 +67341,6 @@
                     }
                 },
                 "required": [
-                    "reason",
                     "status"
                 ]
             },
@@ -66637,9 +67377,7 @@
                     }
                 },
                 "required": [
-                    "available",
-                    "reason",
-                    "value"
+                    "available"
                 ]
             },
             "CostKpiReasonEnum": {
@@ -68175,6 +68913,7 @@
                     "schedule.finish_changed",
                     "schedule.change_undone",
                     "sprint.scope_change_requested",
+                    "sprint.commitment_at_risk",
                     "changeset.opened",
                     "changeset.entry_added",
                     "changeset.entry_reasoned",
@@ -68182,7 +68921,7 @@
                     "ping"
                 ],
                 "type": "string",
-                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed\n* `risk.opened` - Risk Opened\n* `risk.escalated` - Risk Escalated\n* `risk.closed` - Risk Closed\n* `baseline.captured` - Baseline Captured\n* `comment.created` - Comment Created\n* `schedule.finish_changed` - Schedule Finish Changed\n* `schedule.change_undone` - Schedule Change Undone\n* `sprint.scope_change_requested` - Sprint Scope Change Requested\n* `changeset.opened` - Changeset Opened\n* `changeset.entry_added` - Changeset Entry Added\n* `changeset.entry_reasoned` - Changeset Entry Reasoned\n* `baseline.kept` - Baseline Kept\n* `ping` - Test Ping",
+                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed\n* `risk.opened` - Risk Opened\n* `risk.escalated` - Risk Escalated\n* `risk.closed` - Risk Closed\n* `baseline.captured` - Baseline Captured\n* `comment.created` - Comment Created\n* `schedule.finish_changed` - Schedule Finish Changed\n* `schedule.change_undone` - Schedule Change Undone\n* `sprint.scope_change_requested` - Sprint Scope Change Requested\n* `sprint.commitment_at_risk` - Sprint Commitment At Risk\n* `changeset.opened` - Changeset Opened\n* `changeset.entry_added` - Changeset Entry Added\n* `changeset.entry_reasoned` - Changeset Entry Reasoned\n* `baseline.kept` - Baseline Kept\n* `ping` - Test Ping",
                 "x-trueppm-enum": "open"
             },
             "EventsEnum": {
@@ -68209,13 +68948,14 @@
                     "schedule.finish_changed",
                     "schedule.change_undone",
                     "sprint.scope_change_requested",
+                    "sprint.commitment_at_risk",
                     "changeset.opened",
                     "changeset.entry_added",
                     "changeset.entry_reasoned",
                     "baseline.kept"
                 ],
                 "type": "string",
-                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed\n* `risk.opened` - Risk Opened\n* `risk.escalated` - Risk Escalated\n* `risk.closed` - Risk Closed\n* `baseline.captured` - Baseline Captured\n* `comment.created` - Comment Created\n* `schedule.finish_changed` - Schedule Finish Changed\n* `schedule.change_undone` - Schedule Change Undone\n* `sprint.scope_change_requested` - Sprint Scope Change Requested\n* `changeset.opened` - Changeset Opened\n* `changeset.entry_added` - Changeset Entry Added\n* `changeset.entry_reasoned` - Changeset Entry Reasoned\n* `baseline.kept` - Baseline Kept",
+                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed\n* `risk.opened` - Risk Opened\n* `risk.escalated` - Risk Escalated\n* `risk.closed` - Risk Closed\n* `baseline.captured` - Baseline Captured\n* `comment.created` - Comment Created\n* `schedule.finish_changed` - Schedule Finish Changed\n* `schedule.change_undone` - Schedule Change Undone\n* `sprint.scope_change_requested` - Sprint Scope Change Requested\n* `sprint.commitment_at_risk` - Sprint Commitment At Risk\n* `changeset.opened` - Changeset Opened\n* `changeset.entry_added` - Changeset Entry Added\n* `changeset.entry_reasoned` - Changeset Entry Reasoned\n* `baseline.kept` - Baseline Kept",
                 "x-trueppm-enum": "open"
             },
             "ExecutorKindEnum": {
@@ -69598,6 +70338,28 @@
                 "type": "string",
                 "description": "* `rm` - Resource Manager",
                 "x-trueppm-enum": "open"
+            },
+            "IdempotencyKeyError": {
+                "type": "object",
+                "description": "A refusal from the ``Idempotency-Key`` layer, which runs before the endpoint itself: the key is longer than 255 characters (``400``), or it was already used for a different request (``422``).",
+                "properties": {
+                    "detail": {
+                        "type": "string"
+                    },
+                    "code": {
+                        "type": "string",
+                        "enum": [
+                            "idempotency_key_too_long",
+                            "idempotency_key_conflict"
+                        ],
+                        "description": "Stable refusal code — branch on this, not on ``detail``.",
+                        "x-trueppm-enum": "open"
+                    }
+                },
+                "required": [
+                    "detail",
+                    "code"
+                ]
             },
             "ImportProvenancePage": {
                 "type": "object",
@@ -73019,6 +73781,83 @@
                 "required": [
                     "task"
                 ]
+            },
+            "OpenScopeChange": {
+                "type": "object",
+                "description": "A scope change still awaiting an accept or reject.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "kind": {
+                        "$ref": "#/components/schemas/OpenScopeChangeKindEnum"
+                    },
+                    "batch_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "task_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "task_name": {
+                        "type": "string"
+                    },
+                    "requested_by": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "requested_by_name": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "requested_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "age_seconds": {
+                        "type": "integer"
+                    },
+                    "proposed_start": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "proposed_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "reason": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "age_seconds",
+                    "batch_id",
+                    "id",
+                    "kind",
+                    "proposed_finish",
+                    "proposed_start",
+                    "reason",
+                    "requested_at",
+                    "requested_by",
+                    "requested_by_name",
+                    "task_id",
+                    "task_name"
+                ]
+            },
+            "OpenScopeChangeKindEnum": {
+                "enum": [
+                    "injection",
+                    "slip"
+                ],
+                "type": "string",
+                "description": "* `injection` - injection\n* `slip` - slip",
+                "x-trueppm-enum": "open"
             },
             "OriginEnum": {
                 "enum": [
@@ -79851,23 +80690,7 @@
                     }
                 },
                 "required": [
-                    "at_risk_tasks",
-                    "baseline_variance",
-                    "budget_utilization",
-                    "cost_variance",
-                    "critical_tasks",
-                    "cross_project_link_count",
-                    "milestone_health",
-                    "open_risk_count",
-                    "p50_completion",
-                    "p80_completion",
-                    "p95_completion",
-                    "program_health",
-                    "projects",
-                    "projects_on_track",
-                    "risk_score",
-                    "schedule_health",
-                    "schedule_variance"
+                    "program_health"
                 ]
             },
             "ProgramRollupKpiEntry": {
@@ -79967,21 +80790,7 @@
                     }
                 },
                 "required": [
-                    "as_of",
-                    "available",
-                    "driver_project_id",
-                    "missing_rate_count",
-                    "percentiles",
-                    "projects_with_stale_forecast",
-                    "projects_with_stale_forecast_ids",
-                    "projects_without_budget",
-                    "projects_without_budget_ids",
-                    "projects_without_forecast",
-                    "projects_without_forecast_ids",
-                    "projects_without_planned_duration",
-                    "reason",
-                    "unit",
-                    "value"
+                    "available"
                 ]
             },
             "ProgramRollupLatestUpdate": {
@@ -80468,7 +81277,6 @@
                     }
                 },
                 "required": [
-                    "duration",
                     "early_finish",
                     "early_start",
                     "hex_id",
@@ -80476,15 +81284,7 @@
                     "is_critical",
                     "is_external",
                     "is_milestone",
-                    "late_finish",
-                    "late_start",
-                    "milestone_at_day_end",
-                    "name",
-                    "project_id",
-                    "project_name",
-                    "title",
-                    "total_float_days",
-                    "wbs_path"
+                    "project_id"
                 ]
             },
             "ProgramSplitBodyRequest": {
@@ -85573,8 +86373,7 @@
                     "rolling_stdev_points",
                     "rolling_stdev_tasks",
                     "sprints",
-                    "team_velocity_per_day",
-                    "velocity_suppressed"
+                    "team_velocity_per_day"
                 ]
             },
             "ProjectVelocitySprintEntry": {
@@ -88061,6 +88860,82 @@
                 "description": "* `backlog` - backlog\n* `not_committed` - not_committed\n* `summary` - summary\n* `not_in_network` - not_in_network",
                 "x-trueppm-enum": "open"
             },
+            "ScheduleFeasibility": {
+                "type": "object",
+                "description": "Whether this project's dependency links form a loop (#5106).\n\nThe verdict is the engine's own: shaping runs through the same converters the\ndeterministic pass uses, and a loop is found by ``trueppm_scheduler.find_cycle``.\nNothing here is re-derived in the API, so the Schedule page's error state names the\nsame tasks the recalculation refused on. It answers only the loop question: the\nengine's other refusals are raised inside ``schedule()``, which this read never runs.",
+                "properties": {
+                    "project_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "computable": {
+                        "type": "boolean",
+                        "description": "False when the dependency links form a loop. True means no loop was found, not that every other scheduler check passes."
+                    },
+                    "code": {
+                        "nullable": true,
+                        "description": "`cyclic_dependency` when the dependency links form a loop (`cycle` lists it). Null exactly when computable.\n\n* `cyclic_dependency` - cyclic_dependency",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/ScheduleFeasibilityCodeEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "cycle": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ScheduleFeasibilityTask"
+                        },
+                        "description": "The loop in order, each task once (the path returns to the first). Empty unless code is `cyclic_dependency`."
+                    },
+                    "definition": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "One sentence defining `code`; null when computable."
+                    },
+                    "as_of": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "When the server checked the network."
+                    }
+                },
+                "required": [
+                    "as_of",
+                    "code",
+                    "computable",
+                    "cycle",
+                    "definition",
+                    "project_id"
+                ]
+            },
+            "ScheduleFeasibilityCodeEnum": {
+                "enum": [
+                    "cyclic_dependency"
+                ],
+                "type": "string",
+                "description": "* `cyclic_dependency` - cyclic_dependency",
+                "x-trueppm-enum": "open"
+            },
+            "ScheduleFeasibilityTask": {
+                "type": "object",
+                "description": "One task in a dependency loop.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "name"
+                ]
+            },
             "ScheduleHealthEnum": {
                 "enum": [
                     "on_track",
@@ -89996,6 +90871,56 @@
                     "terminal"
                 ]
             },
+            "SprintCommitmentStatus": {
+                "type": "object",
+                "description": "The commitment-status envelope.",
+                "properties": {
+                    "sprint_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "sprint_finish_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "at_risk_count": {
+                        "type": "integer"
+                    },
+                    "at_risk": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AtRiskTask"
+                        }
+                    },
+                    "open_scope_change_count": {
+                        "type": "integer"
+                    },
+                    "oldest_open_age_seconds": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "open_scope_changes": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/OpenScopeChange"
+                        }
+                    },
+                    "as_of": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "required": [
+                    "as_of",
+                    "at_risk",
+                    "at_risk_count",
+                    "oldest_open_age_seconds",
+                    "open_scope_change_count",
+                    "open_scope_changes",
+                    "sprint_finish_date",
+                    "sprint_id"
+                ]
+            },
             "SprintDailyDelta": {
                 "type": "object",
                 "description": "Team standup \"what changed since yesterday\" read (#925, ADR-0121).\n\nServer-computed from existing data (HistoricalTask status moves, SprintScopeChange\ninjections, SprintBurnSnapshot swing) — no model. Status-level only; the per-actor\nrollup is counts, never durations or edit-counts (Morgan's surveillance hard-NO).\nTeam-private by membership (PMO is a non-member → denied). Shape per\n``services.sprint_daily_delta``; DictField children keep it additive + MCP-flat.",
@@ -90554,10 +91479,7 @@
                     }
                 },
                 "required": [
-                    "energy_declining",
-                    "gated",
-                    "my_response",
-                    "points"
+                    "gated"
                 ]
             },
             "SprintReorderBodyRequest": {
@@ -90952,11 +91874,7 @@
                     }
                 },
                 "required": [
-                    "accepted",
-                    "failed",
-                    "pending_count",
-                    "rejected",
-                    "stale"
+                    "pending_count"
                 ]
             },
             "SprintScopeChangeEvent": {
@@ -100265,17 +101183,17 @@
                 "content": {
                     "application/json": {
                         "schema": {
-                            "type": "object",
-                            "properties": {
-                                "detail": {
-                                    "type": "string",
-                                    "example": "Idempotency-Key was reused with a different request."
-                                },
-                                "code": {
-                                    "type": "string",
-                                    "example": "idempotency_key_conflict"
-                                }
-                            }
+                            "$ref": "#/components/schemas/IdempotencyKeyError"
+                        }
+                    }
+                }
+            },
+            "IdempotencyKeyTooLong": {
+                "description": "The ``Idempotency-Key`` header is longer than 255 characters. Send a shorter key (a UUIDv4 is recommended).",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/IdempotencyKeyError"
                         }
                     }
                 }

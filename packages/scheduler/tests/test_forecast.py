@@ -1,8 +1,10 @@
-"""Bootstrap delivery forecasts (#5008).
+"""Delivery forecasts (#5008, #5185).
 
-The reference functions below are the sampler and percentile derivation exactly as
-the API carried them before they moved into the library; parity against them under
-a fixed seed proves the move did not change a single draw or rounding.
+The throughput reference below is the sampler and percentile derivation exactly as
+the API carried it before it moved into the library; parity against it under a fixed
+seed proves the move did not change a single draw or rounding. The velocity forecast
+is held to ``monte_carlo()`` instead (#5185): it must return the engine's own
+percentile dates for the same backlog, history, sprint length and seed.
 """
 
 from __future__ import annotations
@@ -14,16 +16,18 @@ import numpy as np
 import pytest
 
 from trueppm_scheduler import (
+    Calendar,
     DeliveryForecast,
+    DeliveryMode,
+    Project,
+    Task,
     duration_percentiles,
     forecast_throughput_delivery,
     forecast_velocity_delivery,
+    monte_carlo,
     velocity_band_dates,
 )
-from trueppm_scheduler.forecast import (
-    sample_throughput_period_counts,
-    sample_velocity_period_counts,
-)
+from trueppm_scheduler.forecast import sample_throughput_period_counts
 
 TODAY = date(2026, 3, 2)
 
@@ -47,19 +51,6 @@ def _ref_bootstrap(obs: Any, target: float, n: int, rng: Any, rtol: float) -> tu
         counts[lo : lo + rows] = np.where(burned, reached.argmax(axis=1) + 1, horizon)
         saturated += int(np.count_nonzero(~burned))
     return counts.astype(np.float64), saturated
-
-
-def _ref_velocity(points: float, samples: list[float], runs: int, seed: int, length: int) -> dict:
-    obs = np.asarray([s for s in samples if s is not None and s >= 0], dtype=float)
-    counts, sat = _ref_bootstrap(obs, points, runs, np.random.default_rng(seed), 1.0 - 1e-12)
-    return {
-        "p50_periods": int(np.ceil(float(np.percentile(counts, 50)))),
-        "p80_periods": int(np.ceil(float(np.percentile(counts, 80)))),
-        "p50_date": TODAY + timedelta(days=round(float(np.percentile(counts, 50)) * length)),
-        "p80_date": TODAY + timedelta(days=round(float(np.percentile(counts, 80)) * length)),
-        "p95_date": TODAY + timedelta(days=round(float(np.percentile(counts, 95)) * length)),
-        "horizon_saturated": sat > 0,
-    }
 
 
 def _ref_throughput(weekly: list[int], remaining: float, runs: int, seed: int) -> dict:
@@ -97,16 +88,67 @@ VELOCITY_CASES = [
 ]
 
 
+def _monte_carlo_dates(
+    points: float, samples: list[float], length: int, runs: int, seed: int
+) -> tuple[date, date, date, int]:
+    """``monte_carlo()`` on the one-story project the forecast documents it runs."""
+    story = Task(
+        id="story",
+        name="story",
+        duration=timedelta(days=1),
+        delivery_mode=DeliveryMode.SCRUM,
+        story_points=points,
+    )
+    project = Project(
+        id="p",
+        name="p",
+        start_date=TODAY,
+        status_date=TODAY,
+        tasks=[story],
+        calendar=Calendar(working_days=0x7F),
+        velocity_samples=samples,
+        sprint_length_days=length,
+    )
+    result = monte_carlo(project, runs=runs, seed=seed)
+    return result.p50, result.p80, result.p95, result.velocity_saturated_runs
+
+
 @pytest.mark.parametrize(("points", "samples", "length"), VELOCITY_CASES)
 @pytest.mark.parametrize("seed", [1, 0xC0FFEE])
-def test_velocity_forecast_matches_pre_move_api_implementation(
+def test_velocity_forecast_matches_monte_carlo(
     points: float, samples: list[float], length: int, seed: int
 ) -> None:
+    """#5185: the forecast is ``monte_carlo()``'s velocity model, date for date."""
     got = forecast_velocity_delivery(
         points, samples, sprint_length_days=length, today=TODAY, runs=1500, seed=seed
     )
     assert got is not None
-    assert _as_dict(got) == _ref_velocity(points, samples, 1500, seed, length)
+    p50, p80, p95, saturated = _monte_carlo_dates(points, samples, length, 1500, seed)
+    assert (got.p50_date, got.p80_date, got.p95_date) == (p50, p80, p95)
+    assert got.horizon_saturated is (saturated > 0)
+
+
+def test_velocity_forecast_matches_monte_carlo_on_the_issue_repro() -> None:
+    """The #5185 repro: 40 points, history [3, 9, 12, 0, 7], 14-day sprints, seed 123."""
+    samples = [3.0, 9.0, 12.0, 0.0, 7.0]
+    got = forecast_velocity_delivery(
+        40.0, samples, sprint_length_days=14, today=TODAY, runs=5000, seed=123
+    )
+    assert got is not None
+    p50, p80, p95, _ = _monte_carlo_dates(40.0, samples, 14, 5000, 123)
+    assert (got.p50_date, got.p80_date, got.p95_date) == (p50, p80, p95)
+
+
+def test_velocity_forecast_counts_fractional_sprints() -> None:
+    """A backlog a steady team burns in 3.5 sprints finishes mid-sprint, not at the 4th end."""
+    got = forecast_velocity_delivery(
+        35.0, [10.0, 10.0], sprint_length_days=14, today=TODAY, runs=50, seed=1
+    )
+    assert got is not None
+    # 3.5 sprints x 14 days = 49 calendar days of work: the last day worked is day 49.
+    assert got.p50_date == got.p95_date == TODAY + timedelta(days=48)
+    assert got.p50_periods == got.p80_periods == 4
+    assert got.horizon_saturated is False
 
 
 THROUGHPUT_CASES = [
@@ -132,6 +174,7 @@ def test_velocity_forecast_is_none_without_a_usable_signal() -> None:
     assert forecast_velocity_delivery(35.0, [], **kw) is None
     assert forecast_velocity_delivery(35.0, [0.0, 0.0], **kw) is None
     assert forecast_velocity_delivery(0.0, [10.0], **kw) is None
+    assert forecast_velocity_delivery(35.0, [10.0], sprint_length_days=0, today=TODAY) is None
 
 
 def test_throughput_forecast_is_none_without_a_usable_signal() -> None:
@@ -160,11 +203,7 @@ def test_saturation_is_reported_for_a_stalled_team() -> None:
     assert f.horizon_saturated is True
 
 
-def test_samplers_expose_counts_and_saturation() -> None:
-    out = sample_velocity_period_counts(35.0, [10.0, 10.0], 50, 1)
-    assert out is not None
-    assert set(out.counts.tolist()) == {4.0}
-    assert out.saturated_runs == 0
+def test_throughput_sampler_exposes_counts() -> None:
     flow = sample_throughput_period_counts([4, 4], 12.0, 25, np.random.default_rng(3))
     assert flow is not None
     assert set(flow.counts.tolist()) == {3.0}
@@ -195,3 +234,41 @@ def test_velocity_band_dates() -> None:
     assert velocity_band_dates(
         cpm_finish=None, remaining=5, sprint_days=14, velocity_low=5, avg=10.0
     ) == (None, None, None, False)
+
+
+def test_velocity_forecast_saturates_instead_of_raising_on_a_huge_backlog() -> None:
+    """The engine's span refusal is saturation here, as before #5185."""
+    got = forecast_velocity_delivery(
+        2000.0, [0.0, 0.0, 0.0, 1.0], sprint_length_days=14, today=TODAY
+    )
+    assert got is not None
+    assert got.horizon_saturated is True
+    assert got.p95_date == TODAY + timedelta(days=10_000 * 14)
+
+
+def test_five_day_week_monte_carlo_differs_from_the_forecast() -> None:
+    """The forecast's sprints are calendar days; a working-day calendar finishes later."""
+    kwargs: dict[str, Any] = {"points": 40.0, "samples": [10.0, 12.0, 8.0], "length": 14}
+    seven = _monte_carlo_dates(runs=500, seed=1, **kwargs)
+    story = Task(
+        id="story",
+        name="story",
+        duration=timedelta(days=1),
+        delivery_mode=DeliveryMode.SCRUM,
+        story_points=40.0,
+    )
+    five = monte_carlo(
+        Project(
+            id="p",
+            name="p",
+            start_date=TODAY,
+            status_date=TODAY,
+            tasks=[story],
+            calendar=Calendar(working_days=0x1F),
+            velocity_samples=[10.0, 12.0, 8.0],
+            sprint_length_days=14,
+        ),
+        runs=500,
+        seed=1,
+    )
+    assert five.p50 > seven[0]

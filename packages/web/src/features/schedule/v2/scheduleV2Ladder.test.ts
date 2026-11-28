@@ -3,6 +3,7 @@ import { nextFitStep } from '../toolbar/toolbarLadder';
 import {
   ALWAYS_OVERFLOW,
   demotedCommands,
+  overflowCommandCount,
   overflowLabel,
   resolveV2Composition,
   SCHEDULE_V2_BASE,
@@ -110,5 +111,14 @@ describe('shell v2 Schedule toolbar ladder (#4796, rule 343)', () => {
       // Re-widened content is content + cost, which still fits.
       expect(content + cost).toBeLessThanOrEqual(available);
     }
+  });
+});
+
+describe('overflowCommandCount with the carried-over v1 acts (#5106)', () => {
+  it('adds one per action row and none when there are none', () => {
+    const base = { group: true, columns: true, exportItems: true, demoted: 0 };
+    expect(overflowCommandCount(base)).toBe(5);
+    expect(overflowCommandCount({ ...base, actions: 0 })).toBe(5);
+    expect(overflowCommandCount({ ...base, actions: 7 })).toBe(12);
   });
 });

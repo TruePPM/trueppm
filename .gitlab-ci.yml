@@ -3975,6 +3975,11 @@ api:fuzz:
   # and the 30-day artifact; a green pipeline is still the correct outcome. The
   # durable signal (failure -> auto-file/notify) is tracked in #2212.
   #
+  # Triage a red run from the Schemathesis SUMMARY at the end of the job log; the
+  # server-side tracebacks for its 500s are in the `uvicorn-fuzz.log` artifact
+  # (`glab api "projects/:id/jobs/<id>/artifacts/packages/api/uvicorn-fuzz.log"`),
+  # and per-operation outcomes in `junit-fuzz.xml` beside it (#2516).
+  #
   # Boots the same real stack as web:integration (Django + PostgreSQL + Valkey),
   # seeds the integration fixtures, mints a JWT for the seeded OWNER user, then
   # fuzzes every documented operation as an authenticated caller.
@@ -4026,6 +4031,10 @@ api:fuzz:
     REDIS_URL: "redis://valkey:6379"
     # Non-secret CI key — dev settings enforce ALLOWED_HOSTS=* + AllowAny guard.
     SECRET_KEY: "ci-fuzz-secret-not-for-production"
+    # No SMTP server runs here, so every fuzzed password reset logged an
+    # SMTPServerDisconnected traceback (#2516). The fuzzer does not test mail
+    # delivery; keep sent mail in memory so uvicorn-fuzz.log shows real errors.
+    EMAIL_BACKEND: "django.core.mail.backends.locmem.EmailBackend"
     INTEGRATION_USER_EMAIL: "ci@trueppm.test"
     INTEGRATION_USER_PASSWORD: "ci-fuzz-pw"
     # The fuzzer signs in once to mint a token; relax the per-account login

@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from datetime import timedelta
 
+from trueppm_scheduler.engine.calendar_math import _is_complete
 from trueppm_scheduler.models import Task
 
 __all__ = ["roll_up_summary"]
@@ -30,11 +31,22 @@ def roll_up_summary(
       the rolled ``early_start``, when no leaf carries one).
     - ``early_finish`` / ``late_finish``: the latest leaf value (``late_finish``
       falls back to the rolled ``early_finish``).
-    - ``total_float``: the tightest leaf float, because a group is only as
-      flexible as its least flexible piece of work; zero when no leaf has one.
+    - ``total_float``: the tightest float among the **incomplete** leaves,
+      because a group is only as flexible as its least flexible piece of
+      *remaining* work. A completed leaf (``actual_finish`` set, or
+      ``percent_complete`` at 100) is left out: :func:`schedule` reports its
+      float as zero only because the backward pass pins it to its recorded
+      dates, and that zero says nothing about the slack of the open work beside
+      it (#5183).
+    - ``is_critical``: ``True`` if any incomplete leaf is critical. Taken over the
+      same leaves as ``total_float``, so the two cannot contradict each other
+      the way a zero float on a non-critical row did.
+    - Every leaf complete (no open work): ``total_float`` is zero and
+      ``is_critical`` is ``False``, the reading :func:`schedule` gives a
+      completed leaf (#1863), so a finished group reads like a finished task.
+      Zero is also the value when no open leaf carries a float.
     - ``free_float``: zero. A summary has no successors of its own, so it has no
       slack to report beyond its leaves'.
-    - ``is_critical``: ``True`` if any leaf is critical.
 
     Args:
         task_id: The summary task's id, copied to the returned row.
@@ -57,7 +69,8 @@ def roll_up_summary(
     ls_dates = [t.late_start for t in leaf_rows if t.late_start is not None]
     lf_dates = [t.late_finish for t in leaf_rows if t.late_finish is not None]
     ss_dates = [t.scheduled_start for t in leaf_rows if t.scheduled_start is not None]
-    floats = [t.total_float for t in leaf_rows if t.total_float is not None]
+    open_rows = [t for t in leaf_rows if not _is_complete(t)]
+    floats = [t.total_float for t in open_rows if t.total_float is not None]
 
     summary = Task(id=task_id, name=task_id if name is None else name, duration=timedelta(days=0))
     summary.early_start = min(es_dates)
@@ -67,5 +80,5 @@ def roll_up_summary(
     summary.scheduled_start = min(ss_dates) if ss_dates else summary.early_start
     summary.total_float = min(floats) if floats else timedelta(days=0)
     summary.free_float = timedelta(days=0)
-    summary.is_critical = any(t.is_critical for t in leaf_rows)
+    summary.is_critical = any(t.is_critical for t in open_rows)
     return summary

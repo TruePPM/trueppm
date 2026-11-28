@@ -744,6 +744,7 @@ def test_every_area_governs_a_routed_mcp_view() -> None:
     assert "[utilization]" in joined["resources"]
     assert "schedule/driving-chain/" in joined["dependencies"]
     assert "schedule/derivation/" in joined["dependencies"]
+    assert "schedule/feasibility/" in joined["dependencies"]
     assert "baselines/" in joined["baselines"]
     assert "[resource_contention]" in joined["resources"]
     # The exports carry every area in one response, so every area governs them.
@@ -792,6 +793,7 @@ def test_dependencies_none_refuses_driving_chain_and_derivation(world: dict[str,
     for path in (
         f"/api/v1/projects/{pk}/schedule/driving-chain/",
         f"/api/v1/projects/{pk}/schedule/derivation/",
+        f"/api/v1/projects/{pk}/schedule/feasibility/",
         f"/api/v1/dependencies/?project={pk}",
     ):
         refused = agent.get(path)
