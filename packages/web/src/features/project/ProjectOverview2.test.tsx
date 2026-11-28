@@ -24,6 +24,8 @@ const h = vi.hoisted(() => ({
   tasks: [{ id: 't9', name: 'Pour foundation' }] as { id: string; name: string }[],
   taskOpts: [] as unknown[],
   bp: 'lg' as 'sm' | 'md' | 'lg',
+  changelog: { results: [], next_cursor: null } as unknown,
+  chain: undefined as unknown,
 }));
 
 vi.mock('@/hooks/useMonteCarloResult', () => ({
@@ -40,7 +42,16 @@ vi.mock('@/hooks/useScheduleTasks', () => ({
 }));
 vi.mock('@/hooks/useBreakpoint', () => ({ useBreakpoint: () => h.bp }));
 vi.mock('@/api/client', () => ({
-  apiClient: { get: () => Promise.resolve({ data: h.overview }) },
+  apiClient: {
+    get: (url: string) =>
+      Promise.resolve({
+        data: url.includes('/changelog/')
+          ? h.changelog
+          : url.includes('/driving-chain/')
+            ? h.chain
+            : h.overview,
+      }),
+  },
 }));
 
 const OVERVIEW: Overview2Data = {
@@ -318,5 +329,147 @@ describe('#5104 driver lookup and phone layout', () => {
     renderPage();
     expect(await screen.findByTestId('overview2-lead')).toHaveAttribute('data-layout', 'wide');
     expect(screen.getByTestId('overview2-peers')).not.toHaveClass('grid-cols-3');
+  });
+});
+
+const SENS = [{ taskId: 't9' }] as unknown as MonteCarloResult['sensitivity'];
+
+const CHAIN = {
+  schema_version: 1,
+  project_id: 'p1',
+  task_id: 't9',
+  computable: true,
+  reason: null,
+  project_finish: '2026-12-07',
+  depth: 25,
+  node_cap: 200,
+  truncated: false,
+  truncated_reason: null,
+  total_links: 2,
+  omitted_non_driving_count: 0,
+  near_critical_threshold: { value: 5, unit: 'working_days', source: 'default' },
+  calendar_id: null,
+  _provenance: { computed_at: '2026-11-20T09:12:00Z' },
+  nodes: [
+    {
+      task_id: 'fin',
+      name: 'Handover',
+      status: 'not_started',
+      direction: 'downstream',
+      hops: 1,
+      early_start: null,
+      early_finish: '2026-12-07',
+      total_float: { value: 0, unit: 'working_days' },
+      band: 'critical',
+      is_critical: true,
+      is_project_finish: true,
+      sprint: null,
+    },
+    {
+      task_id: 't9',
+      name: 'Pour foundation',
+      status: 'in_progress',
+      direction: 'self',
+      hops: 0,
+      early_start: null,
+      early_finish: '2026-11-30',
+      total_float: { value: 0, unit: 'working_days' },
+      band: 'critical',
+      is_critical: true,
+      is_project_finish: false,
+      sprint: null,
+    },
+    {
+      task_id: 'up',
+      name: 'Permits',
+      status: 'complete',
+      direction: 'upstream',
+      hops: 1,
+      early_start: null,
+      early_finish: '2026-11-10',
+      total_float: { value: 0, unit: 'working_days' },
+      band: 'complete',
+      is_critical: false,
+      is_project_finish: false,
+      sprint: null,
+    },
+  ],
+  edges: [],
+};
+
+describe('ProjectOverview2 — #5103 facts', () => {
+  beforeEach(() => {
+    h.overview = { ...OVERVIEW };
+    h.mc = { data: { ...MC }, isLoading: false, error: null };
+    h.tasks = [{ id: 't9', name: 'Pour foundation' }];
+    h.taskOpts = [];
+    h.bp = 'lg';
+    h.changelog = { results: [], next_cursor: null };
+    h.chain = CHAIN;
+  });
+
+  it('shows the over-allocated tile with its window, and omits it when withheld', async () => {
+    h.overview = {
+      ...OVERVIEW,
+      over_allocated_count: 2,
+      over_allocated_reason: null,
+      over_allocated_window: { start: '2026-11-23', end: '2027-01-17' },
+    };
+    const { unmount } = renderPage();
+    expect(await screen.findByText('Over-allocated')).toBeInTheDocument();
+    expect(screen.getByText(/people through Jan 17, 2027/)).toBeInTheDocument();
+    unmount();
+    h.overview = { ...OVERVIEW, over_allocated_count: null, over_allocated_reason: 'withheld' };
+    renderPage();
+    await screen.findByTestId('overview2-tiles');
+    expect(screen.queryByText('Over-allocated')).toBeNull();
+  });
+
+  it('lists changes since Monday from the changelog, and says so when there are none', async () => {
+    h.overview = { ...OVERVIEW, changes_since: '2026-11-23T00:00:00Z' };
+    h.changelog = {
+      results: [
+        {
+          id: 'c1',
+          object_type: 'task',
+          object_kind_label: 'Milestone',
+          object_id: 'm1',
+          object_label: 'Beta',
+          change_type: 'updated',
+          history_date: '2026-11-24T10:00:00Z',
+          user: null,
+          changes: [],
+        },
+      ],
+      next_cursor: null,
+    };
+    const { unmount } = renderPage();
+    const section = await screen.findByTestId('overview2-changes');
+    expect(await screen.findByText('Beta', { selector: 'li span' })).toBeInTheDocument();
+    expect(section).toHaveTextContent('changed');
+    unmount();
+    h.changelog = { results: [], next_cursor: null };
+    renderPage();
+    expect(await screen.findByText('No changes since Monday.')).toBeInTheDocument();
+  });
+
+  it('offers no driver chain when the forecast names no driver', async () => {
+    renderPage();
+    await screen.findByTestId('overview2-lead');
+    expect(screen.queryByTestId('overview2-chain-toggle')).toBeNull();
+  });
+
+  it('fetches the driver chain only when asked, and reads upstream to the finish', async () => {
+    h.mc.data = { ...MC, sensitivity: SENS };
+    renderPage();
+    const toggle = await screen.findByTestId('overview2-chain-toggle');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByTestId('overview2-driver-chain')).toBeNull();
+    await userEvent.click(toggle);
+    const chain = await screen.findByTestId('overview2-driver-chain');
+    const items = Array.from(chain.querySelectorAll('li')).map((li) => li.textContent ?? '');
+    expect(items[0]).toContain('Permits');
+    expect(items[1]).toContain('Pour foundation');
+    expect(items[2]).toContain('project finish');
   });
 });

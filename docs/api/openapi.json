@@ -83770,6 +83770,40 @@
                             }
                         ]
                     },
+                    "over_allocated_count": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "People on this project whose load on this project is over 100% in at least one week of the next 8 weeks, starting this Monday, time off removed: their booked days on this project divided by their default units on each of their own working days. Bookings on other projects are not counted, so this is not this week's team utilization."
+                    },
+                    "over_allocated_reason": {
+                        "readOnly": true,
+                        "nullable": true,
+                        "description": "Why over_allocated_count is null (rule 119): withheld when the caller is below Scheduler or the team's capacity-signal policy excludes them.\n\n* `withheld` - withheld",
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/AllocationWithheldReasonEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/NullEnum"
+                            }
+                        ]
+                    },
+                    "over_allocated_window": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ProjectOverviewWindow"
+                            }
+                        ],
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "changes_since": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "description": "The start of this week (Monday 00:00, server time zone). The Overview's change feed is the project changelog from this moment, newest first."
+                    },
                     "owner_name": {
                         "type": "string",
                         "readOnly": true,
@@ -83805,6 +83839,7 @@
                 },
                 "required": [
                     "as_of",
+                    "changes_since",
                     "complete_tasks",
                     "critical_task_count",
                     "definitions",
@@ -83812,6 +83847,9 @@
                     "high_risk_count",
                     "next_milestone",
                     "open_risk_count",
+                    "over_allocated_count",
+                    "over_allocated_reason",
+                    "over_allocated_window",
                     "owner_name",
                     "plan_version",
                     "plan_version_current",
@@ -83867,14 +83905,24 @@
                     "next_milestone_total_float": {
                         "type": "string",
                         "description": "Working days the next milestone can slip before it moves the project finish, from the last schedule calculation."
+                    },
+                    "over_allocated_count": {
+                        "type": "string",
+                        "description": "People on this project whose load on this project is over 100% in at least one week of the next 8 weeks, starting this Monday, time off removed: their booked days on this project divided by their default units on each of their own working days. Bookings on other projects are not counted, so this is not this week's team utilization."
+                    },
+                    "changes_since": {
+                        "type": "string",
+                        "description": "The start of this week (Monday 00:00, server time zone). The Overview's change feed is the project changelog from this moment, newest first."
                     }
                 },
                 "required": [
+                    "changes_since",
                     "complete_tasks",
                     "critical_task_count",
                     "next_milestone_baseline_date",
                     "next_milestone_total_float",
                     "open_risk_count",
+                    "over_allocated_count",
                     "schedule_health",
                     "tasks_with_duration_count",
                     "team_utilization_pct"
@@ -83924,6 +83972,26 @@
                     "name",
                     "percent_complete",
                     "total_float"
+                ]
+            },
+            "ProjectOverviewWindow": {
+                "type": "object",
+                "description": "The inclusive date range the Overview's over-allocation figure covers (#5103).",
+                "properties": {
+                    "start": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
+                    "end": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "end",
+                    "start"
                 ]
             },
             "ProjectPinResponse": {

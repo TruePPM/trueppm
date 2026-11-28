@@ -1579,3 +1579,108 @@ def test_next_milestone_without_baseline_has_null_baseline_date(
     make_task(project, name="Gate", duration=0, is_milestone=True, early_finish=tomorrow)
     data = client.get(f"/api/v1/projects/{project.pk}/overview/").json()
     assert data["next_milestone"]["baseline_date"] is None
+
+
+@pytest.mark.django_db
+class TestOverviewSupportingFacts:
+    """Over-allocated people (next 8 weeks) and the changes-feed boundary (#5103)."""
+
+    def url(self, pk: object) -> str:
+        return f"/api/v1/projects/{pk}/overview/"
+
+    def _overbook(self, project: Project, name: str = "Dana") -> None:
+        resource = Resource.objects.create(name=name, max_units=Decimal("1.0"))
+        ProjectResource.objects.create(project=project, resource=resource)
+        start, end = _this_week()
+        task = make_task(project, name="Crunch", early_start=start, early_finish=end)
+        TaskResource.objects.create(task=task, resource=resource, units=Decimal("1.5"))
+
+    def test_counts_people_over_100_percent_with_window_and_definition(
+        self, project: Project, other_user: object
+    ) -> None:
+        # A Scheduler is in the TEAM band, which reads the capacity signal by default.
+        ProjectMembership.objects.create(project=project, user=other_user, role=Role.SCHEDULER)
+        client = APIClient()
+        client.force_authenticate(user=other_user)
+        self._overbook(project)
+        resource = Resource.objects.create(name="Lee", max_units=Decimal("1.0"))
+        ProjectResource.objects.create(project=project, resource=resource)
+        data = client.get(self.url(project.pk)).json()
+        assert data["over_allocated_count"] == 1
+        assert data["over_allocated_reason"] is None
+        monday, _ = _this_week()
+        assert data["over_allocated_window"]["start"] == monday.isoformat()
+        assert (
+            data["over_allocated_window"]["end"]
+            == (monday + datetime.timedelta(weeks=8, days=-1)).isoformat()
+        )
+        assert "time off removed" in data["definitions"]["over_allocated_count"]
+
+    def test_member_below_scheduler_is_withheld_not_zero(
+        self, project: Project, other_user: object
+    ) -> None:
+        # Per-person capacity: a Member must not read it through an aggregate tile,
+        # the same gate as /me/people-load/ (a one-person team's count IS their load).
+        ProjectMembership.objects.create(project=project, user=other_user, role=Role.MEMBER)
+        self._overbook(project)
+        c = APIClient()
+        c.force_authenticate(user=other_user)
+        data = c.get(self.url(project.pk)).json()
+        assert data["over_allocated_count"] is None
+        assert data["over_allocated_reason"] == "withheld"
+        assert data["over_allocated_window"] is None
+
+    def test_owner_is_withheld_until_the_team_shares_capacity_upward(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        # ADR-0104: the PM band does not read per-person capacity by default, so the
+        # tile follows the same policy as the sprint panel and /me/people-load/.
+        self._overbook(project)
+        data = client.get(self.url(project.pk)).json()
+        assert data["over_allocated_reason"] == "withheld"
+
+    def test_changes_since_is_this_monday_midnight(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        data = client.get(self.url(project.pk)).json()
+        monday, _ = _this_week()
+        assert data["changes_since"].startswith(monday.isoformat() + "T00:00:00")
+        assert "Monday" in data["definitions"]["changes_since"]
+
+    def test_owner_is_counted_once_the_team_shares_capacity_upward(
+        self, client: APIClient, project: Project, membership: object
+    ) -> None:
+        # Positive control for the withheld case above: the gate is the policy, not the
+        # role, so raising the ceiling and audience to the PM band opens the tile.
+        from trueppm_api.apps.projects import signal_privacy_services as svc
+        from trueppm_api.apps.projects.models import SignalAudience
+
+        self._overbook(project)
+        policy = svc.get_or_create_policy(project)
+        svc.raise_signal_ceiling(policy, "capacity", SignalAudience.TEAM_SM_PM)
+        svc.set_signal_audience(policy, "capacity", SignalAudience.TEAM_SM_PM)
+        data = client.get(self.url(project.pk)).json()
+        assert data["over_allocated_reason"] is None
+        assert data["over_allocated_count"] == 1
+
+    def test_bookings_on_another_project_are_not_counted(
+        self, project: Project, calendar: Calendar, other_user: object
+    ) -> None:
+        # Dana is at 60% here and 100% on a project the caller cannot read: over 100%
+        # in total, but this project's view must not count (and so disclose) the
+        # other project's booking.
+        ProjectMembership.objects.create(project=project, user=other_user, role=Role.SCHEDULER)
+        other = Project.objects.create(
+            name="Elsewhere", start_date=datetime.date(2026, 1, 1), calendar=calendar
+        )
+        dana = Resource.objects.create(name="Dana", max_units=Decimal("1.0"))
+        start, end = _this_week()
+        for proj, units in ((project, "0.6"), (other, "1.0")):
+            ProjectResource.objects.create(project=proj, resource=dana)
+            task = make_task(proj, name="Work", early_start=start, early_finish=end)
+            TaskResource.objects.create(task=task, resource=dana, units=Decimal(units))
+        c = APIClient()
+        c.force_authenticate(user=other_user)
+        data = c.get(self.url(project.pk)).json()
+        assert data["over_allocated_reason"] is None
+        assert data["over_allocated_count"] == 0

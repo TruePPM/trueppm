@@ -35,11 +35,86 @@ const OVERVIEW = {
   start_date: '2026-01-01',
   open_risk_count: 5,
   high_risk_count: 2,
+  over_allocated_count: 2,
+  over_allocated_reason: null,
+  over_allocated_window: { start: '2026-11-16', end: '2027-01-10' },
+  changes_since: '2026-11-16T00:00:00Z',
   as_of: '2026-11-20T09:12:00Z',
   definitions: {
     schedule_health: 'Server schedule sentence.',
     open_risk_count: 'Server open risks sentence.',
     team_utilization_pct: 'Server utilization sentence.',
+    over_allocated_count: 'Server over-allocation sentence.',
+    changes_since: 'Server changes sentence.',
+  },
+};
+
+const CHANGELOG = {
+  results: [
+    {
+      id: 'c1',
+      object_type: 'task',
+      object_kind: 'milestone',
+      object_kind_label: 'Milestone',
+      object_id: 'm1',
+      object_label: 'Beta release',
+      change_type: 'updated',
+      history_date: '2026-11-18T10:00:00Z',
+      user: null,
+      changes: [],
+    },
+  ],
+  next_cursor: null,
+};
+
+const node = (
+  task_id: string,
+  name: string,
+  direction: 'self' | 'upstream' | 'downstream',
+  hops: number,
+  is_project_finish = false,
+) => ({
+  task_id,
+  name,
+  status: 'not_started',
+  direction,
+  hops,
+  early_start: '2026-11-20',
+  early_finish: '2026-11-30',
+  total_float: { value: 0, unit: 'working_days' },
+  band: 'critical',
+  is_critical: true,
+  is_project_finish,
+  sprint: null,
+});
+
+const CHAIN = {
+  schema_version: 1,
+  project_id: PID,
+  task_id: 't9',
+  computable: true,
+  reason: null,
+  project_finish: '2026-12-07',
+  depth: 25,
+  node_cap: 200,
+  truncated: false,
+  truncated_reason: null,
+  total_links: 2,
+  omitted_non_driving_count: 0,
+  near_critical_threshold: { value: 5, unit: 'working_days' },
+  calendar_id: null,
+  nodes: [
+    node('fin', 'Handover', 'downstream', 1, true),
+    node('t9', 'Pour foundation', 'self', 0),
+    node('up', 'Permits', 'upstream', 1),
+  ],
+  edges: [],
+  _provenance: {
+    schema_version: 1,
+    engine_version: '1.0.0',
+    api_version: '1',
+    input_hash: 'abc',
+    computed_at: '2026-11-20T09:12:00Z',
   },
 };
 
@@ -185,6 +260,10 @@ async function open(page: Page, forecast: Forecast) {
   await page.route('**/api/v1/workspace/', (r) =>
     r.fulfill(json({ name: 'E2E', subdomain: 'e2e', public_sharing: false })),
   );
+  await page.route(`**/api/v1/projects/${PID}/changelog/**`, (r) => r.fulfill(json(CHANGELOG)));
+  await page.route(`**/api/v1/projects/${PID}/schedule/driving-chain/**`, (r) =>
+    r.fulfill(json(CHAIN)),
+  );
   await page.goto(`/projects/${PID}/overview?ff=shell_v2`);
   await expect(page.getByTestId('overview2')).toBeVisible({ timeout: 10_000 });
 }
@@ -199,7 +278,7 @@ test.describe('shell v2 project overview', () => {
       '+2d past commitment',
     );
     await expect(page.getByTestId('overview2-lead-footer')).toContainText('5,000 runs');
-    await expect(page.getByTestId('overview2-tile')).toHaveCount(3);
+    await expect(page.getByTestId('overview2-tile')).toHaveCount(4);
     await expect(page.getByTestId('not-computable')).toContainText('Cost variance');
     await expect(page.getByRole('link', { name: 'Why this date?' })).toBeVisible();
   });
@@ -230,6 +309,26 @@ test.describe('shell v2 project overview', () => {
     await expect(page.getByTestId('overview2-moved')).toContainText('moved from');
     await expectNoA11yViolationsBothThemes(page, testInfo);
   });
+  test('over-allocated tile, changes since Monday and the driver chain (#5103)', async ({
+    page,
+  }, testInfo) => {
+    await open(page, 'stale');
+    await expect(page.getByTestId('overview2-tiles')).toContainText('Over-allocated');
+    await expect(page.getByTestId('overview2-tiles')).toContainText('people through');
+    const changes = page.getByTestId('overview2-changes');
+    await expect(changes).toContainText('Beta release');
+    await expect(changes).toContainText('changed');
+    const toggle = page.getByTestId('overview2-chain-toggle');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    const chain = page.getByTestId('overview2-driver-chain');
+    await expect(chain.getByRole('listitem').first()).toContainText('Permits');
+    await expect(chain).toContainText('project finish');
+    await expectNoA11yViolationsBothThemes(page, testInfo);
+  });
+
+
   test.describe('phone layout (#5104)', () => {
     test.use({ viewport: { width: 390, height: 844 } });
 
@@ -242,7 +341,7 @@ test.describe('shell v2 project overview', () => {
       await expect(svg).toBeVisible();
       // The S-curve is drawn at the phone size, not the 640-wide desktop viewBox scaled down.
       await expect(svg).toHaveAttribute('viewBox', /^0 0 340 220$/);
-      await expect(page.getByTestId('overview2-tile')).toHaveCount(3);
+      await expect(page.getByTestId('overview2-tile')).toHaveCount(4);
       await expect(page.getByTestId('not-computable')).toContainText('Cost variance');
       const why = await page.getByRole('link', { name: /Why this date\?/ }).boundingBox();
       expect(why?.height ?? 0).toBeGreaterThanOrEqual(44);
@@ -284,7 +383,7 @@ test.describe('shell v2 project overview screenshots (#5148)', () => {
     await expect(page.getByTestId('overview2-lead-figure')).toBeVisible();
     await expect(page.getByTestId('overview2-driver')).toContainText('Pour foundation');
     await expect(page.getByTestId('overview2-moved')).toBeVisible();
-    await expect(page.getByTestId('overview2-tile')).toHaveCount(3);
+    await expect(page.getByTestId('overview2-tile')).toHaveCount(4);
     await expect(page.getByTestId('overview2-milestone-facts')).toContainText('Float');
     await expect(page.getByTestId('status-updates-empty')).toBeVisible();
     await expect(page.locator('html')).toHaveClass(theme === 'dark' ? /dark/ : /^(?!.*dark)/);
