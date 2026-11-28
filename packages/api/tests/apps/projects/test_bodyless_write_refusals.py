@@ -37,6 +37,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
+from tests.test_openapi_contract import _declared_400_body
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import (
     Calendar,
@@ -360,9 +361,11 @@ class TestRestructureRefusals:
         assert response.status_code == 400
         body = response.json()
         assert body["code"] == "child_of_milestone", body
-        declared = schema["paths"]["/api/v1/projects/{id}/tasks/{task_id}/indent/"]["post"][
-            "responses"
-        ]["400"]["content"]["application/json"]["schema"]
+        declared = _declared_400_body(
+            schema["paths"]["/api/v1/projects/{id}/tasks/{task_id}/indent/"]["post"]["responses"][
+                "400"
+            ]["content"]["application/json"]["schema"]
+        )
         assert body["code"] in declared["properties"]["code"]["enum"], (
             "the declared code enum must contain the code the endpoint emits."
         )
