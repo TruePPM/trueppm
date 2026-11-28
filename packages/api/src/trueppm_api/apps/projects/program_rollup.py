@@ -1545,7 +1545,8 @@ def _critical_task_total(project_ids: list[Any]) -> int:
     """Total open critical-path tasks across the program.
 
     Leaf rows only (#4276): a phase's `is_critical` is a rollup of its children
-    (ADR-0024/ADR-0293, `_rollup_one_summary`: `is_critical = any(child.is_critical)`),
+    (ADR-0024/ADR-0293, `_rollup_one_summary`: both `is_critical` and `total_float` are taken
+    over the incomplete children only, #5183),
     not a fact about the phase row itself, so counting the phase on top of the
     leaf whose value it rolled up double-counts that leaf and inflates this
     program-total KPI. See :func:`task_is_phase_expr`.

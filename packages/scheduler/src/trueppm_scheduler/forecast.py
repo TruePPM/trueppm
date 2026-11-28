@@ -217,6 +217,8 @@ def forecast_velocity_delivery(
         # The engine refuses a worst-case span past its cap before it clamps the
         # sprint horizon to MAX_VELOCITY_SPRINTS. For a backlog this large that is
         # saturation, which this function has always reported rather than raised.
+        # In this fallback every percentile (P50 included) is the horizon cap, not an
+        # estimate: no simulation ran, so read it as "beyond the horizon".
         if not str(exc).startswith("Total project span"):
             raise
         horizon = today + timedelta(days=MAX_VELOCITY_SPRINTS * sprint_length_days)
