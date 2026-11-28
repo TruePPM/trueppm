@@ -1494,13 +1494,13 @@ class TruePPMAutoSchema(AutoSchema):
         responses those serializers describe (#5093). The init kwargs are the only
         place the explicit choice survives.
         """
-        result: dict[str, Any] = super()._map_basic_serializer(serializer, direction)
+        result: dict[str, Any] = super()._map_basic_serializer(serializer, direction)  # type: ignore[no-untyped-call]
         required = result.get("required")
         if not required:
             return result
         from drf_spectacular.plumbing import force_instance
 
-        fields = getattr(force_instance(serializer), "fields", None)
+        fields = getattr(force_instance(serializer), "fields", None)  # type: ignore[no-untyped-call]
         if fields is None:
             return result
         optional = {
