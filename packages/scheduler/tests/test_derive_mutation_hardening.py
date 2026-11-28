@@ -417,73 +417,71 @@ def test_ss_from_a_status_dated_recorded_start_cites_the_actual() -> None:
     )
 
 
-def test_ss_from_a_derived_span_start_cites_it_and_keeps_its_late_bound() -> None:
-    # #4523: A is 20d at 50% with no actual_start at a 01-12 data date, so its span
-    # starts 10 working days earlier, on 12-29. B's SS term cites 12-29 + 16 = 01-14.
-    # Backward, the same link bounds A: the latest span start B admits (12-29) is
-    # moved onto A's remaining window (01-12) and binds A's late start. Left on the
-    # span start, the replay would pull A's late start below its early one and cite
-    # the late-window floor instead.
+def test_ss_from_percent_only_progress_cites_the_early_start_and_keeps_its_late_bound() -> None:
+    # #5182: A is 20d at 50% with no actual_start at a Mon 01-12 data date. Its bar
+    # starts 10 working days earlier (12-29), but the link measures from its
+    # remaining work: B's SS term cites 01-12 + 16 = Wed 01-28, and B's 30 days end
+    # Tue 03-10. Backward, the same link bounds A: the latest start B admits,
+    # 01-28 - 16 = 01-12, binds A's late start; A's 10 remaining days end 01-23.
     project = _project(
         [_task("A", 20, percent_complete=50.0), _task("B", 30)],
         [_dep("A", "B", DependencyType.SS, 16)],
         status_date=date(2026, 1, 12),
     )
     assert _rows(project, "B", Quantity.EARLY_START) == (
-        "2026-01-14",
+        "2026-01-28",
         [
             ("project_start", None, "2026-01-05", None, False),
             ("data_date", None, "2026-01-12", None, False),
-            ("predecessor_ss", "A", "2026-01-14", None, True),
+            ("predecessor_ss", "A", "2026-01-28", None, True),
         ],
     )
     assert _rows(project, "A", Quantity.LATE_START) == (
         "2026-01-12",
         [
-            ("project_finish", None, "2026-02-24", None, False),
+            ("project_finish", None, "2026-03-10", None, False),
             ("successor_ss", "B", "2026-01-12", None, True),
         ],
     )
     assert _rows(project, "A", Quantity.LATE_FINISH) == (
         "2026-01-23",
         [
-            ("project_finish", None, "2026-02-24", None, False),
+            ("project_finish", None, "2026-03-10", None, False),
             ("successor_ss", "B", "2026-01-12", None, False),
             ("duration_from_late_start", "B", "2026-01-23", 10, True),
         ],
     )
 
 
-def test_free_slack_from_a_derived_span_start_is_measured_from_it() -> None:
-    # #4523: as above, but B is held at 01-20 by its SNET. The latest span start that
-    # leaves B there is prev_wd(01-20 - 16) = 01-02, four working days after A's
-    # span start (12-29). Measured from A's early start (01-12) it would read zero.
+def test_free_slack_from_percent_only_progress_is_measured_from_the_early_start() -> None:
+    # #5182: as above, but B is held at Mon 02-02 by its SNET. The latest start of A
+    # that leaves B there is prev_wd(02-02 - 16 = Sat 01-17) = Fri 01-16, four
+    # working days after A's early start (01-12).
     project = _project(
-        [_task("A", 20, percent_complete=50.0), _task("B", 30, planned_start=date(2026, 1, 20))],
+        [_task("A", 20, percent_complete=50.0), _task("B", 30, planned_start=date(2026, 2, 2))],
         [_dep("A", "B", DependencyType.SS, 16)],
         status_date=date(2026, 1, 12),
     )
     assert _rows(project, "A", Quantity.FREE_FLOAT) == (
         4,
-        [("successor_free_slack", "B", "2026-01-02", 4, True)],
+        [("successor_free_slack", "B", "2026-01-16", 4, True)],
     )
 
 
-def test_sf_free_slack_from_a_derived_span_start_is_measured_from_it() -> None:
-    # #4523, the SF half of the above: A's span starts 12-29, and B (held at 01-28 by
-    # its SNET) admits an SF anchor up to 01-15, 13 working days later. Measured from
-    # A's early start (01-12) it would be 3, below total float, and would bind.
+def test_sf_free_slack_from_percent_only_progress_is_measured_from_the_early_start() -> None:
+    # #5182, the SF half of the above: B (3 days) is held at Wed 01-28 by its SNET and
+    # finishes Fri 01-30. A positive SF lag anchors on the day before A's start, so
+    # the latest anchor is 01-30 - 16 = 01-14 and the latest start Thu 01-15, three
+    # working days after A's early start (01-12). The link also bounds A's late
+    # start there, so total float is 3 as well.
     project = _project(
         [_task("A", 20, percent_complete=50.0), _task("B", 3, planned_start=date(2026, 1, 28))],
         [_dep("A", "B", DependencyType.SF, 16)],
         status_date=date(2026, 1, 12),
     )
     assert _rows(project, "A", Quantity.FREE_FLOAT) == (
-        5,
-        [
-            ("successor_free_slack", "B", "2026-01-15", 13, False),
-            ("total_float", None, None, 5, True),
-        ],
+        3,
+        [("successor_free_slack", "B", "2026-01-15", 3, True)],
     )
 
 

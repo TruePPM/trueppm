@@ -7,7 +7,7 @@ use petgraph::graph::NodeIndex;
 use petgraph::visit::EdgeRef;
 use petgraph::Direction;
 
-use crate::backward::{milestone_latest, milestone_refs, sf_latest_start, window_start_bound};
+use crate::backward::{milestone_latest, milestone_refs, sf_latest_start};
 use crate::calendar::{
     advance_calendar_days, checked_offset_days, next_working_day, prev_working_day,
     retreat_calendar_days, working_days_between, PassCalendars, WorkingDayCounter,
@@ -130,36 +130,9 @@ fn milestone_free_instants(
             }
             let dep = &deps[*edge.weight()];
             if !tasks[i].reads_instant(dep.dep_type) {
-                // Measured from the start of work with nothing left (ADR-1474): a
-                // recorded start bounds nothing; a derived one is inverted as from
-                // work and moved onto the instant. Mirrors the Python
-                // `_detached_free_bound`.
-                if tasks[i].start_is_recorded() {
-                    continue;
-                }
-                let (start_ref, finish_ref) = match free[s] {
-                    Some(x) => {
-                        let succ_shown = milestones.shown[s]
-                            .ok_or_else(|| "free instant implies a shown instant".to_string())?;
-                        let start_ref = free_start_ref(
-                            (x, succ_shown.1),
-                            (dep.dep_type, dep.lag_days()),
-                            None,
-                            cals.for_node(s),
-                        )?;
-                        (start_ref, milestone_refs(x)?.1)
-                    }
-                    None => (
-                        next_working_day(succ.early_start.unwrap(), cals.for_node(s))?,
-                        succ.early_finish.unwrap(),
-                    ),
-                };
-                let span = if dep.dep_type == DependencyType::SS {
-                    retreat_calendar_days(start_ref, dep.lag_days(), cal)?
-                } else {
-                    sf_latest_start(finish_ref, dep.lag_days(), cal)?
-                };
-                bound = bound.min(window_start_bound(span, &tasks[i], cal)?);
+                // Measured from the recorded start of work with nothing left
+                // (ADR-1474), which bounds nothing (#4523, #5182). Mirrors the
+                // Python free-float pass.
                 continue;
             }
             // FF into a milestone is FS (#4272).

@@ -49,7 +49,6 @@ from trueppm_scheduler.engine.milestones import (
     _reads_instant,
     _sf_latest_start,
     _start_fixed_link,
-    _window_start_bound,
 )
 from trueppm_scheduler.engine.results import (
     DrivingEdge,
@@ -299,20 +298,9 @@ def _apply_milestone_late_date(
         if succ_id in late_instants:
             dep = _milestone_link(dep)
         if not _reads_instant(task, dep.dep_type):
-            # An SS/SF link measured from the start of work with nothing left to do
-            # (ADR-1474): a recorded start bounds nothing (#4523); a derived one is
-            # inverted like a link out of work and moved onto the instant, the day
-            # the remaining work would resume on (_window_start_bound).
-            if _start_fixed_link(task, dep):
-                continue
-            start_ref, finish_ref = _late_refs(
-                succ_id, succ, late_instants, cal_for, (dep, False, project_finish), inherited
-            )
-            span_bounds: list[date] = []
-            _append_successor_constraint(
-                dep, start_ref, finish_ref, node_cal, [], span_bounds, task
-            )
-            bounds.extend(span_bounds)
+            # An SS/SF link measured from the recorded start of work with nothing
+            # left to do (ADR-1474) bounds nothing (#4523): only a recorded start
+            # detaches a link from the instant (#5182, _detached_link_start).
             continue
         start_ref, finish_ref = _late_refs(
             succ_id, succ, late_instants, cal_for, (dep, True, project_finish), inherited
@@ -391,7 +379,7 @@ def _collect_backward_constraints(
             succ_id, succ, late_instants, cal_for, (dep, False, project_finish), inherited
         )
         _append_successor_constraint(
-            dep, start_ref, finish_ref, node_cal, lf_constraints, ls_constraints, task
+            dep, start_ref, finish_ref, node_cal, lf_constraints, ls_constraints
         )
 
     return lf_constraints, ls_constraints
@@ -404,14 +392,13 @@ def _append_successor_constraint(
     node_cal: Calendar,
     lf_constraints: list[date],
     ls_constraints: list[date],
-    task: Task | None = None,
 ) -> None:
     """Translate one successor edge into an LF or LS bound on the predecessor.
 
-    An SS/SF bound is on the start the link measures from (:func:`_link_start`);
-    for a predecessor whose span start is derived it is moved onto the
-    remaining-work window the late dates describe (:func:`_window_start_bound`,
-    #4523). ``task`` is that predecessor; ``None`` keeps the bound as is.
+    An SS/SF bound is on the start the link measures from (:func:`_link_start`),
+    which for any predecessor it bounds is its ``early_start``: a recorded start
+    bounds nothing (:func:`_start_fixed_link`, filtered before this is called), and
+    progress with no recorded start measures from the remaining work (#5182).
 
     Each result becomes *this* task's own late date, so it snaps to a working day on
     this task's own calendar (``node_cal``) — snapping on the successor's calendar
@@ -430,8 +417,7 @@ def _append_successor_constraint(
         )
     elif dep.dep_type == DependencyType.SS:
         # Predecessor must start no later than successor's late start minus lag.
-        bound = _retreat_calendar_days(succ_start, lag, node_cal)
-        ls_constraints.append(bound if task is None else _window_start_bound(bound, task, node_cal))
+        ls_constraints.append(_retreat_calendar_days(succ_start, lag, node_cal))
     elif dep.dep_type == DependencyType.FF:
         # Predecessor must finish no later than successor's late finish minus lag.
         lf_constraints.append(_retreat_calendar_days(succ_finish, lag, node_cal))
@@ -440,8 +426,7 @@ def _append_successor_constraint(
         # successor's late finish minus lag: its SF anchor is the working day
         # *before* its start, so it may start one working day beyond that bound
         # (#4145). A positive lag anchors on ``start - 1`` itself (#4333).
-        bound = _sf_latest_start(succ_finish, lag, node_cal)
-        ls_constraints.append(bound if task is None else _window_start_bound(bound, task, node_cal))
+        ls_constraints.append(_sf_latest_start(succ_finish, lag, node_cal))
 
 
 def _apply_late_dates(

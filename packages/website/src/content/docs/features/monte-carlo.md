@@ -349,8 +349,8 @@ holds the task at or after that date, which can limit how far the finish moves. 
 no lag on finish-to-start or finish-to-finish links out of the task, `cpm_finish` moves
 earlier by the remaining days. On a finish-to-start chain, the bands of a task with no
 estimate of its own move by the same amount. Start-to-start and start-to-finish links
-out of the task keep measuring from when it started: its recorded actual start, or,
-with progress and no recorded start, the start the elapsed days imply. So pulling in
+out of the task keep measuring from its recorded actual start; with progress and no
+recorded start they measure from the task itself, as a milestone's do. So pulling in
 more work never moves the finish later, on any link type
 ([ADR-1474](https://gitlab.com/trueppm/trueppm/-/blob/main/docs/adr/1474-open-work-with-no-remaining-work.md)).
 
@@ -588,7 +588,11 @@ every run being the CPM schedule of its sampled durations, read by the day each
 finish falls in, with a zero-duration task's sample under half a day read as no
 work. FS and SS
 networks are unaffected — every percentile lands at or after the CPM finish
-there. This is a decided convention, not a defect
+there. That includes a task with progress and no recorded actual start: its
+start-to-start and start-to-finish links measure from where its remaining work
+resumes, not from the earlier start its elapsed days imply, so a longer task at
+the same percent complete never moves a successor earlier
+([#5182](https://gitlab.com/trueppm/trueppm/-/issues/5182)). This is a decided convention, not a defect
 ([#3806](https://gitlab.com/trueppm/trueppm/-/issues/3806)): a task driven by an FF
 or SF link stays contiguous and right-aligned on its pinned finish, as MS Project
 renders it. See [Scheduler Conventions](/features/scheduler-conventions/).

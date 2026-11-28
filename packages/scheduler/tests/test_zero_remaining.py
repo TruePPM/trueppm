@@ -243,23 +243,20 @@ def _late_and_float_net(link: DependencyType, lag: int, succ_days: int, recorded
 # = 8, 03-22..26 = 13, 03-29..30 = 15), so the project finishes Tue 03-30, the end of
 # that day, and every late date is bounded by it.
 #
-# SS +4, derived start. Forward: span start Mon 03-08 + 4 calendar days = Fri 03-12 = S's
-# early start; S (3 days) finishes Tue 03-16. Backward: S late finish 03-30, late start
-# 03-26 (26, 29, 30). The latest span start is 03-26 - 4 calendar days = Mon 03-22; the
-# instant sits 2 working days after it, Wed 03-24, so M's late_finish is 03-24 and its
-# total float is 03-10 -> 03-24 = 10 working days. Free float: S's early start 03-12 - 4
-# = Mon 03-08 is the latest span start that leaves S where it is, i.e. the instant 03-10
-# itself, so 0 (a span start of Tue 03-09 would put S on Sat 03-13, snapped to Mon 03-15).
+# SS +4, no recorded start (#5182). M's SS/SF links measure from its instant, the start
+# of Wed 03-10, as a milestone's do: progress with no recorded start does not detach them.
+# Forward: 03-10 + 4 calendar days = the start of Sun 03-14, so S (3 days) runs Mon
+# 03-15..03-17. Backward: S late finish 03-30, late start 03-26 (26, 29, 30); the latest
+# instant is 03-26 - 4 = Mon 03-22, so M's late_finish is 03-22 and its total float is
+# 03-10 -> 03-22 = 8 working days. Free float: an instant at the start of Thu 03-11
+# still puts S on 03-15, Fri 03-12 puts it on Tue 03-16, so 1 working day.
 #
-# SF +7, derived start. The link holds S's finish instant (the start of the day after
-# its finish date) at or after span start + 7. Forward: 03-08 + 7 = the start of Mon
-# 03-15, i.e. the end of Sun 03-14, which is not a working day, so S finishes at the end
-# of Mon 03-15 (starting Fri 03-12). Backward: S's late finish, the end of 03-30, is the
-# instant 03-31; 03-31 - 7 = Wed 03-24 is the latest span start, and the instant 2 working
-# days later is Fri 03-26: late_finish 03-26, total float 03-10 -> 03-26 = 12 working
-# days. Free float: S's early finish instant 03-16 - 7 = Tue 03-09; 2 working days later
-# is Thu 03-11, so 1 working day (a span start of 03-09 still lands S's finish at the end
-# of 03-15).
+# SF +7, no recorded start. A positive SF lag anchors on the day before the instant's
+# start day (#4333), Tue 03-09; + 7 = Tue 03-16 is S's finish day, so S (2 days) runs
+# Mon 03-15..03-16. Backward: S's late finish 03-30 - 7 = Tue 03-23 is the latest anchor,
+# the day before an instant at the start of Wed 03-24: late_finish 03-24, total float
+# 03-10 -> 03-24 = 10 working days. Free float: S's finish day 03-16 - 7 = 03-09 is
+# already the anchor, so 0.
 #
 # Recorded start, either link. A recorded start does not move when the instant slips
 # (#4523), so the link bounds nothing: M's late date is the project finish, Tue 03-30,
@@ -267,8 +264,8 @@ def _late_and_float_net(link: DependencyType, lag: int, succ_days: int, recorded
 @pytest.mark.parametrize(
     ("link", "lag", "succ_days", "recorded", "late_finish", "total_float", "free_float"),
     [
-        (DependencyType.SS, 4, 3, False, date(2027, 3, 24), 10, 0),
-        (DependencyType.SF, 7, 2, False, date(2027, 3, 26), 12, 1),
+        (DependencyType.SS, 4, 3, False, date(2027, 3, 22), 8, 1),
+        (DependencyType.SF, 7, 2, False, date(2027, 3, 24), 10, 0),
         (DependencyType.SS, 4, 3, True, date(2027, 3, 30), 14, 14),
         (DependencyType.SF, 7, 2, True, date(2027, 3, 30), 14, 14),
     ],
@@ -282,8 +279,8 @@ def test_late_dates_and_float_of_a_task_with_no_remaining_work(
     total_float: int,
     free_float: int,
 ) -> None:
-    """An SS/SF link from a derived start bounds the instant through the span start;
-    one from a recorded start bounds nothing (ADR-1474)."""
+    """An SS/SF link with no recorded start bounds the instant as a milestone's does
+    (#5182); one from a recorded start bounds nothing (ADR-1474)."""
     m = next(
         t
         for t in schedule(_late_and_float_net(link, lag, succ_days, recorded)).tasks

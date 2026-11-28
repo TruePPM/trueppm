@@ -1573,14 +1573,15 @@ mod tests {
         assert_eq!(driving, vec![("A", "C")]);
     }
 
-    /// #4523: in-progress work with no recorded `actual_start` is measured from its
-    /// derived span start (`scheduled_start`: the full duration backed off from its
-    /// finish), not from its remaining window — and, that start not being history,
-    /// the link keeps its late-date bound. `A` (20d, 50%, no actual) `-SS+16d->` `B`
-    /// (30d) at a 2026-03-09 data date: A's span starts 2026-02-23, B starts
-    /// 2026-03-11 (not 03-09 + 16), and A is critical through the link.
+    /// #5182: in-progress work with no recorded `actual_start` is measured from its
+    /// remaining window (`early_start`), not from its derived span start
+    /// (`scheduled_start`, which the bar still shows), and the link keeps its
+    /// late-date bound. `A` (20d, 50%, no actual) `-SS+16d->` `B` (30d) at a Mon
+    /// 2026-03-09 data date: A's remaining 10 days run 03-09..03-20, its bar backs
+    /// 20 working days off 03-20 to 02-23, and B starts 03-09 + 16 = Wed 03-25
+    /// (it was 02-23 + 16 = 03-11 before #5182). A is critical through the link.
     #[test]
-    fn no_actual_start_link_measures_from_scheduled_start_and_keeps_its_bound() {
+    fn no_actual_start_link_measures_from_early_start_and_keeps_its_bound() {
         let project: Project = serde_json::from_value(json!({
             "id": "p",
             "name": "p",
@@ -1600,10 +1601,45 @@ mod tests {
         let by = |id: &str| result.tasks.iter().find(|t| t.id == id).unwrap();
         let ymd = |m, d| NaiveDate::from_ymd_opt(2026, m, d).unwrap();
         assert_eq!(by("A").scheduled_start, ymd(2, 23));
-        assert_eq!(by("B").early_start, ymd(3, 11));
+        assert_eq!(by("A").early_start, ymd(3, 9));
+        assert_eq!(by("B").early_start, ymd(3, 25));
         assert!(by("A").is_critical);
         assert_eq!(by("A").free_float, 0.0);
         assert_eq!(result.driving_edges.len(), 1);
+    }
+
+    /// #5182 issue repro, hand-computed: `A` (2, 4 or 6 days, 50%, no actual)
+    /// `-SS+2d->` `B` (5d), project start Mon 2026-03-02, data date Wed 03-11. A's
+    /// remaining work starts on the data date whatever its length, so B starts
+    /// 03-11 + 2 = Fri 03-13 and runs 03-13, 03-16..03-19: the finish is 03-19 for
+    /// all three. Measured from the derived span start a longer A finished the
+    /// project earlier (03-18 at 2 days, 03-17 at 4).
+    #[test]
+    fn lengthening_a_percent_only_task_never_moves_its_ss_successor_earlier() {
+        for days in [2.0, 4.0, 6.0] {
+            let project: Project = serde_json::from_value(json!({
+                "id": "p",
+                "name": "p",
+                "start_date": "2026-03-02",
+                "status_date": "2026-03-11",
+                "tasks": [
+                    {"id": "A", "name": "A", "duration": days * 86400.0,
+                     "percent_complete": 50.0},
+                    {"id": "B", "name": "B", "duration": 5.0 * 86400.0},
+                ],
+                "dependencies": [
+                    {"predecessor_id": "A", "successor_id": "B", "dep_type": "SS",
+                     "lag": 2.0 * 86400.0},
+                ],
+            }))
+            .expect("test project parses");
+            let result = schedule_impl(&project).expect("test project schedules");
+            let by = |id: &str| result.tasks.iter().find(|t| t.id == id).unwrap();
+            let ymd = |m, d| NaiveDate::from_ymd_opt(2026, m, d).unwrap();
+            assert_eq!(by("A").early_start, ymd(3, 11), "{days}");
+            assert_eq!(by("B").early_start, ymd(3, 13), "{days}");
+            assert_eq!(result.project_finish, ymd(3, 19), "{days}");
+        }
     }
 
     /// #5094: `M` held on Mon 2026-01-12 by its SNET, `M -FS+2d-> B`. Live, `M`

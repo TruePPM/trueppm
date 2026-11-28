@@ -312,10 +312,10 @@ class Task:
             instant, like a milestone, so finish-to-start and finish-to-finish
             links out of it measure from that instant, but its start-to-start and
             start-to-finish links keep measuring from its recorded
-            ``actual_start``, or, with progress and no recorded start, from its
-            derived span start ``elapsed`` working days before the instant. It
-            does not complete the task. Ignored on a completed task and on a
-            zero-duration milestone, which already has no remaining work.
+            ``actual_start`` when it has one; with progress and no recorded start
+            they measure from the instant (#5182). It does not complete the task.
+            Ignored on a completed task and on a zero-duration milestone, which
+            already has no remaining work.
         scheduled_start: Computed. Start of the task's whole span (ADR-0752): for
             an in-progress task this is where the work began, whereas
             ``early_start`` is where the remaining work begins. An input value is

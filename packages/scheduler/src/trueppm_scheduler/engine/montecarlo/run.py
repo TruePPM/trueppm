@@ -44,7 +44,6 @@ from trueppm_scheduler.engine.limits import (
 )
 from trueppm_scheduler.engine.milestones import (
     _ONE_DAY,
-    _elapsed_link_days,
 )
 from trueppm_scheduler.engine.montecarlo.capacity import (
     _capacity_block_runs,
@@ -1164,12 +1163,6 @@ def monte_carlo(
         if (task_map[tid].duration.days == 0 or task_map[tid].zero_remaining)
         and not _is_complete(task_map[tid])
     ]
-    # Their SS/SF links measure from a derived span start when one exists (ADR-1474).
-    link_elapsed = {
-        tid: _elapsed_link_days(task_map[tid])
-        for _, tid in live_zero_cols
-        if task_map[tid].zero_remaining and _elapsed_link_days(task_map[tid]) > 0
-    }
     milestone_ids = frozenset(tid for col, tid in live_zero_cols if not durations.column_any(col))
     zero_base_ids = frozenset(tid for _, tid in live_zero_cols) - milestone_ids
     delta_by_key = _build_lag_delta_table(
@@ -1361,7 +1354,6 @@ def monte_carlo(
                     milestone_floors,
                     zero_base_ids,
                     None if velocity is None else velocity.rows(lo, hi),
-                    link_elapsed,
                     verbatim_shown,
                 ),
                 collector,

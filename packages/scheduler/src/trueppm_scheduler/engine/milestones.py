@@ -17,12 +17,9 @@ from datetime import (
 )
 
 from trueppm_scheduler.engine.calendar_math import (
-    _elapsed_working_days,
-    _finish_from_start,
     _is_complete,
     _next_working_day,
     _prev_working_day,
-    _retreat_calendar_days,
     _safe_offset,
     _scan_for_working_day,
 )
@@ -171,45 +168,20 @@ def _start_is_recorded(task: Task) -> bool:
     return task.actual_start is not None and task.duration.days > 0 and not _is_complete(task)
 
 
-def _elapsed_link_days(task: Task) -> int:
-    """Working days of ``task``'s span before its remaining-work window (#4523).
-
-    Non-zero only for live work with progress and no recorded ``actual_start``
-    (:func:`_start_is_recorded` covers the recorded case): its span start
-    (``scheduled_start``, ADR-0752) is the full duration backed off from
-    ``early_finish``, which is exactly this many working days before
-    ``early_start``. Zero for everything else, where the span start *is* the early
-    start.
-    """
-    if task.actual_start is not None or task.duration.days <= 0 or _is_complete(task):
-        return 0
-    pct = task.percent_complete
-    if not pct or pct <= 0:
-        return 0
-    # Read off ``duration`` and the percentage, not the remaining work: a task with
-    # no remaining work (``zero_remaining``, ADR-1474) keeps its elapsed days.
-    return _elapsed_working_days(task.duration.days, pct)
-
-
 def _detached_link_start(task: Task) -> bool:
     """Whether ``task`` is placed as an instant but its SS/SF links measure elsewhere.
 
     True for open work with no remaining work (``Task.zero_remaining``, ADR-1474,
-    #4819) whose start is recorded (:func:`_start_is_recorded`) or derived from
-    elapsed days (:func:`_elapsed_link_days`). The task is placed as an instant, like
-    a milestone, and its FS/FF links measure from that instant; its SS and SF links
-    measure from :func:`_link_start`, exactly as they did while it had work left.
-    Measuring them from the instant instead moved a successor *behind* the recorded
-    start, so pulling more work out of the task finished the project later. With no
-    recorded start and no elapsed days the start is the instant, and nothing
-    differs from a milestone.
+    #4819) whose start is recorded (:func:`_start_is_recorded`). The task is placed
+    as an instant, like a milestone, and its FS/FF links measure from that instant;
+    its SS and SF links measure from :func:`_link_start`, exactly as they did while
+    it had work left. Measuring them from the instant instead moved a successor
+    *behind* the recorded start, so pulling more work out of the task finished the
+    project later. With no recorded start the start is the instant, and nothing
+    differs from a milestone: a start inferred from progress alone is not one a
+    link measures from (:func:`_link_start`, #5182).
     """
-    return (
-        task.zero_remaining
-        and task.duration.days > 0
-        and not _is_complete(task)
-        and (task.actual_start is not None or _elapsed_link_days(task) > 0)
-    )
+    return _start_is_recorded(task) and task.zero_remaining
 
 
 def _reads_instant(task: Task, dep_type: DependencyType) -> bool:
@@ -226,30 +198,32 @@ def _reads_instant(task: Task, dep_type: DependencyType) -> bool:
 def _link_start(task: Task) -> date:
     """The start an SS or SF link out of ``task`` measures from (ADR-0132 §2a, #4523).
 
-    When the task started, or is forecast to have started — never where its
-    remaining work resumes: the recorded ``actual_start`` of a started task
-    (:func:`_start_is_recorded`), at any ``percent_complete`` — at 0% its bar
-    (``scheduled_start``) still starts at ``early_start``, so this is not always the
-    bar start; for live work with progress but no recorded start, its derived span
-    start ``scheduled_start`` (:func:`_elapsed_link_days`); otherwise
-    ``early_start``. Measuring from the remaining-work window instead
-    re-added the link's lag from the data date on every status update: ``A``
-    started 03-02 ``-SS+10d-> B`` put ``B`` on 03-16 at a 03-04 data date and two
-    days later at a 03-06 one, with nothing else changed. ``early_start`` is never
-    before either start for a live task, so they agree whenever nothing but
-    the start holds the task.
+    The recorded ``actual_start`` of a started task (:func:`_start_is_recorded`),
+    at any ``percent_complete`` — at 0% its bar (``scheduled_start``) still starts
+    at ``early_start``, so this is not always the bar start; otherwise
+    ``early_start``. Measuring a recorded start from the remaining-work window
+    instead re-added the link's lag from the data date on every status update:
+    ``A`` started 03-02 ``-SS+10d-> B`` put ``B`` on 03-16 at a 03-04 data date and
+    two days later at a 03-06 one, with nothing else changed. ``early_start`` is
+    never before the recorded start for a live task, so they agree whenever
+    nothing but the start holds the task.
 
-    ``scheduled_start`` is read off the task, so this is only called after the
-    forward pass resolved it (:func:`_compute_scheduled_start`), as every caller
-    does.
+    Progress with no recorded start measures from ``early_start`` too, not from
+    its derived span start (``scheduled_start``, the full duration backed off the
+    forecast finish, ADR-0752) (#5182). That span start is an inference, not a
+    fact: it sits ``duration * percent_complete / 100`` working days before the
+    remaining work, so at a fixed percentage a *longer* task reads an *earlier*
+    start, and an SS or SF successor keyed on it — and with it the project finish
+    — moved earlier as the task grew (a 2-day task at 50% finished the project
+    03-18, a 4-day one 03-17). No anchor that credits those inferred days can be
+    monotone in duration, because the credit itself grows with it. The bar still
+    shows the derived span; record ``actual_start`` to have the link measure from
+    when the work began.
     """
     assert task.early_start is not None
     if _start_is_recorded(task):
         assert task.actual_start is not None
         return task.actual_start
-    if _elapsed_link_days(task) > 0:
-        assert task.scheduled_start is not None
-        return task.scheduled_start
     return task.early_start
 
 
@@ -258,28 +232,11 @@ def _start_fixed_link(task: Task, dep: Dependency) -> bool:
 
     Such a link cannot be moved by ``task``'s remaining work slipping, so it
     imposes no late-date bound on ``task`` and gives it no free-float limit; it is
-    still the driving edge of a successor it holds. A link measured from a
-    *derived* span start (:func:`_elapsed_link_days`) is not one: that start is
-    backed off from the forecast finish and slips with the remaining work, so it
-    keeps its bound (:func:`_window_start_bound`).
+    still the driving edge of a successor it holds. A link out of progress with no
+    recorded start is not one: it measures from ``early_start`` (#5182), which
+    slips with the remaining work, so it keeps its bound.
     """
     return dep.dep_type in (DependencyType.SS, DependencyType.SF) and _start_is_recorded(task)
-
-
-def _window_start_bound(span_bound: date, task: Task, cal: Calendar) -> date:
-    """The latest ``early_start`` that keeps ``task``'s link start at or before ``span_bound``.
-
-    The backward inverse of :func:`_link_start` for a derived span start (#4523):
-    the span start sits :func:`_elapsed_link_days` working days before the
-    remaining-work window, so a bound on the one is that many working days later
-    on the other. ``span_bound`` is always a working day on ``cal`` (every backward
-    bound is snapped), and on working days the two helpers are inverses. The
-    identity when nothing has elapsed.
-    """
-    elapsed = _elapsed_link_days(task)
-    if elapsed <= 0:
-        return span_bound
-    return _finish_from_start(span_bound, elapsed + 1, cal)
 
 
 def _milestone_link(dep: Dependency) -> Dependency:
@@ -466,18 +423,8 @@ def _milestone_free_instants(
             dep: Dependency = g[node_id][succ_id]["dep"]
             succ_free = free.get(succ_id)
             if not _reads_instant(task_map[node_id], dep.dep_type):
-                # Measured from the start of work with nothing left (ADR-1474).
-                detached = _detached_free_bound(
-                    task_map[node_id],
-                    succ,
-                    dep,
-                    succ_free,
-                    instants.get(succ_id),
-                    cal,
-                    cal_for(succ_id),
-                )
-                if detached is not None:
-                    bound = min(bound, detached)
+                # Measured from the recorded start of work with nothing left
+                # (ADR-1474), which no slip of the instant moves (#4523, #5182).
                 continue
             if succ_free is None:
                 assert succ.early_start is not None and succ.early_finish is not None
@@ -499,40 +446,6 @@ def _milestone_free_instants(
             bound = min(bound, _milestone_latest(dep.dep_type, dep.lag, *refs, cal))
         free[node_id] = max(link, bound)
     return free
-
-
-def _detached_free_bound(
-    task: Task,
-    succ: Task,
-    dep: Dependency,
-    succ_free: date | None,
-    succ_instant: _Instant | None,
-    cal: Calendar,
-    succ_cal: Calendar,
-) -> date | None:
-    """The latest instant an SS/SF link from a detached start lets ``task`` reach (ADR-1474).
-
-    ``None`` for a recorded start, which no slip of the instant moves (#4523). A
-    derived span start sits :func:`_elapsed_link_days` working days before the
-    instant, so the link is inverted as from work and moved onto the instant with
-    :func:`_window_start_bound`.
-    """
-    if _start_is_recorded(task):
-        return None
-    if succ_free is None:
-        assert succ.early_start is not None and succ.early_finish is not None
-        start_ref, finish_ref = _next_working_day(succ.early_start, succ_cal), succ.early_finish
-    else:
-        assert succ_instant is not None
-        start_ref = _free_start_ref(
-            (succ_free, succ_instant[1]), dep.dep_type, dep.lag, None, succ_cal
-        )
-        finish_ref = _milestone_refs(succ_free)[1]
-    if dep.dep_type == DependencyType.SS:
-        latest = _retreat_calendar_days(start_ref, dep.lag, cal)
-    else:
-        latest = _sf_latest_start(finish_ref, dep.lag, cal)
-    return _window_start_bound(latest, task, cal)
 
 
 def _milestone_latest(

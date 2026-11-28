@@ -85,67 +85,66 @@
       "id": "P2",
       "early_start": "2027-03-08",
       "early_finish": "2027-03-12",
-      "late_start": "2027-03-09",
-      "late_finish": "2027-03-15",
-      "total_float": 86400.0,
+      "late_start": "2027-03-08",
+      "late_finish": "2027-03-12",
+      "total_float": 0.0,
       "free_float": 0.0,
-      "is_critical": false,
+      "is_critical": true,
       "scheduled_start": "2027-03-08"
     },
     {
       "id": "M2",
       "early_start": "2027-03-12",
       "early_finish": "2027-03-12",
-      "late_start": "2027-03-15",
-      "late_finish": "2027-03-15",
-      "total_float": 86400.0,
+      "late_start": "2027-03-12",
+      "late_finish": "2027-03-12",
+      "total_float": 0.0,
       "free_float": 0.0,
-      "is_critical": false,
+      "is_critical": true,
       "scheduled_start": "2027-03-11",
       "milestone_at_day_end": true
     },
     {
       "id": "SS2",
-      "early_start": "2027-03-12",
-      "early_finish": "2027-03-16",
+      "early_start": "2027-03-15",
+      "early_finish": "2027-03-17",
       "late_start": "2027-03-15",
       "late_finish": "2027-03-17",
-      "total_float": 86400.0,
-      "free_float": 86400.0,
-      "is_critical": false,
-      "scheduled_start": "2027-03-12"
+      "total_float": 0.0,
+      "free_float": 0.0,
+      "is_critical": true,
+      "scheduled_start": "2027-03-15"
     },
     {
       "id": "SF2",
-      "early_start": "2027-03-08",
-      "early_finish": "2027-03-10",
+      "early_start": "2027-03-10",
+      "early_finish": "2027-03-12",
       "late_start": "2027-03-15",
       "late_finish": "2027-03-17",
-      "total_float": 432000.0,
-      "free_float": 432000.0,
+      "total_float": 259200.0,
+      "free_float": 259200.0,
       "is_critical": false,
-      "scheduled_start": "2027-03-08"
+      "scheduled_start": "2027-03-10"
     },
     {
       "id": "G2",
-      "early_start": "2027-03-11",
-      "early_finish": "2027-03-11",
+      "early_start": "2027-03-15",
+      "early_finish": "2027-03-15",
       "late_start": "2027-03-17",
       "late_finish": "2027-03-17",
-      "total_float": 345600.0,
-      "free_float": 345600.0,
+      "total_float": 172800.0,
+      "free_float": 172800.0,
       "is_critical": false,
-      "scheduled_start": "2027-03-11",
-      "milestone_at_day_end": true
+      "scheduled_start": "2027-03-15"
     },
     {
       "id": "M3",
       "early_start": "2027-03-08",
       "early_finish": "2027-03-08",
-      "late_start": "2027-03-17",
-      "late_finish": "2027-03-17",
-      "total_float": 604800.0,
-      "free_float": 259200.0,
+      "late_start": "2027-03-16",
+      "late_finish": "2027-03-16",
+      "total_float": 518400.0,
+      "free_float": 0.0,
       "is_critical": false,
       "scheduled_start": "2027-03-03"
     },
@@ -185,8 +184,11 @@
   ],
   "critical_path": [
     "P1",
+    "P2",
     "M1",
-    "FS1"
+    "M2",
+    "FS1",
+    "SS2"
   ],
   "driving_edges": [
     {
@@ -217,6 +219,11 @@
     {
       "predecessor_id": "M2",
       "successor_id": "SS2",
+      "dep_type": "SS"
+    },
+    {
+      "predecessor_id": "M3",
+      "successor_id": "SS3",
       "dep_type": "SS"
     },
     {

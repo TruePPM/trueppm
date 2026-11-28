@@ -10,7 +10,9 @@ before the split, dunders excluded. It is a frozen snapshot, not a mirror of the
 package: never regenerate it from the current tree, which would make this test pass by
 construction. A name is only removed from it as part of an announced removal of that
 re-export. ``nx`` was removed that way in 0.5, when the ``networkx`` dependency was
-dropped (#4163).
+dropped (#4163). ``_elapsed_link_days``, ``_window_start_bound`` and ``_mc_span_link``
+were removed the same way in 0.5, when SS/SF links out of progress with no recorded
+start stopped measuring from the derived span start (#5182).
 """
 
 from __future__ import annotations
@@ -123,7 +125,6 @@ _ENGINE_04_NAMES = (
     "_early_start_floors",
     "_edge_anchor",
     "_effective_duration_days",
-    "_elapsed_link_days",
     "_equivalent_link",
     "_expand_edges_for_cycle_check",
     "_finish_day_key",
@@ -168,7 +169,6 @@ _ENGINE_04_NAMES = (
     "_mc_percentiles",
     "_mc_pre_start_pad_days",
     "_mc_progress_state",
-    "_mc_span_link",
     "_mc_verbatim_actuals",
     "_mc_work_proposal",
     "_mc_zero_base_column",
@@ -248,7 +248,6 @@ _ENGINE_04_NAMES = (
     "_velocity_observations",
     "_velocity_worst_case_days",
     "_wd_span",
-    "_window_start_bound",
     "_working_days_between",
     "_working_days_in_ordinals",
     "annotations",
@@ -326,7 +325,8 @@ def test_every_04_name_is_still_importable(name: str) -> None:
 
 def test_the_snapshot_is_the_whole_04_surface() -> None:
     """A guard on the guard: the snapshot has not been trimmed to what happens to exist."""
-    assert len(_ENGINE_04_NAMES) == 244
+    # 244 at the split; #5182 removed three (see the module docstring).
+    assert len(_ENGINE_04_NAMES) == 241
     assert len(set(_ENGINE_04_NAMES)) == len(_ENGINE_04_NAMES)
 
 

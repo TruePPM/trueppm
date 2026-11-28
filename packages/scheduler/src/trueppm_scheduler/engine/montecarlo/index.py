@@ -22,7 +22,6 @@ from trueppm_scheduler.engine.calendar_math import (
     _nth_working_day,
     _prev_working_day,
     _safe_offset,
-    _start_from_finish,
     _working_days_between,
 )
 from trueppm_scheduler.engine.digraph import (
@@ -43,7 +42,6 @@ from trueppm_scheduler.engine.milestones import (
     _FROM_PREDECESSOR_FINISH,
     _ONE_DAY,
     _START_ANCHORED,
-    _elapsed_link_days,
     _start_is_recorded,
 )
 from trueppm_scheduler.engine.validate import (
@@ -213,9 +211,8 @@ def _mc_pre_start_pad_days(
     possible sampled duration, measured from that lower bound on the predecessor —
     the SF bound is monotone in the predecessor's start and the back-solve is
     monotone in both arguments. That start is the one the SF link measures from
-    (:func:`_link_start`, #4523): a started task's recorded ``actual_start``, or a
-    derived span start a fixed number of elapsed working days before its window,
-    either of which can sit before the task's own lower bound. An SF-linked task's
+    (:func:`_link_start`, #4523): a started task's recorded ``actual_start``, which
+    can sit before the task's own lower bound. An SF-linked task's
     own floors (data date, SNET, a recorded actual start) only raise its true
     start, so leaving them out of *its* bound keeps that bound safe. A milestone's
     floors are different — they can lower the instant its successors measure
@@ -247,9 +244,8 @@ def _mc_pre_start_pad_days(
         return 0, sf_linked
     lo: dict[str, date] = {}
     # What an SS/SF link out of each task measures from is its link start, which
-    # can lie before ``lo`` (#4523, :func:`_link_start`): a recorded actual start,
-    # or a derived span start that many elapsed working days earlier. Links read
-    # this; a task's own placement reads ``lo``.
+    # can lie before ``lo`` (#4523, :func:`_link_start`): a recorded actual start.
+    # Links read this; a task's own placement reads ``lo``.
     link_lo: dict[str, date] = {}
 
     def record_link_lo(tid: str) -> None:
@@ -258,8 +254,6 @@ def _mc_pre_start_pad_days(
         if _start_is_recorded(task):
             assert task.actual_start is not None
             bound = min(bound, task.actual_start)
-        elif _elapsed_link_days(task) > 0:
-            bound = _start_from_finish(bound, _elapsed_link_days(task) + 1, cal_of[tid])
         link_lo[tid] = bound
 
     earliest = project.start_date

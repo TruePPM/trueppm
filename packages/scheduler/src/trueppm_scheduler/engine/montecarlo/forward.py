@@ -24,7 +24,6 @@ from trueppm_scheduler.engine.calendar_math import (
     _prev_working_day,
     _safe_fromordinal,
     _safe_offset,
-    _start_from_finish,
 )
 from trueppm_scheduler.engine.digraph import _DiGraph
 from trueppm_scheduler.engine.forward import (
@@ -647,8 +646,7 @@ def _mc_progress_state(
     elapsed_days: dict[str, float] = {}
     for t in task_map.values():
         # A task with no remaining work (ADR-1474) is sampled as remaining work
-        # already (_sample_column), so nothing is subtracted from it; its elapsed
-        # days reach its SS/SF links through ``link_elapsed`` (_mc_forward_pass).
+        # already (_sample_column), so nothing is subtracted from it.
         if t.zero_remaining:
             continue
         if not _is_complete(t) and t.percent_complete and t.percent_complete > 0:
@@ -754,7 +752,6 @@ def _mc_forward_pass(
     milestone_floors: dict[str, _MilestoneFloors] | None = None,
     zero_base_ids: frozenset[str] = frozenset(),
     velocity: _VelocityCapacity | None = None,
-    link_elapsed: dict[str, int] | None = None,
     verbatim_shown: dict[int, tuple[np.ndarray, int]] | None = None,  # return_samples
 ) -> tuple[np.ndarray, np.ndarray, date | None, dict[str, _InstantRuns]]:
     """Vectorised forward pass — early-start/early-finish working-day offset matrices.
@@ -824,13 +821,6 @@ def _mc_forward_pass(
     milestone_floors = milestone_floors or {}
     finish_floor: date | None = None
     instant_runs: dict[str, _InstantRuns] = {}
-    # Live work whose SS/SF links measure from a derived span start (#4523,
-    # _mc_span_link): elapsed working days, by task. A recorded start never reaches
-    # those links here — they are constants in ``completed_edge``.
-    span_elapsed = {tid: int(days) for tid, days in elapsed_days.items() if days > 0}
-    # ``link_elapsed``: tasks with no remaining work and a derived span start
-    # (ADR-1474), whose elapsed days are not in ``elapsed_days``.
-    span_elapsed.update(link_elapsed or {})
 
     for col, tid in enumerate(topo_order):
         # Completed: pin both offsets to constants across every run and skip the
@@ -855,7 +845,6 @@ def _mc_forward_pass(
                     milestone_ids,
                     index,
                     runs,
-                    span_elapsed,
                     instant_runs,
                 )
             )
@@ -892,7 +881,6 @@ def _mc_forward_pass(
             completed_edge,
             runs,
             (milestone_ids, instants, index, col),
-            span_elapsed,
             instant_runs,
         )
         if actual is not None:
@@ -931,7 +919,6 @@ def _mc_forward_pass(
                     milestone_ids,
                     index,
                     runs,
-                    span_elapsed,
                     instant_runs,
                 )
             )
@@ -1012,67 +999,6 @@ def _mc_zero_base_column(
     )
 
 
-def _mc_span_link(
-    dep: Dependency,
-    p: int,
-    col: int,
-    es_mat: np.ndarray,
-    elapsed: int,
-    index: _McIndex,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Per-run bound of an SS/SF link out of live work with a *derived* span start (#4523).
-
-    The link measures from the predecessor's span start (:func:`_link_start`),
-    ``elapsed`` working days before its remaining-work window — which a run's
-    sampled durations move, so unlike a recorded start it is not a constant. It is
-    resolved in date space with ``schedule()``'s own helpers, once per distinct
-    early start across the runs: the span start can fall before the index (a
-    task whose progress reaches back past the project start), where an offset
-    anchor would clamp to the first cell and land the bound late.
-
-    Returns ``(offset, proposal, start_display, deficit)``: the constraint in column
-    ``col``'s offset space (an exclusive EF offset for SF), and the instant, reading
-    and deficit (:func:`_mc_milestone_bounds`) the same link proposes to a milestone
-    successor (:func:`_milestone_proposal`).
-    """
-    pred_cal = index.cal_of_col[p]
-    succ_cal = index.cal_of_col[col]
-    es = es_mat[:, p]
-    es_ord = index.ordinal_at(p, es)
-    # The remaining window can open part-way into its day (#4697); the span start is
-    # then that far into its own day, and the link carries the fraction as the
-    # offset path does (_lagged_constraint).
-    frac = es - _start_day_index(es)
-    partial = frac > _MC_DAY_EPS
-    uniq, inverse = np.unique(es_ord, return_inverse=True)
-    offsets = np.empty(len(uniq), dtype=np.float64)
-    proposals = np.empty(len(uniq), dtype=np.int64)
-    displays = np.empty(len(uniq), dtype=bool)
-    lands = np.empty(len(uniq), dtype=bool)
-    span_ords = np.empty(len(uniq), dtype=np.int64)
-    finish_bound = dep.dep_type not in _START_ANCHORED
-    for k, o in enumerate(uniq.tolist()):
-        span = _start_from_finish(date.fromordinal(int(o)), elapsed + 1, pred_cal)
-        anchor = _edge_anchor(dep.dep_type, span, span, None, pred_cal, dep.lag)
-        landing = _safe_offset(anchor, dep.lag)
-        imposed = _next_working_day(landing, succ_cal)
-        off = index.next_wd_offset(col, np.array([imposed.toordinal()], dtype=np.int64))
-        offsets[k] = float(off[0]) + (1.0 if finish_bound else 0.0)
-        lands[k] = finish_bound or imposed == landing
-        raw, display = _milestone_proposal(
-            dep.dep_type, dep.lag, span, span, None, pred_cal, succ_cal
-        )
-        proposals[k] = raw.toordinal()
-        displays[k] = display
-        span_ords[k] = span.toordinal()
-    run_offsets = offsets[inverse] + np.where(partial & lands[inverse], frac, 0.0)
-    # A start part-way into its day proposes the midnight closing that day, with
-    # the working time it lies short of it as the deficit (#4697).
-    run_proposals = np.where(partial, span_ords[inverse] + 1 + dep.lag.days, proposals[inverse])
-    run_displays = np.where(partial, False, displays[inverse])
-    return run_offsets, run_proposals, run_displays, np.where(partial, 1.0 - frac, 0.0)
-
-
 def _mc_instant_proposal(
     dep: Dependency,
     p: int,
@@ -1108,11 +1034,9 @@ def _mc_instant_proposal(
 def _mc_work_proposal(
     dep: Dependency,
     p: int,
-    col: int,
     es_mat: np.ndarray,
     ef_mat: np.ndarray,
     index: _McIndex,
-    elapsed: int,
 ) -> tuple[np.ndarray, np.ndarray | bool, np.ndarray]:
     """Per-run ``(raw midnight, start_display, deficit)`` a link out of work proposes.
 
@@ -1129,10 +1053,6 @@ def _mc_work_proposal(
             False,
             np.maximum(_finish_day_key(ef) - ef, 0.0),
         )
-    if elapsed > 0 and dep.dep_type in (DependencyType.SS, DependencyType.SF):
-        # Measured from a derived span start (#4523, _mc_span_link).
-        _, proposal, display, deficit = _mc_span_link(dep, p, col, es_mat, elapsed, index)
-        return proposal, display, deficit
     es = es_mat[:, p]
     start_ord = index.ordinal_at(p, es)
     if dep.dep_type == DependencyType.SS:
@@ -1166,7 +1086,6 @@ def _mc_milestone_bounds(
     milestone_ids: frozenset[str],
     index: _McIndex,
     runs: int,
-    span_elapsed: dict[str, int] | None = None,
     instant_runs: dict[str, _InstantRuns] | None = None,
 ) -> tuple[_MilestoneReading, _MilestoneReading]:
     """Per-run ``(link, shown)`` of a live milestone, each ``(ordinal, start_display, deficit)``.
@@ -1229,15 +1148,12 @@ def _mc_milestone_bounds(
             offer(np.full(runs, fixed[2], dtype=np.int64), fixed[3])
             continue
         p = task_idx[pred_id]
-        elapsed = (span_elapsed or {}).get(pred_id, 0)
-        # A derived span start is read in every run, instant or not (ADR-1474).
-        from_span = elapsed > 0 and dep.dep_type in (DependencyType.SS, DependencyType.SF)
-        if pred_id in milestone_ids and not from_span:
+        if pred_id in milestone_ids:
             offer(*_mc_instant_proposal(dep, p, instants, index))
             continue
-        proposal, display, deficit = _mc_work_proposal(dep, p, col, es_mat, ef_mat, index, elapsed)
+        proposal, display, deficit = _mc_work_proposal(dep, p, es_mat, ef_mat, index)
         # A zero-base predecessor is an instant in some runs (#4698).
-        pred_runs = None if from_span else (instant_runs or {}).get(pred_id)
+        pred_runs = (instant_runs or {}).get(pred_id)
         if pred_runs is not None:
             at_instant, at_display, at_deficit = _mc_instant_proposal(dep, p, instants, index)
             proposal = np.where(pred_runs, at_instant, proposal)
@@ -1351,7 +1267,6 @@ def _mc_edge_constraints(
     completed_edge: dict[tuple[str, str], _FixedEdge],
     runs: int,
     milestones: tuple[frozenset[str], _InstantColumns, _McIndex | None, int] | None = None,
-    span_elapsed: dict[str, int] | None = None,
     instant_runs: dict[str, _InstantRuns] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, bool]:
     """Fold every predecessor edge into one task's ES/EF constraint vectors.
@@ -1407,27 +1322,10 @@ def _mc_edge_constraints(
         dep: Dependency = g[pred_id][tid]["dep"]
         p = task_idx[pred_id]
 
-        # Checked before the instant branch: a task with no remaining work is an
-        # instant in some or all runs, but its SS/SF links measure from its derived
-        # span start in every run (ADR-1474).
-        elapsed = (span_elapsed or {}).get(pred_id, 0)
-        if pred_id in milestone_ids and not (
-            elapsed > 0 and dep.dep_type in (DependencyType.SS, DependencyType.SF)
-        ):
+        if pred_id in milestone_ids:
             assert index is not None
             bound = _mc_instant_edge_bound(dep, p, col, instants, index)
             if dep.dep_type in _START_ANCHORED:
-                np.maximum(es_constraints, bound, out=es_constraints)
-            else:
-                np.maximum(ef_constraints, bound, out=ef_constraints)
-                has_ef_constraint = True
-            continue
-
-        if elapsed > 0 and dep.dep_type in (DependencyType.SS, DependencyType.SF):
-            # Measured from a derived span start (#4523, _mc_span_link).
-            assert index is not None
-            bound, _, _, _ = _mc_span_link(dep, p, col, es_mat, elapsed, index)
-            if dep.dep_type == DependencyType.SS:
                 np.maximum(es_constraints, bound, out=es_constraints)
             else:
                 np.maximum(ef_constraints, bound, out=ef_constraints)

@@ -358,16 +358,18 @@ def _ab(project: Project) -> tuple[Task, Task]:
     return res["A"], res["B"]
 
 
-def test_auditor_repro_no_actual_start_ss_follows_the_span_start() -> None:
-    """``A`` (20d, 20%, no actual) ``-SS+6d-> B``.
+def test_no_actual_start_ss_measures_from_the_remaining_work() -> None:
+    """``A`` (20d, 20%, no actual) ``-SS+6d-> B`` (#5182).
 
-    A's span starts 02-26 at a 03-04 data date and 03-03 at a 03-09 one; B is
-    03-04 and 03-09 (the span plus six days, which the data date equals here).
-    Before the fix B was the data date plus the lag: 03-10 and 03-16.
+    The bar still starts on the derived span start — 02-26 at a 03-04 data date,
+    03-03 at a 03-09 one — but the link measures from the remaining work, which
+    the data date holds: B is 03-04 + 6 = Tue 03-10 and 03-09 + 6 = Sun 03-15,
+    snapped to Mon 03-16. Measured from the derived span (#4523 to #5182) B was
+    03-04 and 03-09, and a longer A at the same 20% moved it earlier still.
     """
     for status, span, b_start in (
-        (date(2026, 3, 4), date(2026, 2, 26), date(2026, 3, 4)),
-        (date(2026, 3, 9), date(2026, 3, 3), date(2026, 3, 9)),
+        (date(2026, 3, 4), date(2026, 2, 26), date(2026, 3, 10)),
+        (date(2026, 3, 9), date(2026, 3, 3), date(2026, 3, 16)),
     ):
         a, b = _ab(_project(_started(actual=None), DependencyType.SS, 6, status))
         assert a.scheduled_start == span
@@ -375,45 +377,43 @@ def test_auditor_repro_no_actual_start_ss_follows_the_span_start() -> None:
 
 
 @pytest.mark.parametrize(("pct", "lag"), [(20.0, 9), (20.0, 14), (60.0, 20), (60.0, 24)])
-def test_no_actual_start_ss_successor_is_measured_from_scheduled_start(
-    pct: float, lag: int
-) -> None:
-    """Property: B starts at ``next_wd(A.scheduled_start + lag)`` or the data date.
+def test_no_actual_start_ss_successor_is_measured_from_early_start(pct: float, lag: int) -> None:
+    """Property: B starts at ``next_wd(A.early_start + lag)``, never from the bar (#5182).
 
-    Never at the data date plus the lag. Asserted over a range of data dates, and
-    at least one of them must leave the link ahead of the data date, or the case
-    would prove nothing (the data date holds B under either anchor).
+    Asserted over a range of data dates. The bar (``scheduled_start``) is still the
+    derived span, earlier than the remaining work, so each case also proves the
+    link does not read it.
     """
     weekdays = Calendar(working_days=WEEKDAYS)
-    ahead = 0
     for day in range(3, 14):
         status = date(2026, 3, day)
         a, b = _ab(_project(_started(pct, actual=None), DependencyType.SS, lag, status))
         assert a.scheduled_start is not None and a.early_start is not None
         assert a.scheduled_start < a.early_start  # progress, so the span is earlier
-        bound = engine._next_working_day(a.scheduled_start + timedelta(days=lag), weekdays)
-        floor = engine._next_working_day(status, weekdays)
-        assert b.early_start == max(bound, floor), status
-        ahead += bound > floor
-    assert ahead > 0
+        bound = engine._next_working_day(a.early_start + timedelta(days=lag), weekdays)
+        assert b.early_start == bound, status
+        derived = engine._next_working_day(a.scheduled_start + timedelta(days=lag), weekdays)
+        assert b.early_start > derived or derived <= status, status
 
 
-def test_no_actual_start_sf_successor_is_measured_from_scheduled_start() -> None:
-    """``A`` (20d, 20%, no actual) ``-SF+12d-> B`` at a 03-04 data date.
+def test_no_actual_start_sf_successor_is_measured_from_early_start() -> None:
+    """``A`` (20d, 20%, no actual) ``-SF+12d-> B`` at a 03-04 data date (#5182).
 
-    A's span starts 02-26, so B finishes on 02-25 + 12 = Mon 03-09. Measured from
-    the remaining window (03-04) it was 03-03 + 12 = Sun 03-15, snapped to 03-16.
+    A's bar starts 02-26, but the link measures from the remaining work: B finishes
+    on 03-03 + 12 = Sun 03-15, snapped to Mon 03-16. Measured from the derived span
+    it was 02-25 + 12 = Mon 03-09.
     """
     a, b = _ab(_project(_started(actual=None), DependencyType.SF, 12, date(2026, 3, 4)))
     assert a.scheduled_start == date(2026, 2, 26)
-    assert b.early_finish == date(2026, 3, 9)
+    assert b.early_finish == date(2026, 3, 16)
 
 
 def test_no_actual_start_link_keeps_its_late_date_bound() -> None:
-    """A derived span start is not history: slipping A's remaining work slips B.
+    """A link out of progress with no recorded start keeps its late-date bound.
 
-    ``A`` (20d, 50%, no actual) ``-SS+16d-> B`` (30d) at a 03-09 data date: A's
-    span starts 02-23, B starts 03-11 and drives the finish. A day's slip of A's
+    ``A`` (20d, 50%, no actual) ``-SS+16d-> B`` (30d) at a Mon 03-09 data date: A's
+    bar starts 02-23, but the link measures from its remaining work (#5182), so B
+    starts 03-09 + 16 = Wed 03-25 and drives the finish. A day's slip of A's
     remaining work moves its span, and so B, a day — so A is critical through the
     link, its free float is zero, and the link drives B. (A recorded start would
     bound nothing; see ``test_ss_link_out_of_a_started_task_imposes_no_late_bound_on_it``.)
@@ -432,7 +432,7 @@ def test_no_actual_start_link_keeps_its_late_date_bound() -> None:
     res = schedule(project)
     by = {t.id: t for t in res.tasks}
     assert by["A"].scheduled_start == date(2026, 2, 23)
-    assert by["B"].early_start == date(2026, 3, 11)
+    assert by["B"].early_start == date(2026, 3, 25)
     assert by["A"].is_critical and by["B"].is_critical
     assert by["A"].total_float == by["A"].free_float == timedelta(0)
     assert {(e.predecessor_id, e.successor_id) for e in res.driving_edges} == {("A", "B")}
@@ -451,7 +451,7 @@ def test_no_actual_start_with_no_elapsed_work_is_unchanged() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("actual", [None, date(2025, 12, 1)])
+@pytest.mark.parametrize("actual", [date(2025, 12, 1)])
 @pytest.mark.parametrize("pct", [60.0, 95.0])
 @pytest.mark.parametrize("sf_lag", [-5, 0, 3])
 @pytest.mark.parametrize("ss_lag", [20, 40, 60])
@@ -460,8 +460,9 @@ def test_monte_carlo_pad_reaches_a_span_start_before_the_project_start(
 ) -> None:
     """Zero-variance P50 equals the CPM finish when the span start precedes the plan.
 
-    ``A`` (60d) has progress reaching back before the project start — a derived span
-    start (no actual) or a recorded pre-start ``actual_start`` — and no data date.
+    ``A`` (60d) has progress reaching back before the project start — a recorded
+    pre-start ``actual_start`` (progress with no recorded start links from its early
+    start since #5182, so it no longer reaches back) — and no data date.
     ``A -SF-> B`` places the SF-linked ``B`` before the project start, measured from
     that span start, and ``B -SS-> C`` carries it forward to the finish. Monte
     Carlo's index has to open early enough to hold ``B``
@@ -493,7 +494,15 @@ def test_monte_carlo_pad_reaches_a_span_start_before_the_project_start(
 
 
 def test_monte_carlo_pad_auditor_shape() -> None:
-    """``A`` (60d, 95%, no actual) ``-SF-5d-> B -SS+40d-> C``, no data date: finish 03-04."""
+    """``A`` (60d, 95%, no actual) ``-SF-5d-> B -SS+40d-> C``, no data date.
+
+    Monte Carlo lands on the CPM finish. Since #5182 the SF link measures from A's
+    early start (the project start, Mon 03-02), not from its derived span start
+    57 working days earlier: the SF anchor is the working day before it, Fri 02-27,
+    so B finishes 02-27 - 5 = Sun 02-22, snapped to Mon 02-23 (B runs 02-19..02-23,
+    still before the project start, which the index pad must hold), and C starts
+    02-19 + 40 = Tue 03-31, finishing Wed 04-01.
+    """
     a = Task(id="A", name="A", duration=timedelta(days=60), percent_complete=95.0)
     b = Task(id="B", name="B", duration=timedelta(days=3))
     c = Task(id="C", name="C", duration=timedelta(days=2))
@@ -508,8 +517,8 @@ def test_monte_carlo_pad_auditor_shape() -> None:
         ],
         calendar=Calendar(working_days=WEEKDAYS),
     )
-    assert schedule(project).project_finish == date(2026, 3, 4)
-    assert monte_carlo(project, runs=10, seed=1).p50 == date(2026, 3, 4)
+    assert schedule(project).project_finish == date(2026, 4, 1)
+    assert monte_carlo(project, runs=10, seed=1).p50 == date(2026, 4, 1)
 
 
 # ---------------------------------------------------------------------------

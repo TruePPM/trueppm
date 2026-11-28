@@ -1794,6 +1794,129 @@ def work_moved_earlier_by_a_slip(
     return out
 
 
+def work_moved_earlier_by_lengthening(
+    project: RefProject,
+    run: Callable[[RefProject], EngineRun],
+    max_extra: int = 3,
+) -> list[str]:
+    """Lengthening percent-only work at its percentage never moves live work earlier (#5182).
+
+    Each live task with progress (``0 < percent_complete < 100``), no recorded
+    ``actual_start`` and remaining work is lengthened 1..``max_extra`` working days
+    with its percentage held, so it carries more elapsed days *and* more remaining
+    work. Every live task's position (:func:`_held_at`) and the shown finish must be
+    at or after where they were. A task with an FF or SF link *into* it is skipped:
+    such a link pins its finish, so a longer task starts earlier — the engine's
+    decided convention (#3806), not this bug. Model-free and metamorphic, like
+    :func:`work_moved_earlier_by_a_slip`: it needs no model of how the inferred
+    elapsed days are read, only that more work never finishes anything sooner.
+    Measured from the derived span start, an SS or SF successor moved earlier,
+    because the span backs off further from the same data-date-held remaining work.
+    """
+    base = run(project)
+    out: list[str] = []
+    pins_finish = {link.succ for link in project.links if link.kind in ("FF", "SF")}
+    for tid, n in sorted(project.durations.items()):
+        prog = project.progress.get(tid)
+        if (
+            n == 0
+            or prog is None
+            or prog.actual_start is not None
+            or prog.zero_remaining
+            or not 0 < prog.percent_complete < 100
+            or tid in pins_finish
+        ):
+            continue
+        for extra in range(1, max_extra + 1):
+            after = run(replace(project, durations={**project.durations, tid: n + extra}))
+            if shown_finish(after, project) < shown_finish(base, project):
+                out.append(
+                    f"{tid} lengthened {n} -> {n + extra}: shown finish "
+                    f"{shown_finish(base, project)} -> {shown_finish(after, project)}"
+                )
+            for s, m in sorted(project.durations.items()):
+                if _complete(project, s):
+                    continue
+                is_ms, s_cal = m == 0, project.calendar_of(s)
+                was = _held_at(base.tasks[s], is_ms, s_cal)
+                now = _held_at(after.tasks[s], is_ms, s_cal)
+                if now < was:
+                    out.append(
+                        f"{tid} lengthened {n} -> {n + extra}: {s} moved earlier {was} -> {now}"
+                    )
+    return out
+
+
+#: #5182, the issue's repro plus an SF link: ``A`` (2 days, 50%, no actual) at a Wed
+#: 03-11 data date, ``A -SS+2-> B`` and ``A -SF+3-> C``. Measured from the derived
+#: span start, ``A`` at 4 days finished the project 03-17 against 03-18 at 2.
+PERCENT_ONLY_SS_SF_LENGTHENED = RefProject(
+    start=date(2026, 3, 2),
+    durations={"A": 2, "B": 5, "C": 2},
+    links=(RefLink("A", "B", "SS", 2), RefLink("A", "C", "SF", 3)),
+    status_date=date(2026, 3, 11),
+    progress={"A": RefProgress(percent_complete=50.0)},
+)
+
+
+@pytest.mark.fuzz
+@given(progress_projects())
+@example(PERCENT_ONLY_SS_SF_LENGTHENED)
+def test_lengthening_percent_only_work_never_moves_work_earlier(project: RefProject) -> None:
+    """Live: a longer percent-only task never moves live work or the finish earlier (#5182)."""
+    problems = work_moved_earlier_by_lengthening(project, python_run)
+    assert not problems, "\n".join([repr(project), *problems])
+
+
+@pytest.mark.fuzz
+@given(project=progress_projects())
+@example(project=PERCENT_ONLY_SS_SF_LENGTHENED)
+def test_rust_lengthening_percent_only_work_never_moves_work_earlier(
+    rust_engine: RustRunner, project: RefProject
+) -> None:
+    problems = work_moved_earlier_by_lengthening(project, rust_engine.run)
+    assert not problems, "\n".join([repr(project), *problems])
+
+
+def test_the_lengthening_property_reports_the_5182_shape() -> None:
+    """The property is not vacuous: on the derived-span-start reading it fails.
+
+    Hand-computed against the reference with ``A``'s link start backed off its
+    remaining work by the elapsed days (the pre-#5182 rule): at 2 days ``A`` has
+    1 elapsed day, so ``B`` started 03-10 + 2 = 03-12; at 4 days, 2 elapsed days,
+    03-09 + 2 = 03-11 — earlier. The fixed engines put ``B`` on 03-13 for both.
+    """
+    results = {
+        n: python_run(
+            replace(
+                PERCENT_ONLY_SS_SF_LENGTHENED,
+                durations={**PERCENT_ONLY_SS_SF_LENGTHENED.durations, "A": n},
+            )
+        )
+        for n in (2, 4, 6)
+    }
+    for n, got in results.items():
+        assert got.tasks["B"].early_start == date(2026, 3, 13), n
+        assert got.tasks["C"].early_start == date(2026, 3, 12), n
+        assert got.project_finish == date(2026, 3, 19), n
+
+    def derived(project: RefProject) -> EngineRun:
+        run = python_run(project)
+        a = run.tasks["A"]
+        elapsed = int(project.durations["A"] * 0.5)
+        shifted = a.early_start - timedelta(days=elapsed)
+        b = run.tasks["B"]
+        return replace(
+            run,
+            tasks={
+                **run.tasks,
+                "B": replace(b, early_start=max(shifted + timedelta(days=2), date(2026, 3, 11))),
+            },
+        )
+
+    assert work_moved_earlier_by_lengthening(PERCENT_ONLY_SS_SF_LENGTHENED, derived)
+
+
 #: #4922, found by the deep nightly fuzz: #4900's shape plus a second path that
 #: skips the held milestone, ``T0 -FS-> T4`` beside ``T0 -> T1 -> T3 -> T4``.
 #: Slipping ``T0`` to Friday still moves ``T3`` and ``T4`` earlier through ``T1``;
@@ -2613,9 +2736,9 @@ SS_OUT_OF_A_RECORDED_START = RefProject(
     status_date=date(2026, 3, 4),
     progress={"A": RefProgress(percent_complete=20.0, actual_start=date(2026, 3, 2))},
 )
-#: ADR-0132 §2a — the same task in progress with no recorded start: its links
-#: measure from the derived span start, the elapsed days backed off its remaining
-#: window, so ``B`` follows the span (``next_wd(scheduled_start + 10d)``).
+#: ADR-0132 §2a — the same task in progress with no recorded start: its bar backs
+#: the elapsed days off its remaining window, but its links measure from the early
+#: start (#5182), so ``B`` follows the remaining work (``next_wd(early_start + 10d)``).
 SS_OUT_OF_A_DERIVED_START = replace(
     SS_OUT_OF_A_RECORDED_START,
     progress={"A": RefProgress(percent_complete=20.0)},
@@ -2801,15 +2924,16 @@ def test_the_reference_states_the_adr_0132_and_0136_rules() -> None:
     later = replace(SS_OUT_OF_A_RECORDED_START, status_date=date(2026, 3, 6))
     assert reference_schedule(later).tasks["B"].early_start == date(2026, 3, 12)
 
-    # Derived: 2 of 10 days elapsed, the remaining 8 from the data date (Wed 03-04)
-    # finish Fri 03-13; the span starts 10 working days earlier, Mon 03-02, and
-    # B at 03-02 + 10 calendar days = Thu 03-12.
+    # Progress with no recorded start: 2 of 10 days elapsed, the remaining 8 from the
+    # data date (Wed 03-04) finish Fri 03-13. The bar's derived span starts Mon 03-02,
+    # but the link measures from the early start (#5182): B at 03-04 + 10 calendar
+    # days = Sat 03-14, snapped to Mon 03-16.
     derived = reference_schedule(SS_OUT_OF_A_DERIVED_START).tasks
     assert (derived["A"].early_start, derived["A"].early_finish) == (
         date(2026, 3, 4),
         date(2026, 3, 13),
     )
-    assert derived["B"].early_start == date(2026, 3, 12)
+    assert derived["B"].early_start == date(2026, 3, 16)
 
     fixed = reference_schedule(START_FIXED_LINK_LEAVES_FLOAT).tasks
     assert fixed["B"].early_start == date(2026, 3, 4)  # the data date floors B

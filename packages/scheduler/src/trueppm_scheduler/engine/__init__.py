@@ -480,9 +480,6 @@ from trueppm_scheduler.engine.milestones import (
     _edge_anchor as _edge_anchor,
 )
 from trueppm_scheduler.engine.milestones import (
-    _elapsed_link_days as _elapsed_link_days,
-)
-from trueppm_scheduler.engine.milestones import (
     _equivalent_link as _equivalent_link,
 )
 from trueppm_scheduler.engine.milestones import (
@@ -560,9 +557,6 @@ from trueppm_scheduler.engine.milestones import (
 from trueppm_scheduler.engine.milestones import (
     _start_reading as _start_reading,
 )
-from trueppm_scheduler.engine.milestones import (
-    _window_start_bound as _window_start_bound,
-)
 from trueppm_scheduler.engine.montecarlo.forward import (
     _completed_dates as _completed_dates,
 )
@@ -607,9 +601,6 @@ from trueppm_scheduler.engine.montecarlo.forward import (
 )
 from trueppm_scheduler.engine.montecarlo.forward import (
     _mc_progress_state as _mc_progress_state,
-)
-from trueppm_scheduler.engine.montecarlo.forward import (
-    _mc_span_link as _mc_span_link,
 )
 from trueppm_scheduler.engine.montecarlo.forward import (
     _mc_verbatim_actuals as _mc_verbatim_actuals,

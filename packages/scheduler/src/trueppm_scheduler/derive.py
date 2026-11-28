@@ -74,7 +74,6 @@ from trueppm_scheduler.engine import (
     _start_from_finish,
     _start_is_recorded,
     _start_read_cap_on,
-    _window_start_bound,
     _working_days_between,
     schedule,
 )
@@ -1007,9 +1006,8 @@ def _backward_successor_terms(
 ) -> tuple[list[DerivationContribution], list[DerivationContribution]]:
     """Split the outgoing edges into late-finish and late-start candidate terms.
 
-    ``owner`` is the task the terms bound, when it is work: an SS/SF bound on its
-    derived span start is moved onto its remaining-work window, as
-    ``engine._append_successor_constraint`` does (``_window_start_bound``, #4523).
+    ``owner`` is the task the terms bound, when it is work (or work with nothing
+    left whose SS/SF links measure from its recorded start, ADR-1474).
 
     Seeded with the project-finish anchor, which snaps to this node's own last
     workable day exactly as ``engine._backward_pass`` seeds it (#1820) — the
@@ -1072,8 +1070,6 @@ def _backward_successor_terms(
             if lag > timedelta(0):
                 raw = _safe_offset(succ_finish, timedelta(days=1) - lag)
             imposed = _sf_latest_start(succ_finish, lag, cal)
-        if owner is not None and dep_type in (DependencyType.SS, DependencyType.SF):
-            imposed = _window_start_bound(imposed, owner, cal)
         if milestone_day is not None:
             # This task is a milestone (#4079): the bound is on its instant, and
             # every bound lands in the one LF list. An SS/SF link from the start of
@@ -1389,7 +1385,7 @@ def _derive_free_float(
             lag,
             cal,
             early_refs(succ, seen, lag) if early_refs is not None else None,
-            # A derived span start slips with the instant, measured as from work.
+            # An SS/SF link out of a detached start is measured as from work.
             None if detached else milestone,
         )
         slack = max(0, slack)

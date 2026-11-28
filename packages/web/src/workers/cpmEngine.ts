@@ -297,10 +297,10 @@ function advanceCalendarDays(ms: number, lagDays: number): number {
  * `Task::link_start` (ADR-0132 §2a, #4523):
  *
  *  - a started task's recorded `actual_start`;
- *  - live work with progress but no recorded start: its derived span start, the
- *    full duration backed off from its early finish (the server's
- *    `scheduled_start`, ADR-0752);
- *  - otherwise its early start, which is then the span start.
+ *  - otherwise its early start — also for live work with progress but no
+ *    recorded start, whose bar still starts on the derived span start (#5182): at
+ *    a fixed percentage a longer task backs that span off further, so measuring
+ *    from it moved successors earlier as the task grew.
  *
  * An in-progress task's early start is floored at the data date, so measuring
  * from it re-added the lag on every status update — and the preview would now
@@ -309,9 +309,6 @@ function advanceCalendarDays(ms: number, lagDays: number): number {
 function linkStartMs(source: TaskState): number {
   if (source.isComplete || source.durationDays <= 0) return source.earlyStartMs;
   if (source.actualStartMs !== null) return source.actualStartMs;
-  if (source.effectiveDurationDays < source.durationDays) {
-    return startFromFinish(source.earlyFinishMs, source.durationDays);
-  }
   return source.earlyStartMs;
 }
 

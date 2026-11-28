@@ -848,12 +848,12 @@ describe('runCpmForwardPass — SS/SF from a started task (#4523)', () => {
     expect(byId('B').earlyFinish).toBe('2026-01-06');
   });
 
-  it('measures an SS successor of in-progress work with no recorded start from its span start', () => {
+  it('measures an SS successor of in-progress work with no recorded start from its early start', () => {
     // A is 10d with 6 left and no actual_start (progress entered as a percentage
-    // only). Its span start is the full duration backed off from its finish, not
-    // its remaining window: after the drag A runs Wed Jan 14 → Wed Jan 21, so its
-    // span starts Thu Jan 8 and B lands on Jan 8 + 3 = Sun Jan 11 → Mon Jan 12,
-    // not three days after Jan 14 (Mon Jan 19).
+    // only). Its bar still starts on the derived span (Thu Jan 8), but the link
+    // measures from its remaining window, as the server does (#5182): after the
+    // drag A runs Wed Jan 14 → Wed Jan 21 and B lands on Jan 14 + 3 = Sat Jan 17 →
+    // Mon Jan 19, not on the span start plus three days (Mon Jan 12).
     const tasks: CpmTask[] = [
       task('P', '2026-01-05', '2026-01-06'),
       task('A', '2026-01-02', '2026-01-15', { durationDays: 10, remainingDuration: 6 }),
@@ -865,7 +865,7 @@ describe('runCpmForwardPass — SS/SF from a started task (#4523)', () => {
     const byId = (id: string) => results.find((r) => r.taskId === id)!;
 
     expect(byId('A').earlyFinish).toBe('2026-01-21');
-    expect(byId('B').earlyStart).toBe('2026-01-12');
+    expect(byId('B').earlyStart).toBe('2026-01-19');
   });
 
   it('still moves an SS successor of a task that has not started', () => {

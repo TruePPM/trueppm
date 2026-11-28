@@ -1,0 +1,38 @@
+{
+  "id": "p-percent-only-link-monotone",
+  "name": "SS/SF links out of progress with no recorded actual_start measure from early_start (the remaining work), not the derived span start, so a longer task at the same percent never moves its successors earlier (#5182)",
+  "start_date": "2026-03-02",
+  "status_date": "2026-03-11",
+  "tasks": [
+    {
+      "id": "A",
+      "name": "6 days, 50% done, no actual_start",
+      "duration": 518400.0,
+      "percent_complete": 50.0
+    },
+    {
+      "id": "B",
+      "name": "SS+2 successor",
+      "duration": 432000.0
+    },
+    {
+      "id": "C",
+      "name": "SF+3 successor",
+      "duration": 172800.0
+    }
+  ],
+  "dependencies": [
+    {
+      "predecessor_id": "A",
+      "successor_id": "B",
+      "dep_type": "SS",
+      "lag": 172800.0
+    },
+    {
+      "predecessor_id": "A",
+      "successor_id": "C",
+      "dep_type": "SF",
+      "lag": 259200.0
+    }
+  ]
+}

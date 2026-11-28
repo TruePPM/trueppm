@@ -329,31 +329,12 @@ impl Task {
         self.actual_start.is_some() && self.duration_days() > 0 && !self.is_complete()
     }
 
-    /// Working days of the span before the remaining-work window (#4523).
-    ///
-    /// Mirrors the Python `_elapsed_link_days`: non-zero only for live work with
-    /// progress and no recorded `actual_start`, whose span start
-    /// (`scheduled_start`, ADR-0752) is backed off from `early_finish` — exactly
-    /// this many working days before `early_start`.
-    pub fn elapsed_link_days(&self) -> i32 {
-        if self.actual_start.is_some() || self.duration_days() <= 0 || self.is_complete() {
-            return 0;
-        }
-        if self.percent_complete <= 0.0 {
-            return 0;
-        }
-        // Read off `duration` and the percentage, not the remaining work, so a task
-        // with no remaining work keeps its elapsed days (ADR-1474).
-        elapsed_days(self.duration_days(), self.percent_complete)
-    }
-
     /// Whether this task is placed as an instant but its SS/SF links measure from
-    /// its start (ADR-1474, #4819). Mirrors the Python `_detached_link_start`.
+    /// its recorded start (ADR-1474, #4819). Only a recorded start detaches them:
+    /// a start inferred from progress alone is not one a link measures from
+    /// (#5182). Mirrors the Python `_detached_link_start`.
     pub fn detached_link_start(&self) -> bool {
-        self.zero_remaining
-            && self.duration_days() > 0
-            && !self.is_complete()
-            && (self.actual_start.is_some() || self.elapsed_link_days() > 0)
+        self.start_is_recorded() && self.zero_remaining
     }
 
     /// Whether a `dep_type` link out of this task measures from its instant, when it
@@ -365,21 +346,18 @@ impl Task {
 
     /// The start an SS or SF link out of this task measures from (ADR-0132 §2a).
     ///
-    /// Mirrors the Python `_link_start`: the task's link start (when it started,
-    /// or is forecast to have started), never its remaining-work window — the recorded `actual_start` of a started task, the
-    /// derived `scheduled_start` of live work with progress and no recorded start,
-    /// otherwise `early_start`. Must be called after the forward pass set this
-    /// task's `early_start` and `scheduled_start`.
+    /// Mirrors the Python `_link_start`: the recorded `actual_start` of a started
+    /// task, otherwise `early_start`. Progress with no recorded start measures from
+    /// `early_start`, not from its derived `scheduled_start` (#5182): that span start
+    /// sits `duration * percent_complete / 100` working days before the remaining
+    /// work, so at a fixed percentage a longer task read an earlier start and moved
+    /// its SS/SF successors, and the project finish, earlier. Must be called after
+    /// the forward pass set this task's `early_start`.
     pub fn link_start(&self) -> NaiveDate {
         if self.start_is_recorded() {
             return self
                 .actual_start
                 .expect("start_is_recorded implies actual_start");
-        }
-        if self.elapsed_link_days() > 0 {
-            return self
-                .scheduled_start
-                .expect("scheduled_start set before a successor reads it");
         }
         self.early_start
             .expect("early_start set before a successor reads it")
@@ -389,9 +367,10 @@ impl Task {
     ///
     /// Mirrors the Python `_start_fixed_link`: such a link cannot be moved by this
     /// task's remaining work, so it imposes no late-date bound on it and gives it
-    /// no free-float limit; it can still be a successor's driving edge. A link from
-    /// a *derived* span start is not one: that start slips with the remaining work
-    /// and keeps its bound (`backward::window_start_bound`).
+    /// no free-float limit; it can still be a successor's driving edge. A link out
+    /// of progress with no recorded start is not one: it measures from
+    /// `early_start` (#5182), which slips with the remaining work, so it keeps its
+    /// bound.
     pub fn start_fixed_link(&self, dep_type: DependencyType) -> bool {
         matches!(dep_type, DependencyType::SS | DependencyType::SF) && self.start_is_recorded()
     }

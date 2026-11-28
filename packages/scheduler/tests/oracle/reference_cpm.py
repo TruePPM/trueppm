@@ -122,11 +122,13 @@ Progress rules modeled (ADR-0132, ADR-0136; #4633)
   the engines' ``Fraction`` and ``divmod`` so the two do not share an
   implementation.
 * **Start-side links (ADR-0132 §2a).** SS and SF links out of live work measure
-  from its *link start*: its recorded ``actual_start``; else, with elapsed work,
-  its derived span start (the full duration backed off its early finish); else
-  its early start. A link measured from a **recorded** start is history: it bounds
-  neither the predecessor's late dates nor its free float. One measured from a
-  derived start keeps its bound, slipping with the remaining window.
+  from its *link start*: its recorded ``actual_start``; else its early start, even
+  with elapsed work and no recorded start — a start inferred from progress alone
+  (the full duration backed off its early finish) would move earlier as the task
+  lengthens at a fixed percent (#5182). A link measured from a **recorded** start
+  is history: it bounds neither the predecessor's late dates nor its free float.
+  One measured from the early start keeps its bound, slipping with the remaining
+  window.
 * **Completed work is pinned (ADR-0136).** A task with ``actual_finish`` or at
   100% keeps its full duration, laid out from whatever actuals exist (both: the
   actuals verbatim; one: the other end derived), or with none from the project
@@ -217,7 +219,7 @@ class RefProgress:
     actual_start: date | None = None
     actual_finish: date | None = None
     # Open work with no remaining work (ADR-1474): placed as an instant, its SS/SF
-    # links measured from its recorded or derived start.
+    # links measured from its recorded start when it has one, else the instant.
     zero_remaining: bool = False
 
     @property
@@ -562,10 +564,8 @@ def is_instant(project: RefProject, tid: str) -> bool:
 
 
 def detached(project: RefProject, tid: str) -> bool:
-    """An instant whose SS/SF links measure from a recorded or derived start (ADR-1474)."""
-    return no_remaining(project, tid) and (
-        _progress(project, tid).actual_start is not None or elapsed_days(project, tid) > 0
-    )
+    """An instant whose SS/SF links measure from a recorded start (ADR-1474, #5182)."""
+    return no_remaining(project, tid) and _progress(project, tid).actual_start is not None
 
 
 def pred_span(project: RefProject, link: RefLink, span: Span) -> Span:
@@ -589,21 +589,13 @@ def _start_is_recorded(project: RefProject, tid: str) -> bool:
 def link_start(project: RefProject, tid: str, span: Span) -> date:
     """The start an SS or SF link out of ``tid`` measures from (ADR-0132 §2a).
 
-    The recorded ``actual_start`` of live work; for live work with elapsed days but
-    no recorded start, the full duration backed off from its finish (the derived
-    span start); otherwise the start of ``span`` itself.
+    The recorded ``actual_start`` of live work; otherwise the start of ``span``
+    itself — with elapsed days and no recorded start too (#5182).
     """
     if _start_is_recorded(project, tid):
         recorded = _progress(project, tid).actual_start
         assert recorded is not None
         return recorded
-    n = project.durations[tid]
-    if no_remaining(project, tid):
-        # The elapsed days end at the instant ``span`` is (ADR-1474).
-        elapsed = elapsed_days(project, tid)
-        return start_from_finish(span[1], elapsed, project.calendar_of(tid)) if elapsed else span[0]
-    if n > 0 and not is_complete(project, tid) and remaining_days(project, tid) < n:
-        return start_from_finish(span[1], n, project.calendar_of(tid))
     return span[0]
 
 

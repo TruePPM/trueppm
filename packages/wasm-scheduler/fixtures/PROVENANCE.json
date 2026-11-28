@@ -463,8 +463,8 @@
     },
     "expected/progress_started_link_anchor.json": {
       "provenance": "regenerated",
-      "issue": "#4631",
-      "evidence": "regenerated (REGEN_EXPECTED=1) for the working-time reading of a non-working actual (#4631, #4702); values hand-checked against the reference oracle"
+      "issue": "#5182",
+      "evidence": "regenerated (REGEN_EXPECTED=1) when SS/SF links out of progress with no actual_start moved to early_start (#5182); the moved rows J (SS+5 -> 03-10), K (SF+12 -> finish 03-16) and L (SS+3 -> Mon 03-09 on the six-day calendar) hand-checked from H's 03-05 early start"
     },
     "expected/progress_started_snet_resume.json": {
       "provenance": "unknown",
@@ -1446,10 +1446,20 @@
       "issue": "#4436",
       "evidence": "bcdf6eb2b adds it and states it reproduces on the merge-base engines (W reports 2 days of float where a slip of 3 moves nothing) and passes on this branch, whose #4436 fix is 638e273a6 (late finish seeded from the shown start-of-day project finish). The input is the slip-oracle shape pinned in tests/test_cpm_oracle.py FIXED_PROGRESS_SHAPES, serialized by project_document"
     },
+    "percent_only_link_monotone.json": {
+      "provenance": "hand-verified",
+      "issue": "#5182",
+      "evidence": "added for #5182: the issue's percent-only SS repro plus an SF link, derived by hand before the engines were run"
+    },
     "expected/lagged_fs_into_a_milestone_on_a_closed_week.json": {
       "provenance": "regenerated",
       "issue": "#4436",
       "evidence": "bcdf6eb2b: REGEN_EXPECTED=1 from the Python engine with the 638e273a6 (#4436) seed; the Rust engine agrees (cargo test conformance) and the slip oracle (float_perturbation_violations) passes the shape on both engines"
+    },
+    "expected/percent_only_link_monotone.json": {
+      "provenance": "hand-verified",
+      "issue": "#5182",
+      "evidence": "every value derived by hand (A 6d 50% at a Wed 03-11 data date: remaining 03-11..03-13, bar backed off to 03-06; B SS+2 03-13..03-19; C SF+3 from start-1 03-10 finishes 03-13; A/B critical, C 4 wd float) and matched by the regenerated snapshot"
     },
     "progress_completed_no_actuals_capped_at_data_date.json": {
       "provenance": "unknown",
@@ -1472,9 +1482,9 @@
       "evidence": "#4539: regenerated with REGEN_EXPECTED=1, then checked by hand against the independent oracle: M (SNET Wed 03-18, data date Wed 03-11) is held at 03-11, so C starts 03-11 instead of the 03-18 week"
     },
     "expected/zero_remaining_links.json": {
-      "provenance": "hand-verified",
-      "issue": "#4819",
-      "evidence": "ADR-1474: produced with REGEN_EXPECTED=1, then every successor date checked by hand against the ADR's link-start rule (recorded actual_start; derived span start elapsed working days before the instant)"
+      "provenance": "regenerated",
+      "issue": "#5182",
+      "evidence": "regenerated (REGEN_EXPECTED=1) when a zero-remaining task with no actual_start stopped detaching its SS/SF links from its instant (#5182); the moved rows SS2, SF2 and G2 hand-checked against M2's 03-12 instant"
     },
     "zero_remaining_links.json": {
       "provenance": "unknown",
