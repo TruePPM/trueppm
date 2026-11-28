@@ -50792,6 +50792,75 @@
                 }
             }
         },
+        "/api/v1/sprints/{id}/commitment-status/": {
+            "get": {
+                "operationId": "sprint_commitment_status",
+                "description": "Read a sprint's commitment status (ADR-1485 D3, D10).\n\nRead-only; any project member (Viewer+), the same audience as the\nscope-changes audit. ``at_risk`` lists committed tasks whose last-recalculated\nfinish is after the sprint's end, each with the server's one-line ``cause``\nand a ``derivation_ref``; ``open_scope_changes`` lists the PENDING rows of\nboth kinds with batch, requester, age and proposed dates. Accepting or\nrejecting stays on the Admin+ routes and is refused to API tokens.",
+                "summary": "Committed tasks at risk of missing the sprint end, and open scope changes",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "A UUID string identifying this sprint.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sprints"
+                ],
+                "security": [
+                    {
+                        "projectApiTokenAuth": []
+                    },
+                    {
+                        "personalApiTokenAuth": []
+                    },
+                    {
+                        "jwtAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SprintCommitmentStatus"
+                                }
+                            }
+                        },
+                        "description": ""
+                    },
+                    "404": {
+                        "description": "Unknown sprint, or not a member of its project."
+                    },
+                    "429": {
+                        "description": "Rate limit exceeded. The client is issuing requests faster than the endpoint's throttle allows; retry after the interval in the ``Retry-After`` response header.",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "detail": {
+                                            "type": "string",
+                                            "example": "Request was throttled. Expected available in 42 seconds."
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "x-experimental": true,
+                "x-stability-window": "At least two minor releases of notice before a breaking change."
+            }
+        },
         "/api/v1/sprints/{id}/daily-delta/": {
             "get": {
                 "operationId": "v1_sprints_daily_delta_retrieve",
@@ -64754,6 +64823,48 @@
                     "id"
                 ]
             },
+            "AtRiskTask": {
+                "type": "object",
+                "description": "A committed task the last recalculation places after the sprint's end.",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "task_name": {
+                        "type": "string"
+                    },
+                    "finish": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "working_days_after_sprint_end": {
+                        "type": "integer",
+                        "nullable": true,
+                        "description": "Working days from the sprint's end date to the task's finish."
+                    },
+                    "cause": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "derivation_ref": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/DerivationRef"
+                            }
+                        ],
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "cause",
+                    "derivation_ref",
+                    "finish",
+                    "task_id",
+                    "task_name",
+                    "working_days_after_sprint_end"
+                ]
+            },
             "AuditEvent": {
                 "type": "object",
                 "description": "Read serializer for an operational audit row (ADR-0157, #859).\n\nExposes both the actor FK id and the denormalized ``actor_label`` so the row\nstays readable after the user is deleted (the FK then resolves to null). The\ninteger ``actor_id`` is the stock ``auth.User`` PK (TruePPM has no custom user\nmodel); ``target_id`` is a nullable UUID best-effort pointer.",
@@ -68730,6 +68841,7 @@
                     "schedule.finish_changed",
                     "schedule.change_undone",
                     "sprint.scope_change_requested",
+                    "sprint.commitment_at_risk",
                     "changeset.opened",
                     "changeset.entry_added",
                     "changeset.entry_reasoned",
@@ -68737,7 +68849,7 @@
                     "ping"
                 ],
                 "type": "string",
-                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed\n* `risk.opened` - Risk Opened\n* `risk.escalated` - Risk Escalated\n* `risk.closed` - Risk Closed\n* `baseline.captured` - Baseline Captured\n* `comment.created` - Comment Created\n* `schedule.finish_changed` - Schedule Finish Changed\n* `schedule.change_undone` - Schedule Change Undone\n* `sprint.scope_change_requested` - Sprint Scope Change Requested\n* `changeset.opened` - Changeset Opened\n* `changeset.entry_added` - Changeset Entry Added\n* `changeset.entry_reasoned` - Changeset Entry Reasoned\n* `baseline.kept` - Baseline Kept\n* `ping` - Test Ping",
+                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed\n* `risk.opened` - Risk Opened\n* `risk.escalated` - Risk Escalated\n* `risk.closed` - Risk Closed\n* `baseline.captured` - Baseline Captured\n* `comment.created` - Comment Created\n* `schedule.finish_changed` - Schedule Finish Changed\n* `schedule.change_undone` - Schedule Change Undone\n* `sprint.scope_change_requested` - Sprint Scope Change Requested\n* `sprint.commitment_at_risk` - Sprint Commitment At Risk\n* `changeset.opened` - Changeset Opened\n* `changeset.entry_added` - Changeset Entry Added\n* `changeset.entry_reasoned` - Changeset Entry Reasoned\n* `baseline.kept` - Baseline Kept\n* `ping` - Test Ping",
                 "x-trueppm-enum": "open"
             },
             "EventsEnum": {
@@ -68764,13 +68876,14 @@
                     "schedule.finish_changed",
                     "schedule.change_undone",
                     "sprint.scope_change_requested",
+                    "sprint.commitment_at_risk",
                     "changeset.opened",
                     "changeset.entry_added",
                     "changeset.entry_reasoned",
                     "baseline.kept"
                 ],
                 "type": "string",
-                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed\n* `risk.opened` - Risk Opened\n* `risk.escalated` - Risk Escalated\n* `risk.closed` - Risk Closed\n* `baseline.captured` - Baseline Captured\n* `comment.created` - Comment Created\n* `schedule.finish_changed` - Schedule Finish Changed\n* `schedule.change_undone` - Schedule Change Undone\n* `sprint.scope_change_requested` - Sprint Scope Change Requested\n* `changeset.opened` - Changeset Opened\n* `changeset.entry_added` - Changeset Entry Added\n* `changeset.entry_reasoned` - Changeset Entry Reasoned\n* `baseline.kept` - Baseline Kept",
+                "description": "* `task.created` - Task Created\n* `task.updated` - Task Updated\n* `task.deleted` - Task Deleted\n* `dependency.created` - Dependency Created\n* `dependency.deleted` - Dependency Deleted\n* `schedule.recalculated` - Schedule Recalculated\n* `project.created` - Project Created\n* `task.assigned` - Task Assigned\n* `task.assignee_changed` - Task Assignee Changed\n* `task.mentioned` - Task Mentioned\n* `task.due_date_changed` - Task Due Date Changed\n* `sprint.activated` - Sprint Activated\n* `sprint.closed` - Sprint Closed\n* `sprint.scope_changed` - Sprint Scope Changed\n* `risk.opened` - Risk Opened\n* `risk.escalated` - Risk Escalated\n* `risk.closed` - Risk Closed\n* `baseline.captured` - Baseline Captured\n* `comment.created` - Comment Created\n* `schedule.finish_changed` - Schedule Finish Changed\n* `schedule.change_undone` - Schedule Change Undone\n* `sprint.scope_change_requested` - Sprint Scope Change Requested\n* `sprint.commitment_at_risk` - Sprint Commitment At Risk\n* `changeset.opened` - Changeset Opened\n* `changeset.entry_added` - Changeset Entry Added\n* `changeset.entry_reasoned` - Changeset Entry Reasoned\n* `baseline.kept` - Baseline Kept",
                 "x-trueppm-enum": "open"
             },
             "ExecutorKindEnum": {
@@ -73596,6 +73709,83 @@
                 "required": [
                     "task"
                 ]
+            },
+            "OpenScopeChange": {
+                "type": "object",
+                "description": "A scope change still awaiting an accept or reject.",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "kind": {
+                        "$ref": "#/components/schemas/OpenScopeChangeKindEnum"
+                    },
+                    "batch_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "task_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "nullable": true
+                    },
+                    "task_name": {
+                        "type": "string"
+                    },
+                    "requested_by": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "requested_by_name": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "requested_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "age_seconds": {
+                        "type": "integer"
+                    },
+                    "proposed_start": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "proposed_finish": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "reason": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "age_seconds",
+                    "batch_id",
+                    "id",
+                    "kind",
+                    "proposed_finish",
+                    "proposed_start",
+                    "reason",
+                    "requested_at",
+                    "requested_by",
+                    "requested_by_name",
+                    "task_id",
+                    "task_name"
+                ]
+            },
+            "OpenScopeChangeKindEnum": {
+                "enum": [
+                    "injection",
+                    "slip"
+                ],
+                "type": "string",
+                "description": "* `injection` - injection\n* `slip` - slip",
+                "x-trueppm-enum": "open"
             },
             "OriginEnum": {
                 "enum": [
@@ -90463,6 +90653,56 @@
                     "started_at",
                     "status",
                     "terminal"
+                ]
+            },
+            "SprintCommitmentStatus": {
+                "type": "object",
+                "description": "The commitment-status envelope.",
+                "properties": {
+                    "sprint_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "sprint_finish_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "at_risk_count": {
+                        "type": "integer"
+                    },
+                    "at_risk": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AtRiskTask"
+                        }
+                    },
+                    "open_scope_change_count": {
+                        "type": "integer"
+                    },
+                    "oldest_open_age_seconds": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "open_scope_changes": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/OpenScopeChange"
+                        }
+                    },
+                    "as_of": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "required": [
+                    "as_of",
+                    "at_risk",
+                    "at_risk_count",
+                    "oldest_open_age_seconds",
+                    "open_scope_change_count",
+                    "open_scope_changes",
+                    "sprint_finish_date",
+                    "sprint_id"
                 ]
             },
             "SprintDailyDelta": {

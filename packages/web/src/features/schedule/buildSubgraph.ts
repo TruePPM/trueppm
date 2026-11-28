@@ -28,6 +28,21 @@ export interface ExpandableLink {
 }
 
 /**
+ * Ceiling on the leaf-level edges a summary expansion may produce — mirrors the
+ * server's `MAX_EXPANDED_EDGES` (`trueppm_scheduler/engine/limits.py`), and
+ * `test_wasm_conformance.py` asserts the two values agree.
+ *
+ * The expansion runs synchronously on the main thread (inside the drag-start
+ * handler, the dependency-hover memo and the reforecast causal chain), so the
+ * cross product needs its own bound rather than relying on the server never
+ * handing the client a wider graph: the server's cap can be raised (it was, from
+ * 100,000 to 250,000, in #3825) and a client with no guard of its own would then
+ * grind through whatever arrived. See {@link expandSummaryLinks} for what happens
+ * past it.
+ */
+export const MAX_EXPANDED_EDGES = 250_000;
+
+/**
  * BFS from `startTaskId` following link edges in the forward direction
  * (sourceId → targetId). Returns the inclusive downstream subgraph as
  * CPM worker types.
@@ -138,6 +153,17 @@ function collectLeaves(id: string, childrenByParent: Map<string, string[]>): str
  *    rather than regressing it to nothing. Scoped to the root: any OTHER
  *    summary is fully expanded, so a stale summary-anchored constraint can
  *    never block the pull-in that mechanism 1 now performs.
+ *
+ * **Past {@link MAX_EXPANDED_EDGES} the links come back unexpanded.** The bound is
+ * checked from leaf COUNTS before any cross product is built, summing
+ * `leaves(source) * leaves(target)` over every surviving link exactly as the
+ * server's `_expansion_exceeds_bound` does (an upper bound: two links landing on
+ * one leaf pair count twice, the safe direction for a cap). The server refuses to
+ * schedule such a network at all (`InvalidScheduleInput`), so no expansion here
+ * could match a server result; the cheap, honest stand-in is the literal graph —
+ * the pre-#3535 behavior — rather than a main-thread stall the user cannot
+ * escape. Throwing is not an option: two of the three callers run inside a
+ * render memo or a drag gesture, which cannot fail mid-frame.
  */
 type LinkDisposition = 'keep' | 'drop' | 'expand';
 
@@ -232,13 +258,23 @@ export function expandSummaryLinks<L extends ExpandableLink>(
   };
   const isSummary = (id: string): boolean => (childrenByParent.get(id)?.length ?? 0) > 0;
 
-  // One edge per endpoint pair — see {@link mergeEdge}.
-  const chosen = new Map<string, L>();
-
+  // Classify first and bound the cross product from leaf counts, so nothing is
+  // materialized for a network past the cap (see the docstring above).
+  const kept: { link: L; expand: boolean }[] = [];
+  let estimated = 0;
   for (const link of links) {
     const disposition = classifyLink(link, isSummary, startTaskId);
     if (disposition === 'drop') continue;
-    if (disposition === 'keep') {
+    const expand = disposition === 'expand';
+    estimated += expand ? leaves(link.sourceId).length * leaves(link.targetId).length : 1;
+    if (estimated > MAX_EXPANDED_EDGES) return [...links];
+    kept.push({ link, expand });
+  }
+
+  // One edge per endpoint pair — see {@link mergeEdge}.
+  const chosen = new Map<string, L>();
+  for (const { link, expand } of kept) {
+    if (!expand) {
       mergeEdge(chosen, link);
       continue;
     }

@@ -110,3 +110,75 @@ def test_rolls_up_a_real_schedule_result() -> None:
     assert rolled.early_finish == max(by_id["a"].early_finish, by_id["b"].early_finish)
     assert rolled.total_float == min(by_id["a"].total_float, by_id["b"].total_float)
     assert rolled.is_critical == (by_id["a"].is_critical or by_id["b"].is_critical)
+
+
+# --- #5183: float and criticality come from the incomplete leaves only -------------
+
+_MON = date(2026, 3, 2)
+
+
+def _scheduled_with_finished_work() -> dict[str, Task]:
+    """A finished A, an open B with slack, and an open C that drives the finish."""
+    a = Task(
+        id="A",
+        name="A",
+        duration=2 * _D,
+        actual_start=_MON,
+        actual_finish=date(2026, 3, 3),
+        percent_complete=100.0,
+    )
+    b = Task(id="B", name="B", duration=2 * _D)
+    c = Task(id="C", name="C", duration=10 * _D)
+    result = schedule(
+        Project(id="p", name="p", start_date=_MON, status_date=date(2026, 3, 4), tasks=[a, b, c])
+    )
+    return {t.id: t for t in result.tasks}
+
+
+def test_finished_leaf_does_not_zero_the_summary_float() -> None:
+    by_id = _scheduled_with_finished_work()
+    # The premise: the engine reports the finished leaf at zero float, not critical.
+    assert by_id["A"].total_float == timedelta(0)
+    assert by_id["A"].is_critical is False
+    assert by_id["B"].total_float == 8 * _D
+
+    rolled = roll_up_summary("S", [by_id["A"], by_id["B"]])
+    assert rolled is not None
+    assert rolled.total_float == 8 * _D
+    assert rolled.is_critical is False
+
+
+def test_finished_leaf_beside_critical_open_work_stays_critical() -> None:
+    by_id = _scheduled_with_finished_work()
+    rolled = roll_up_summary("S", [by_id["A"], by_id["C"]])
+    assert rolled is not None
+    assert rolled.total_float == timedelta(0)
+    assert rolled.is_critical is True
+
+
+def test_all_complete_summary_reads_like_a_completed_leaf() -> None:
+    by_id = _scheduled_with_finished_work()
+    rolled = roll_up_summary("S", [by_id["A"]])
+    assert rolled is not None
+    assert rolled.total_float == timedelta(0)
+    assert rolled.is_critical is False
+    # 100% with no recorded actual_finish counts as complete too.
+    done = _leaf(
+        "d", early_start=_MON, early_finish=_MON, total_float=timedelta(0), percent_complete=100.0
+    )
+    stale_flag = _leaf(
+        "e", early_start=_MON, early_finish=_MON, actual_finish=_MON, is_critical=True
+    )
+    only_done = roll_up_summary("S", [done, stale_flag])
+    assert only_done is not None
+    assert only_done.total_float == timedelta(0)
+    assert only_done.is_critical is False
+
+
+def test_summary_float_and_criticality_never_contradict_on_engine_output() -> None:
+    """On engine output, a rolled row with open work is critical exactly at zero float."""
+    by_id = _scheduled_with_finished_work()
+    for ids in (["A", "B"], ["A", "C"], ["B", "C"], ["A", "B", "C"], ["B"], ["C"]):
+        rolled = roll_up_summary("S", [by_id[i] for i in ids])
+        assert rolled is not None
+        assert rolled.is_critical == (rolled.total_float == timedelta(0)), ids

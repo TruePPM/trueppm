@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+from functools import partial
 from typing import Any
 from uuid import UUID
 
 import redis as redis_lib
 from celery.exceptions import SoftTimeLimitExceeded
+from django.db import transaction
 from kombu.exceptions import (
     OperationalError as KombuOperationalError,
 )
@@ -203,12 +205,22 @@ def _drop_program_webhooks_without_live_program_admin_owner(
     return [w for w in webhooks if w.program_id is None or w.created_by_id in live_program_admins]
 
 
-def dispatch_webhooks(project_id: str, event_type: str, payload: dict[str, Any]) -> None:
+def dispatch_webhooks(
+    project_id: str,
+    event_type: str,
+    payload: dict[str, Any],
+    *,
+    enqueue_on_commit: bool = False,
+) -> None:
     """Query matching active webhooks and enqueue a delivery task for each.
 
     This function MUST be called inside a ``transaction.on_commit`` callback
     (same as ``broadcast_board_event``) so that delivery is never enqueued
-    for a rolled-back mutation.
+    for a rolled-back mutation. The one exception is ``enqueue_on_commit=True``:
+    a caller whose delivery rows must commit atomically with its own writes
+    calls it inside that transaction, and the delivery tasks are then enqueued
+    only once the transaction commits, so a worker never reads a row that is
+    not committed yet and a rollback takes the rows with it.
 
     Fans out to BOTH project-scoped webhooks (events on this project) and
     program-scoped webhooks (events on any project within the program that
@@ -229,7 +241,6 @@ def dispatch_webhooks(project_id: str, event_type: str, payload: dict[str, Any])
         WebhookDelivery,
         _next_delivery_sequence,
     )
-    from trueppm_api.apps.webhooks.tasks import deliver_webhook
 
     # Resolve the project's program (if any) so program-scoped webhooks fire
     # for events on any of the program's projects. One extra SELECT for the
@@ -294,6 +305,15 @@ def dispatch_webhooks(project_id: str, event_type: str, payload: dict[str, Any])
     # uncommitted row.
     if deliveries:
         WebhookDelivery.objects.bulk_create(deliveries)
+
+    if enqueue_on_commit:
+        transaction.on_commit(partial(_enqueue_deliveries, deliveries, event_type))
+    else:
+        _enqueue_deliveries(deliveries, event_type)
+
+
+def _enqueue_deliveries(deliveries: list[Any], event_type: str) -> None:
+    from trueppm_api.apps.webhooks.tasks import deliver_webhook
 
     for delivery in deliveries:
         webhook = delivery.webhook

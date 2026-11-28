@@ -55,6 +55,8 @@ _EVENT_TYPE_CATEGORY: dict[str, str] = {
     NotificationEventType.SPRINT_TASK_RESCHEDULED.value: CATEGORY_TASKS,
     NotificationEventType.TASK_MOVED_SPRINT.value: CATEGORY_TASKS,
     NotificationEventType.SPRINT_MEMBERSHIP_CHANGED.value: CATEGORY_TASKS,
+    NotificationEventType.SPRINT_SCOPE_CHANGE_REQUESTED.value: CATEGORY_TASKS,
+    NotificationEventType.SPRINT_COMMITMENT_AT_RISK.value: CATEGORY_TASKS,
     # `tasks`, not `project` (#2964): the recipients are the people ASSIGNED to
     # the amended task, so it is an event about work they are on — the same
     # reading as SPRINT_MEMBERSHIP_CHANGED above. `project` is for lifecycle

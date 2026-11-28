@@ -36,7 +36,7 @@ estimates and, for sprint-delivered work, team velocity; a risk's probability ×
 impact score never reaches the engine. See [Known
 constraints](#the-risk-register-does-not-feed-this-forecast) below for what
 that means in practice, and [Known
-Issues](/overview/known-issues/#the-risk-register-does-not-affect-the-forecast--planned-for-05)
+Issues](/overview/known-issues/#the-risk-register-does-not-affect-the-forecast--planned-for-06)
 for the open defect ([#3660](https://gitlab.com/trueppm/trueppm/-/issues/3660)).
 :::
 
@@ -500,9 +500,16 @@ The PERT mean and standard deviation are:
 σ = (P − O) / 6
 ```
 
-The 4× weight on M is what makes PERT more conservative than a triangular
-distribution: the most-likely estimate pulls the mean strongly toward the
-center.
+The 4× weight on M pulls the mean strongly toward the most-likely estimate, and
+σ = (P − O) / 6 is narrower than a triangular distribution's spread. That makes
+PERT **less** conservative than a triangular distribution on a right-skewed
+estimate — one whose pessimistic tail is longer than its optimistic one (M nearer
+O than P), which is the usual shape of a schedule estimate. For O = 2, M = 5,
+P = 16 the PERT mean is 6.33 days against the triangular's 7.67, and the P95 is
+about 10.6 days against 13.2. On a symmetric estimate the two means agree, and
+PERT's P80 and P95 still land earlier because its spread is narrower. Only a
+left-skewed estimate (M nearer P) gives PERT the later mean. If an estimate's
+tail matters, widen P: the distribution will not add the margin for you.
 
 Note that σ is one-sixth of the full range. A task with O = 3, M = 10, P = 17
 (a 14-day spread) has σ ≈ 2.3 days. This is by design — PERT encodes the
@@ -753,9 +760,10 @@ becomes five independent spreads instead of one shared draw, which understates
 the tail rather than overstating it).
 
 This is a tracked, open gap, not an oversight — see [Known
-Issues](/overview/known-issues/#the-risk-register-does-not-affect-the-forecast--planned-for-05)
+Issues](/overview/known-issues/#the-risk-register-does-not-affect-the-forecast--planned-for-06)
 and [#3660](https://gitlab.com/trueppm/trueppm/-/issues/3660). Making risks a
-first-class simulation input is sequenced for 0.5, per
+first-class simulation input is sequenced for 0.6 as risk drivers
+([#4137](https://gitlab.com/trueppm/trueppm/-/issues/4137)), per
 [ADR-0711](/architecture/decisions/).
 
 ### Statistical precision at low run counts

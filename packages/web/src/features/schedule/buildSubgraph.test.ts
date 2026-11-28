@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { buildChildrenMap, buildSubgraph, expandSummaryLinks } from './buildSubgraph';
+import {
+  buildChildrenMap,
+  buildSubgraph,
+  expandSummaryLinks,
+  MAX_EXPANDED_EDGES,
+} from './buildSubgraph';
 import type { Task, TaskLink } from '@/types';
 
 function task(id: string, overrides: Partial<Task> = {}): Task {
@@ -483,5 +488,62 @@ describe('expandSummaryLinks — generic path', () => {
     const out = expandSummaryLinks(links, buildChildrenMap(tasks), null);
     const pairs = out.map((e) => `${e.sourceId}>${e.targetId}`).sort();
     expect(pairs).toEqual(['C1>B', 'C2>B']);
+  });
+});
+
+describe('expandSummaryLinks — expansion cap (#3853)', () => {
+  /** A summary `id` with `n` leaf children, as tasks. */
+  function summaryWithLeaves(id: string, n: number): Task[] {
+    const out = [task(id, { isSummary: true })];
+    for (let i = 0; i < n; i++) out.push(task(`${id}-${i}`, { parentId: id }));
+    return out;
+  }
+
+  it('mirrors the server cap value', () => {
+    expect(MAX_EXPANDED_EDGES).toBe(250_000);
+  });
+
+  it('returns the literal links, unexpanded, when one cross product passes the cap', () => {
+    // 600 x 500 = 300,000 leaf pairs > 250,000.
+    const tasks = [...summaryWithLeaves('A', 600), ...summaryWithLeaves('B', 500)];
+    const links = [{ sourceId: 'A', targetId: 'B', type: 'FS', lag: 0 }];
+    const startedAt = performance.now();
+    const out = expandSummaryLinks(links, buildChildrenMap(tasks), null);
+    const elapsed = performance.now() - startedAt;
+    expect(out).toEqual(links);
+    expect(out).not.toBe(links);
+    // Bounded from counts, so the 300k-edge product is never built.
+    expect(elapsed).toBeLessThan(1000);
+  });
+
+  it('sums the products across links, as the server does', () => {
+    // Each link alone is 400 x 400 = 160,000 (under the cap); together 320,000.
+    const tasks = [
+      ...summaryWithLeaves('A', 400),
+      ...summaryWithLeaves('B', 400),
+      ...summaryWithLeaves('C', 400),
+    ];
+    const links = [
+      { sourceId: 'A', targetId: 'B', type: 'FS', lag: 0 },
+      { sourceId: 'B', targetId: 'C', type: 'FS', lag: 0 },
+    ];
+    const out = expandSummaryLinks(links, buildChildrenMap(tasks), null);
+    expect(out).toEqual(links);
+  });
+
+  it('still expands a network under the cap', () => {
+    // 400 x 400 = 160,000 <= 250,000 — expanded to leaf pairs.
+    const tasks = [...summaryWithLeaves('A', 400), ...summaryWithLeaves('B', 400)];
+    const links = [{ sourceId: 'A', targetId: 'B', type: 'FS', lag: 0 }];
+    const out = expandSummaryLinks(links, buildChildrenMap(tasks), null);
+    expect(out).toHaveLength(160_000);
+    expect(out.some((e) => e.sourceId === 'A' || e.targetId === 'B')).toBe(false);
+  });
+
+  it('leaves a drag-preview subgraph on the literal graph past the cap', () => {
+    const tasks = [...summaryWithLeaves('A', 600), ...summaryWithLeaves('B', 500), task('Z')];
+    const links: TaskLink[] = [link('l1', 'A', 'B'), link('l2', 'A-0', 'Z')];
+    const { edges } = buildSubgraph('A-0', tasks, links);
+    expect(edges.map((e) => `${e.sourceId}>${e.targetId}`)).toEqual(['A-0>Z']);
   });
 });
