@@ -110,6 +110,91 @@ In scope: the TruePPM API (`packages/api`), web frontend (`packages/web`), sched
 
 Out of scope: the documentation website itself (`packages/website`), third-party dependencies (report those upstream), and findings that require physical access to the host.
 
+## Threat model: the refusal guards and the agent-action chain
+
+This section states what two mechanisms defend against, and what they do not. It
+describes the code as it is on `main`; anything not yet shipped is in future tense and
+names its issue. It is a model of the mechanisms, not an audit of the product, and it
+is not a certification.
+
+### What exists today, and what does not
+
+* **Refusal guards (shipped).** An agent is a personal API token that carries
+  `mcp:read` and not a full scope. Its calls pass guards that refuse with a typed
+  envelope: a paused agent (`agent_paused`), a read outside the agent's capability
+  scope (`capability_scope`), and a token that fails identity checks
+  (`token_identity`). The scope is a per-area grant (schedule, dependencies, resources,
+  baselines); the effective scope is the grant intersected with the principal's
+  *current* roles, evaluated on every call and never cached
+  (`apps/projects/agent_scope.py`). `write` is not grantable in 0.5, and that refusal is
+  enforced on the server, not by the UI.
+* **Scheduling refusals (not shipped).** The constraints that would refuse an
+  infeasible *schedule change* (`graph_validation`, `sprint_sovereignty`, `rollup_lock`,
+  `engine_referee`) are reserved codes with no producer. They will ship with the gated
+  write path in 0.6 (ADR-0362). Until then the engine refuses nothing on an agent's
+  behalf, because an agent cannot write.
+* **The `AgentAction` chain (shipped).** Each agent read or refusal that the guards
+  record is appended as one row. Each row stores a gap-free `sequence` and
+  `record_hash = sha256(prev_hash || canonical(record))`
+  (`apps/agents/canonical.py`, `services.py`). Appends are serialized under a lock on
+  a singleton chain head and are fail-closed: if the append fails, the request rolls
+  back. Refusal rows are written after the request transaction closes so a refusal's
+  rollback does not discard them (`apps/agents/middleware.py`).
+
+### Assets
+
+* The plan of record (tasks, dependencies, baselines, resource data).
+* The agent-action chain.
+* API tokens: they authenticate agents and are bearer credentials.
+
+### Actors
+
+1. An agent acting within its token's scope.
+2. An agent attempting reads outside its scope, or after being paused or revoked.
+3. A token holder using a full-scope token through the REST API.
+4. An operator with write access to the database.
+
+### What the mechanisms guarantee
+
+| Guarantee | Basis |
+|---|---|
+| A controlled agent can read only what its principal can read, narrowed by its per-area grant. Demoting the principal shrinks the agent on the next call. | `effective_scope`, `can_read_area`; `tests/apps/agents/test_agent_control_plane.py` |
+| A grant cannot be raised above the principal's ceiling, whoever edits it, and `write` cannot be granted. | `validate_grant`; same test file |
+| Pause and revoke take effect on the next call. The paused-agent message never names the person who paused it. | same test file |
+| A refusal reveals only the caller's own credential state (`DISCLOSABLE_CONSTRAINTS`), never the existence or state of a resource the caller cannot read. | `apps/agents/refusal.py` |
+| Humans and agents are refused by the same role checks: an agent token resolves to its owner, so each view's own RBAC applies on top of the scope. | `agent_scope.py` module docstring |
+| `manage.py audit_verify` *detects* edits to a row, reordering, gaps, and deleted rows, including a prune that left no checkpoint. | `apps/agents/services.py` (`verify_chain`), `management/commands/audit_verify.py` |
+
+### What the mechanisms do not guarantee
+
+* **Tamper-proof against a database writer.** The chain is a local integrity check.
+  An operator with database write access can prune history and write a matching
+  checkpoint, or recompute every hash after an edit; `audit_verify` cannot tell. The
+  checkpoint is an unauthenticated continuity anchor, not a signature. Third-party
+  proof that history was not truncated is an Enterprise capability
+  (trueppm/trueppm-enterprise#189).
+* **Coverage of every credential.** Token-authenticated writes are not yet in the
+  chain (#4193). A full-scope personal token (`api:full`, and `legacy:full` on tokens
+  minted earlier) acts as its owner with that owner's full permissions, is not governed
+  by the capability scope, and is not an agent for the pause control. Mint `mcp:read`
+  tokens for agents.
+* **Data an agent was legitimately given.** Scope limits what an agent can read; it
+  cannot limit what the agent does with it afterwards, such as relaying it to a
+  third party.
+* **Fields embedded across areas** are being closed view by view (#5118). Until that
+  lands in a release, treat an area set to `none` as a strong default rather than a
+  proof for the Schedule-area views that embed another area's figures.
+
+### Out of scope
+
+Compromise of the host or the secrets store, theft of a token from the agent's own
+machine, and denial of service by a token holder who is within their rate limits.
+
+### Review
+
+Review this section when #4193 lands, when the gated write path (0.6) ships its
+scheduling refusals, and whenever the chain's canonical fields change.
+
 ## Automated security checks
 
 Every merge request and every push to `main` runs a layered set of automated,
