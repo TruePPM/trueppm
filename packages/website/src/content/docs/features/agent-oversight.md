@@ -158,11 +158,15 @@ lacks the other area, rather than sending them empty:
   sprint's capacity, and, because a budget-weighted rollup would reveal budget ratios,
   budget-weighted program health, which is reported as restricted.
 
-Two gaps remain:
+Three gaps remain:
 
 - The program overview still lists its projects in order of slip against the
   commitment, so an agent without Baselines read can infer that ranking, though not
   the dates or day counts
+  ([#5201](https://gitlab.com/trueppm/trueppm/-/issues/5201)).
+- The program projects list still returns each project's `baseline_count` to an agent
+  without Baselines read, and the sprint reforecast preview still returns
+  `unmodeled_predecessor_ids` to an agent without Dependencies read
   ([#5201](https://gitlab.com/trueppm/trueppm/-/issues/5201)).
 - The project forecast and the Monte Carlo reads are not yet covered. They still return
   the commitment date, its source and the P80 slip against it to an agent without

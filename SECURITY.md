@@ -189,6 +189,10 @@ is not a certification.
   project rows sorted by how far each slips against its commitment date, so an agent
   without Baselines read can still infer that ranking from the order, though not the
   dates or day counts (#5201).
+* **Two counts that still name another area's data.** The program projects list
+  serves each project's `baseline_count` without Baselines read, and the sprint
+  reforecast preview serves `unmodeled_predecessor_ids` without Dependencies read
+  (#5201).
 * **Commitment fields in the forecast reads.** The project forecast, the latest Monte
   Carlo result and the Monte Carlo what-if (`/forecast/`, `/monte-carlo/latest/`,
   `/monte-carlo/whatif/`) are Schedule-area reads that still return

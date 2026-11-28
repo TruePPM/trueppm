@@ -1679,6 +1679,10 @@ def test_every_declared_strip_is_present_for_a_person_and_absent_for_an_agent(
 
 
 #: Response keys that name another area's data. Matched against every key, recursively.
+#: Blind spot: this matches key NAMES only, so other-area data under a neutral name
+#: (``schedule_health``, ``program_health``, ``projects_on_track``,
+#: ``cross_project_link_count``, ``cross_project_edge_count``) is not caught. Those are
+#: covered only where a view declares them in ``agent_strips``.
 _OTHER_AREA_KEY = re.compile(
     r"baseline|commitment|(^|_)spi($|_)|variance|utiliz|cost|budget|^links$|assignments"
     r"|overallocat|predecessor_ids|successor_ids|^edges$"
@@ -1698,11 +1702,33 @@ _BODY_SCAN_REVIEWED: dict[str, str] = {
 #: Matches that are other-area data still served, each reported for a decision. Listed
 #: so the scan stays armed for every other key; remove an entry when its view strips it.
 _BODY_SCAN_RESIDUAL: dict[str, str] = {
-    "ProgramViewSet.projects:baseline_count": "count of a project's baselines (Baselines)",
+    "ProgramViewSet.projects:baseline_count": "count of a project's baselines (Baselines) (#5201)",
     "SprintViewSet.reforecast_preview:unmodeled_predecessor_ids": (
-        "ids of predecessors outside the sprint (Dependencies)"
+        "ids of predecessors outside the sprint (Dependencies) (#5201)"
     ),
 }
+
+#: Each is a Schedule-area view whose read did not return 200 in the fixture world, so
+#: its body is not scanned; a new unscanned view must be reviewed and added here.
+_BODY_SCAN_SKIPPED_REASONS: dict[str, str] = {
+    "AcceptanceCriterionViewSet.retrieve": "no fixture row for the detail id; 404",
+    "BacklogItemViewSet.retrieve": "no fixture row for the detail id; 404",
+    "LabelViewSet.retrieve": "no fixture row for the detail id; 404",
+    "PhaseViewSet.retrieve": "no fixture row for the detail id; 404",
+    "ProjectCustomFieldViewSet.retrieve": "no fixture row for the detail id; 404",
+    "RiskViewSet.retrieve": "no fixture row for the detail id; 404",
+    "ProgramViewSet.download_sample": "needs a sample-file kind; not JSON data",
+    "ProgramViewSet.export_job_detail": "needs an export job id the fixture does not create",
+    "ProgramViewSet.import_job_detail": "needs an import job id the fixture does not create",
+    "ProjectViewSet.export_job_detail": "needs an export job id the fixture does not create",
+    "ProjectViewSet.working_calendars_preview": "needs query parameters the scan does not supply",
+    "RiskViewSet.export_csv": "CSV file response, no key-bearing body",
+    "SprintViewSet.close_request": "no pending close request in the fixture; 404",
+    "SprintViewSet.pulse": "needs a sprint state the fixture does not reach",
+    "SprintViewSet.retro": "no retrospective in the fixture; 404",
+    "SprintViewSet.retro_prior": "no prior sprint retrospective in the fixture; 404",
+}
+_BODY_SCAN_SKIPPED = frozenset(_BODY_SCAN_SKIPPED_REASONS)
 
 _PATH_KWARG = re.compile(r"\(\?P<(\w+)>[^)]*\)|<(?:\w+:)?(\w+)>")
 
@@ -1781,6 +1807,16 @@ def test_body_scan_denylist_is_not_vacuous() -> None:
         assert _OTHER_AREA_KEY.search(key), key
     for key in ("name", "status", "early_finish", "total_float", "links_count_label"):
         assert not _OTHER_AREA_KEY.search(key), key
+    # Known blind spot, pinned so the limitation stays visible: neutral names are not
+    # matched, so they rely on ``agent_strips`` declarations.
+    for key in (
+        "schedule_health",
+        "program_health",
+        "projects_on_track",
+        "cross_project_link_count",
+        "cross_project_edge_count",
+    ):
+        assert not _OTHER_AREA_KEY.search(key), key
 
 
 @pytest.mark.django_db
@@ -1789,10 +1825,16 @@ def test_schedule_area_bodies_carry_no_other_area_keys(rich_world: dict[str, Any
 
     Any response key naming another area's data fails, unless the view is a #5202
     forecast read or the key is reviewed onto ``_BODY_SCAN_REVIEWED``.
+
+    Blind spot: matching is on key names, so other-area data under a neutral name
+    (``schedule_health``, ``program_health``, ``projects_on_track``,
+    ``cross_project_link_count``, ``cross_project_edge_count``) is not caught; those are
+    covered only where a view declares them in ``agent_strips``.
     """
     _set_scope(rich_world, dependencies="none", resources="none", baselines="none")
     agent = _bearer(rich_world["raw"])
     scanned: set[str] = set()
+    skipped: set[str] = set()
     leaks: dict[str, list[str]] = {}
     for route, view, areas in _routed_mcp_views():
         key = _view_key(type(view).__name__, view.action)
@@ -1805,6 +1847,7 @@ def test_schedule_area_bodies_carry_no_other_area_keys(rich_world: dict[str, Any
         if resp.status_code != 200:
             resp = agent.get(url, {"project": str(rich_world["project"].id)})
         if resp.status_code != 200 or not hasattr(resp, "data"):
+            skipped.add(key)
             continue
         scanned.add(key)
         hits = _other_area_keys(resp.data, view_key=key)
@@ -1824,4 +1867,6 @@ def test_schedule_area_bodies_carry_no_other_area_keys(rich_world: dict[str, Any
         "ProjectViewSet.retrieve",
     ):
         assert must in scanned, must
-    assert len(scanned) >= 40, sorted(scanned)
+    assert len(scanned) >= 60, sorted(scanned)
+    # A view that answers non-200 is not scanned; every one must be reviewed here.
+    assert skipped - scanned == _BODY_SCAN_SKIPPED, sorted(skipped - scanned)
