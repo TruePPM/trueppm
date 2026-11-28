@@ -185,7 +185,8 @@ def mc_latest_read_floor() -> int:
     per project (``mc_latest_min_runs(n_tasks)``). A read filter must therefore sit at
     or below the smallest value the write side can ever use, or a stored default run
     on a large project disappears from the read. The cell cap divided by the task cap
-    is that smallest admission; the cost is that a pre-upgrade sub-minimum row on a
+    is that smallest admission (1 when a cell cap is set but the task cap is
+    unbounded); the cost is that a pre-upgrade sub-minimum row on a
     project that qualifies for a lower write-side minimum is also served.
     """
     floor = MC_LATEST_MIN_RUNS
@@ -194,8 +195,10 @@ def mc_latest_read_floor() -> int:
     task_cap: int | None = settings.MC_TASK_CAP
     if sim_cap is not None:
         floor = min(floor, sim_cap)
-    if cell_cap is not None and task_cap:
-        floor = min(floor, cell_cap // task_cap)
+    if cell_cap is not None:
+        # With no task cap a project can be arbitrarily large, so the cell cap can
+        # admit as few as one run; the floor must then sit at 1.
+        floor = min(floor, cell_cap // task_cap if task_cap else 1)
     return max(floor, 1)
 
 

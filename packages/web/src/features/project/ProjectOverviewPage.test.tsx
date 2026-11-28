@@ -383,7 +383,8 @@ describe('ProjectOverviewPage', () => {
       if (url.endsWith('/members/')) return Promise.resolve({ data: SELF_MEMBERSHIP_VIEWER });
       if (url.endsWith('/monte-carlo/latest/')) return Promise.reject(new Error('404'));
       if (url === '/projects/proj-1/') return Promise.resolve({ data: PROJECT_DETAIL });
-      if (url.endsWith('/overview/')) return Promise.resolve({ data: OVERVIEW_RESPONSE });
+      if (url.endsWith('/overview/'))
+        return Promise.resolve({ data: { ...OVERVIEW_RESPONSE, risk_premium_state: 'not_run' } });
       if (url.endsWith('/attention/')) return Promise.resolve({ data: ATTENTION_RESPONSE });
       if (url.endsWith('/my-tasks/')) return Promise.resolve({ data: MY_TASKS_RESPONSE });
       if (url === '/tasks/') return Promise.resolve({ data: CP_TASKS_RESPONSE });
@@ -392,6 +393,13 @@ describe('ProjectOverviewPage', () => {
     renderPage();
     await screen.findByText(/Only Schedulers and above can update the shared forecast/);
     expect(screen.queryByRole('button', { name: /run forecast/i })).not.toBeInTheDocument();
+    // The added-time card gets `canRun` through OverviewKpiSection; dropping it at the
+    // Overview render site would hand a Viewer a link to run a forecast.
+    const card = await screen.findByRole('region', { name: /added time vs computed finish/i });
+    expect(within(card).getByText(/not run yet/i)).toBeInTheDocument();
+    expect(
+      within(card).queryByRole('link', { name: /run forecast|re-run/i }),
+    ).not.toBeInTheDocument();
   });
 
   it('shows P50/P80/P95 pills when MC result available', async () => {

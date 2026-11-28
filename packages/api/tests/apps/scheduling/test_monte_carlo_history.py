@@ -18,7 +18,11 @@ from rest_framework.test import APIClient
 from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Project, Task
 from trueppm_api.apps.scheduling.models import MonteCarloRun
-from trueppm_api.apps.scheduling.views import MC_LATEST_MIN_RUNS, mc_latest_cache_key
+from trueppm_api.apps.scheduling.views import (
+    MC_LATEST_MIN_RUNS,
+    mc_latest_cache_key,
+    mc_latest_read_floor,
+)
 
 User = get_user_model()
 
@@ -433,3 +437,33 @@ class TestRetentionPurge:
             MonteCarloRun.objects.create(project=project, p80=date(2026, 9, 1), n_simulations=10)
         _do_monte_carlo_run_purge()
         assert MonteCarloRun.objects.filter(project=project).count() == 5
+
+
+class TestMcLatestReadFloor:
+    """``mc_latest_read_floor()``: the smallest write-side minimum any project can use."""
+
+    @staticmethod
+    def _caps(settings: object, sim: int | None, task: int | None, cell: int | None) -> None:
+        settings.MC_SIMULATION_CAP = sim  # type: ignore[attr-defined]
+        settings.MC_TASK_CAP = task  # type: ignore[attr-defined]
+        settings.MC_CELL_CAP = cell  # type: ignore[attr-defined]
+
+    def test_default_caps_leave_the_minimum(self, settings: object) -> None:
+        self._caps(settings, 1000, 500, 1_000_000)
+        assert mc_latest_read_floor() == MC_LATEST_MIN_RUNS == 100
+
+    def test_lowered_simulation_cap_lowers_the_floor(self, settings: object) -> None:
+        self._caps(settings, 50, 500, 1_000_000)
+        assert mc_latest_read_floor() == 50
+
+    def test_lowered_cell_cap_divided_by_task_cap(self, settings: object) -> None:
+        self._caps(settings, 1000, 1000, 40_000)
+        assert mc_latest_read_floor() == 40
+
+    def test_cell_cap_with_unbounded_task_cap_is_one(self, settings: object) -> None:
+        self._caps(settings, 1000, None, 1_000_000)
+        assert mc_latest_read_floor() == 1
+
+    def test_all_caps_unbounded_leaves_the_minimum(self, settings: object) -> None:
+        self._caps(settings, None, None, None)
+        assert mc_latest_read_floor() == 100
