@@ -178,12 +178,13 @@ def test_close_sprint_with_pending_schedule_request_still_closes(
     req.refresh_from_db()
     assert s.state == SprintState.COMPLETED
     assert req.status == SprintCloseRequestStatus.COMPLETED
-    assert (
-        ScheduleRequest.objects.filter(
-            project=project, status=ScheduleRequestStatus.PENDING
-        ).count()
-        == 1
+    # Exactly one live row: the adopted one. With a reachable broker it has been
+    # dispatched already; without one it stays PENDING. Either way, no second row.
+    live = ScheduleRequest.objects.filter(
+        project=project,
+        status__in=[ScheduleRequestStatus.PENDING, ScheduleRequestStatus.DISPATCHED],
     )
+    assert live.count() == 1
 
 
 @patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
