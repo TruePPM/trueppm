@@ -902,7 +902,6 @@ def _derive_backward(
         finish_instant=finish_instant,
         bounds_out=bounds,
         milestone_ids=milestone_ids,
-        owner=task if milestone_day is None or _detached_link_start(task) else None,
     )
     contribs = [*lf_terms, *ls_terms]
 
@@ -1002,12 +1001,8 @@ def _backward_successor_terms(
     finish_instant: date | None = None,
     bounds_out: dict[int, date] | None = None,
     milestone_ids: frozenset[str] = frozenset(),
-    owner: Task | None = None,
 ) -> tuple[list[DerivationContribution], list[DerivationContribution]]:
     """Split the outgoing edges into late-finish and late-start candidate terms.
-
-    ``owner`` is the task the terms bound, when it is work (or work with nothing
-    left whose SS/SF links measure from its recorded start, ADR-1474).
 
     Seeded with the project-finish anchor, which snaps to this node's own last
     workable day exactly as ``engine._backward_pass`` seeds it (#1820) — the
@@ -1072,15 +1067,10 @@ def _backward_successor_terms(
             imposed = _sf_latest_start(succ_finish, lag, cal)
         if milestone_day is not None:
             # This task is a milestone (#4079): the bound is on its instant, and
-            # every bound lands in the one LF list. An SS/SF link from the start of
-            # work with nothing left (ADR-1474) is the work bound just moved onto
-            # the instant.
+            # every bound lands in the one LF list.
             terms = lf_terms
             raw = _safe_offset(succ_start if dep_type in _START_ANCHORED else succ_finish, -lag)
-            if owner is not None and dep_type in (DependencyType.SS, DependencyType.SF):
-                bound = imposed
-            else:
-                bound = _milestone_latest(dep_type, lag, succ_start, succ_finish, cal)
+            bound = _milestone_latest(dep_type, lag, succ_start, succ_finish, cal)
             imposed = milestone_day(bound)
         contribution = DerivationContribution(
             kind=kind,
@@ -1385,8 +1375,7 @@ def _derive_free_float(
             lag,
             cal,
             early_refs(succ, seen, lag) if early_refs is not None else None,
-            # An SS/SF link out of a detached start is measured as from work.
-            None if detached else milestone,
+            milestone,
         )
         slack = max(0, slack)
         c = DerivationContribution(
