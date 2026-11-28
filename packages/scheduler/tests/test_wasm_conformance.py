@@ -393,3 +393,27 @@ def test_wasm_validator_caps_match_python_limits() -> None:
     match = re.search(r"pub const MAX_DEPENDENCIES: usize = ([\d_]+);", rs.read_text())
     assert match, "MAX_DEPENDENCIES not found in validate.rs"
     assert int(match.group(1).replace("_", "")) == limits.MAX_DEPENDENCIES
+
+
+def test_web_preview_expansion_cap_matches_python_limits() -> None:
+    """buildSubgraph.ts's MAX_EXPANDED_EDGES mirrors limits.MAX_EXPANDED_EDGES (#3853).
+
+    The browser expands summary links on the main thread for the drag preview; a
+    server-side retune that misses it either stalls the client on a graph the server
+    accepts or drops expansion on one the server schedules.
+    """
+    import re
+
+    from trueppm_scheduler.engine import limits
+
+    ts = (
+        Path(__file__).resolve().parents[2]
+        / "web"
+        / "src"
+        / "features"
+        / "schedule"
+        / "buildSubgraph.ts"
+    )
+    match = re.search(r"export const MAX_EXPANDED_EDGES = ([\d_]+);", ts.read_text())
+    assert match, "MAX_EXPANDED_EDGES not found in buildSubgraph.ts"
+    assert int(match.group(1).replace("_", "")) == limits.MAX_EXPANDED_EDGES

@@ -94,8 +94,27 @@ class TestIdempotentReplay:
             TASKS_URL, _payload(project, "B"), format="json", HTTP_IDEMPOTENCY_KEY=KEY
         )
         assert conflict.status_code == 422
-        assert "reused" in conflict.json()["detail"]
+        # ``code`` is in the body, as the published IdempotencyKeyError requires (#5093).
+        assert conflict.json() == {
+            "detail": "Idempotency-Key was reused with a different request.",
+            "code": "idempotency_key_conflict",
+        }
         assert Task.objects.count() == 1
+
+    def test_oversized_key_is_a_detail_and_code_400(
+        self, client: APIClient, project: Project, membership: ProjectMembership
+    ) -> None:
+        # Was ``{"Idempotency-Key": "..."}``, a key no operation's declared 400 admits;
+        # the nightly api:fuzz failed ten operations on it (#5093).
+        response = client.post(
+            TASKS_URL, _payload(project, "A"), format="json", HTTP_IDEMPOTENCY_KEY="k" * 256
+        )
+        assert response.status_code == 400
+        assert response.json() == {
+            "detail": "Idempotency-Key must be 255 characters or fewer.",
+            "code": "idempotency_key_too_long",
+        }
+        assert Task.objects.count() == 0
 
     def test_safe_method_is_noop(
         self, client: APIClient, project: Project, membership: ProjectMembership

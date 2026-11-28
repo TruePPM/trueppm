@@ -1367,6 +1367,7 @@ _SPRINT_ACTION_READS = [
     "capacity/",
     "daily-delta/",
     "scope-changes/",
+    "commitment-status/",
     "incoming_carryover/",
     "close-request/",
     # reforecast-preview was the one GET this fix originally MISSED — its

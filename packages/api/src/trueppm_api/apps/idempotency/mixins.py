@@ -37,10 +37,19 @@ _NOT_STORABLE = object()
 
 
 class IdempotencyConflict(APIException):
-    """Raised when a key is reused with a different request hash."""
+    """Raised when a key is reused with a different request hash.
+
+    The detail is a dict so ``code`` reaches the body: DRF serializes a dict detail
+    key-for-key, while ``default_code`` alone never leaves the ``ErrorDetail``
+    (#2550). The published ``IdempotencyKeyError`` schema requires both keys (#5093).
+    """
 
     status_code = 422
-    default_detail = "Idempotency-Key was reused with a different request."
+    # DRF reads this into a fresh ErrorDetail dict per raise and never mutates it.
+    default_detail = {  # noqa: RUF012
+        "detail": "Idempotency-Key was reused with a different request.",
+        "code": "idempotency_key_conflict",
+    }
     default_code = "idempotency_key_conflict"
 
 
@@ -79,7 +88,10 @@ class IdempotencyMixin:
             return
         if len(key) > MAX_KEY_LENGTH:
             raise ValidationError(
-                {HEADER: f"Idempotency-Key must be {MAX_KEY_LENGTH} characters or fewer."}
+                {
+                    "detail": f"Idempotency-Key must be {MAX_KEY_LENGTH} characters or fewer.",
+                    "code": "idempotency_key_too_long",
+                }
             )
         # Requests larger than the body cap aren't idempotency-protected — skip rather than
         # buffer+hash a very large body. They run normally (no claim stored).

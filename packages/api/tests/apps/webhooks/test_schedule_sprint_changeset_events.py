@@ -86,9 +86,8 @@ def test_new_event_names_fit_the_column_and_are_registered() -> None:
     ):
         assert name in WebhookEventType.values
         assert len(name) <= 30
-    # sprint.commitment_at_risk has no emitter until #5127 (which registers and
-    # emits it): not advertised.
-    assert "sprint.commitment_at_risk" not in WebhookEventType.values
+    # sprint.commitment_at_risk is registered with its emitter (#5127).
+    assert "sprint.commitment_at_risk" in WebhookEventType.values
 
 
 # --- #5121 changeset ---------------------------------------------------------

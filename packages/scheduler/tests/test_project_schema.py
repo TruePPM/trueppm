@@ -66,6 +66,7 @@ _SEMANTIC_ONLY = {
         "status_date_over_span",
         "unknown_dependency_task",
         "unknown_task_calendar_id",
+        "zero_remaining_at_min_date",
         "zero_working_days",
     },
     "parse_rejects": {

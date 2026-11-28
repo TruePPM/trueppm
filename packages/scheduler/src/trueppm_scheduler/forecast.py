@@ -1,11 +1,15 @@
 """Bootstrap delivery forecasts for velocity and throughput teams.
 
-The agile counterpart of :func:`trueppm_scheduler.monte_carlo`: given a team's
-per-period pace history (story points per sprint, or items per week) and a remaining
-backlog, bootstrap-resample the history to estimate how many periods the backlog
-needs, then project the P50/P80/P95 periods onto the calendar. Sampling, percentile
-derivation and date projection live here so an embedder gets the same numbers the
-TruePPM API serves and never re-implements engine math.
+Given a team's per-period pace history (story points per sprint, or items per week)
+and a remaining backlog, estimate when the backlog completes at P50/P80/P95, so an
+embedder never re-implements engine math.
+
+The velocity forecast is not a second sampler. :func:`forecast_velocity_delivery`
+runs :func:`trueppm_scheduler.monte_carlo` on a one-story project, so it uses the
+engine's shared-capacity velocity model (ADR-1412: one per-sprint velocity vector per
+run, fractional sprints) and returns the same percentile dates ``monte_carlo()``
+returns for the same backlog, history, sprint length and seed (#5185). The throughput
+forecast has no Monte Carlo counterpart; it bootstraps weeks-to-completion here.
 
 Seeded runs are reproducible only on the same numpy and scheduler versions.
 """
@@ -18,17 +22,21 @@ from typing import Any, NamedTuple
 
 import numpy as np
 
-from trueppm_scheduler.engine import MAX_VELOCITY_SPRINTS
+from trueppm_scheduler.engine import (
+    MAX_VELOCITY_SPRINTS,
+    InvalidScheduleInput,
+    _velocity_mean,
+    monte_carlo,
+)
+from trueppm_scheduler.models import Calendar, DeliveryMode, Project, Task
 
-# Cells (runs x horizon) per bootstrap draw block — the same bound, and therefore
-# the same row-major stream order, as the engine's ``_sample_velocity_durations``:
-# drawing whole-row blocks consumes the seeded stream exactly as one full
-# ``(runs, horizon)`` matrix would, while peak memory stays ~20 MB at any horizon.
+# Cells (runs x horizon) per bootstrap draw block: drawing whole-row blocks consumes
+# the seeded stream exactly as one full ``(runs, horizon)`` matrix would, while peak
+# memory stays ~20 MB at any horizon.
 _BOOTSTRAP_CHUNK_CELLS = 2_500_000
 
-# Relative tolerance for the velocity path: float accumulation can land an ulp short
-# of an exact point target (#4699). Throughput counts are integers, so it uses 1.0.
-_VELOCITY_RTOL = 1.0 - 1e-12
+# Every weekday a working day: the forecast paces sprints in calendar days.
+_SEVEN_DAY_WEEK = 0x7F
 
 __all__ = [
     "DeliveryForecast",
@@ -103,32 +111,6 @@ def bootstrap_periods_to_completion(
     return PeriodCounts(counts.astype(np.float64), saturated)
 
 
-def sample_velocity_period_counts(
-    remaining_points: float,
-    velocity_samples: list[float],
-    runs: int,
-    seed: int,
-) -> PeriodCounts | None:
-    """Bootstrap sprint-count-to-completion from team velocity (#487).
-
-    Matches the engine's ``_sample_velocity_durations`` at ``sprint_length_days=1``
-    run for run under a shared seed (same observation filter, horizon, reach tolerance
-    and stream order). A zero-point sprint is a real observation and is bootstrapped
-    like any other (#4535). Returns ``None`` when there is no observation, every
-    observation is zero, or ``remaining_points`` is non-positive.
-    """
-    observations = np.asarray(
-        [s for s in velocity_samples if s is not None and s >= 0], dtype=float
-    )
-    if remaining_points <= 0 or observations.size == 0:
-        return None
-    if float(observations.mean()) <= 0:
-        return None
-    return bootstrap_periods_to_completion(
-        observations, remaining_points, runs, np.random.default_rng(seed), rtol=_VELOCITY_RTOL
-    )
-
-
 def sample_throughput_period_counts(
     weekly_throughput: list[int],
     remaining_count: float,
@@ -137,7 +119,7 @@ def sample_throughput_period_counts(
 ) -> PeriodCounts | None:
     """Bootstrap weeks-to-completion from a weekly throughput series (ADR-0130 D3).
 
-    The item-count analogue of :func:`sample_velocity_period_counts`. Zero-throughput
+    Zero-throughput
     weeks are real observations and are bootstrapped, except the *leading* run of zero
     weeks, which is an artifact of a fixed zero-filled calendar window rather than
     evidence of a slow team. Returns ``None`` when every week is zero or
@@ -173,32 +155,92 @@ def forecast_velocity_delivery(
 ) -> DeliveryForecast | None:
     """Forecast when a points backlog completes, from per-sprint velocity history.
 
+    Runs :func:`trueppm_scheduler.monte_carlo` on a project holding one SCRUM story
+    of ``remaining_points`` (a one-day ``duration``, the floor the engine never
+    samples below), with the history as ``velocity_samples``, ``sprint_length_days``
+    as the sprint length, a seven-day working week (sprints are paced in calendar
+    days) and ``today`` as both the start and the data date. The dates are therefore
+    ``monte_carlo()``'s own P50/P80/P95 for that project, run for run under the same
+    seed (#5185): the forecast cannot drift from the engine's sampler (ADR-1412),
+    including its fractional sprints, so a backlog that needs a fifth of a sprint
+    finishes a fifth of the way into it.
+
+    ``p50_periods`` / ``p80_periods`` are the sprint, counted from 1 at ``today``,
+    that the P50 / P80 date falls in.
+
     Args:
         remaining_points: Story points still to deliver.
         velocity_samples: Completed points of each eligible closed sprint. Zero is an
             observation; exclude ineligible sprints before calling.
-        sprint_length_days: Calendar days a sprint spans, used to pace periods onto
-            dates.
+        sprint_length_days: Calendar days a sprint spans.
         today: Anchor date the projection counts forward from.
-        runs: Number of bootstrap simulations.
+        runs: Number of Monte Carlo runs.
         seed: RNG seed; a fixed seed reproduces the same forecast.
 
     Returns:
         A :class:`DeliveryForecast`, or ``None`` when there is no usable velocity
-        signal (no observations, all zero, or no remaining work).
+        signal (no observations, all zero, no remaining work, or a sprint shorter
+        than a day).
+
+    A backlog so large that the engine refuses its worst-case total span does not
+    raise: it returns a forecast with ``horizon_saturated`` True and every date
+    clamped to ``MAX_VELOCITY_SPRINTS`` sprints past ``today``.
+
+    Raises:
+        SchedulerError: Whatever :func:`~trueppm_scheduler.monte_carlo` raises for
+            other input it refuses, such as a non-finite ``remaining_points``.
     """
-    sampled = sample_velocity_period_counts(remaining_points, velocity_samples, runs, seed)
-    if sampled is None:
+    if remaining_points <= 0 or sprint_length_days < 1:
         return None
-    counts = sampled.counts
-    p50_date, p80_date, p95_date = _project(counts, today, sprint_length_days)
+    story = Task(
+        id="backlog",
+        name="backlog",
+        duration=timedelta(days=1),
+        delivery_mode=DeliveryMode.SCRUM,
+        story_points=float(remaining_points),
+    )
+    project = Project(
+        id="velocity-forecast",
+        name="velocity-forecast",
+        start_date=today,
+        status_date=today,
+        tasks=[story],
+        calendar=Calendar(working_days=_SEVEN_DAY_WEEK),
+        velocity_samples=list(velocity_samples),
+        sprint_length_days=sprint_length_days,
+    )
+    if _velocity_mean(project) is None:
+        return None
+    try:
+        result = monte_carlo(project, runs=runs, seed=seed)
+    except InvalidScheduleInput as exc:
+        # The engine refuses a worst-case span past its cap before it clamps the
+        # sprint horizon to MAX_VELOCITY_SPRINTS. For a backlog this large that is
+        # saturation, which this function has always reported rather than raised.
+        # In this fallback every percentile (P50 included) is the horizon cap, not an
+        # estimate: no simulation ran, so read it as "beyond the horizon".
+        if not str(exc).startswith("Total project span"):
+            raise
+        horizon = today + timedelta(days=MAX_VELOCITY_SPRINTS * sprint_length_days)
+        return DeliveryForecast(
+            p50_periods=MAX_VELOCITY_SPRINTS,
+            p80_periods=MAX_VELOCITY_SPRINTS,
+            p50_date=horizon,
+            p80_date=horizon,
+            p95_date=horizon,
+            horizon_saturated=True,
+        )
+
+    def sprint_of(day: date) -> int:
+        return -(-((day - today).days + 1) // sprint_length_days)
+
     return DeliveryForecast(
-        p50_periods=int(np.ceil(float(np.percentile(counts, 50)))),
-        p80_periods=int(np.ceil(float(np.percentile(counts, 80)))),
-        p50_date=p50_date,
-        p80_date=p80_date,
-        p95_date=p95_date,
-        horizon_saturated=sampled.saturated_runs > 0,
+        p50_periods=sprint_of(result.p50),
+        p80_periods=sprint_of(result.p80),
+        p50_date=result.p50,
+        p80_date=result.p80,
+        p95_date=result.p95,
+        horizon_saturated=result.velocity_saturated_runs > 0,
     )
 
 

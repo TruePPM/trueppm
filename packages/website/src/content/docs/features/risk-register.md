@@ -89,7 +89,7 @@ A risk can be linked to up to **10 tasks** in the same project to indicate which
 Linking a risk to a task records the relationship for people to read. It does
 not reach the simulation — a risk's probability × impact score never enters the
 forecast. See [Known
-Issues](/overview/known-issues/#the-risk-register-does-not-affect-the-forecast--planned-for-05)
+Issues](/overview/known-issues/#the-risk-register-does-not-affect-the-forecast--planned-for-06)
 and [#3660](https://gitlab.com/trueppm/trueppm/-/issues/3660).
 :::
 

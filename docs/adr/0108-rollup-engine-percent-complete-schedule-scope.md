@@ -40,6 +40,7 @@ accepted/established ADRs already fix the architecture:
      `is_critical=any child`, `total_float=MIN(children)`) happens in a **post-CPM step** (the
      schedule recompute Celery task), because those only change when CPM runs.
    - Summary tasks are **excluded from the CPM forward/backward pass**.
+   - *(2026-11-27: the float and critical rollup above is now taken over incomplete children only; see the ADR-0024 amendment, #5183.)*
    - ADR-0024 explicitly names #408 as the issue that implements its still-open rollup scope.
 
 2. **ADR-0074 (Sprint→Milestone Rollup)** already implements the same computed-on-read

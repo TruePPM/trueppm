@@ -246,9 +246,13 @@ def _schedule_program(program: Program) -> None:
     (``_run_program_schedule``), rather than a second, overlay-only way of
     scheduling — the demo must be looking at the schedule the product computes.
     """
+    from trueppm_api.apps.projects.commitment_risk import suppress_commitment_detection
     from trueppm_api.apps.scheduling.tasks import _run_program_schedule
 
-    _run_program_schedule(str(program.id))
+    # The seed's sprints already hold committed tasks past their ends; announcing
+    # them here would seed the demo inboxes with at-risk notices nobody caused.
+    with suppress_commitment_detection():
+        _run_program_schedule(str(program.id))
 
 
 def _clear_health_override(project: Project) -> bool:

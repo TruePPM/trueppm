@@ -119,9 +119,9 @@ separately:
 
 ## Status
 
-The read-tool surface is **33 read-only tools** (19 ship in 0.4; `get_project_cost`,
+The read-tool surface is **34 read-only tools** (19 ship in 0.4; `get_project_cost`,
 `get_schedule_driving_chain`, `get_project_history`, `get_project_views`, `list_dependencies`,
-`list_baselines`, `list_phases`, `list_calendars`, `get_changeset`, `list_baseline_decisions`, `get_baseline_variance`, `get_sprint_velocity`, `get_sprint_burndown`, and `resolve_reference` land in 0.5) across projects and programs, tasks and My Work, schedule and
+`list_baselines`, `list_phases`, `list_calendars`, `get_changeset`, `list_baseline_decisions`, `get_baseline_variance`, `get_sprint_commitment_status`, `get_sprint_velocity`, `get_sprint_burndown`, and `resolve_reference` land in 0.5) across projects and programs, tasks and My Work, schedule and
 risk (including non-mutating what-if and schedule derivation), project cost, project history,
 your resolved project views and why each is hidden,
 dependencies, baselines, phases, calendars, and

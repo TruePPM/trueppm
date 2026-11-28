@@ -11120,7 +11120,7 @@ class SprintCadenceRowSerializer(serializers.Serializer[dict[str, Any]]):
     working_days = serializers.IntegerField(read_only=True)
     non_working_days_skipped = serializers.IntegerField(read_only=True)
     status = serializers.ChoiceField(choices=["new", "exists", "created"], read_only=True)
-    id = serializers.UUIDField(read_only=True, allow_null=True, required=False)
+    id = serializers.UUIDField(read_only=True, allow_null=True)
 
 
 class SprintCapacityHintSerializer(serializers.Serializer[dict[str, Any]]):

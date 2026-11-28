@@ -124,7 +124,27 @@ const EVENT_LABELS: Record<string, { title: string; example: string }> = {
     title: 'When a returned week is resubmitted',
     example: '“Alex Kim resubmitted the week of 2026-11-23”',
   },
+  // ADR-1485 D8: sent to whoever can accept a change to a sprint commitment.
+  'sprint.scope_change_requested': {
+    title: 'When a change to a sprint commitment awaits your decision',
+    example: '“3 commitment changes awaiting your decision in Sprint 4”',
+  },
+  'sprint.commitment_at_risk': {
+    title: 'When committed work is at risk of missing the sprint end',
+    example: '“2 committed tasks at risk of missing the end of Sprint 4”',
+  },
 };
+
+/**
+ * In-app rows the server always writes and refuses to mute (a PATCH to
+ * ``enabled: false`` is a 400). Mirrors the API's ``UNMUTABLE_IN_APP_EVENTS``
+ * (ADR-1485 D8): a change to a sprint commitment must reach the people who can
+ * decide it. Rendered as a disabled, labeled "Always on" cell, not a live switch.
+ */
+const UNMUTABLE_IN_APP_EVENTS = new Set([
+  'sprint.scope_change_requested',
+  'sprint.commitment_at_risk',
+]);
 
 /** Event types sent on the weekly slot — used to gate the schedule card. */
 const DIGEST_EVENT_TYPES = ['program.health_digest', 'resource.overallocation_digest'];
@@ -145,6 +165,18 @@ interface ToggleProps {
 function PreferenceToggle({ pref, onChange }: ToggleProps) {
   const channelLabel = CHANNEL_LABELS[pref.channel] ?? pref.channel;
   const eventLabel = EVENT_LABELS[pref.event_type]?.title ?? pref.event_type;
+  if (pref.channel === 'in_app' && UNMUTABLE_IN_APP_EVENTS.has(pref.event_type)) {
+    // Not a switch the user can move: the state is said in text, not color alone.
+    return (
+      <Toggle
+        on
+        onChange={() => {}}
+        disabled
+        onLabel="Always on"
+        ariaLabel={`${channelLabel} notifications for ${eventLabel}, always on`}
+      />
+    );
+  }
   // 44×44 outer hit zone (rule 5); inner visual 44×24 switch unchanged.
   return (
     <button

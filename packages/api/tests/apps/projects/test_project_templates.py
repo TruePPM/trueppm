@@ -497,6 +497,26 @@ def test_publish_refuses_a_non_string_field_with_a_400_not_a_500(
 
 
 @pytest.mark.django_db
+def test_publish_with_a_malformed_project_uuid_is_a_field_keyed_400(
+    admin_client: APIClient, source_project: Project
+) -> None:
+    """A non-UUID ``project`` string answers like an unknown project (#5093).
+
+    ``UUIDField.to_python`` raises Django's ValidationError, which DRF does not
+    convert: it reached the wire as a bare ``["Invalid input."]`` array, a shape the
+    declared 400 does not admit.
+    """
+    body = {"project": "not-a-uuid", "name": "Delivery skeleton"}
+
+    resp = admin_client.post("/api/v1/project-templates/publish/", body, format="json")
+
+    assert resp.status_code == 400, resp.data
+    assert isinstance(resp.data, dict)
+    assert set(resp.data) == {"project"}
+    assert not ProjectTemplate.objects.filter(source_project=source_project).exists()
+
+
+@pytest.mark.django_db
 def test_apply_is_admin_only(
     calendar: Calendar, source_project: Project, target_project: Project
 ) -> None:

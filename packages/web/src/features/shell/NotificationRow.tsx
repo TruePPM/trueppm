@@ -41,6 +41,12 @@ const actionBtn =
   'focus:ring-2 focus:ring-brand-primary focus:ring-offset-1 focus:outline-none ' +
   'disabled:opacity-50';
 
+/** In-app notices a commitment change must never be able to hide (ADR-1485 D8). */
+const UNMUTABLE_EVENT_TYPES: ReadonlySet<string> = new Set([
+  'sprint.scope_change_requested',
+  'sprint.commitment_at_risk',
+]);
+
 export function NotificationRow({ notification, onNavigate }: Props) {
   const navigate = useNavigate();
   const { user } = useCurrentUser();
@@ -53,6 +59,9 @@ export function NotificationRow({ notification, onNavigate }: Props) {
   // An event-sourced row (#639/#497/#861) carries its own title/preview and has
   // no mention; a mention row renders from the mentioner + comment snippet.
   const isEvent = !!notification.event_type;
+  // The server writes these in-app rows whatever the preference says (ADR-1485 D8)
+  // and refuses to store a mute for them, so the shortcut is not offered.
+  const isMutable = !UNMUTABLE_EVENT_TYPES.has(notification.event_type);
   const mentioner = notification.mention?.mentioner?.display_name ?? 'Someone';
   const isGroup = !!notification.mention?.mentioned_group_key;
   const groupKey = notification.mention?.mentioned_group_key;
@@ -230,7 +239,7 @@ export function NotificationRow({ notification, onNavigate }: Props) {
         )}
         {/* Mute a *type* — mention rows omit it (you mute a type; a mention is a
             person addressing you). ADR-0216 §2. */}
-        {isEvent && (
+        {isEvent && isMutable && (
           <button type="button" onClick={handleMute} disabled={busy} className={actionBtn}>
             Mute notifications like this
           </button>

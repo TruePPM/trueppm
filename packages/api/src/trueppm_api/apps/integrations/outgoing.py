@@ -62,6 +62,7 @@ _SLACK_EVENT_META: dict[str, tuple[str, str]] = {
     "changeset.entry_reasoned": ("Baseline changeset entry reasoned", _SLACK_COLOR_NEUTRAL),
     "schedule.change_undone": ("Schedule change undone", _SLACK_COLOR_NEUTRAL),
     "sprint.scope_change_requested": ("Sprint scope change requested", _SLACK_COLOR_CRITICAL),
+    "sprint.commitment_at_risk": ("Sprint commitment at risk", _SLACK_COLOR_CRITICAL),
     "schedule.finish_changed": ("Headline forecast changed", _SLACK_COLOR_NEUTRAL),
     "comment.created": ("New comment", _SLACK_COLOR_NEUTRAL),
     # Reserved, non-domain: the "Send test" ping now renders through this provider
