@@ -250,6 +250,58 @@ describe('AddedTimeCard', () => {
   });
 });
 
+describe('AddedTimeCard run affordance by role (#5181)', () => {
+  function renderAs(facts: AddedTimeFacts, canRun: boolean, forecastStale?: boolean) {
+    return render(
+      <MemoryRouter>
+        <AddedTimeCard
+          presentation={addedTimePresentation(facts)}
+          base="/projects/p1"
+          canRun={canRun}
+          forecastStale={forecastStale}
+        />
+      </MemoryRouter>,
+    );
+  }
+
+  it.each([
+    ['not run', { ...MEASURED, risk_premium_state: 'not_run' as const }, undefined],
+    ['stale', { ...MEASURED, risk_premium_state: 'stale' as const }, undefined],
+    ['plan changed', MEASURED, true],
+  ])('offers no run or re-run link below Scheduler when %s', (_n, facts, forecastStale) => {
+    renderAs(facts, false, forecastStale);
+    expect(within(card()).queryByRole('link', { name: /run forecast|re-run/i })).toBeNull();
+  });
+
+  it('keeps a neutral Forecast link on a measured card for a non-runner', () => {
+    renderAs({ ...MEASURED, risk_premium_state: 'stale' }, false);
+    expect(within(card()).getByRole('link', { name: /^forecast/i })).toBeInTheDocument();
+  });
+
+  it('still offers Add estimates below Scheduler', () => {
+    renderAs(
+      {
+        ...MEASURED,
+        risk_premium_state: 'unmeasurable',
+        risk_premium_days: 0,
+        risk_premium_ratio: null,
+        risk_premium_reason: 'no_estimates',
+        risk_premium_p80: null,
+      },
+      false,
+    );
+    expect(within(card()).getByRole('link', { name: /add estimates/i })).toBeInTheDocument();
+  });
+
+  it.each([
+    ['not run', { ...MEASURED, risk_premium_state: 'not_run' as const }, /run forecast/i],
+    ['stale', { ...MEASURED, risk_premium_state: 'stale' as const }, /re-run forecast/i],
+  ])('offers the link to a Scheduler when %s', (_n, facts, name) => {
+    renderAs(facts, true);
+    expect(within(card()).getByRole('link', { name })).toBeInTheDocument();
+  });
+});
+
 describe('addedTimeShortForm', () => {
   describe('A4 — the digit 0 never reaches a chip', () => {
     // The failure this guards is specific: an unestimated project simulates flat, so
@@ -259,20 +311,18 @@ describe('addedTimeShortForm', () => {
       'the %s state produces no digit at all, in either form',
       (state) => {
         for (const qualified of [true, false]) {
-          const short = addedTimeShortForm(
-            addedTimePresentation(ADDED_TIME_FIXTURES[state]),
-            { qualified },
-          );
+          const short = addedTimeShortForm(addedTimePresentation(ADDED_TIME_FIXTURES[state]), {
+            qualified,
+          });
           expect(short?.text ?? '').not.toMatch(/\d/);
         }
       },
     );
 
     it('renders the words "needs estimates" for an unmeasurable project — never a dash', () => {
-      const short = addedTimeShortForm(
-        addedTimePresentation(ADDED_TIME_FIXTURES.unmeasurable),
-        { qualified: true },
-      );
+      const short = addedTimeShortForm(addedTimePresentation(ADDED_TIME_FIXTURES.unmeasurable), {
+        qualified: true,
+      });
       expect(short).toEqual({ kind: 'needsEstimates', text: 'needs estimates' });
       expect(short?.text).not.toContain('—');
     });

@@ -244,6 +244,20 @@ class TestPersistOnRun:
         MonteCarloRun.objects.create(project=project, p80=date(2026, 6, 1), n_simulations=50)
         assert member_client.get(latest_url(project.pk)).status_code == 404
 
+    def test_default_run_still_served_after_cache_expiry_under_a_lowered_cell_cap(
+        self, scheduler_client: APIClient, project: Project, pert_task: Task, settings: object
+    ) -> None:
+        # The write side lowers the minimum per project (here 60 admitted runs), so the
+        # read fallback must not apply the unlowered 100 or the stored run vanishes
+        # once the 24 h cache entry expires.
+        settings.MC_CELL_CAP = 60  # type: ignore[attr-defined]
+        res = scheduler_client.post(run_url(project.pk), {}, format="json")
+        assert res.status_code == 200
+        assert res.json()["n_simulations"] == 60
+        assert res.json()["stored_as_latest"] is True
+        cache.clear()
+        assert scheduler_client.get(latest_url(project.pk)).status_code == 200
+
     def test_latest_fallback_serves_the_older_qualifying_run(
         self, member_client: APIClient, project: Project
     ) -> None:

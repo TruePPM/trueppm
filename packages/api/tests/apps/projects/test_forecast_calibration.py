@@ -143,6 +143,16 @@ class TestCapture:
         # Per-task percentiles wait on the engine's per-task targets (#4135).
         assert all(r.p50 is None for r in by_task.values())
 
+    def test_project_row_ignores_a_sub_minimum_pre_upgrade_run(self, owner: object) -> None:
+        p = _project(owner, opted_in=True)
+        MonteCarloRun.objects.create(
+            project=p, p50=date(2026, 3, 23), p80=date(2026, 3, 25), n_simulations=50
+        )
+        commit_project(p, user=owner)
+        row = ForecastCalibrationRecord.objects.get(project=p, scope="project")
+        assert row.p80 is None
+        assert row.mc_iterations is None
+
     def test_backlog_rows_are_not_captured(self, owner: object) -> None:
         p = _project(owner, opted_in=True)
         Task.objects.create(
@@ -432,7 +442,7 @@ class TestPurgeInteraction:
         p = _project(owner, opted_in=True)
         Project.objects.filter(pk=p.pk).update(mc_history_retention_cap=5)
         for _ in range(60):
-            MonteCarloRun.objects.create(project=p, p50=date(2026, 3, 23), n_simulations=10)
+            MonteCarloRun.objects.create(project=p, p50=date(2026, 3, 23), n_simulations=100)
         commit_project(p, user=owner)
         before = ForecastCalibrationRecord.objects.filter(project=p).count()
 

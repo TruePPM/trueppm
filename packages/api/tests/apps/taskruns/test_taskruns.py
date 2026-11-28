@@ -251,6 +251,43 @@ def test_tracker_broadcasts_started_and_completed(project: Project) -> None:
 
 
 @pytest.mark.django_db(transaction=True)
+def test_tracker_completed_broadcast_omits_the_callers_result(project: Project) -> None:
+    """A non-stored run's own forecast stays on the persisted summary, off the socket (#5181)."""
+    from trueppm_api.apps.taskruns.tracker import TaskRunTracker
+
+    mock_task = _make_celery_task()
+    broadcast_calls: list[dict] = []
+
+    def capture(**kwargs: object) -> None:
+        broadcast_calls.append(dict(kwargs))
+
+    summary = {
+        "run_id": None,
+        "n_simulations": 5,
+        "stored_as_latest": False,
+        "result": {"p80": "x"},
+    }
+    with (
+        patch(
+            "trueppm_api.apps.taskruns.tracker.broadcast_board_event",
+            side_effect=capture,
+        ),
+        TaskRunTracker(
+            mock_task,
+            project_id=str(project.pk),
+            task_name="test.broadcast",
+        ) as tracker,
+    ):
+        tracker.set_result(summary)
+
+    completed = next(c for c in broadcast_calls if c["event_type"] == "task_run_completed")
+    assert "result" not in completed["payload"]["result_summary"]
+    assert completed["payload"]["result_summary"]["n_simulations"] == 5
+    persisted = TaskRun.objects.get(project=project, task_name="test.broadcast")
+    assert persisted.result_summary["result"] == {"p80": "x"}
+
+
+@pytest.mark.django_db(transaction=True)
 def test_tracker_broadcasts_failed(project: Project) -> None:
     """TaskRunTracker broadcasts task_run_failed on exception."""
     from trueppm_api.apps.taskruns.tracker import TaskRunTracker

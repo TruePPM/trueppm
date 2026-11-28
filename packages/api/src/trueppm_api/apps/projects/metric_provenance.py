@@ -396,9 +396,10 @@ def latest_forecast_result(
     (``monte-carlo/latest/``) and its echoes (status-summary's ``monte_carlo_p80``,
     the overview's forecast fields) all call it, so none of them can read in a
     different order. The order: the cache entry first, then the newest persisted
-    ``MonteCarloRun`` once the 24-hour entry has expired. A Member-triggered run
-    refreshes the cache and persists no row (#1502), so a reader of the persisted
-    row alone serves a different forecast than the owner for up to a day.
+    ``MonteCarloRun`` once the 24-hour entry has expired. Only a Scheduler+ run of at
+    least the minimum writes either (#5181); a lower role's result is returned to its
+    caller and never stored. A reader that skips the cache serves a different forecast
+    than the owner until the entry expires.
 
     ``runs`` narrows the fallback query (``.only(...)``) for a caller that needs a
     few columns; the run is the newest by ``taken_at`` whatever its P80. The run is
@@ -410,7 +411,7 @@ def latest_forecast_result(
     from trueppm_api.apps.scheduling.models import MonteCarloRun
 
     # Lazy: scheduling.views imports this module at load time.
-    from trueppm_api.apps.scheduling.views import mc_latest_cache_key, mc_latest_min_runs
+    from trueppm_api.apps.scheduling.views import mc_latest_cache_key, mc_latest_read_floor
 
     entry = cache.get(mc_latest_cache_key(project_id))
     if entry is not None:
@@ -418,7 +419,7 @@ def latest_forecast_result(
     qs = runs if runs is not None else MonteCarloRun.objects.all()
     # Only a run large enough to have been storable as the shared latest (#5181):
     # a smaller one is a caller's private result, never the project's forecast.
-    qs = qs.filter(n_simulations__gte=mc_latest_min_runs())
+    qs = qs.filter(n_simulations__gte=mc_latest_read_floor())
     return None, qs.filter(project_id=project_id).order_by("-taken_at").first()
 
 
@@ -455,7 +456,7 @@ def latest_forecast_by_project(project_ids: Iterable[Any]) -> dict[str, dict[str
     from trueppm_api.apps.scheduling.models import MonteCarloRun
 
     # Lazy: scheduling.views imports this module at load time.
-    from trueppm_api.apps.scheduling.views import mc_latest_cache_key, mc_latest_min_runs
+    from trueppm_api.apps.scheduling.views import mc_latest_cache_key, mc_latest_read_floor
 
     def _day(value: Any) -> date | None:
         return date.fromisoformat(value) if isinstance(value, str) else value
@@ -486,7 +487,7 @@ def latest_forecast_by_project(project_ids: Iterable[Any]) -> dict[str, dict[str
     if uncached:
         newest = (
             MonteCarloRun.objects.filter(
-                project_id__in=uncached, n_simulations__gte=mc_latest_min_runs()
+                project_id__in=uncached, n_simulations__gte=mc_latest_read_floor()
             )
             .order_by("project_id", "-taken_at")
             .distinct("project_id")

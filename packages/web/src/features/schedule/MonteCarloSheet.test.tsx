@@ -1,5 +1,5 @@
 import { screen, fireEvent, within } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { renderWithProviders, renderWithRouter } from '@/test/utils';
 import { MonteCarloSheet } from './MonteCarloSheet';
 import { FIXTURE_MC_RESULT } from '@/fixtures/monteCarlo';
@@ -11,7 +11,21 @@ vi.mock('@/api/client', () => ({
   apiClient: { get: vi.fn().mockResolvedValue({ data: { results: [], cap: 100 } }) },
 }));
 
+const roleState = vi.hoisted(() => ({ role: 200 as number | null }));
+vi.mock('@/hooks/useCurrentUserRole', () => ({
+  useCurrentUserRole: () => ({
+    role: roleState.role,
+    roleLabel: null,
+    isLoading: false,
+    isError: false,
+  }),
+}));
+
 describe('MonteCarloSheet', () => {
+  beforeEach(() => {
+    roleState.role = 200;
+  });
+
   it('renders as a dialog with the correct aria attributes', () => {
     const onClose = vi.fn();
     renderWithProviders(<MonteCarloSheet result={FIXTURE_MC_RESULT} onClose={onClose} />);
@@ -136,5 +150,17 @@ describe('MonteCarloSheet', () => {
     );
     const card = screen.getByRole('region', { name: /added time vs computed finish/i });
     expect(within(card).queryByRole('link', { name: /re-run forecast/i })).not.toBeInTheDocument();
+  });
+
+  it('offers no rerun remedy to a Viewer even when the plan moved (#5181)', () => {
+    roleState.role = 1;
+    renderWithRouter(
+      <MonteCarloSheet
+        result={{ ...FIXTURE_MC_RESULT, forecastStaleness: 'projectChanged' }}
+        onClose={vi.fn()}
+      />,
+    );
+    const card = screen.getByRole('region', { name: /added time vs computed finish/i });
+    expect(within(card).queryByRole('link', { name: /run forecast|re-run/i })).toBeNull();
   });
 });

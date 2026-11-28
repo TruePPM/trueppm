@@ -98,6 +98,7 @@ def _write_capture(
     project: Project, baseline: Baseline, rows: list[dict[str, Any]], kind: str
 ) -> int:
     from trueppm_api.apps.scheduling.models import MonteCarloRun
+    from trueppm_api.apps.scheduling.views import mc_latest_read_floor
 
     tasks = {
         t["id"]: t
@@ -114,7 +115,9 @@ def _write_capture(
     capture_id = uuid.uuid4()
     now = timezone.now()
     run = (
-        MonteCarloRun.objects.filter(project_id=project.pk)
+        MonteCarloRun.objects.filter(
+            project_id=project.pk, n_simulations__gte=mc_latest_read_floor()
+        )
         .order_by("-taken_at")
         .only(
             "p50",

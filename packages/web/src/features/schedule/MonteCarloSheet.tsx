@@ -4,6 +4,7 @@ import { ForecastHistorySection } from './ForecastHistorySection';
 import { fmtForecastDate } from './forecastDelta';
 import { CloseIcon } from '@/components/Icons';
 import { useFocusTrap } from '@/hooks/useFocusTrap';
+import { useCanRunMonteCarlo } from '@/hooks/useCanRunMonteCarlo';
 import { AddedTimeCard } from '@/features/project/AddedTimeCard';
 import { addedTimePresentation } from '@/features/project/addedTime';
 
@@ -26,6 +27,7 @@ export function MonteCarloSheet({ result, onClose }: Props) {
   // bug and starts being reachable. The hook also owns Escape, so the hand-rolled
   // `window` listener goes: two listeners for one key double-fire.
   const sheetRef = useFocusTrap<HTMLDivElement>(true, onClose);
+  const canRun = useCanRunMonteCarlo(result.projectId);
 
   // The gap between the computed finish and the P80 commit, from the same server-owned
   // premium the card on Overview reads — so a phone and a desktop cannot disagree
@@ -44,10 +46,11 @@ export function MonteCarloSheet({ result, onClose }: Props) {
   // `premium` and dead-ends. That is the cross-surface contradiction ADR-0954 §6 argues
   // the two families exist to avoid, and it would have shipped one level down from the
   // defect being fixed.
+  // Below Scheduler the rerun path is withheld (their run is never stored), so only the
+  // unmeasurable state keeps an action: Add estimates, which any editor can follow.
   const cardBase =
     premium.state === 'unmeasurable' ||
-    premium.state === 'stale' ||
-    result.forecastStaleness !== 'current'
+    (canRun && (premium.state === 'stale' || result.forecastStaleness !== 'current'))
       ? `/projects/${result.projectId}`
       : undefined;
 
@@ -105,6 +108,7 @@ export function MonteCarloSheet({ result, onClose }: Props) {
             presentation={premium}
             base={cardBase}
             forecastStale={result.forecastStaleness !== 'current'}
+            canRun={canRun}
           />
         </div>
 

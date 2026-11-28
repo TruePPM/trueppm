@@ -62,6 +62,13 @@ _DEBOUNCE_TTL = 10  # seconds — key expires shortly after task completes
 _CANCEL_TTL = 300  # seconds
 
 
+def _broadcast_summary(summary: Any) -> Any:
+    """The result summary as broadcast: the persisted dict without its ``result`` key."""
+    if isinstance(summary, dict) and "result" in summary:
+        return {k: v for k, v in summary.items() if k != "result"}
+    return summary
+
+
 class TaskCancelled(Exception):
     """Raised inside a task when a cancellation signal is detected."""
 
@@ -341,7 +348,10 @@ class TaskRunTracker:
                 # per-project sockets, a client that connected mid-run) can tell a
                 # forecast run from a schedule-changing one.
                 "task_name": self._task_name,
-                "result_summary": self._result,
+                # Persisted summary minus ``result``: a non-stored Monte Carlo run
+                # keeps the caller's own forecast there (#5181), readable through the
+                # task-run GET, and must not fan out to every connected member.
+                "result_summary": _broadcast_summary(self._result),
             },
         )
         return False

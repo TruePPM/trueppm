@@ -1249,6 +1249,7 @@ function OverviewKpiSection({
   focusHeadingText,
   addedTime,
   planChanged,
+  canRun,
   base,
   refetchOverview,
 }: {
@@ -1259,6 +1260,7 @@ function OverviewKpiSection({
   focusHeadingText: string;
   addedTime: AddedTimePresentation;
   planChanged: boolean;
+  canRun: boolean;
   base?: string;
   refetchOverview: () => unknown;
 }) {
@@ -1299,6 +1301,7 @@ function OverviewKpiSection({
             base={base}
             forecastStale={planChanged}
             planChanged={planChanged}
+            canRun={canRun}
           />
           {focus.map((m) => (
             <KpiCard
@@ -1462,6 +1465,7 @@ export function ProjectOverviewPage() {
 }
 
 function ProjectOverviewV1({ projectId }: { projectId: string | undefined }) {
+  const canRunForecast = useCanRunMonteCarlo(projectId);
   const {
     data: overview,
     isLoading: overviewLoading,
@@ -1557,6 +1561,7 @@ function ProjectOverviewV1({ projectId }: { projectId: string | undefined }) {
         focusHeadingText={focusHeadingText}
         addedTime={addedTime}
         planChanged={overview?.forecast_staleness === 'project_changed'}
+        canRun={canRunForecast}
         base={projectId ? `/projects/${projectId}` : undefined}
         refetchOverview={refetchOverview}
       />

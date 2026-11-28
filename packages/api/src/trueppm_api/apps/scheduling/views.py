@@ -183,6 +183,27 @@ def mc_latest_min_runs(n_tasks: int | None = None) -> int:
     return MC_LATEST_MIN_RUNS if admitted is None else min(MC_LATEST_MIN_RUNS, admitted)
 
 
+def mc_latest_read_floor() -> int:
+    """Lowest storable run count across every project the server can admit.
+
+    Read paths do not know the network size, and the write side lowers the minimum
+    per project (``mc_latest_min_runs(n_tasks)``). A read filter must therefore sit at
+    or below the smallest value the write side can ever use, or a stored default run
+    on a large project disappears from the read. The cell cap divided by the task cap
+    is that smallest admission; the cost is that a pre-upgrade sub-minimum row on a
+    project that qualifies for a lower write-side minimum is also served.
+    """
+    floor = MC_LATEST_MIN_RUNS
+    sim_cap: int | None = settings.MC_SIMULATION_CAP
+    cell_cap: int | None = getattr(settings, "MC_CELL_CAP", None)
+    task_cap: int | None = settings.MC_TASK_CAP
+    if sim_cap is not None:
+        floor = min(floor, sim_cap)
+    if cell_cap is not None and task_cap:
+        floor = min(floor, cell_cap // task_cap)
+    return max(floor, 1)
+
+
 def mc_latest_cache_key(pk: object) -> str:
     """Read-cache key for a project's latest Monte Carlo forecast.
 

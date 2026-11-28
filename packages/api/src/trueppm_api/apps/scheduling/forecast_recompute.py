@@ -64,11 +64,14 @@ def notify_if_forecast_stale(project_id: Any) -> bool:
     from trueppm_api.apps.projects.models import Project
 
     from .models import MonteCarloRun
+    from .views import mc_latest_read_floor
 
     try:
         if not forecast_recompute_requested.receivers:
             return False
-        run = MonteCarloRun.objects.filter(project_id=project_id).first()
+        run = MonteCarloRun.objects.filter(
+            project_id=project_id, n_simulations__gte=mc_latest_read_floor()
+        ).first()
         if run is None:
             return False
         current, recalculated_at = Project.objects.filter(pk=project_id).values_list(

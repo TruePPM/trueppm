@@ -48,6 +48,13 @@ interface AddedTimeCardProps {
    */
   forecastStale?: boolean;
   /**
+   * Whether the caller may run a simulation that updates the shared forecast
+   * (`useCanRunMonteCarlo`, Scheduler and above). When false the card never offers
+   * "Run forecast" / "Re-run forecast": a lower role's run is not stored, so the
+   * action would promise a refresh it cannot deliver. Defaults to true.
+   */
+  canRun?: boolean;
+  /**
    * The project has been edited since this forecast was computed (`forecast_staleness ===
    * 'project_changed'`, #5063). Renders a quiet note beside the band and leaves the
    * band itself untouched: `risk_premium_state` stays age-only (ADR-0954 amendment)
@@ -169,16 +176,18 @@ function ProportionTrack({ pct, label }: { pct: number; label: string }) {
 function AddedTimeEmptyCard({
   presentation,
   base,
+  canRun,
 }: {
   // Narrowed to the two empty variants: the caller has already tested `state`,
   // and only these carry `reason`.
   presentation: AddedTimeUnmeasurable | AddedTimeNotRun;
   base: string | undefined;
+  canRun: boolean;
 }) {
   const isUnmeasurable = presentation.state === 'unmeasurable';
   const action = isUnmeasurable
     ? { label: 'Add estimates', to: base ? `${base}/grid` : undefined }
-    : { label: 'Run forecast', to: base ? `${base}/schedule` : undefined };
+    : { label: 'Run forecast', to: base && canRun ? `${base}/schedule` : undefined };
 
   return (
     <section
@@ -218,19 +227,20 @@ export function AddedTimeCard({
   base,
   forecastStale,
   planChanged,
+  canRun = true,
 }: AddedTimeCardProps) {
   // Empty states are structurally distinct from a measured zero, not just worded
   // differently: no digit, no track, no as-of stamp, and a dashed frame. That is what
   // stops "we have not measured this" from reading as "we measured no risk".
   if (presentation.state === 'notRun' || presentation.state === 'unmeasurable') {
-    return <AddedTimeEmptyCard presentation={presentation} base={base} />;
+    return <AddedTimeEmptyCard presentation={presentation} base={base} canRun={canRun} />;
   }
 
   const { headline, endpoints, ratioPct, ratioLabel, asOf, band, state } = presentation;
   const isStale = state === 'stale';
   // The link's own predicate — see `forecastStale` on the props. Broader than
   // `isStale`, and only ever used for the label.
-  const offerRerun = isStale || forecastStale === true;
+  const offerRerun = canRun && (isStale || forecastStale === true);
   const isNumeric = headline !== 'No added time';
   const spoken = addedTimeSpokenHeadline(headline);
 
@@ -286,7 +296,9 @@ export function AddedTimeCard({
 
       {planChanged === true && (
         <p data-testid="added-time-plan-changed" className="text-xs text-neutral-text-secondary">
-          Edited since this forecast. Re-run to refresh.
+          {canRun
+            ? 'Edited since this forecast. Re-run to refresh.'
+            : 'Edited since this forecast.'}
         </p>
       )}
 

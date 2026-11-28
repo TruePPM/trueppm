@@ -170,6 +170,16 @@ class TestCapture:
         assert snap.mc_p95_finish == date(2026, 7, 10)
         assert snap.mc_iterations == 500
 
+    def test_sub_minimum_pre_upgrade_run_is_ignored(self, project: Project) -> None:
+        Task.objects.create(project=project, name="A", duration=5, early_finish=date(2026, 3, 1))
+        MonteCarloRun.objects.create(
+            project=project, p50=date(2026, 6, 1), p80=date(2026, 6, 20), n_simulations=50
+        )
+        snap = capture_forecast_snapshot(project.pk, ForecastSnapshotTrigger.RECOMPUTE)
+        assert snap is not None
+        assert snap.mc_p80_finish is None
+        assert snap.mc_iterations is None
+
     def test_dedup_within_window_and_unchanged_is_noop(self, project: Project) -> None:
         Task.objects.create(project=project, name="A", duration=5, early_finish=date(2026, 3, 1))
         first = capture_forecast_snapshot(project.pk, ForecastSnapshotTrigger.RECOMPUTE)

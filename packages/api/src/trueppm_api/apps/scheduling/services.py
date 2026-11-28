@@ -1381,6 +1381,7 @@ def capture_forecast_snapshot(project_id: str | uuid.UUID, trigger: str) -> Any 
         task_finish_at_day_start,
     )
     from trueppm_api.apps.scheduling.models import MonteCarloRun, ProjectForecastSnapshot
+    from trueppm_api.apps.scheduling.views import mc_latest_read_floor
 
     # One aggregate query for the whole-project schedule shape. cpm_finish is the
     # latest task finish; total_float_days is the tightest slack across the project
@@ -1420,7 +1421,9 @@ def capture_forecast_snapshot(project_id: str | uuid.UUID, trigger: str) -> Any 
     )
 
     latest_mc = (
-        MonteCarloRun.objects.filter(project_id=project_id)
+        MonteCarloRun.objects.filter(
+            project_id=project_id, n_simulations__gte=mc_latest_read_floor()
+        )
         .order_by("-taken_at")
         .values("p50", "p80", "p95", "n_simulations")
         .first()

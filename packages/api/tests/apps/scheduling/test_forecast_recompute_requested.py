@@ -71,6 +71,17 @@ def test_fires_once_when_plan_moved_since_run(
     assert received[0]["staleness"] == "project_changed"
 
 
+def test_sub_minimum_pre_upgrade_run_is_ignored(
+    project: Project, received: list[dict[str, Any]]
+) -> None:
+    run = _run(project, project.last_sync_version)
+    MonteCarloRun.objects.filter(pk=run.pk).update(n_simulations=50)
+    Project.objects.filter(pk=project.pk).update(last_sync_version=project.last_sync_version + 5)
+
+    assert notify_if_forecast_stale(project.pk) is False
+    assert received == []
+
+
 def test_silent_when_forecast_is_current(project: Project, received: list[dict[str, Any]]) -> None:
     _run(project, project.last_sync_version)
     project.refresh_from_db()
