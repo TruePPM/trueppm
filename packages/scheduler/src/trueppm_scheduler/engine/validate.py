@@ -1020,6 +1020,42 @@ def _validate_span_bounds(project: Project) -> None:
             "schedule would overflow the date range. Use an earlier start date."
         )
 
+    # date.min underflow guard for progress-derived spans (#5190). A started task with
+    # no recorded actual_start has its scheduled_start derived BACKWARD from its
+    # placement by the elapsed working days (ADR-1474's zero_remaining branch steps
+    # back from the day before early_start before it walks), so a project starting at
+    # or just after date.min underflowed into a bare OverflowError that escaped every
+    # ``except SchedulerError`` caller (the API's recompute task). The same
+    # conservative estimate as the date.max guard above (span x 7 + one scan), applied
+    # only when such a task exists: a project with no progress-derived span, such as
+    # a milestone at date.min, keeps scheduling. Mirrored in validate.rs.
+    if (project.start_date - date.min).days < max_calendar_reach and any(
+        _derives_span_backward(t) for t in project.tasks
+    ):
+        raise InvalidScheduleInput(
+            f"Project start date {project.start_date.isoformat()} is too close to the "
+            f"minimum representable date for a span of {reach_span} working days; "
+            "an in-progress task's start is derived backward from its progress and "
+            "would underflow the date range. Use a later start date, or record the "
+            "task's actual start."
+        )
+
+
+def _derives_span_backward(task: Task) -> bool:
+    """Whether ``task``'s scheduled_start is walked back from its placement.
+
+    True for open, started work with no recorded ``actual_start``: the forward pass
+    derives its start from the elapsed share of its duration. Deliberately broader
+    than the one branch that underflowed (#5190) — a cap only needs to be safe.
+    """
+    pct = task.percent_complete or 0.0
+    return (
+        0.0 < pct < 100.0
+        and task.actual_start is None
+        and task.actual_finish is None
+        and task.duration.days > 0
+    )
+
 
 def _validate_project(project: Project) -> None:
     """Reject degenerate input before any calendar walk runs.
