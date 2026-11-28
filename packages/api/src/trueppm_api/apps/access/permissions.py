@@ -3139,6 +3139,18 @@ class McpReadableViewMixin(_McpViewBase):
     ``get_permissions()`` without the mixin claiming to be a standalone view.
     """
 
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        """Refuse an unknown capability-scope area at class definition (#5118).
+
+        A typo in ``agent_area``, ``agent_action_areas`` or ``agent_strips`` would
+        otherwise resolve to a narrower area than intended, which fails open. Raising
+        here turns it into an import error the test suite and every process start see.
+        """
+        super().__init_subclass__(**kwargs)
+        from trueppm_api.apps.projects.agent_scope import validate_view_declarations
+
+        validate_view_declarations(cls)
+
     mcp_scope: ClassVar[McpScope | None] = None
     """How this view is scoped to a project for the team MCP opt-out (ADR-0678).
 

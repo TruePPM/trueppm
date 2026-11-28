@@ -32,6 +32,8 @@ Two properties carry the threat model on #4814:
 
 from __future__ import annotations
 
+import fnmatch
+import re
 from typing import TYPE_CHECKING, Any, TypeGuard
 
 if TYPE_CHECKING:
@@ -101,14 +103,16 @@ AGENT_AREA_COVERS: dict[str, str] = {
         "Projects, programs, tasks, phases, sprints, risks, labels, custom fields, "
         "acceptance criteria, history, status updates, forecasts, Monte Carlo, My Work "
         "and search. Task-level summaries such as predecessor counts and readiness stay "
-        "here. Fields inside these reads that carry another area's data are left out "
+        "here. The forecast and Monte Carlo reads are one exception: they still return the "
+        "commitment date and the P80 delta against it without Baselines read. Other "
+        "fields inside these reads that carry another area's data are left out "
         "without that area: baseline fields on a task, the project overview's SPI, "
         "schedule band and next-milestone baseline date, the program rollup's baseline "
         "variance, schedule health, program health and project commitment dates, and the "
         "baseline finish and variance in a status update (Baselines); the dependency "
         "links of a program schedule and the rollup's cross-project link count "
-        "(Dependencies); overview utilization, program rollup cost and sprint member "
-        "hours (Resources)."
+        "(Dependencies); the project budget, overview utilization, program rollup cost "
+        "and sprint member hours (Resources)."
     ),
     "dependencies": (
         "Dependency links between tasks, the driving chain, and the derivation that "
@@ -144,6 +148,10 @@ BASELINE_TASK_FIELDS: tuple[str, ...] = (
     "spi_band",
 )
 
+#: Project row fields that carry Resources data (the budget is cost data). A project
+#: read by an agent without ``resources`` read drops them (``ProjectSerializer``).
+PROJECT_RESOURCE_FIELDS: tuple[str, ...] = ("budget",)
+
 #: Fields of the project overview that carry Baselines data: the next milestone's
 #: baseline date, and the SPI ratio and the schedule band derived from it (the same
 #: snapshot arithmetic as the task-level ``spi``/``spi_band``).
@@ -152,7 +160,6 @@ OVERVIEW_BASELINE_FIELDS: tuple[str, ...] = ("spi", "schedule_health")
 #: Fields of a status update's frozen forecast that carry Baselines data.
 STATUS_FORECAST_BASELINE_FIELDS: tuple[str, ...] = (
     "baseline_finish",
-    "baseline_finish_at_day_start",
     "baseline_finish_variance_days",
 )
 
@@ -169,11 +176,13 @@ STATUS_MILESTONE_BASELINE_FIELDS: tuple[str, ...] = (
 ALL_AREAS: tuple[str, ...] = AGENT_AREAS
 
 # A view or viewset whose Schedule-area read embeds another area's fields declares them
-# in ``agent_strips``: ``{action_or_None: {area: (field, ...)}}`` (``None`` for a plain
-# APIView). It is documentation the classification test
-# (``test_every_schedule_view_is_classified``) reads, so a new Schedule-area view cannot
-# ship without either declaring its strips or being reviewed onto that test's allowlist.
-# The stripping itself stays at the call site (:func:`strip_area_fields`).
+# in ``agent_strips``: ``{action_or_None: {area: (path, ...)}}`` (``None`` for a plain
+# APIView). The declaration is what the view strips (:func:`apply_agent_strips`), so
+# what is declared and what is withheld cannot drift apart, and the classification test
+# (``test_every_schedule_view_is_classified``) reads it, so a new Schedule-area view
+# cannot ship without declaring its strips or being reviewed onto that test's
+# allowlist. A path is :func:`strip_paths` syntax: dotted keys, ``name[]`` for each
+# item of a list, ``{glob}`` for every key of a dict matching an ``fnmatch`` glob.
 
 # Model names whose reads belong to an area other than the default ``schedule``. Every
 # MCP-readable view resolves to its areas through ``agent_action_areas`` (per viewset
@@ -311,6 +320,24 @@ def can_read_area(token: ApiToken, area: str) -> bool:
     return level_rank(grant_of(token)[area]) >= level_rank(LEVEL_READ)
 
 
+def _declared_areas(value: object) -> tuple[str, ...] | None:
+    """``value`` as a tuple of known areas, or ``None`` when it names an unknown one.
+
+    A string is one area; a tuple or list is several and must be non-empty. Anything
+    else, or any unknown area in it, is invalid: a typo must never fall through to a
+    narrower default (``("schedule", "baseline")`` reading as ``("schedule",)``).
+    """
+    if isinstance(value, str):
+        areas: tuple[object, ...] = (value,)
+    elif isinstance(value, (tuple, list)):
+        areas = tuple(value)
+    else:
+        return None
+    if not areas or not all(isinstance(a, str) and a in AGENT_AREAS for a in areas):
+        return None
+    return tuple(str(a) for a in areas)
+
+
 def areas_for_view(view: Any) -> tuple[str, ...] | None:
     """The scope areas a view's reads fall in, or ``None`` when it reads no project data.
 
@@ -321,22 +348,22 @@ def areas_for_view(view: Any) -> tuple[str, ...] | None:
     whose single response carries resources, dependencies, baselines and task
     assignments together: refusing a ``resources=none`` agent the resource endpoints
     while serving the same rows in an export would make the toggle a suggestion. A view
-    may also declare ``agent_area`` (one area, or a tuple of them). Otherwise a view declaring
-    ``McpScope.NO_PROJECT_DATA`` (the identity echo, the calendar library) has no area;
-    anything else resolves through its queryset model, defaulting to ``schedule``.
+    may also declare ``agent_area`` (one area, or a tuple of them). Otherwise a view
+    declaring ``McpScope.NO_PROJECT_DATA`` (the identity echo, the calendar library) has
+    no area; anything else resolves through its queryset model, defaulting to
+    ``schedule``.
+
+    A declaration naming an unknown area fails **closed** to :data:`ALL_AREAS`.
+    :func:`validate_view_declarations` already refuses one when an MCP-readable view
+    class is defined, so this is the backstop for a class that bypasses it.
     """
     by_action = getattr(view, "agent_action_areas", None)
     action = getattr(view, "action", None)
     if isinstance(by_action, dict) and action in by_action:
-        mapped = by_action[action]
-        areas = (mapped,) if isinstance(mapped, str) else tuple(mapped)
-        if areas and all(area in AGENT_AREAS for area in areas):
-            return tuple(str(area) for area in areas)
+        return _declared_areas(by_action[action]) or ALL_AREAS
     declared = getattr(view, "agent_area", None)
-    if isinstance(declared, str) and declared in AGENT_AREAS:
-        return (declared,)
-    if isinstance(declared, tuple) and declared and all(a in AGENT_AREAS for a in declared):
-        return tuple(str(a) for a in declared)
+    if declared is not None:
+        return _declared_areas(declared) or ALL_AREAS
     if str(getattr(view, "mcp_scope", "") or "") == "none":
         return None
     queryset = getattr(view, "queryset", None)
@@ -344,6 +371,111 @@ def areas_for_view(view: Any) -> tuple[str, ...] | None:
     if model is not None and model.__name__ in _MODEL_AREA:
         return (_MODEL_AREA[model.__name__],)
     return ("schedule",)
+
+
+_PATH_TOKEN = re.compile(r"\{[^}]*\}|[^.{}]+")
+
+
+def _path_tokens(path: str) -> list[str]:
+    tokens = _PATH_TOKEN.findall(path)
+    if not tokens or ".".join(tokens) != path:
+        raise ValueError(f"malformed agent_strips path: {path!r}")
+    return tokens
+
+
+def validate_view_declarations(cls: type) -> None:
+    """Refuse a view class whose ``agent_area``/``agent_action_areas``/``agent_strips``
+    names an unknown area or a malformed path (called when the class is defined).
+
+    Raises:
+        ImproperlyConfigured: on the first invalid declaration.
+    """
+    from django.core.exceptions import ImproperlyConfigured
+
+    name = cls.__name__
+    declared = cls.__dict__.get("agent_area")
+    if declared is not None and _declared_areas(declared) is None:
+        raise ImproperlyConfigured(f"{name}.agent_area names an unknown area: {declared!r}")
+    for action, mapped in (cls.__dict__.get("agent_action_areas") or {}).items():
+        if _declared_areas(mapped) is None:
+            raise ImproperlyConfigured(
+                f"{name}.agent_action_areas[{action!r}] names an unknown area: {mapped!r}"
+            )
+    for action, by_area in (cls.__dict__.get("agent_strips") or {}).items():
+        if not by_area:
+            raise ImproperlyConfigured(f"{name}.agent_strips[{action!r}] is empty")
+        for area, paths in by_area.items():
+            if area not in AGENT_AREAS or area == "schedule":
+                raise ImproperlyConfigured(
+                    f"{name}.agent_strips[{action!r}] names a non-strippable area: {area!r}"
+                )
+            if not paths or isinstance(paths, str):
+                raise ImproperlyConfigured(
+                    f"{name}.agent_strips[{action!r}][{area!r}] must be a non-empty tuple"
+                )
+            for path in paths:
+                try:
+                    _path_tokens(path)
+                except (TypeError, ValueError) as exc:
+                    raise ImproperlyConfigured(f"{name}.agent_strips: {exc}") from exc
+
+
+def _walk(node: Any, tokens: list[str]) -> list[tuple[dict[str, Any], str]]:
+    """Every ``(parent dict, key)`` the path reaches in ``node`` (keys that exist)."""
+    if not tokens:
+        return []
+    head, rest = tokens[0], tokens[1:]
+    if not isinstance(node, dict):
+        return []
+    if head.startswith("{"):
+        keys = [k for k in node if isinstance(k, str) and fnmatch.fnmatchcase(k, head[1:-1])]
+    else:
+        list_item = head.endswith("[]")
+        key = head[:-2] if list_item else head
+        if key not in node:
+            return []
+        if list_item:
+            items = node[key] if isinstance(node[key], list) else []
+            out: list[tuple[dict[str, Any], str]] = []
+            for item in items:
+                out.extend(_walk(item, rest))
+            return out
+        keys = [key]
+    if not rest:
+        return [(node, k) for k in keys]
+    found: list[tuple[dict[str, Any], str]] = []
+    for k in keys:
+        found.extend(_walk(node[k], rest))
+    return found
+
+
+def find_paths(data: Any, path: str) -> list[tuple[dict[str, Any], str]]:
+    """Where ``path`` (``agent_strips`` syntax) is present in ``data``.
+
+    A ``name[]`` token must be followed by more path: it walks into each list item.
+    """
+    return _walk(data, _path_tokens(path))
+
+
+def strip_paths(data: Any, paths: tuple[str, ...]) -> Any:
+    """Drop every key ``paths`` reaches in ``data``, in place, and return ``data``."""
+    for path in paths:
+        for parent, key in find_paths(data, path):
+            parent.pop(key, None)
+    return data
+
+
+def apply_agent_strips(data: Any, request: Any, strips: dict[str, tuple[str, ...]]) -> Any:
+    """Drop each area's declared paths from ``data`` for an agent without that area.
+
+    ``strips`` is one action's entry of a view's ``agent_strips``. Keys are dropped, not
+    nulled, so a withheld value is never mistaken for "no data". A person, or a token
+    the capability scope does not govern, is never affected.
+    """
+    for area, paths in strips.items():
+        if agent_lacks_read(request, area):
+            strip_paths(data, paths)
+    return data
 
 
 def first_unreadable_area(token: ApiToken, areas: tuple[str, ...]) -> str | None:
@@ -374,21 +506,6 @@ def strip_baseline_task_fields(data: dict[str, Any], request: Any) -> dict[str, 
     """Drop :data:`BASELINE_TASK_FIELDS` from a task payload for an agent without them."""
     if agent_lacks_read(request, "baselines"):
         for field in BASELINE_TASK_FIELDS:
-            data.pop(field, None)
-    return data
-
-
-def strip_area_fields(
-    data: dict[str, Any], request: Any, area: str, fields: tuple[str, ...]
-) -> dict[str, Any]:
-    """Drop ``fields`` from a response dict for a controlled agent that cannot read ``area``.
-
-    For a view that sits in one area (Schedule) yet embeds another area's figures. The
-    keys are dropped, not nulled, so a withheld value is never mistaken for "no data".
-    A person, or a token the capability scope does not govern, is never affected.
-    """
-    if agent_lacks_read(request, area):
-        for field in fields:
             data.pop(field, None)
     return data
 

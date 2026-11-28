@@ -14,6 +14,7 @@ Folds in the threat-model requirements on #4814:
 
 from __future__ import annotations
 
+import re
 import secrets
 import uuid
 from datetime import date, timedelta
@@ -329,11 +330,60 @@ def test_area_for_view_mapping() -> None:
     assert agent_scope.areas_for_view(
         view("Task", agent_action_areas=by_action, action="contention")
     ) == ("resources",)
-    # An unknown area in the map never narrows the check: it falls back to the view.
-    bad = {"export": ("schedule", "nope")}
-    assert agent_scope.areas_for_view(view("Task", agent_action_areas=bad, action="export")) == (
+    assert agent_scope.areas_for_view(view("Task", agent_area=("schedule", "baselines"))) == (
         "schedule",
+        "baselines",
     )
+    # An unknown area never narrows the check (#5118): a typo fails closed to every
+    # area, in a tuple, a string, or the per-action map.
+    every = agent_scope.ALL_AREAS
+    assert agent_scope.areas_for_view(view("Task", agent_area=("schedule", "baseline"))) == every
+    assert agent_scope.areas_for_view(view("Task", agent_area="baseline")) == every
+    assert agent_scope.areas_for_view(view("Task", agent_area=())) == every
+    bad = {"export": ("schedule", "nope")}
+    assert (
+        agent_scope.areas_for_view(view("Task", agent_action_areas=bad, action="export")) == every
+    )
+
+
+@pytest.mark.parametrize(
+    "attrs",
+    [
+        {"agent_area": ("schedule", "baseline")},
+        {"agent_area": "baseline"},
+        {"agent_action_areas": {"export": ("schedule", "nope")}},
+        {"agent_strips": {None: {"baseline": ("spi",)}}},
+        {"agent_strips": {None: {"schedule": ("spi",)}}},
+        {"agent_strips": {None: {"baselines": "spi"}}},
+        {"agent_strips": {None: {"baselines": ("a..b",)}}},
+    ],
+)
+def test_an_unknown_area_refuses_at_class_definition(attrs: dict[str, Any]) -> None:
+    from django.core.exceptions import ImproperlyConfigured
+    from rest_framework.views import APIView
+
+    from trueppm_api.apps.access.permissions import McpReadableViewMixin
+
+    with pytest.raises(ImproperlyConfigured):
+        type("Typo", (McpReadableViewMixin, APIView), attrs)
+
+
+def test_strip_paths_syntax() -> None:
+    data = {
+        "a": {"b": 1, "c": 2},
+        "rows": [{"x": 1, "y": 2}, {"x": 3}, "not-a-dict"],
+        "diff": {"m.1.variance_days": 1, "m.1.cpm_finish": 2, "f.v": 3},
+        "none": None,
+    }
+    agent_scope.strip_paths(
+        data, ("a.b", "rows[].x", "diff.{m.*.variance_days}", "none.z", "missing.q")
+    )
+    assert data == {
+        "a": {"c": 2},
+        "rows": [{"y": 2}, {}, "not-a-dict"],
+        "diff": {"m.1.cpm_finish": 2, "f.v": 3},
+        "none": None,
+    }
 
 
 def test_agent_paused_constraint_single_source() -> None:
@@ -1013,18 +1063,27 @@ def _routed_mcp_views() -> list[tuple[str, Any, tuple[str, ...]]]:
     return out
 
 
-#: Routed MCP-readable GET views that resolve to the default ``("schedule",)`` area
-#: without declaring an area or ``agent_strips``, each reviewed in #5118 as carrying no
-#: Baselines, Dependencies or Resources data. ``"Class.action"`` or ``"Class.*"``. A new
-#: view fails ``test_every_schedule_view_is_classified`` until it is declared, strips
-#: its embedded fields (``agent_strips``), or is added here with a reason.
+_PROGRAM_JOBS = "caller's own job status rows; the download is ALL_AREAS"
+_FORECAST_5202 = (
+    "deferred to #5202: serves commitment_date, commitment_source and "
+    "p80_delta_vs_commitment_* to a baselines=none agent until it lands after #5181"
+)
+
+#: Routed MCP-readable GET actions that resolve to ``("schedule",)`` without
+#: ``agent_strips`` — by default or by an explicit ``agent_area = "schedule"`` — each
+#: reviewed in #5118 as carrying no Baselines, Dependencies or Resources data. One
+#: entry per action, ``"Class.action"`` (``"Class"`` for a plain APIView): there is no
+#: wildcard, so a new action on a reviewed class fails
+#: ``test_every_schedule_view_is_classified`` until it declares an area, declares its
+#: strips (``agent_strips``), or is added here with a reason.
 _SCHEDULE_VIEW_ALLOWLIST: dict[str, str] = {
-    "WorkspaceAssetsView.*": "workspace image/asset library; no project plan data",
-    "BacklogItemViewSet.*": "program intake rows: title, status, rank; no plan fields",
+    "WorkspaceAssetsView": "workspace image/asset library; no project plan data",
+    "BacklogItemViewSet.list": "program intake rows: title, status, rank; no plan fields",
+    "BacklogItemViewSet.retrieve": "one program intake row; no plan fields",
     "ProgramViewSet.download_sample": "static sample catalog download",
     "ProgramViewSet.samples": "static sample catalog",
-    "ProgramViewSet.export_job_detail": "caller's own job status row; the download is ALL_AREAS",
-    "ProgramViewSet.export_jobs": "caller's own job status rows; the download is ALL_AREAS",
+    "ProgramViewSet.export_job_detail": _PROGRAM_JOBS,
+    "ProgramViewSet.export_jobs": _PROGRAM_JOBS,
     "ProgramViewSet.import_job_detail": "caller's own import job status row",
     "ProgramViewSet.integrations_summary": "integration connection counts",
     "ProgramViewSet.list": "program rows",
@@ -1035,43 +1094,80 @@ _SCHEDULE_VIEW_ALLOWLIST: dict[str, str] = {
     "ProgramViewSet.rollup_config": "KPI configuration, not values",
     "ProgramViewSet.task_search": "task id/name picker for the dependency dialog",
     "ProgramViewSet.trash": "soft-deleted program rows",
-    "ProjectViewSet.*": "project rows and project-level summaries; no baseline/resource fields",
-    "AcceptanceCriterionViewSet.*": "acceptance criteria text and state",
-    "BoardColumnConfigView.*": "board column configuration",
-    "LabelViewSet.*": "label rows",
-    "MeSearchView.*": "task/project name search hits",
-    "MeWorkView.*": "the caller's own task rows without baseline or assignment fields",
-    "MonteCarloLatestView.*": "forecast distribution; owned by the forecast endpoints (MR B)",
-    "MonteCarloWhatIfView.*": "forecast what-if; owned by the forecast endpoints (MR B)",
-    "PhaseViewSet.*": "phase rows",
-    "ProjectCustomFieldViewSet.*": "custom field definitions",
-    "ProjectForecastView.*": "forecast; owned by the forecast endpoints (MR B)",
-    "ProjectHistoryListView.*": "project-row history; Dependency history is on /changelog/",
-    "ProjectSprintForecastView.*": "sprint forecast counts",
-    "ProjectSprintHealthView.*": "sprint health counts",
-    "ProjectVelocityView.*": "velocity points",
-    "ProjectViewsView.*": "saved view definitions",
-    "RiskViewSet.*": "risk register rows",
-    "SprintViewSet.*": "sprint rows and burndown figures; member hours stripped on capacity",
+    "ProjectViewSet.blocked": "blocked task rows: id, name, blocker reason",
+    "ProjectViewSet.decisions": "decision log rows",
+    "ProjectViewSet.export_job_detail": _PROGRAM_JOBS,
+    "ProjectViewSet.export_jobs": _PROGRAM_JOBS,
+    "ProjectViewSet.health_summary": "project health bands from status, not baseline",
+    "ProjectViewSet.integrations_summary": "integration connection counts",
+    "ProjectViewSet.product_backlog": "backlog task rows without baseline/assignment fields",
+    "ProjectViewSet.retro_carryover": "carried-over retro action items",
+    "ProjectViewSet.status_summary": "task status counts",
+    "ProjectViewSet.template_divergence": "template structure diff",
+    "ProjectViewSet.trash": "soft-deleted project rows",
+    "ProjectViewSet.working_calendars": "working calendar definitions",
+    "ProjectViewSet.working_calendars_preview": "working calendar preview dates",
+    "AcceptanceCriterionViewSet.list": "acceptance criteria text and state",
+    "AcceptanceCriterionViewSet.retrieve": "one acceptance criterion",
+    "BoardColumnConfigView": "board column configuration",
+    "LabelViewSet.list": "label rows",
+    "LabelViewSet.retrieve": "one label row",
+    "MeSearchView": "task/project name search hits",
+    "MeWorkView": "the caller's own task rows without baseline or assignment fields",
+    "MonteCarloLatestView": _FORECAST_5202,
+    "MonteCarloWhatIfView": _FORECAST_5202,
+    "PhaseViewSet.list": "phase rows",
+    "PhaseViewSet.retrieve": "one phase row",
+    "ProjectCustomFieldViewSet.list": "custom field definitions",
+    "ProjectCustomFieldViewSet.retrieve": "one custom field definition",
+    "ProjectForecastView": _FORECAST_5202,
+    "ProjectHistoryListView": "project-row history; Dependency history is on /changelog/",
+    "ProjectSprintForecastView": "sprint forecast counts",
+    "ProjectSprintHealthView": "sprint health counts",
+    "ProjectVelocityView": "velocity points",
+    "ProjectViewsView": "saved view definitions",
+    "RiskViewSet.export_csv": "risk register CSV",
+    "RiskViewSet.list": "risk register rows",
+    "RiskViewSet.retrieve": "one risk",
+    "SprintViewSet.blocked": "blocked task rows in the sprint",
+    "SprintViewSet.burndown": "burndown points",
+    "SprintViewSet.close_request": "the sprint's pending close request",
+    "SprintViewSet.daily_delta": "day-over-day sprint task changes",
+    "SprintViewSet.duration_events": "duration change log",
+    "SprintViewSet.incoming_carryover": "carried-over task rows",
+    "SprintViewSet.list": "sprint rows",
+    "SprintViewSet.outcome": "sprint outcome counts",
+    "SprintViewSet.pulse": "sprint pulse counts",
+    "SprintViewSet.pulse_trend": "sprint pulse series",
+    "SprintViewSet.reforecast_preview": "sprint finish reforecast from velocity",
+    "SprintViewSet.retrieve": "one sprint row",
+    "SprintViewSet.retro": "retrospective notes",
+    "SprintViewSet.retro_board": "retrospective board cards",
+    "SprintViewSet.retro_prior": "the prior sprint's retrospective",
+    "SprintViewSet.scope_changes": "sprint scope change log",
     "TaskViewSet.duration_events": "duration change log",
     "TaskViewSet.search": "id/name/status/short_id rows only",
     "TaskViewSet.trash": "restore-root rows without baseline or assignment fields",
 }
 
+#: The allowlist entries whose response the body scan does not inspect: the forecast
+#: reads that #5202 owns.
+_BODY_SCAN_DEFERRED = frozenset(k for k, v in _SCHEDULE_VIEW_ALLOWLIST.items() if "#5202" in v)
 
-def _allowlisted(cls_name: str, action: str | None) -> bool:
-    return f"{cls_name}.{action}" in _SCHEDULE_VIEW_ALLOWLIST or (
-        f"{cls_name}.*" in _SCHEDULE_VIEW_ALLOWLIST
-    )
+
+def _view_key(cls_name: str, action: str | None) -> str:
+    return cls_name if action is None else f"{cls_name}.{action}"
 
 
 def test_every_schedule_view_is_classified() -> None:
     """Every routed MCP-readable GET that resolves to Schedule is classified (#5118).
 
     The default area is the broadest, so a view that embeds Baselines, Dependencies or
-    Resources data and says nothing is the bug class. Each such view must declare an area
-    (``agent_area`` / ``agent_action_areas``), declare the fields it strips from other
-    areas (``agent_strips``), or be reviewed onto ``_SCHEDULE_VIEW_ALLOWLIST``.
+    Resources data and says nothing is the bug class. Each such action must declare
+    another area (``agent_area`` / ``agent_action_areas``), declare the fields it strips
+    from other areas (``agent_strips``), or be reviewed onto ``_SCHEDULE_VIEW_ALLOWLIST``.
+    An explicit ``agent_area = "schedule"`` is not a review: it resolves to the same
+    area as saying nothing, so it needs the allowlist entry too.
     """
     views = _routed_mcp_views()
     assert len(views) > 50, "the walk saw too few views to prove anything"
@@ -1081,23 +1177,24 @@ def test_every_schedule_view_is_classified() -> None:
     for route, view, areas in views:
         cls = type(view)
         act = view.action
-        declared = getattr(cls, "agent_area", None) is not None or act in (
-            getattr(cls, "agent_action_areas", None) or {}
-        )
+        # Every declared area is valid (an invalid one refuses at class definition;
+        # this catches a class that bypassed the mixin's hook).
+        for declared in (getattr(cls, "agent_area", None),):
+            if declared is not None:
+                assert agent_scope._declared_areas(declared), f"{cls.__name__}: {declared!r}"
+        for mapped in (getattr(cls, "agent_action_areas", None) or {}).values():
+            assert agent_scope._declared_areas(mapped), f"{cls.__name__}: {mapped!r}"
         strips = (getattr(cls, "agent_strips", None) or {}).get(act)
         if strips is not None:
             seen_strips = True
-            assert strips, f"{cls.__name__}.{act}: empty agent_strips"
-            for area, fields in strips.items():
-                assert area in agent_scope.AGENT_AREAS and area != "schedule", route
-                assert fields and all(isinstance(f, str) for f in fields), route
-        if areas != ("schedule",) or declared or strips is not None:
+            agent_scope.validate_view_declarations(cls)
+        if areas != ("schedule",) or strips is not None:
             continue
-        for key in (f"{cls.__name__}.{act}", f"{cls.__name__}.*"):
-            if key in _SCHEDULE_VIEW_ALLOWLIST:
-                used.add(key)
-        if not _allowlisted(cls.__name__, act):
-            unclassified.add(f"{cls.__module__}.{cls.__name__}.{act} ({route})")
+        key = _view_key(cls.__name__, act)
+        if key in _SCHEDULE_VIEW_ALLOWLIST:
+            used.add(key)
+        else:
+            unclassified.add(f"{cls.__module__}.{key} ({route})")
     assert seen_strips
     assert not unclassified, (
         f"Schedule-area views with no area, agent_strips or allowlist entry: {sorted(unclassified)}"
@@ -1110,9 +1207,8 @@ def test_overview_and_dependency_leaks_are_stripped_by_helper() -> None:
     class Req:
         auth = None
 
-    assert agent_scope.strip_area_fields({"links": [1]}, Req(), "dependencies", ("links",)) == {
-        "links": [1]
-    }
+    strips = {"dependencies": ("links",)}
+    assert agent_scope.apply_agent_strips({"links": [1]}, Req(), strips) == {"links": [1]}
 
 
 def _agent_with(world: dict[str, Any], **levels: str) -> APIClient:
@@ -1428,3 +1524,304 @@ def test_status_update_pdf_needs_baselines_for_an_agent(world: dict[str, Any]) -
     assert refused.status_code == 403
     assert refused.data["refusal"]["constraint"] == RefusalConstraint.CAPABILITY_SCOPE
     assert _as(world["principal"]).get(pdf).status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Declared strips are verified, and every Schedule-area body is scanned (#5118)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def rich_world(world: dict[str, Any]) -> dict[str, Any]:
+    """A project carrying every other area's data: an active baseline, a dependency,
+    a resource assignment, a budget, a future milestone, a sprint and a status update
+    posted before the baseline (so ``live_diff`` carries the baseline variance)."""
+    from decimal import Decimal
+
+    from trueppm_api.apps.projects import signal_privacy_services as svc
+    from trueppm_api.apps.projects.models import Baseline, BaselineTask, Dependency, Sprint, Task
+    from trueppm_api.apps.resources.models import Resource, TaskResource
+
+    project = world["project"]
+    project.budget = Decimal("10000.00")
+    project.save(update_fields=["budget"])
+    from trueppm_api.apps.projects.models import StatusUpdate
+
+    detail = _post_status_update(world)
+    # Freeze impossible variances so ``live_diff`` reports both baseline-derived keys
+    # whatever the live plan computes (raw SQL: the model refuses any update).
+    import json
+
+    from django.db import connection
+
+    update = StatusUpdate.objects.get(project=project)
+    snapshot = update.snapshot
+    snapshot["forecast"]["baseline_finish_variance_days"] = {"value": 9999}
+    for row in snapshot["milestones"]:
+        row["variance_days"] = 9999
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"UPDATE {StatusUpdate._meta.db_table} SET snapshot = %s WHERE id = %s",
+            [json.dumps(snapshot), update.pk],
+        )
+    a = Task.objects.create(project=project, name="A", duration=2)
+    ship = Task.objects.create(
+        project=project,
+        name="Ship",
+        duration=0,
+        is_milestone=True,
+        early_finish=date.today() + timedelta(days=30),
+    )
+    Dependency.objects.create(predecessor=a, successor=ship)
+    resource = Resource.objects.create(name="Alice", email="a@example.com", max_units=1)
+    TaskResource.objects.create(task=a, resource=resource, units=Decimal("1.00"))
+    baseline = Baseline.objects.create(project=project, name="v1", is_active=True)
+    for task in Task.objects.filter(project=project):
+        BaselineTask.objects.create(
+            baseline=baseline,
+            task_id=task.id,
+            task_name=task.name,
+            start=date(2026, 4, 1),
+            finish=date(2026, 4, 2),
+            duration=1,
+        )
+    sprint = Sprint.objects.create(
+        project=project, name="S1", start_date=date(2026, 4, 1), finish_date=date(2026, 4, 14)
+    )
+    policy = svc.get_or_create_policy(project)
+    svc.raise_signal_ceiling(policy, "capacity", svc.SignalAudience.TEAM_SM_PM)
+    svc.set_signal_audience(policy, "capacity", svc.SignalAudience.TEAM_SM_PM)
+    _rollup_program(
+        world,
+        rollup_enabled_kpis=[
+            "cost_variance",
+            "budget_utilization",
+            "baseline_variance",
+            "schedule_variance",
+            "schedule_health",
+        ],
+    )
+    return {
+        **world,
+        "task": a,
+        "sprint": sprint,
+        "baseline": baseline,
+        "status_detail": detail,
+    }
+
+
+def _declared_urls(w: dict[str, Any]) -> dict[str, str]:
+    pid, prog = w["project"].id, w["program"].id
+    return {
+        "ProgramViewSet.rollup": f"/api/v1/programs/{prog}/rollup/",
+        "ProgramViewSet.schedule": f"/api/v1/programs/{prog}/schedule/",
+        "ProjectViewSet.list": "/api/v1/projects/",
+        "ProjectViewSet.retrieve": f"/api/v1/projects/{pid}/",
+        "TaskViewSet.list": f"/api/v1/tasks/?project={pid}",
+        "TaskViewSet.retrieve": f"/api/v1/tasks/{w['task'].id}/",
+        "ProjectOverviewView": f"/api/v1/projects/{pid}/overview/",
+        "SprintViewSet.capacity": f"/api/v1/sprints/{w['sprint'].id}/capacity/",
+        "ProjectStatusUpdateListCreateView": f"/api/v1/projects/{pid}/status-updates/",
+        "ProjectStatusUpdateDetailView": w["status_detail"],
+    }
+
+
+def _rows(data: Any) -> list[Any]:
+    if isinstance(data, dict) and isinstance(data.get("results"), list):
+        return list(data["results"])
+    return list(data) if isinstance(data, list) else [data]
+
+
+#: A declared path the view empties rather than drops: the ADR-0104 suppression shape
+#: keeps ``members`` as ``[]`` so the client renders a team-private state.
+_SUPPRESSED_TO_EMPTY = {("SprintViewSet.capacity", "members")}
+
+
+@pytest.mark.django_db
+def test_every_declared_strip_is_present_for_a_person_and_absent_for_an_agent(
+    rich_world: dict[str, Any],
+) -> None:
+    """``agent_strips`` is verified, not asserted (#5118 G2).
+
+    For every declared ``(view, action, area, path)``: the path resolves in a person's
+    response (so a flat name for a nested field fails here) and resolves nowhere for an
+    agent lacking only that area.
+    """
+    urls = _declared_urls(rich_world)
+    declared: dict[str, dict[str, tuple[str, ...]]] = {}
+    for _route, view, _areas in _routed_mcp_views():
+        strips = (getattr(type(view), "agent_strips", None) or {}).get(view.action)
+        if strips is not None:
+            declared[_view_key(type(view).__name__, view.action)] = strips
+    assert set(declared) == set(urls), "every declared view needs a URL in _declared_urls"
+    person = _as(rich_world["principal"])
+    checked = 0
+    for key, strips in sorted(declared.items()):
+        seen = person.get(urls[key])
+        assert seen.status_code == 200, (key, seen.data)
+        for area, paths in strips.items():
+            _set_scope(rich_world, **{area: "none"})
+            agent = _bearer(rich_world["raw"]).get(urls[key])
+            assert agent.status_code == 200, (key, area, agent.data)
+            for path in paths:
+                assert any(agent_scope.find_paths(r, path) for r in _rows(seen.data)), (
+                    f"{key}: declared {area} path {path!r} is not in a person's response"
+                )
+                for row in _rows(agent.data):
+                    hits = agent_scope.find_paths(row, path)
+                    if (key, path) in _SUPPRESSED_TO_EMPTY:
+                        assert all(p[k] == [] for p, k in hits), (key, path)
+                    else:
+                        assert not hits, f"{key}: {path!r} reached a {area}=none agent"
+                checked += 1
+            _set_scope(rich_world, **{area: "read"})
+    assert checked >= 40, checked
+
+
+#: Response keys that name another area's data. Matched against every key, recursively.
+_OTHER_AREA_KEY = re.compile(
+    r"baseline|commitment|(^|_)spi($|_)|variance|utiliz|cost|budget|^links$|assignments"
+    r"|overallocat|predecessor_ids|successor_ids|^edges$"
+)
+
+#: Key paths (``[]`` dropped) the body scan matched that were reviewed as Schedule
+#: data, matched as a suffix: path → reason.
+_BODY_SCAN_REVIEWED: dict[str, str] = {
+    "effective_surface_visibility.baselines": "whether the Baselines tab is shown",
+    "inherited_surface_visibility.baselines": "whether the Baselines tab is shown",
+    "show_baselines": "whether the Baselines tab is shown; a UI flag",
+    "pending_commitment_slip": "a sprint-commitment scope change (ADR-1485), not a baseline",
+    "outcome.commitment": "the sprint's committed points",
+    "review.commitment": "the sprint's committed points",
+}
+
+#: Matches that are other-area data still served, each reported for a decision. Listed
+#: so the scan stays armed for every other key; remove an entry when its view strips it.
+_BODY_SCAN_RESIDUAL: dict[str, str] = {
+    "ProgramViewSet.projects:baseline_count": "count of a project's baselines (Baselines)",
+    "SprintViewSet.reforecast_preview:unmodeled_predecessor_ids": (
+        "ids of predecessors outside the sprint (Dependencies)"
+    ),
+}
+
+_PATH_KWARG = re.compile(r"\(\?P<(\w+)>[^)]*\)|<(?:\w+:)?(\w+)>")
+
+
+def _fill_route(route: str, w: dict[str, Any]) -> str | None:
+    """A concrete URL for a resolver pattern, or ``None`` for a format-suffix variant."""
+    if "(?P<format>" in route:
+        return None
+    by_collection = {
+        "projects": w["project"].id,
+        "programs": w["program"].id,
+        "tasks": w["task"].id,
+        "sprints": w["sprint"].id,
+        "baselines": w["baseline"].id,
+    }
+    by_name = {
+        "project_pk": w["project"].id,
+        "program_pk": w["program"].id,
+        "task_pk": w["task"].id,
+        "sprint_pk": w["sprint"].id,
+        "baseline_pk": w["baseline"].id,
+        "baseline_id": w["baseline"].id,
+        "update_id": w["status_detail"].rstrip("/").rsplit("/", 1)[-1],
+    }
+    path = route.replace("^", "").replace("$", "")
+
+    def sub(match: re.Match[str]) -> str:
+        name = match.group(1) or match.group(2)
+        if name in by_name:
+            return str(by_name[name])
+        before = path[: match.start()].rstrip("/").rsplit("/", 1)[-1]
+        return str(by_collection.get(before, uuid.uuid4()))
+
+    return "/" + _PATH_KWARG.sub(sub, path)
+
+
+def _reviewed(view_key: str, where: str) -> bool:
+    plain = where.replace("[]", "").lstrip(".")
+    if f"{view_key}:{plain.rsplit('.', 1)[-1]}" in _BODY_SCAN_RESIDUAL:
+        return True
+    return any(plain == r or plain.endswith(f".{r}") for r in _BODY_SCAN_REVIEWED) or (
+        f"{view_key.rsplit('.', 1)[-1]}.{plain}" in _BODY_SCAN_REVIEWED
+    )
+
+
+def _other_area_keys(data: Any, at: str = "", view_key: str = "") -> list[str]:
+    hits: list[str] = []
+    if isinstance(data, dict):
+        for key, value in data.items():
+            where = f"{at}.{key}" if at else str(key)
+            if _OTHER_AREA_KEY.search(str(key)) and not _reviewed(view_key, where):
+                hits.append(where)
+            hits.extend(_other_area_keys(value, where, view_key))
+    elif isinstance(data, list):
+        for item in data:
+            hits.extend(_other_area_keys(item, f"{at}[]", view_key))
+    return hits
+
+
+def test_body_scan_denylist_is_not_vacuous() -> None:
+    """The denylist matches the leaks the round-2 audit found by hand."""
+    for key in (
+        "commitment_date",
+        "commitment_source",
+        "p80_delta_vs_commitment_days",
+        "baseline_finish",
+        "finish_variance_days",
+        "spi",
+        "spi_band",
+        "cost_variance",
+        "budget_utilization",
+        "team_utilization_pct",
+        "links",
+        "assignments",
+    ):
+        assert _OTHER_AREA_KEY.search(key), key
+    for key in ("name", "status", "early_finish", "total_float", "links_count_label"):
+        assert not _OTHER_AREA_KEY.search(key), key
+
+
+@pytest.mark.django_db
+def test_schedule_area_bodies_carry_no_other_area_keys(rich_world: dict[str, Any]) -> None:
+    """GET every routed Schedule-area MCP view as an agent with only Schedule (#5118 G1).
+
+    Any response key naming another area's data fails, unless the view is a #5202
+    forecast read or the key is reviewed onto ``_BODY_SCAN_REVIEWED``.
+    """
+    _set_scope(rich_world, dependencies="none", resources="none", baselines="none")
+    agent = _bearer(rich_world["raw"])
+    scanned: set[str] = set()
+    leaks: dict[str, list[str]] = {}
+    for route, view, areas in _routed_mcp_views():
+        key = _view_key(type(view).__name__, view.action)
+        if areas != ("schedule",) or key in _BODY_SCAN_DEFERRED:
+            continue
+        url = _fill_route(route.rsplit(" [", 1)[0], rich_world)
+        if url is None:
+            continue
+        resp = agent.get(url)
+        if resp.status_code != 200:
+            resp = agent.get(url, {"project": str(rich_world["project"].id)})
+        if resp.status_code != 200 or not hasattr(resp, "data"):
+            continue
+        scanned.add(key)
+        hits = _other_area_keys(resp.data, view_key=key)
+        if hits:
+            leaks[f"{key} {url}"] = sorted(set(hits))
+    assert not leaks, "\n".join(f"{k}: {v}" for k, v in sorted(leaks.items()))
+    # The denominator: the views this proves something about.
+    for must in (
+        "ProgramViewSet.rollup",
+        "ProgramViewSet.schedule",
+        "TaskViewSet.list",
+        "TaskViewSet.retrieve",
+        "ProjectOverviewView",
+        "SprintViewSet.capacity",
+        "ProjectStatusUpdateListCreateView",
+        "ProjectStatusUpdateDetailView",
+        "ProjectViewSet.retrieve",
+    ):
+        assert must in scanned, must
+    assert len(scanned) >= 40, sorted(scanned)

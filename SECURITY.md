@@ -188,7 +188,13 @@ is not a certification.
   baseline dates, program schedule links, sprint member hours). The overview lists its
   project rows sorted by how far each slips against its commitment date, so an agent
   without Baselines read can still infer that ranking from the order, though not the
-  dates or day counts. The forecast and Monte Carlo reads are classified separately.
+  dates or day counts (#5201).
+* **Commitment fields in the forecast reads.** The project forecast, the latest Monte
+  Carlo result and the Monte Carlo what-if (`/forecast/`, `/monte-carlo/latest/`,
+  `/monte-carlo/whatif/`) are Schedule-area reads that still return
+  `commitment_date`, `commitment_source` and the `p80_delta_vs_commitment_*` fields
+  to an agent without Baselines read. The commitment date is the active baseline's
+  finish when one exists, so these reads disclose it. Withholding them is #5202.
 
 ### Out of scope
 

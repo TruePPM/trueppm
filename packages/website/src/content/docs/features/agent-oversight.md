@@ -144,7 +144,7 @@ area's figures, the server leaves those fields out of the response for an agent 
 lacks the other area, rather than sending them empty:
 
 - **Baselines** governs the baseline reads (including a baseline's variance) and
-  everything computed against the active baseline: on a task, the baseline dates,
+  the figures computed against the active baseline in these reads: on a task, the baseline dates,
   baseline finish variance, schedule variance, SPI and its band; in a project's
   overview, SPI, the schedule band and the next milestone's baseline date; in a
   program's rollup, the baseline and schedule variance, schedule health, program
@@ -153,14 +153,21 @@ lacks the other area, rather than sending them empty:
   those figures, so the agent needs Baselines read as well as Schedule to download it.
 - **Dependencies** governs the dependency links in a program's schedule and the
   cross-project link count in its rollup.
-- **Resources** governs team utilization in a project's overview, the cost variance
+- **Resources** governs the budget on a project, team utilization in a project's overview, the cost variance
   and budget utilization figures in a program's rollup, the per-person hours in a
   sprint's capacity, and, because a budget-weighted rollup would reveal budget ratios,
   budget-weighted program health, which is reported as restricted.
 
-The program overview still lists its projects in order of slip against the commitment,
-so an agent without Baselines read can infer that ranking, though not the dates or
-day counts.
+Two gaps remain:
+
+- The program overview still lists its projects in order of slip against the
+  commitment, so an agent without Baselines read can infer that ranking, though not
+  the dates or day counts
+  ([#5201](https://gitlab.com/trueppm/trueppm/-/issues/5201)).
+- The project forecast and the Monte Carlo reads are not yet covered. They still return
+  the commitment date, its source and the P80 slip against it to an agent without
+  Baselines read, and the commitment date is the active baseline's finish when one
+  exists ([#5202](https://gitlab.com/trueppm/trueppm/-/issues/5202)).
 
 A person is never affected. The aggregated project changelog, which includes
 dependency history, is not on the agent read surface at all. The resource list

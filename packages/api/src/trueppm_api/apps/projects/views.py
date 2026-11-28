@@ -112,7 +112,12 @@ from trueppm_api.apps.integrations.registry import LINK_STATUS_RANK, LINK_STATUS
 from trueppm_api.apps.profiles.serializers import RecentProjectSerializer
 from trueppm_api.apps.profiles.services import annotate_is_pinned
 from trueppm_api.apps.projects import amend
-from trueppm_api.apps.projects.agent_scope import ALL_AREAS
+from trueppm_api.apps.projects.agent_scope import (
+    ALL_AREAS,
+    BASELINE_TASK_FIELDS,
+    PROJECT_RESOURCE_FIELDS,
+    RESOURCE_TASK_FIELDS,
+)
 from trueppm_api.apps.projects.metric_provenance import (
     BURN_COMBINED_DEFINED,
     BURN_DEFINED,
@@ -1781,6 +1786,11 @@ class ProjectViewSet(
     # scope. The JSON export and the bundle download carry resources, dependencies,
     # baselines and assignments in one response, so they need every area. Every other
     # action on this viewset is Schedule.
+    # The budget on a project row is Resources data; ``ProjectSerializer`` drops it
+    # for an agent without Resources read (#5118).
+    agent_strips: ClassVar[dict[str | None, dict[str, tuple[str, ...]]]] = {
+        action: {"resources": PROJECT_RESOURCE_FIELDS} for action in ("list", "retrieve")
+    }
     agent_action_areas: ClassVar[dict[str, str | tuple[str, ...]]] = {
         "utilization": "resources",
         "resource_allocation": "resources",
@@ -7107,24 +7117,10 @@ class TaskViewSet(
     """
 
     # ADR-0678 (#2482): Task.project FK.
-    # Task fields withheld from an agent without the area (#5118): the strip lives in
-    # ``TaskSerializer.to_representation``; read by the classification test.
+    # Task fields withheld from an agent without the area (#5118). The strip lives in
+    # ``TaskSerializer.to_representation`` and reads the same two constants.
     agent_strips: ClassVar[dict[str | None, dict[str, tuple[str, ...]]]] = {
-        action: {
-            "baselines": (
-                "baseline_start",
-                "baseline_finish",
-                "baseline_finish_variance_days",
-                "schedule_variance_days",
-                "spi",
-                "spi_band",
-            ),
-            "resources": (
-                "assignments",
-                "assignee_is_overallocated",
-                "assignee_load_includes_estimate",
-            ),
-        }
+        action: {"baselines": BASELINE_TASK_FIELDS, "resources": RESOURCE_TASK_FIELDS}
         for action in ("list", "retrieve")
     }
     mcp_scope = McpScope.QUERYSET
@@ -14474,30 +14470,6 @@ class ProjectCommitView(IdempotencyMixin, APIView):
         )
 
 
-def _strip_resource_overview_fields(overview: dict[str, Any], request: Request) -> None:
-    """Withhold other areas' figures (and their definitions) from a scoped agent.
-
-    Resources: the team-utilization figure. Baselines: the SPI ratio and the schedule
-    band derived from it, and the next milestone's baseline date (#5118).
-    """
-    from trueppm_api.apps.projects.agent_scope import OVERVIEW_BASELINE_FIELDS, agent_lacks_read
-
-    definitions = overview.get("definitions")
-    if agent_lacks_read(request, "resources"):
-        for key in ("team_utilization_pct", "team_utilization_reason"):
-            overview.pop(key, None)
-        if isinstance(definitions, dict):
-            definitions.pop("team_utilization_pct", None)
-    if agent_lacks_read(request, "baselines"):
-        for key in OVERVIEW_BASELINE_FIELDS:
-            overview.pop(key, None)
-            if isinstance(definitions, dict):
-                definitions.pop(key, None)
-        milestone = overview.get("next_milestone")
-        if isinstance(milestone, dict):
-            milestone.pop("baseline_date", None)
-
-
 class ProjectOverviewView(McpReadableViewMixin, APIView):
     """Aggregated KPI snapshot for the single-project overview dashboard.
 
@@ -14542,12 +14514,24 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
     # returns True for everyone — the gate reads as live in review and enforces
     # nothing. Declared per view because `pk` means something else on other routes.
     project_url_kwarg = "pk"
-    # Fields withheld from an agent without the area (#5118); read by the
-    # classification test. The strip is ``_strip_resource_overview_fields``.
+    # Fields withheld from an agent without the area (#5118). The declaration drives the
+    # strip (``apply_agent_strips``). Resources: the team-utilization figure. Baselines:
+    # the SPI ratio, the schedule band derived from it, and the next milestone's
+    # baseline date.
     agent_strips: ClassVar[dict[str | None, dict[str, tuple[str, ...]]]] = {
         None: {
-            "resources": ("team_utilization_pct", "team_utilization_reason"),
-            "baselines": ("spi", "schedule_health", "next_milestone.baseline_date"),
+            "resources": (
+                "team_utilization_pct",
+                "team_utilization_reason",
+                "definitions.team_utilization_pct",
+            ),
+            "baselines": (
+                "spi",
+                "schedule_health",
+                "definitions.schedule_health",
+                "next_milestone.baseline_date",
+                "definitions.next_milestone_baseline_date",
+            ),
         }
     }
     permission_classes = [IsAuthenticated, IsProjectMember, IsProjectNotArchived]
@@ -14789,8 +14773,8 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
             )
         )
 
-        # Capability scope (#5118): the load-vs-capacity ratio is a Resources figure on
-        # a Schedule-area view, so an agent without Resources read does not get it.
+        # Capability scope (#5118): the utilization ratio (Resources) and the SPI band
+        # and baseline date (Baselines) are other areas' figures on a Schedule-area view.
         overview = {
             "schedule_health": health,
             "spi": spi,
@@ -14816,7 +14800,9 @@ class ProjectOverviewView(McpReadableViewMixin, APIView):
             "as_of": timezone.now(),
             "definitions": definitions_for(OVERVIEW_DEFINED),
         }
-        _strip_resource_overview_fields(overview, request)
+        from trueppm_api.apps.projects.agent_scope import apply_agent_strips
+
+        apply_agent_strips(overview, request, self.agent_strips[None])
         return Response(overview, status=status.HTTP_200_OK)
 
 

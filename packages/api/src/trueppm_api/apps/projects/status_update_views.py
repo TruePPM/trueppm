@@ -9,8 +9,9 @@ The public, snapshot-only read rides the share-link envelope in ``share_views``.
 
 from __future__ import annotations
 
+import copy
 import uuid
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
@@ -43,7 +44,7 @@ from trueppm_api.apps.projects import status_update_pdf, status_update_services
 from trueppm_api.apps.projects.agent_scope import (
     STATUS_FORECAST_BASELINE_FIELDS,
     STATUS_MILESTONE_BASELINE_FIELDS,
-    agent_lacks_read,
+    apply_agent_strips,
 )
 from trueppm_api.apps.projects.models import Project, StatusUpdate, StatusUpdateRag
 from trueppm_api.apps.workspace.serializers import display_name_for
@@ -154,51 +155,36 @@ class StatusUpdateSerializer(serializers.ModelSerializer[StatusUpdate]):
         return status_update_services.live_diff(obj, current)
 
 
-def _strip_baseline_snapshot(data: dict[str, Any], request: Request) -> dict[str, Any]:
-    """Withhold the baseline finish and variance from an agent without Baselines read (#5118).
-
-    A status update is a Schedule-area read, but its frozen forecast and milestone rows
-    quote the active baseline's finish and the variance against it, and ``live_diff``
-    repeats the variance. The seal (``snapshot_sha256``) and its verdict are unaffected:
-    they are computed from the stored row, not from this response.
-    """
-    if not agent_lacks_read(request, "baselines"):
-        return data
-    snapshot = data.get("snapshot")
-    if isinstance(snapshot, dict):
-        snapshot = dict(snapshot)
-        forecast = snapshot.get("forecast")
-        if isinstance(forecast, dict):
-            snapshot["forecast"] = {
-                k: v for k, v in forecast.items() if k not in STATUS_FORECAST_BASELINE_FIELDS
-            }
-        milestones = snapshot.get("milestones")
-        if isinstance(milestones, list):
-            snapshot["milestones"] = [
-                {k: v for k, v in m.items() if k not in STATUS_MILESTONE_BASELINE_FIELDS}
-                if isinstance(m, dict)
-                else m
-                for m in milestones
-            ]
-        data["snapshot"] = snapshot
-    diff = data.get("live_diff")
-    if isinstance(diff, dict):
-        data["live_diff"] = {
-            k: v
-            for k, v in diff.items()
-            if k != "forecast.baseline_finish_variance_days" and not k.endswith(".variance_days")
-        }
-    return data
-
-
+#: Baselines data in a status update (#5118). A status update is a Schedule-area read,
+#: but its frozen forecast and milestone rows quote the active baseline's finish and
+#: the variance against it, and ``live_diff`` (keys are dotted snapshot paths, matched
+#: by glob) repeats them. The seal (``snapshot_sha256``) and its verdict are
+#: unaffected: they are computed from the stored row, not from this response.
 _STATUS_BASELINE_STRIPS: dict[str | None, dict[str, tuple[str, ...]]] = {
     None: {
         "baselines": (
-            *(f"forecast.{f}" for f in STATUS_FORECAST_BASELINE_FIELDS),
-            *(f"milestones[].{f}" for f in STATUS_MILESTONE_BASELINE_FIELDS),
+            *(f"snapshot.forecast.{f}" for f in STATUS_FORECAST_BASELINE_FIELDS),
+            *(f"snapshot.milestones[].{f}" for f in STATUS_MILESTONE_BASELINE_FIELDS),
+            # ``live_diff`` carries only the diffed keys (``_FORECAST_KEYS`` and each
+            # milestone's ``cpm_finish``/``variance_days``); of those, these two are
+            # computed against the baseline.
+            "live_diff.{forecast.baseline_finish_variance_days}",
+            "live_diff.{milestones.*.variance_days}",
         )
     }
 }
+
+
+def _strip_baseline_snapshot(data: Any, request: Request) -> dict[str, Any]:
+    """Apply :data:`_STATUS_BASELINE_STRIPS` to one serialized update.
+
+    Deep-copied first: the serialized ``snapshot`` is the model instance's own JSON, and
+    stripping it in place would alter that instance for any later reader.
+    """
+    return cast(
+        "dict[str, Any]",
+        apply_agent_strips(copy.deepcopy(dict(data)), request, _STATUS_BASELINE_STRIPS[None]),
+    )
 
 
 class StatusUpdatePagination(PageNumberPagination):
@@ -271,7 +257,7 @@ class ProjectStatusUpdateListCreateView(McpReadableViewMixin, IdempotencyMixin, 
         page = paginator.paginate_queryset(qs, request, view=self)
         context = {"current": status_update_services.current_values(project) if page else None}
         data = [
-            _strip_baseline_snapshot(dict(row), request)
+            _strip_baseline_snapshot(row, request)
             for row in StatusUpdateSerializer(page, many=True, context=context).data
         ]
         return paginator.get_paginated_response(data)
@@ -321,9 +307,7 @@ class ProjectStatusUpdateDetailView(McpReadableViewMixin, APIView):
         )
         context = {"current": status_update_services.current_values(project)}
         return Response(
-            _strip_baseline_snapshot(
-                dict(StatusUpdateSerializer(update, context=context).data), request
-            )
+            _strip_baseline_snapshot(StatusUpdateSerializer(update, context=context).data, request)
         )
 
 

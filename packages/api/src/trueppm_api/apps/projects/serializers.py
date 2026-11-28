@@ -1611,6 +1611,17 @@ class ProjectSerializer(serializers.ModelSerializer[Project]):
             return {k: v for k, v in data.items() if k in WORKSPACE_NON_MEMBER_PROJECT_FIELDS}
         if "budget" in data and not self._caller_sees_cost(instance):
             data.pop("budget")
+        # Capability scope (#5118): the budget is Resources data ("project cost and
+        # rates") on a Schedule-area row, so an agent without Resources read does not
+        # get it even when the person it acts for is a Project Manager.
+        from trueppm_api.apps.projects.agent_scope import (
+            PROJECT_RESOURCE_FIELDS,
+            agent_lacks_read,
+            strip_paths,
+        )
+
+        if agent_lacks_read(self.context.get("request"), "resources"):
+            strip_paths(data, PROJECT_RESOURCE_FIELDS)
         return data
 
     def get_my_role_label(self, obj: Project) -> str | None:

@@ -70,7 +70,7 @@ from trueppm_api.apps.idempotency.mixins import IdempotencyMixin
 # the module-level import is cycle-safe) and shared so /programs/ matches /projects/
 # on the raised page ceiling (ADR-0401).
 from trueppm_api.apps.profiles.services import annotate_is_pinned
-from trueppm_api.apps.projects.agent_scope import ALL_AREAS, agent_lacks_read, strip_area_fields
+from trueppm_api.apps.projects.agent_scope import ALL_AREAS, agent_lacks_read, apply_agent_strips
 from trueppm_api.apps.projects.bulk_settings import (
     BulkFieldsRequestSerializer,
     ProgramBulkFieldsSerializer,
@@ -811,12 +811,23 @@ def _group_contention_assignments(rows: Iterable[Any]) -> list[dict[str, Any]]:
     return sorted(resources_map.values(), key=lambda r: r["name"])
 
 
-#: Rollup KPIs computed against the active baseline (:func:`strip_area_fields`'s sibling
-#: in the program rollup): both variances and the SPI-proxy schedule band.
+#: Rollup KPIs computed against the active baseline: both variances and the SPI-proxy
+#: schedule band.
 _BASELINE_ROLLUP_KPIS: tuple[str, ...] = (
     "baseline_variance",
     "schedule_variance",
     "schedule_health",
+)
+
+#: Withheld from a rollup row without Baselines read. ``commitment_date`` is the active
+#: baseline's finish, falling back to the program target date; the row does not say
+#: which, so every commitment field goes: over-withholding a program target is the safe
+#: side of a read the agent cannot tell apart.
+_BASELINE_ROLLUP_ROW_FIELDS: tuple[str, ...] = (
+    "schedule_health",
+    "commitment_date",
+    "p80_delta_vs_commitment_days",
+    "p80_delta_vs_commitment_reason",
 )
 
 
@@ -860,20 +871,36 @@ class ProgramViewSet(
     # Schedule.
     # Schedule-area actions that embed another area's fields and withhold them from an
     # agent without that area (#5118); read by the classification test.
+    # The declaration drives the strip (``apply_agent_strips``). Each Baselines figure is
+    # the active baseline subtracted from, or divided into, the live plan: the variance
+    # KPIs, the SPI-proxy schedule band and every figure reduced from it (the headline
+    # program health and its reason, the on-track count, each row's band and
+    # commitment fields).
     agent_strips: ClassVar[dict[str | None, dict[str, tuple[str, ...]]]] = {
         "rollup": {
-            "resources": ("cost_variance", "budget_utilization"),
-            "dependencies": ("cross_project_link_count",),
+            "resources": (
+                "kpis.cost_variance",
+                "kpis.budget_utilization",
+                "definitions.cost_variance",
+                "definitions.budget_utilization",
+            ),
+            "dependencies": (
+                "summary.cross_project_link_count",
+                "definitions.cross_project_link_count",
+            ),
             "baselines": (
-                "baseline_variance",
-                "schedule_variance",
-                "schedule_health",
+                *(f"kpis.{key}" for key in _BASELINE_ROLLUP_KPIS),
+                *(f"definitions.{key}" for key in _BASELINE_ROLLUP_KPIS),
                 "program_health",
-                "projects_on_track",
-                "commitment_date",
-                "p80_delta_vs_commitment_days",
+                "program_health_reason",
+                "definitions.program_health",
+                "summary.projects_on_track",
+                "definitions.projects_on_track",
+                *(f"projects[].{key}" for key in _BASELINE_ROLLUP_ROW_FIELDS),
             ),
         },
+        # The merged graph's leaf-level edges are Dependencies data. Tasks, the
+        # program-true dates and the critical path stay.
         "schedule": {"dependencies": ("links", "cross_project_edge_count")},
     }
     agent_action_areas: ClassVar[dict[str, str | tuple[str, ...]]] = {
@@ -3492,38 +3519,7 @@ class ProgramViewSet(
         for key in ("projects_on_track", "open_risk_count", "cross_project_link_count"):
             payload["definitions"][key] = METRIC_DEFINITIONS[f"rollup.{key}"]
         # Capability scope (#5118): this Schedule-area rollup embeds other areas' figures.
-        # Fields are dropped, never nulled.
-        if agent_lacks_read(request, "resources"):
-            for key in ("cost_variance", "budget_utilization"):
-                payload["kpis"].pop(key, None)
-                payload["definitions"].pop(key, None)
-        if agent_lacks_read(request, "dependencies"):
-            payload["summary"].pop("cross_project_link_count", None)
-            payload["definitions"].pop("cross_project_link_count", None)
-        if agent_lacks_read(request, "baselines"):
-            # Each of these is the active baseline subtracted from, or divided into, the
-            # live plan: the variance KPIs, the SPI-proxy schedule band and every figure
-            # reduced from it (the headline program health, the on-track count).
-            for key in _BASELINE_ROLLUP_KPIS:
-                payload["kpis"].pop(key, None)
-                payload["definitions"].pop(key, None)
-            for key in ("program_health", "program_health_reason"):
-                payload.pop(key, None)
-            payload["definitions"].pop("program_health", None)
-            payload["summary"].pop("projects_on_track", None)
-            payload["definitions"].pop("projects_on_track", None)
-            for row in payload["projects"]:
-                # ``commitment_date`` is the active baseline's finish, falling back to
-                # the program target date. The row does not say which, so all three
-                # commitment fields go: over-withholding a program target is the safe
-                # side of a read the agent cannot tell apart.
-                for key in (
-                    "schedule_health",
-                    "commitment_date",
-                    "p80_delta_vs_commitment_days",
-                    "p80_delta_vs_commitment_reason",
-                ):
-                    row.pop(key, None)
+        apply_agent_strips(payload, request, self.agent_strips["rollup"])
         return Response(payload)
 
     @extend_schema(
@@ -3593,10 +3589,8 @@ class ProgramViewSet(
                     _membership_role(request, project_id)
                 ),
             )
-        # Capability scope (#5118): the merged graph's leaf-level edges are Dependencies
-        # data on a Schedule-area view. Tasks, the program-true dates and the critical
-        # path stay; the edge list and its cross-project count are withheld.
-        strip_area_fields(payload, request, "dependencies", ("links", "cross_project_edge_count"))
+        # Capability scope (#5118): the edge list is Dependencies data.
+        apply_agent_strips(payload, request, self.agent_strips["schedule"])
         return Response(payload)
 
     @extend_schema(
