@@ -13,11 +13,19 @@ from __future__ import annotations
 
 from datetime import date
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from django.utils import timezone
 
-from trueppm_api.apps.projects.models import Calendar, Dependency, Program, Project, Task
+from trueppm_api.apps.projects.models import (
+    Calendar,
+    Dependency,
+    Program,
+    Project,
+    Task,
+    TaskActivityEvent,
+)
 from trueppm_api.apps.projects.program_schedule import gather_program_schedule
 from trueppm_api.apps.scheduling.tasks import _run_program_schedule, _run_schedule
 
@@ -69,6 +77,10 @@ def _fixture(calendar: Calendar) -> dict[str, Any]:
         percent_complete=50,
         actual_start=date(2026, 3, 4),
     )
+    # SF-linked in a member whose data date is after its start: the single pass
+    # floors it at the data date only (no project-start floor, #4218).
+    t["a_sf"] = Task.objects.create(project=a, name="A sf", duration=2)
+    Dependency.objects.create(predecessor=t["a_open"], successor=t["a_sf"], dep_type="SF", lag=0)
     t["a_done"] = Task.objects.create(
         project=a,
         name="A done",
@@ -193,11 +205,12 @@ def test_accepting_a_cross_link_moves_only_the_work_it_drives(calendar: Calendar
 @pytest.mark.xfail(
     strict=True,
     reason=(
-        "Known residual of #5178: a milestone held only by a later-starting member's "
-        "project start takes that start as an SNET, and an SNET binds the instant its "
-        "successors measure from where the project-start floor does not (#4225), so a "
-        "lagged successor lands a day earlier than in the single pass. Exact parity "
-        "needs a per-member start/data-date anchor in the engine (engine-first)."
+        "Known residual of #5178, tracked in #5204: a milestone held only by a "
+        "later-starting member's project start takes that start as an SNET, and an "
+        "SNET binds the instant its successors measure from where the project-start "
+        "floor does not (#4225), so a lagged successor lands a day earlier than in "
+        "the single pass. Exact parity needs a per-member start/data-date anchor in "
+        "the engine (engine-first)."
     ),
 )
 def test_a_lagged_successor_of_a_start_held_milestone_matches_the_single_pass(
@@ -219,8 +232,8 @@ def test_a_lagged_successor_of_a_start_held_milestone_matches_the_single_pass(
 @pytest.mark.xfail(
     strict=True,
     reason=(
-        "Known residual of #5178: a task marked complete with no recorded actuals "
-        "is laid back to finish on its project's data date by the single pass "
+        "Known residual of #5178, tracked in #5204: a task marked complete with no "
+        "recorded actuals is laid back to finish on its project's data date by the single pass "
         "(#4539), which reads the engine-level status_date; the merged program "
         "project carries none. Exact parity needs a per-member data-date anchor in "
         "the engine (engine-first)."
@@ -238,3 +251,84 @@ def test_a_completed_task_without_actuals_matches_the_single_pass(calendar: Cale
 
     st = graph.result_map[str(done.pk)]
     assert (st.early_start, st.early_finish, st.scheduled_start) == single
+
+
+PAST = date(2026, 1, 5)  # C's start: a schedule last computed long before today
+
+
+def _preset_past_dates(task: Task) -> None:
+    """Give ``task`` a prior computed schedule in the past, as before a deploy."""
+    Task.objects.filter(pk=task.pk).update(
+        early_start=PAST,
+        early_finish=PAST,
+        late_start=PAST,
+        late_finish=PAST,
+        scheduled_start=PAST,
+    )
+
+
+def _broadcasts(bcast: Any, project: Project, event_type: str) -> list[dict[str, Any]]:
+    return [
+        call.kwargs["payload"]
+        for call in bcast.call_args_list
+        if call.kwargs.get("project_id") == str(project.pk)
+        and call.kwargs.get("event_type") == event_type
+    ]
+
+
+def _movement_rows(project: Project) -> int:
+    return TaskActivityEvent.objects.filter(
+        event_type="cpm_recalculated", task__project=project
+    ).count()
+
+
+@pytest.mark.django_db
+def test_program_pass_arms_an_unarmed_members_data_date_floor(
+    calendar: Calendar, django_capture_on_commit_callbacks: Any
+) -> None:
+    """ADR-0752 §7 on the program pass: the first run that floors an unarmed member
+    with no status_date at today withholds its movement events and arms it; the
+    next run reports movement normally."""
+    t = _fixture(calendar)
+    Dependency.objects.create(
+        predecessor=t["a_next"],
+        successor=t["b_late_snet"],
+        dep_type="FS",
+        lag=0,
+        accepted_at=timezone.now(),
+    )
+    c = t["c"]
+    _preset_past_dates(t["c_open"])
+    assert c.status_date is None and c.status_date_floor_armed_at is None
+
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as bcast,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        _run_program_schedule(str(t["program"].pk))
+
+    t["c_open"].refresh_from_db()
+    assert t["c_open"].early_start >= timezone.localdate()  # the floor moved it
+    assert _movement_rows(c) == 0
+    assert _broadcasts(bcast, c, "task_dates_updated") == []
+    (complete,) = _broadcasts(bcast, c, "cpm_complete")
+    assert complete["dates_changed"] is True
+    c.refresh_from_db()
+    assert c.status_date_floor_armed_at is not None
+    # Members with an explicit status_date are not arming: their movement shows.
+    assert _movement_rows(t["a"]) > 0
+    a = Project.objects.get(pk=t["a"].pk)
+    assert a.status_date_floor_armed_at is None
+
+    # Second run, now armed: the same correction is ordinary movement again.
+    _preset_past_dates(t["c_open"])
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event") as bcast,
+        django_capture_on_commit_callbacks(execute=True),
+    ):
+        _run_program_schedule(str(t["program"].pk))
+
+    assert _movement_rows(c) == 1
+    assert _broadcasts(bcast, c, "task_dates_updated")
+    (complete,) = _broadcasts(bcast, c, "cpm_complete")
+    assert "dates_changed" not in complete

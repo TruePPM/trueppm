@@ -1112,6 +1112,7 @@ def _build_schedule_shift_events(
     baseline_finishes: dict[str, BaselineFinish],
     *,
     suppress_movement_events: bool = False,
+    suppress_movement_project_ids: Iterable[Any] = (),
     old_day_end: Mapping[str, bool] | None = None,
     calendars: Mapping[str, Any] | None = None,
 ) -> list[Any]:
@@ -1143,7 +1144,12 @@ def _build_schedule_shift_events(
     unsuppressed — it names an outcome (drift vs. plan), not a change attributed
     to an actor, and is exactly the kind of information the echoed status_date
     exists to make sense of.
+
+    ``suppress_movement_project_ids`` is the same suppression scoped to the given
+    member projects, for the program pass, where only some members are on their
+    arming run.
     """
+    suppressed_projects = set(suppress_movement_project_ids)
     moved_by_project, new_finish_by_project, prior_finish_by_project = _recalc_project_aggregates(
         tasks_to_update, old_dates, old_day_end
     )
@@ -1153,7 +1159,11 @@ def _build_schedule_shift_events(
         old = old_dates.get(str(t.id))
         if old is None:
             continue
-        if _cpm_dates_changed(old, t) and not suppress_movement_events:
+        if (
+            _cpm_dates_changed(old, t)
+            and not suppress_movement_events
+            and t.project_id not in suppressed_projects
+        ):
             events.append(
                 _cpm_recalculated_event(
                     t,
@@ -1819,9 +1829,7 @@ def _run_schedule(
     # with no explicit status_date and no prior arming is about to have its
     # floor armed for the first time by *this* recalculation.
     resolved_status_date = resolve_cpm_status_date(db_project.status_date)
-    is_first_status_date_floor_use = (
-        db_project.status_date is None and db_project.status_date_floor_armed_at is None
-    )
+    is_first_status_date_floor_use = _is_first_status_date_floor_use(db_project)
 
     # ADR-0120 D3: if this project belongs to a program that has ≥1 accepted
     # cross-project edge, a single-project CPM would compute program-FALSE floats
@@ -2000,8 +2008,8 @@ def _run_schedule(
     # floor_use still governs whether the armed flag gets persisted below,
     # regardless of this refinement, so the *next* recalculation is never
     # treated as arming again.
-    is_arming_status_date_floor = is_first_status_date_floor_use and any(
-        old[0] is not None for old in old_cpm_dates.values()
+    is_arming_status_date_floor = is_first_status_date_floor_use and _had_prior_schedule(
+        old_cpm_dates.values()
     )
 
     from django.db import transaction
@@ -2241,6 +2249,44 @@ def _broadcast_cpm_complete(
     )
 
 
+def _is_first_status_date_floor_use(project: Any) -> bool:
+    """Whether this run is the first to resolve ``project``'s data date to today.
+
+    ADR-0752 §4/§7: a project with no explicit ``status_date`` that has never been
+    armed. Read from the state the run loaded the project in, before any write.
+    Shared by the single-project and program passes so the two arm on one rule.
+    """
+    return project.status_date is None and project.status_date_floor_armed_at is None
+
+
+def _had_prior_schedule(old_dates: Iterable[tuple[Any, Any, Any, Any]]) -> bool:
+    """Whether any task had a computed date before this run (ADR-0752 §7).
+
+    A first-use run only withholds movement events when there is a prior schedule
+    to have moved *from*: a brand-new project's first pass is null -> computed and
+    is reported normally. Applied per project in the program pass.
+    """
+    return any(old[0] is not None for old in old_dates)
+
+
+def _persist_status_date_floor_armed(project_ids: Iterable[Any]) -> None:
+    """Persist the one-shot ``status_date_floor_armed_at`` flag (ADR-0752 §7).
+
+    A plain ``.update()`` bypasses ``VersionedModel.save()`` — no server_version
+    bump, no history row, no mobile-sync pull — for this server-owned bookkeeping
+    field, matching the existing ``recalculated_at`` pattern. Call inside the
+    write-back's ``transaction.atomic()`` block so the flag commits or rolls back
+    with the dates it armed.
+    """
+    from django.utils import timezone
+
+    from trueppm_api.apps.projects.models import Project
+
+    ids = list(project_ids)
+    if ids:
+        Project.objects.filter(pk__in=ids).update(status_date_floor_armed_at=timezone.now())
+
+
 def _finalize_status_date_floor_arming(
     project_id: str,
     *,
@@ -2279,16 +2325,11 @@ def _finalize_status_date_floor_arming(
     """
 
     from django.db import transaction
-    from django.utils import timezone
 
-    from trueppm_api.apps.projects.models import Project
     from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
     if is_first_status_date_floor_use:
-        # A plain .update() bypasses VersionedModel.save() — no server_version
-        # bump, no history row, no mobile-sync pull — for this server-owned
-        # bookkeeping field, matching the existing recalculated_at pattern.
-        Project.objects.filter(pk=project_id).update(status_date_floor_armed_at=timezone.now())
+        _persist_status_date_floor_armed([project_id])
 
     # Routed through the shared _broadcast_cpm_complete() (#3776) so this and
     # the program-scoped pass can never again ship cpm_complete with different
@@ -2506,6 +2547,7 @@ def _register_program_broadcasts(
     crit_order: list[str],
     status_changed_projects: set[Any] | None = None,
     float_only_ids: set[str] | None = None,
+    arming_project_ids: set[Any] | None = None,
 ) -> None:
     """Register each member project's post-commit broadcasts for a program pass.
 
@@ -2523,11 +2565,17 @@ def _register_program_broadcasts(
     where finish sits), while ``moved_by_project`` is the changed subset the
     ADR-0091 delta ships (#2573). Collapsing them would either mis-report the
     finish or re-introduce the full-project delta.
+
+    ``arming_project_ids`` are the members on their ADR-0752 §7 data-date arming
+    run, as in ``_finalize_status_date_floor_arming``: their per-task delta is
+    withheld and their ``cpm_complete`` carries ``dates_changed`` instead when
+    anything moved (#4659).
     """
     from django.db import transaction
 
     from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
+    arming = arming_project_ids or set()
     for p in graph.member_projects:
         pid = str(p.id)
         project_tasks = by_project.get(p.id, [])
@@ -2545,6 +2593,7 @@ def _register_program_broadcasts(
             default=None,
         )
         delta_payload = _member_cpm_delta(moved_by_project.get(p.id, []), float_only_ids)
+        is_arming = p.id in arming
 
         def _dates(pid: str = pid, pay: dict[str, object] = delta_payload) -> None:
             broadcast_board_event(project_id=pid, event_type="task_dates_updated", payload=pay)
@@ -2571,12 +2620,13 @@ def _register_program_broadcasts(
                 status_date=(
                     graph.data_dates[p.id].isoformat() if p.id in graph.data_dates else None
                 ),
-                dates_changed=p.id in (status_changed_projects or ()),
+                dates_changed=(is_arming and bool(delta_payload.get("count")))
+                or p.id in (status_changed_projects or ()),
             )
         )
         # Skip the empty frame: in a program pass every member the edit did not
-        # touch would otherwise get one (#2599).
-        if delta_payload.get("count"):
+        # touch would otherwise get one (#2599). Withheld on the arming run.
+        if not is_arming and delta_payload.get("count"):
             transaction.on_commit(_dates)
         transaction.on_commit(_capture)
 
@@ -2832,12 +2882,32 @@ def _run_program_schedule(program_id: str, task: object | None = None) -> None:
     # project's cpm_complete expect that project's critical ids).
     crit_order = list(graph.result.critical_path) if graph.result is not None else []
 
+    # ADR-0752 §7, per member: the program pass floors each member's open work at
+    # its own data date (#5178), so a member with no status_date that was never
+    # armed is on its arming run here, exactly as in _run_schedule (which hands off
+    # to this pass before its own arming step). Only members the floor reached
+    # (those with schedulable work) are armed, matching the single pass's early
+    # return for a project with none; the movement suppression further needs a
+    # prior schedule, per project.
+    first_use_ids = {
+        p.id
+        for p in graph.member_projects
+        if p.id in graph.data_dates and _is_first_status_date_floor_use(p)
+    }
+    old_dates_by_project: dict[Any, list[tuple[Any, Any, Any, Any]]] = {}
+    for tid, old in old_cpm_dates.items():
+        old_dates_by_project.setdefault(graph.db_task_by_id[tid].project_id, []).append(old)
+    arming_ids = {
+        pid for pid in first_use_ids if _had_prior_schedule(old_dates_by_project.get(pid, ()))
+    }
+
     # Per-task schedule-shift activity events across every member project (ADR-0207),
     # keyed off each project's own active baseline for the drift crossings.
     schedule_shift_events = _build_schedule_shift_events(
         tasks_to_update,
         old_cpm_dates,
         _active_baseline_finishes(member_ids),
+        suppress_movement_project_ids=arming_ids,
         old_day_end=old_day_end,
         calendars=graph.calendars,
     )
@@ -2888,6 +2958,9 @@ def _run_program_schedule(program_id: str, task: object | None = None) -> None:
         # view clears its "recalculating" badge (#1053), bulk to skip history.
         Project.objects.filter(pk__in=member_ids).update(recalculated_at=now)
 
+        # ADR-0752 §7: persist the one-shot arming flag with the dates it armed.
+        _persist_status_date_floor_armed(first_use_ids)
+
         # D4 sprint-boundary firewall: detect and upsert cross-project slip
         # conflicts in the same transaction as the write-back, so a conflict is
         # never visible against dates that did not commit.
@@ -2904,6 +2977,7 @@ def _run_program_schedule(program_id: str, task: object | None = None) -> None:
             crit_order,
             status_changed_projects,
             float_only_ids=float_only_ids,
+            arming_project_ids=arming_ids,
         )
 
     logger.info(

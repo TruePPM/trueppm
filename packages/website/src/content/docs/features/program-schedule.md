@@ -36,7 +36,7 @@ In the current release the merged program graph floors every task at the earlies
 
 Merging the graph does not move a project's own floors. Each member project's tasks are scheduled no earlier than that project's start date, and its unstarted and remaining in-progress work no earlier than its own data date (its **status date**, or today when none is set), exactly as on its own schedule. Completed work keeps its recorded dates. Accepting a cross-project dependency therefore moves only the work that dependency drives.
 
-Two cases still differ from the project's own schedule. A zero-duration milestone held only by its project's start date, in a project that starts later than another member, can put a successor linked to it with a positive lag one day earlier. And a task marked complete with no recorded actual dates, whose duration runs past its project's data date, is not laid back to finish on the data date as it is on the project's own schedule.
+Two cases still differ from the project's own schedule. A zero-duration milestone held only by its project's start date, in a project that starts later than another member, can put a successor linked to it with a positive lag one day earlier. And a task marked complete with no recorded actual dates, whose duration runs past its project's data date, is not laid back to finish on the data date as it is on the project's own schedule. Both are tracked in [#5204](https://gitlab.com/trueppm/trueppm/-/issues/5204).
 
 ## Cross-project dependencies
 
