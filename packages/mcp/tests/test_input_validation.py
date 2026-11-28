@@ -42,6 +42,7 @@ _ID_TOOLS: list[tuple[str, dict[str, Any]]] = [
     ("get_sprint_velocity", {"project_id": _UUID}),
     ("get_sprint_burndown", {"sprint_id": _UUID}),
     ("get_sprint_close_request", {"sprint_id": _UUID}),
+    ("get_sprint_commitment_status", {"sprint_id": _UUID}),
     ("get_program_health", {"program_id": _UUID}),
     ("list_program_backlog", {"program_id": _UUID}),
     ("get_project_history", {"project_id": _UUID}),
