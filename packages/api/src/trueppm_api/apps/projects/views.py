@@ -2150,6 +2150,20 @@ class ProjectViewSet(
         # computed against the old calendar until some unrelated change forces a
         # recompute (#1267).
         old_calendar_id = serializer.instance.calendar_id if serializer.instance else None
+        # The CPM data date and the project start anchor every computed date, float
+        # and criticality (the engine reads Project.start_date and status_date), and
+        # program membership selects the merged program-scoped pass and the
+        # inherited calendar, so a change to any of them is a scheduling input
+        # change exactly like a calendar swap (#5177).
+        old_schedule_inputs = (
+            (
+                serializer.instance.start_date,
+                serializer.instance.status_date,
+                serializer.instance.program_id,
+            )
+            if serializer.instance
+            else None
+        )
 
         # Same reason as the calendar capture above: save() mutates the instance in
         # place, so the previous preset and leaf-surface visibility are unrecoverable
@@ -2190,6 +2204,14 @@ class ProjectViewSet(
                 lambda: _enqueue_recalculate(
                     project_id, reason=ScheduleRequestReason.CALENDAR_CHANGE
                 )
+            )
+        elif old_schedule_inputs is not None and old_schedule_inputs != (
+            instance.start_date,
+            instance.status_date,
+            instance.program_id,
+        ):
+            transaction.on_commit(
+                lambda: _enqueue_recalculate(project_id, reason=ScheduleRequestReason.TASK_CHANGE)
             )
 
     def perform_destroy(self, instance: Project) -> None:
@@ -17559,12 +17581,19 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         # ADR-0074: capture pre-save target_milestone so a re-link recomputes
         # both the OLD and NEW milestones — neither holds a stale rollup.
         old_milestone_id = serializer.instance.target_milestone_id if serializer.instance else None
+        old_start_date = serializer.instance.start_date if serializer.instance else None
         instance = serializer.save()
         project_id = str(instance.project_id)
         sprint_id = str(instance.pk)
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "sprint_updated", {"id": sprint_id})
         )
+        # build_sched_tasks floors a sprint-assigned task at sprint.start_date
+        # (ADR-0168), so moving it shifts every assigned task's computed dates (#5179).
+        if instance.start_date != old_start_date:
+            transaction.on_commit(
+                lambda: _enqueue_recalculate(project_id, reason=ScheduleRequestReason.TASK_CHANGE)
+            )
         new_milestone_id = instance.target_milestone_id
         if old_milestone_id is not None and old_milestone_id != new_milestone_id:
             recompute_milestone_rollup(old_milestone_id)
@@ -17585,6 +17614,10 @@ class SprintViewSet(McpReadableViewMixin, ProjectScopedViewSet, viewsets.ModelVi
         instance.soft_delete()
         transaction.on_commit(
             lambda: broadcast_board_event(project_id, "sprint_deleted", {"id": sprint_id})
+        )
+        # A deleted sprint no longer floors its assigned tasks (ADR-0168, #5179).
+        transaction.on_commit(
+            lambda: _enqueue_recalculate(project_id, reason=ScheduleRequestReason.TASK_CHANGE)
         )
         # ADR-0074: a deleted sprint stops contributing to the rollup.
         if target_milestone_id is not None:

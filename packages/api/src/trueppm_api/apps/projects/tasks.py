@@ -272,10 +272,8 @@ def close_sprint(self: object, request_id: str) -> None:
         snapshot_completed_metrics,
         snapshot_sprint_task_outcomes,
     )
-    from trueppm_api.apps.scheduling.models import (
-        ScheduleRequest,
-        ScheduleRequestReason,
-    )
+    from trueppm_api.apps.scheduling.models import ScheduleRequestReason
+    from trueppm_api.apps.scheduling.services import enqueue_recalculate
     from trueppm_api.apps.sync.broadcast import broadcast_board_event
 
     try:
@@ -387,10 +385,10 @@ def close_sprint(self: object, request_id: str) -> None:
             # Enqueue downstream CPM recompute with the SPRINT_CLOSED reason
             # so the audit trail records why the recalculation fired.
             project_id = sprint.project_id
-            ScheduleRequest.objects.create(
-                project_id=project_id,
-                reason=ScheduleRequestReason.SPRINT_CLOSED,
-            )
+            # enqueue_recalculate adopts an already-pending row: a raw insert here
+            # would hit the one-pending-per-project unique index, roll the whole
+            # close back and leave the sprint active (#5180).
+            enqueue_recalculate(project_id, reason=ScheduleRequestReason.SPRINT_CLOSED)
 
             _compute_velocity_suggestions_safe(sprint)
 

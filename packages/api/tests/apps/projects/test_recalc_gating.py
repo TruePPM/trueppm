@@ -29,7 +29,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from trueppm_api.apps.access.models import ProjectMembership, Role
-from trueppm_api.apps.projects.models import Calendar, Project, Task
+from trueppm_api.apps.projects.models import Calendar, Project, Sprint, SprintState, Task
 
 User = get_user_model()
 
@@ -269,3 +269,135 @@ def test_notes_and_name_only_patch_still_does_not_recalc_with_status_date_set(
     )
     assert status == 200
     assert calls == 0
+
+
+# ---------------------------------------------------------------------------
+# Project-level scheduling inputs (#5177) and sprint start/delete (#5179)
+# ---------------------------------------------------------------------------
+
+
+def _call(
+    client: APIClient,
+    method: str,
+    url: str,
+    body: dict[str, object] | None,
+    django_capture_on_commit_callbacks: object,
+) -> tuple[int, int]:
+    with (
+        patch("trueppm_api.apps.sync.broadcast.broadcast_board_event"),
+        patch("trueppm_api.apps.projects.views._dispatch_webhooks"),
+        patch("trueppm_api.apps.projects.views._enqueue_recalculate") as mock_recalc,
+        django_capture_on_commit_callbacks(execute=True),  # type: ignore[operator]
+    ):
+        r = (
+            getattr(client, method)(url, body, format="json")
+            if body is not None
+            else getattr(client, method)(url)
+        )
+    return r.status_code, mock_recalc.call_count
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "body",
+    [{"start_date": "2026-05-01"}, {"status_date": "2026-04-15"}],
+)
+def test_project_start_or_status_date_change_recalcs(
+    client: APIClient,
+    project: Project,
+    body: dict[str, object],
+    django_capture_on_commit_callbacks: object,
+) -> None:
+    status, calls = _call(
+        client, "patch", f"/api/v1/projects/{project.pk}/", body, django_capture_on_commit_callbacks
+    )
+    assert status == 200
+    assert calls == 1
+
+
+@pytest.mark.django_db
+def test_clearing_status_date_recalcs(
+    client: APIClient, project: Project, django_capture_on_commit_callbacks: object
+) -> None:
+    project.status_date = date(2026, 4, 10)
+    project.save(update_fields=["status_date"])
+    status, calls = _call(
+        client,
+        "patch",
+        f"/api/v1/projects/{project.pk}/",
+        {"status_date": None},
+        django_capture_on_commit_callbacks,
+    )
+    assert status == 200
+    assert calls == 1
+
+
+@pytest.mark.django_db
+def test_project_patch_leaving_dates_unchanged_does_not_recalc(
+    client: APIClient, project: Project, django_capture_on_commit_callbacks: object
+) -> None:
+    project.status_date = date(2026, 4, 10)
+    project.save(update_fields=["status_date"])
+    status, calls = _call(
+        client,
+        "patch",
+        f"/api/v1/projects/{project.pk}/",
+        {"name": "Renamed", "start_date": "2026-04-01", "status_date": "2026-04-10"},
+        django_capture_on_commit_callbacks,
+    )
+    assert status == 200
+    assert calls == 0
+
+
+@pytest.fixture
+def sprint(project: Project) -> Sprint:
+    return Sprint.objects.create(
+        project=project,
+        name="S1",
+        start_date=date(2026, 4, 6),
+        finish_date=date(2026, 4, 20),
+        state=SprintState.PLANNED,
+    )
+
+
+@pytest.mark.django_db
+def test_planned_sprint_start_date_change_recalcs(
+    client: APIClient, sprint: Sprint, django_capture_on_commit_callbacks: object
+) -> None:
+    status, calls = _call(
+        client,
+        "patch",
+        f"/api/v1/sprints/{sprint.pk}/",
+        {"start_date": "2026-04-08"},
+        django_capture_on_commit_callbacks,
+    )
+    assert status == 200
+    assert calls == 1
+
+
+@pytest.mark.django_db
+def test_sprint_rename_does_not_recalc(
+    client: APIClient, sprint: Sprint, django_capture_on_commit_callbacks: object
+) -> None:
+    status, calls = _call(
+        client,
+        "patch",
+        f"/api/v1/sprints/{sprint.pk}/",
+        {"name": "Renamed"},
+        django_capture_on_commit_callbacks,
+    )
+    assert status == 200
+    assert calls == 0
+
+
+@pytest.mark.django_db
+def test_sprint_delete_recalcs(
+    client: APIClient, sprint: Sprint, task: Task, django_capture_on_commit_callbacks: object
+) -> None:
+    task.sprint = sprint
+    task.save(update_fields=["sprint"])
+    status, calls = _call(
+        client, "delete", f"/api/v1/sprints/{sprint.pk}/", None, django_capture_on_commit_callbacks
+    )
+    assert status == 204
+    assert calls == 1

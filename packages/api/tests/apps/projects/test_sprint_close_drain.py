@@ -22,7 +22,11 @@ from trueppm_api.apps.projects.models import (
     TaskStatus,
 )
 from trueppm_api.apps.projects.tasks import _do_drain, close_sprint
-from trueppm_api.apps.scheduling.models import ScheduleRequest, ScheduleRequestReason
+from trueppm_api.apps.scheduling.models import (
+    ScheduleRequest,
+    ScheduleRequestReason,
+    ScheduleRequestStatus,
+)
 
 User = get_user_model()
 
@@ -155,6 +159,31 @@ def test_close_sprint_emits_schedule_request_with_sprint_closed_reason(
     sr = ScheduleRequest.objects.filter(project=project).first()
     assert sr is not None
     assert sr.reason == ScheduleRequestReason.SPRINT_CLOSED
+
+
+@patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
+def test_close_sprint_with_pending_schedule_request_still_closes(
+    _broadcast: object, project: Project
+) -> None:
+    """#5180: a pending recompute row must not roll the close back.
+
+    The one-pending-per-project unique index used to turn the raw insert into an
+    IntegrityError that aborted the whole close and left the sprint ACTIVE.
+    """
+    s = _make_active_sprint(project)
+    ScheduleRequest.objects.create(project=project, reason=ScheduleRequestReason.TASK_CHANGE)
+    req = SprintCloseRequest.objects.create(sprint=s)
+    close_sprint.run(str(req.id))
+    s.refresh_from_db()
+    req.refresh_from_db()
+    assert s.state == SprintState.COMPLETED
+    assert req.status == SprintCloseRequestStatus.COMPLETED
+    assert (
+        ScheduleRequest.objects.filter(
+            project=project, status=ScheduleRequestStatus.PENDING
+        ).count()
+        == 1
+    )
 
 
 @patch("trueppm_api.apps.sync.broadcast.broadcast_board_event")
