@@ -51,6 +51,8 @@ connections the waiting requests hold.
    (risk premium, staleness, commitment). The task run's `result_summary` carries only
    `{run_id, n_simulations, last_run_at}`, so the forecast has one read path.
 
+   > **Superseded in part (2026-11-27, #5181):** a Member's or Viewer's run no longer refreshes the shared `mc_latest` cache; only a Scheduler+ run of at least 100 simulations does. The text below records the earlier decision.
+
 ## Alternatives considered
 
 - **Keep a synchronous path for small projects.** Rejected: two contracts for one

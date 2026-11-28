@@ -637,6 +637,28 @@ class TestMyWorkForecastEchoesTheOwner:
         assert forecast["p80_finish"] == owner["p80"] == "2026-06-01"
         assert forecast["as_of"] == owner["last_run_at"]
 
+    def test_batched_fallback_skips_a_sub_minimum_run(
+        self, client: APIClient, project: Project
+    ) -> None:
+        # #5181: a run below the minimum is not a shared forecast, so the batched
+        # read ignores it and falls back to the older qualifying run, or to nothing.
+        from trueppm_api.apps.projects.metric_provenance import latest_forecast_by_project
+
+        old = MonteCarloRun.objects.create(
+            project=project, p80=datetime.date(2026, 6, 1), n_simulations=100
+        )
+        MonteCarloRun.objects.filter(pk=old.pk).update(
+            taken_at=timezone.now() - datetime.timedelta(days=2)
+        )
+        MonteCarloRun.objects.create(
+            project=project, p80=datetime.date(2026, 7, 1), n_simulations=50
+        )
+        got = latest_forecast_by_project([project.pk])
+        assert got[str(project.pk)]["p80"] == datetime.date(2026, 6, 1)
+
+        MonteCarloRun.objects.filter(pk=old.pk).delete()
+        assert latest_forecast_by_project([project.pk]) == {}
+
     def test_newest_run_without_a_p80_is_not_backfilled_from_an_older_run(
         self, client: APIClient, project: Project
     ) -> None:

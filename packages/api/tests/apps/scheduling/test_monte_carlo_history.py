@@ -214,6 +214,54 @@ class TestPersistOnRun:
         assert res.json()["stored_as_latest"] is True
         assert cache.get(mc_latest_cache_key(project.pk)) is not None
 
+    def test_scheduler_run_one_below_the_minimum_is_not_stored(
+        self, scheduler_client: APIClient, project: Project, pert_task: Task
+    ) -> None:
+        res = scheduler_client.post(
+            run_url(project.pk), {"n_simulations": MC_LATEST_MIN_RUNS - 1}, format="json"
+        )
+        assert res.status_code == 200
+        assert res.json()["stored_as_latest"] is False
+        assert cache.get(mc_latest_cache_key(project.pk)) is None
+        assert MonteCarloRun.objects.filter(project=project).count() == 0
+
+    def test_default_scheduler_run_stores_under_an_operator_cap_below_the_minimum(
+        self, scheduler_client: APIClient, project: Project, pert_task: Task, settings: object
+    ) -> None:
+        # An operator cap under MC_LATEST_MIN_RUNS must not make every run unstorable:
+        # the effective minimum is lowered to what the server admits.
+        settings.MC_SIMULATION_CAP = 50  # type: ignore[attr-defined]
+        res = scheduler_client.post(run_url(project.pk), {}, format="json")
+        assert res.status_code == 200
+        assert res.json()["n_simulations"] == 50
+        assert res.json()["stored_as_latest"] is True
+        assert cache.get(mc_latest_cache_key(project.pk)) is not None
+
+    def test_latest_fallback_ignores_a_sub_minimum_run(
+        self, member_client: APIClient, project: Project
+    ) -> None:
+        # A pre-upgrade run below the minimum is never served as the latest forecast.
+        MonteCarloRun.objects.create(project=project, p80=date(2026, 6, 1), n_simulations=50)
+        assert member_client.get(latest_url(project.pk)).status_code == 404
+
+    def test_latest_fallback_serves_the_older_qualifying_run(
+        self, member_client: APIClient, project: Project
+    ) -> None:
+        good = MonteCarloRun.objects.create(
+            project=project, p80=date(2026, 6, 1), n_simulations=MC_LATEST_MIN_RUNS
+        )
+        MonteCarloRun.objects.filter(pk=good.pk).update(taken_at=timezone.now() - timedelta(days=2))
+        MonteCarloRun.objects.create(project=project, p80=date(2026, 7, 1), n_simulations=50)
+        res = member_client.get(latest_url(project.pk))
+        assert res.status_code == 200
+        assert res.json()["p80"] == "2026-06-01"
+
+    def test_a_cache_entry_under_the_retired_key_version_is_not_served(
+        self, member_client: APIClient, project: Project
+    ) -> None:
+        cache.set(f"mc_latest:v3:{project.pk}", {"p80": "2026-07-15"}, timeout=60)
+        assert member_client.get(latest_url(project.pk)).status_code == 404
+
     def test_viewer_run_cannot_replace_the_scheduler_forecast(
         self,
         scheduler_client: APIClient,

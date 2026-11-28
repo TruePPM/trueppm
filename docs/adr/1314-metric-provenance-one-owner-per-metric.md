@@ -31,6 +31,8 @@ Two smaller cases of the same thing were found during the audit for this ADR:
   capped at `MAX_BLOCKED_ROLLUP_ROWS`. It is a row count, not the number of blocked
   tasks.
 
+   > **Superseded in part (2026-11-27, #5181):** a Member's or Viewer's run no longer refreshes the shared `mc_latest` cache; only a Scheduler+ run of at least 100 simulations does. The text below records the earlier decision.
+
 Shell v2's context header (ADR-1298) already shows health once and a P80 stamp.
 Its tooltip carried a definition the web client wrote itself. The homes (#4755)
 will put health, forecast and load on every landing page. Without one server fact
@@ -281,6 +283,8 @@ No new owner is added for the My Work ship date. It is the §1 forecast owner,
   called `compute_sprint_burn_status`. It now also carries `burn_status_reason` and
   the owner's `definitions` for `burn_status`, `trend_points` and
   `projected_finish_date`, so a `no_data` there names its cause as the owner does.
+
+  > **Superseded in part (2026-11-27, #5181):** a Member's or Viewer's run no longer refreshes the shared `mc_latest` cache; only a Scheduler+ run of at least 100 simulations does. The text below records the earlier decision.
 
 ### Sprint burn is not project burn
 

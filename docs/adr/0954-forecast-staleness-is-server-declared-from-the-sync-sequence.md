@@ -93,6 +93,8 @@ the cache entry is not redundancy — a run triggered by a **Member** refreshes 
 persists no attributed row (#1502), so for those runs the cache entry is the only place it
 exists. Only `plan_version_current` and the classification are derived per response.
 
+> **Superseded in part (2026-11-27, #5181):** a Member's or Viewer's run no longer refreshes the shared `mc_latest` cache; only a Scheduler+ run of at least 100 simulations does. The text below records the earlier decision.
+
 ### 4. Four values, and `current` is unreachable without evidence
 
 `current` · `project_changed` · `aged` · `unknown`, decided in that priority order (a

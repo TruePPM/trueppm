@@ -202,7 +202,7 @@ GET /api/v1/projects/<project_id>/monte-carlo/latest/
 In 0.4 and earlier, a run from any project member replaces the latest result.
 ::::
 
-Only a **Scheduler** or above can replace the project's latest forecast, and only with a run of at least 100 simulations. Everyone from Viewer up can still run a simulation and receive the result, but a Viewer's or Member's run, or any run of fewer than 100 simulations, is returned to the caller and is not stored: the response carries `stored_as_latest: false`, and the latest forecast other members read is unchanged.
+Only a **Scheduler** or above can replace the project's latest forecast, and only with a run of at least 100 simulations. Everyone from Viewer up can still run a simulation and receive the result, but a Viewer's or Member's run, or any run of fewer than 100 simulations, is returned to the caller and is not stored: the latest forecast other members read is unchanged. A synchronous run reports `stored_as_latest: false` in the response; on the asynchronous path, `stored_as_latest` is on the task run's `result_summary`, not in the response. A project whose operator caps admit fewer than 100 runs lowers the minimum to that count, so a default Scheduler run still stores.
 
 ## Which forecast a project headlines
 
@@ -236,7 +236,8 @@ weeks ago, now it's Aug 28." Each recorded run carries its P50/P80/P95 as of tha
 moment, so the history is a true before/after, not just the latest snapshot.
 
 Since **0.4**, a run is recorded only when it is triggered by a **Scheduler** or
-above — the members who own the schedule. Everyone from Viewer up can still run
+above — the members who own the schedule — and, from 0.5, only when it also meets
+the minimum run count (100 simulations, or fewer when an operator cap admits fewer). Everyone from Viewer up can still run
 the forecast and read the result and the drift history; their runs simply do not
 add a history row. This keeps the drift timeline a signal about deliberate
 re-planning rather than a log of every incidental read, and prevents a

@@ -410,12 +410,15 @@ def latest_forecast_result(
     from trueppm_api.apps.scheduling.models import MonteCarloRun
 
     # Lazy: scheduling.views imports this module at load time.
-    from trueppm_api.apps.scheduling.views import mc_latest_cache_key
+    from trueppm_api.apps.scheduling.views import mc_latest_cache_key, mc_latest_min_runs
 
     entry = cache.get(mc_latest_cache_key(project_id))
     if entry is not None:
         return entry, None
     qs = runs if runs is not None else MonteCarloRun.objects.all()
+    # Only a run large enough to have been storable as the shared latest (#5181):
+    # a smaller one is a caller's private result, never the project's forecast.
+    qs = qs.filter(n_simulations__gte=mc_latest_min_runs())
     return None, qs.filter(project_id=project_id).order_by("-taken_at").first()
 
 
@@ -452,7 +455,7 @@ def latest_forecast_by_project(project_ids: Iterable[Any]) -> dict[str, dict[str
     from trueppm_api.apps.scheduling.models import MonteCarloRun
 
     # Lazy: scheduling.views imports this module at load time.
-    from trueppm_api.apps.scheduling.views import mc_latest_cache_key
+    from trueppm_api.apps.scheduling.views import mc_latest_cache_key, mc_latest_min_runs
 
     def _day(value: Any) -> date | None:
         return date.fromisoformat(value) if isinstance(value, str) else value
@@ -482,7 +485,9 @@ def latest_forecast_by_project(project_ids: Iterable[Any]) -> dict[str, dict[str
             }
     if uncached:
         newest = (
-            MonteCarloRun.objects.filter(project_id__in=uncached)
+            MonteCarloRun.objects.filter(
+                project_id__in=uncached, n_simulations__gte=mc_latest_min_runs()
+            )
             .order_by("project_id", "-taken_at")
             .distinct("project_id")
             .values(

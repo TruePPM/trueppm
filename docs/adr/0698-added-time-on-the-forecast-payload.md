@@ -199,6 +199,8 @@ inputs the caller already holds; it does not widen any audience.
 `MonteCarloRun` only for Scheduler+ (#1502). So a Member's run refreshes the `mc_latest` cache
 without creating a history row, and `/latest/` can then serve a *newer* run than `/overview/`.
 
+> **Superseded in part (2026-11-27, #5181):** a Member's or Viewer's run no longer refreshes the shared `mc_latest` cache; only a Scheduler+ run of at least 100 simulations does. The text below records the earlier decision.
+
 This divergence is **pre-existing** — it already applies to `delta_vs_cpm` vs
 `risk_premium_days` — and is not introduced here. It is bounded and self-describing three ways:
 

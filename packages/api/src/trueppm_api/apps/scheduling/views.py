@@ -84,6 +84,7 @@ from trueppm_api.apps.scheduling.mc_admission import (
     admit_runs,
     busy_response,
     is_time_exceeded,
+    max_runs_for,
     mc_deadline_kwargs,
     simulation_slot,
     time_exceeded_response,
@@ -151,15 +152,35 @@ logger = logging.getLogger(__name__)
 #
 # v3 (#4204): percentiles are ordered by working-time finish and every delta is
 # measured in working time; a v2 entry's `delta_vs_cpm` diffed shown days.
-MC_LATEST_CACHE_VERSION = 3
+#
+# v4 (#5181): only Scheduler+ runs of at least MC_LATEST_MIN_RUNS simulations may
+# write the entry; a v3 entry may have been written by a Member or by a sub-minimum
+# run, so it is retired rather than served.
+MC_LATEST_CACHE_VERSION = 4
 
 
 # Smallest run count whose result may become the project's shared latest forecast.
 # Below it the P50/P80/P95 order statistics collapse toward one another (a single run
 # reports P50 = P80 = P95), so the band would present false precision to every member.
 # Runs under the minimum are still computed and returned to the caller. It sits below
-# the engine default (10,000) so ordinary use is unaffected.
+# the server default (MC_SIMULATION_CAP, 1,000) so ordinary use is unaffected.
 MC_LATEST_MIN_RUNS = 100
+
+
+def mc_latest_min_runs(n_tasks: int | None = None) -> int:
+    """Effective minimum run count for a result to become the shared latest forecast.
+
+    ``MC_LATEST_MIN_RUNS``, lowered to the most runs the server admits (computed by
+    the helper that clamps ``n_simulations``) so an operator cap below the minimum
+    cannot make every run unstorable. ``n_tasks=None`` applies only the
+    simulation cap, for read paths that do not know the network size.
+    """
+    if n_tasks is None:
+        sim_cap: int | None = settings.MC_SIMULATION_CAP
+        admitted = sim_cap
+    else:
+        admitted = max_runs_for(n_tasks)
+    return MC_LATEST_MIN_RUNS if admitted is None else min(MC_LATEST_MIN_RUNS, admitted)
 
 
 def mc_latest_cache_key(pk: object) -> str:
@@ -1300,8 +1321,9 @@ def simulate_and_record_monte_carlo(
     # The shared latest forecast (cache entry AND history row, which the latest read
     # falls back to) is written only for Scheduler+ callers, using the same role
     # decision as the attributed history row (`persist`), and only for a run count at
-    # or above MC_LATEST_MIN_RUNS. Anyone else still receives their own result.
-    store_as_latest = persist and mc_result.runs >= MC_LATEST_MIN_RUNS
+    # or above the effective minimum (`mc_latest_min_runs`). Anyone else still
+    # receives their own result.
+    store_as_latest = persist and mc_result.runs >= mc_latest_min_runs(len(graph.tasks))
     if store_as_latest:
         cache.set(mc_latest_cache_key(pk), result_dict, timeout=86400)
 

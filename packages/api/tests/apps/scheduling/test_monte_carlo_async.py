@@ -22,7 +22,11 @@ from trueppm_api.apps.access.models import ProjectMembership, Role
 from trueppm_api.apps.projects.models import Calendar, Project, Task
 from trueppm_api.apps.scheduling.models import MonteCarloRun
 from trueppm_api.apps.scheduling.tasks import execute_monte_carlo_task_run
-from trueppm_api.apps.scheduling.views import MC_TASK_NAME, mc_latest_cache_key
+from trueppm_api.apps.scheduling.views import (
+    MC_LATEST_MIN_RUNS,
+    MC_TASK_NAME,
+    mc_latest_cache_key,
+)
 from trueppm_api.apps.taskruns.models import TaskRun, TaskRunStatus
 
 User = get_user_model()
@@ -291,8 +295,22 @@ class TestWorker:
         assert run.status == TaskRunStatus.SUCCESS
         assert run.result_summary["run_id"] is None
         assert run.result_summary["stored_as_latest"] is False
+        assert run.result_summary["result"]["p80"]
         assert not MonteCarloRun.objects.filter(project=project).exists()
         assert cache.get(mc_latest_cache_key(project.pk)) is None
+
+    def test_scheduler_run_one_below_the_minimum_is_not_stored_as_latest(
+        self, mc_async: None, project: Project
+    ) -> None:
+        n = MC_LATEST_MIN_RUNS - 1
+        client, user = _client(project, "mc_sched99", Role.SCHEDULER)
+        run = self._queue(project, client, {"n_simulations": n})
+        _run_queued(run, project, user_id=user.pk, persist=True, n_simulations=n)
+        run.refresh_from_db()
+        assert run.status == TaskRunStatus.SUCCESS
+        assert run.result_summary["stored_as_latest"] is False
+        assert cache.get(mc_latest_cache_key(project.pk)) is None
+        assert not MonteCarloRun.objects.filter(project=project).exists()
 
     def test_scheduler_run_below_the_minimum_is_not_stored_as_latest(
         self, mc_async: None, project: Project
