@@ -1403,6 +1403,12 @@ env:
   # (see MC_CELL_CAP and MC_MAX_CONCURRENT in administration/configuration/limits).
   TRUEPPM_MC_SIMULATION_CAP: "1000"
   TRUEPPM_MC_TASK_CAP: "5000"
+  # Post-recompute scheduler self-check (#4689). After each schedule recalculation
+  # the worker checks the result against engine invariants and counts violations on
+  # trueppm.scheduler.selfcheck.violations. It never blocks a recalculation. "false"
+  # turns it off. Tune with TRUEPPM_SCHEDULER_SELFCHECK_MAX_TASKS (default 2000) and
+  # TRUEPPM_SCHEDULER_SELFCHECK_BUDGET_SHARE (default 0.25).
+  TRUEPPM_SCHEDULER_SELFCHECK_ENABLED: "true"
   # Reaching a self-hosted integration host on a PRIVATE / in-cluster address
   # (Jira Data Center, GitHub Enterprise, GitLab CE) needs BOTH of the next two
   # allow-lists — they are different gates and neither implies the other:

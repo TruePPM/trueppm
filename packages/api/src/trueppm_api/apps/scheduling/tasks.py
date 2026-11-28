@@ -1947,10 +1947,19 @@ def _run_schedule(
     # (#709) times the engine call and records the graph shape; it is a no-op span
     # unless OTel export is configured. Runs inside the enqueued Celery task span,
     # so the trace links the recompute back to the request that triggered it.
+    from time import perf_counter
+
     with cpm_span(project_id, dependency_count=len(sched_deps)) as _cpm_span:
+        _cpm_started = perf_counter()
         result = schedule(sched_project)
+        _cpm_seconds = perf_counter() - _cpm_started
         _cpm_span.set_attribute(attributes.SCHEDULE_TASK_COUNT, len(result.tasks))
         _cpm_span.set_attribute(attributes.SCHEDULE_CRITICAL_COUNT, len(result.critical_path))
+
+    # Invariant self-check (#4689): counts violations, never raises or blocks.
+    from trueppm_api.apps.scheduling.selfcheck import run_post_recompute_selfcheck
+
+    run_post_recompute_selfcheck(project_id, sched_project, result, cpm_seconds=_cpm_seconds)
 
     _update(80, "Writing results…")
 
@@ -2744,6 +2753,21 @@ def _run_program_schedule(program_id: str, task: object | None = None) -> None:
             raise
         _end_refused_program_run(task, program_id, member_ids, claimed_ids, exc)
         return
+
+    if graph.result is not None and graph.engine_project is not None:
+        # Invariant self-check (#4689) on the persisted program pass, the one whose
+        # floats and criticality are written back. Counts violations, never raises.
+        # The on-read program view schedules the same merge but persists nothing,
+        # so it is not checked.
+        from trueppm_api.apps.scheduling.selfcheck import run_post_recompute_selfcheck
+
+        run_post_recompute_selfcheck(
+            program_id,
+            graph.engine_project,
+            graph.result,
+            cpm_seconds=graph.cpm_seconds,
+            scope="program",
+        )
 
     now = timezone.now()
     tasks_to_update: list[Task] = []

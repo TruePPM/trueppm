@@ -65,6 +65,9 @@ switches for behavior the standard variables do not express.
 | `TRUEPPM_OTEL_EXPORT_HEALTH_HEALTHY_WITHIN_SECONDS` | `150` | Advanced. A success newer than this is *healthy*; older (still live) is *stalled* (metrics) / *idle* (traces). |
 | `TRUEPPM_OTEL_EXPORT_HEALTH_WINDOW_SECONDS` | `60` | Advanced. Rolling window the exported-item counts cover; the card labels the strip from it ("last 60s"). |
 | `TRUEPPM_POD_NAME` | *(hostname)* | Per-pod identity for the export-health record. The Helm chart injects it from the downward API; unset, it falls back to the pod hostname. |
+| `TRUEPPM_SCHEDULER_SELFCHECK_ENABLED` | `true` | Ships in 0.5. Run the [scheduler self-check](#scheduler-self-check) after every schedule recalculation. `false` turns it off. |
+| `TRUEPPM_SCHEDULER_SELFCHECK_MAX_TASKS` | `2000` | Ships in 0.5. Skip the self-check on projects with more tasks than this (the [sizing envelope](/administration/sizing/)). `0` or empty removes the ceiling. |
+| `TRUEPPM_SCHEDULER_SELFCHECK_BUDGET_SHARE` | `0.25` | Ships in 0.5. Largest share of recalculation time the self-check may spend over time. |
 | `DJANGO_LOG_LEVEL` | *(app default)* | Root Django log level (`DEBUG` \| `INFO` \| `WARNING` \| `ERROR`). One knob for the api, worker, and beat tiers. |
 
 Export is enabled when `TRUEPPM_OTEL_ENABLED` is true **and**
@@ -321,8 +324,9 @@ the outbox, database, broker, and WebSocket families are TruePPM-specific instru
 under the `trueppm.*` namespace.
 
 :::note[Ships in 0.5]
-The `trueppm.schedule.recalc.coalesced` counter and the workflow outbox's `retrying`
-state ship in 0.5; 0.4 exports neither.
+The `trueppm.schedule.recalc.coalesced` counter, the two `trueppm.scheduler.selfcheck.*`
+counters, and the workflow outbox's `retrying` state ship in 0.5. 0.4 exports none of
+them.
 :::
 
 | Metric | Type | What it measures | Dimensions |
@@ -338,6 +342,8 @@ state ship in 0.5; 0.4 exports neither.
 | `trueppm.ws.connections.active` | up/down counter | Active WebSocket connections accepted by this process's Channels consumers | — |
 | `trueppm.ws.broadcast.count` | counter | WebSocket board-event broadcasts fanned out to a project group | — |
 | `trueppm.schedule.recalc.coalesced` | counter | Ships in 0.5. Redundant CPM recalculations avoided while a run was already covering the project | `trueppm.schedule.coalesce_outcome` (`dispatch_skipped` \| `run_bailed`) |
+| `trueppm.scheduler.selfcheck.violations` | counter | Ships in 0.5. Schedule recalculations whose result broke an engine invariant ([below](#scheduler-self-check)) | `trueppm.scheduler.selfcheck.check` |
+| `trueppm.scheduler.selfcheck.runs` | counter | Ships in 0.5. Self-check evaluations, so a zero violation count can be told apart from a check that never ran | `trueppm.scheduler.selfcheck.check` |
 | `trueppm.ratelimit.enabled` | gauge | `1` when API rate limiting is on, `0` when an operator has disabled it (ADR-0604) — alert on `0`, it means DoS/abuse protection is off instance-wide | — |
 
 The two `trueppm.outbox.*` metrics are the operational signal for TruePPM's durable
@@ -392,6 +398,65 @@ client-side connection pool. It answers "how close is this database to
 `max_connections`?" — for per-pooler saturation, scrape your PgBouncer/pooler
 directly.
 :::
+
+### Scheduler self-check
+
+:::note[Ships in 0.5]
+The self-check and its two counters ship in 0.5. 0.4 does not check its schedules.
+:::
+
+After every schedule recalculation that is saved, the worker checks the result against rules the
+scheduling engine must always follow. It counts each broken rule and logs it. It never
+blocks the recalculation, never changes a date, and never raises an error into the
+recalculation. A violation means the engine may have a bug. It does not mean your plan
+is wrong.
+
+Two recalculations are checked: a single project's, and a program's merged
+recalculation across its member projects (when they are linked by accepted
+cross-project dependencies). The program view you open in the browser schedules the
+same merge on the fly and saves nothing, so it is not checked.
+
+| `check` value | The rule |
+|---|---|
+| `negative_float` | No unfinished task has negative total float. |
+| `critical_float_mismatch` | An unfinished task is critical exactly when its total float is zero. |
+| `finish_not_critical_max` | The project finish is the latest finish among the critical tasks, unless a finished task ends last. |
+| `recompute_not_idempotent` | Scheduling the same input again gives the same result. |
+| `zero_variance_mc_mismatch` | With every three-point estimate and velocity signal removed, Monte Carlo P50, P80 and P95 all equal the critical-path finish. |
+| `selfcheck_error` | The self-check itself failed. This is not an engine bug, but report it. |
+
+A task counts as finished the way the engine counts it: it has an actual finish date,
+or it is 100% complete. A finished task is never critical, whatever its float.
+
+Each violation also writes one `WARNING` log line from
+`trueppm_api.apps.scheduling.selfcheck`. The JSON log carries `selfcheck_check`,
+`task_count`, `engine_version`, and `project_id` (or `program_id` for a program
+recalculation) fields.
+
+**Cost.** The first three rules are cheap and run every time. The last two cost about
+one more recalculation each, so they are sampled:
+
+- A check expected to take under 2 ms runs every time. On a small project both do.
+- Otherwise each recalculation adds `TRUEPPM_SCHEDULER_SELFCHECK_BUDGET_SHARE`
+  (default `0.25`) of its own time to a per-process budget, split evenly between the
+  two checks. A check runs only when its half covers its expected cost.
+- A check that takes longer than expected empties its half of the budget but leaves
+  no debt, and the next run waits for the new, higher cost.
+
+So over time the self-check stays near that share of recalculation time, plus at most
+a few milliseconds on recalculations cheap enough to run every check. Measured on a
+laptop with the default share: a 10-task project runs both checks on every
+recalculation, adding about 0.4 ms each time. A 200-task project runs each one about
+once in eight recalculations, about a quarter of its recalculation time. Projects
+and programs above `TRUEPPM_SCHEDULER_SELFCHECK_MAX_TASKS` (default 2,000, the
+[sizing envelope](/administration/sizing/)) are not checked.
+
+**Alert on it.** Any non-zero `rate(trueppm_scheduler_selfcheck_violations_total[1h])`
+is worth a look. If you see one, export the affected project's schedule and
+[report it](/overview/known-issues/#how-to-report-a-scheduling-bug).
+
+To turn the self-check off, set `TRUEPPM_SCHEDULER_SELFCHECK_ENABLED=false`, or in
+Helm, `env.TRUEPPM_SCHEDULER_SELFCHECK_ENABLED: "false"`.
 
 ### Scraping with Prometheus
 

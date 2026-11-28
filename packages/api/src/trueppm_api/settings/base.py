@@ -1457,6 +1457,24 @@ MC_SIMULATION_CAP: int | None = _optional_cap("TRUEPPM_MC_SIMULATION_CAP", 1_000
 # lower this.
 MC_TASK_CAP: int | None = _optional_cap("TRUEPPM_MC_TASK_CAP", 5_000)
 
+# Post-recompute invariant self-check (#4689, apps/scheduling/selfcheck.py). After
+# every authoritative CPM pass the worker checks the result against invariants the
+# engine must hold and counts violations on trueppm.scheduler.selfcheck.violations.
+# It never blocks or fails a recompute. MAX_TASKS is the documented sizing envelope
+# (administration/sizing: ~2,000 tasks per project); above it the check is skipped,
+# "0" or "" removes the ceiling. BUDGET_SHARE is the fraction of this process's CPM
+# time the two expensive checks (a second schedule() and a zero-variance Monte Carlo)
+# may spend, split between them; each runs only when its half covers its predicted
+# cost, which is what samples them on larger projects. A check predicted under 2 ms
+# runs on every pass regardless, so small projects check every recalculation.
+SCHEDULER_SELFCHECK_ENABLED: bool = env.bool("TRUEPPM_SCHEDULER_SELFCHECK_ENABLED", default=True)
+SCHEDULER_SELFCHECK_MAX_TASKS: int | None = _optional_cap(
+    "TRUEPPM_SCHEDULER_SELFCHECK_MAX_TASKS", 2_000
+)
+SCHEDULER_SELFCHECK_BUDGET_SHARE: float = env.float(
+    "TRUEPPM_SCHEDULER_SELFCHECK_BUDGET_SHARE", default=0.25
+)
+
 # Request-path ceiling on the Monte Carlo lag-delta table (#4129):
 # (distinct dependency type/lag/calendar-pair keys) x (working-day span) cells, each a
 # 4-byte int32, so 5M cells is ~20 MB per simulation (the what-if endpoint runs two

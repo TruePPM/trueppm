@@ -167,6 +167,32 @@ On a committed (`lifecycle: active`) plan, structural edits join an open changes
 | GET | `/api/v1/projects/{project_pk}/baseline-decisions/preview/` | Admin+ | What taking a new baseline would do: finish from and to, working-day delta, milestones moved, tasks with new dates. |
 | POST | `/api/v1/projects/{project_pk}/baseline-decisions/` | Admin+, signed-in session only | `kind: "taken"` (with `reason_code` and `reason`) or `kind: "kept"` (optional `note`), plus `expected_open_count`. Refused with `409 changeset_changed` when the open set moved, and `taken` with `409 changeset_unreasoned` while any entry lacks a reason. An API token is refused with 403. |
 
+### Schedule export for a bug report
+
+:::note[Ships in 0.5]
+This endpoint ships in 0.5.
+:::
+
+`GET /api/v1/projects/{id}/schedule/bug-report-export/` returns the project's engine
+input, reduced to what reproduces the CPM pass, to attach to a scheduling bug report. Scheduler role and
+up only. Archived projects can still be exported. It shares the `cpm_on_read`
+throttle, and answers `503 schedule_busy` when no CPM slot is free. The response is
+sent as a file download.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `format_version` | `integer` | Contract version of this payload (`1`) |
+| `engine_version` | `string` | The `trueppm-scheduler` version installed on the server |
+| `engine_input` | `object` | The `trueppm_scheduler.Project` JSON the CPM pass schedules, loadable with `Project.from_json`. The project is named `redacted`, tasks `task-1`, `task-2` and so on; ids are kept. The team's velocity inputs (`velocity_samples`, `sprint_length_days`) and each task's `story_points` and `delivery_mode` are `null`: the CPM pass does not read them. Calendar `hours_per_day` and `timezone` are always `8.0` and `"UTC"`, since the engine ignores them. A field the server has not classified as safe to export is left out |
+| `verdict` | `object` | The [scheduler self-check](/administration/observability/#scheduler-self-check) on this schedule: `engine_version`, `task_count`, `checks` (each `pass`, `fail`, `skipped` or `error`; the Monte Carlo check is also `skipped` when the network is over the server's Monte Carlo size cap), `violations`, and `skipped_reason: "above_envelope"` when the project is over the self-check task ceiling |
+
+The file includes calendar non-working date ranges, real schedule dates (including
+sprint start dates used as planned starts), task progress and three-point estimates.
+A single-project export does not include cross-project dependencies, so a date merged
+across a program may not reproduce from it.
+
+See [How to report a scheduling bug](/overview/known-issues/#how-to-report-a-scheduling-bug).
+
 ### Driving chain
 
 `GET /api/v1/projects/{id}/schedule/driving-chain/` (query: `task_id`, optional `depth`) returns the
